@@ -10,7 +10,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
                                       ulong   input_addr,
                                       ulong   input_sz,
                                       ulong   result_addr,
-                                      FD_PARAM_UNUSED ulong r4,
+                                      FD_PARAM_UNUSED ulong r5,
                                       ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1509 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
@@ -92,7 +92,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
                                          ulong   input_addr,
                                          ulong   input_sz,
                                          ulong   result_addr,
-                                         FD_PARAM_UNUSED ulong r4,
+                                         FD_PARAM_UNUSED ulong r5,
                                          ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1776 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
@@ -134,8 +134,11 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1815-L1827 */
 
-  void const * input = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
-  void * call_result = FD_VM_MEM_SLICE_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, output_sz );
+  void const * input       = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz  );
+  void *       call_result = FD_VM_MEM_SLICE_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, output_sz );
+
+  /* input and call_result may alias.  Therefore, buffer via out_buf */
+  uchar out_buf[128];
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1829-L1891
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
@@ -145,7 +148,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g1_compress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g1_compress( out_buf, fd_type_pun_const(input) ) ) ) {
+      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ );
       ret = 0UL; /* success */
     }
     break;
@@ -154,7 +158,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g1_decompress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g1_decompress( out_buf, fd_type_pun_const(input) ) ) ) {
+      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ );
       ret = 0UL; /* success */
     }
     break;
@@ -163,7 +168,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g2_compress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g2_compress( out_buf, fd_type_pun_const(input) ) ) ) {
+      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ );
       ret = 0UL; /* success */
     }
     break;
@@ -172,7 +178,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g2_decompress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g2_decompress( out_buf, fd_type_pun_const(input) ) ) ) {
+      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ );
       ret = 0UL; /* success */
     }
     break;
@@ -293,7 +300,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong   recovery_id_val,
                                      /**/            ulong   signature_vaddr,
                                      /**/            ulong   result_vaddr,
-                                     FD_PARAM_UNUSED ulong   r4,
+                                     FD_PARAM_UNUSED ulong   r5,
                                      /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L810 */
   fd_vm_t * vm = (fd_vm_t *)_vm;

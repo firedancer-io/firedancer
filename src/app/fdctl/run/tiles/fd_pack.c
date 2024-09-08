@@ -14,7 +14,9 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define POH_IN_IDX (2UL)
+#define DEDUP_IN_IDX     (0UL)
+#define POH_IN_IDX       (1UL)
+#define BANK_BASE_IN_IDX (2UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -63,7 +65,7 @@ FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
    very next slot, it can still take some time to transition.  This is
    because the bank has to be finalized, a hash calculated, and various
    other things done in the replay stage to create the new child bank.
-   
+
    During that time, pack cannot send transactions to banks so it needs
    to be able to buffer.  Typically, these so called "leader
    transitions" are short (<15 millis), so a low value here would
@@ -179,6 +181,10 @@ typedef struct {
     long metric_state_begin;
     long metric_timing[ 16 ];
   };
+
+  /* Used between during_frag and after_frag */
+  ulong pending_rebate_cnt;
+  fd_txn_p_t pending_rebate[ MAX_TXN_PER_MICROBLOCK ]; /* indexed [0, pending_rebate_cnt) */
 } fd_pack_ctx_t;
 
 
@@ -376,8 +382,8 @@ after_credit( void *             _ctx,
        helps with account locality. */
     fd_pack_microblock_complete( ctx->pack, (ulong)i );
 
-    /* TODO: record metrics for expire */
-    fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
@@ -501,8 +507,27 @@ during_frag( void * _ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
+    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) {
+      /* For a previous slot */
+      *opt_filter = 1;
+      return;
+    }
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_microblock_trailer_t)
+          || sz>sizeof(fd_microblock_trailer_t)+sizeof(fd_txn_p_t)*MAX_TXN_PER_MICROBLOCK ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    ctx->pending_rebate_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
+    fd_memcpy( ctx->pending_rebate, dcache_entry, sz-sizeof(fd_microblock_trailer_t) );
+    return;
+  }
+
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+  long now = fd_tickcount();
+  ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+  FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
   if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
     ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
@@ -518,42 +543,21 @@ during_frag( void * _ctx,
   }
 
   ulong payload_sz;
-  /* There are two senders, one (dedup tile) which has already parsed the
-     transaction, and one (gossip vote receiver in Solana Labs) which has
-     not.  In either case, the transaction has already been verified.
-
-     The dedup tile sets sig to 0, while the gossip receiver sets sig to
-     1 so they can be distinguished. */
-
-  if( FD_LIKELY( !sig ) ) {
-    FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
-    /* Assume that the dcache entry is:
-          Payload ....... (payload_sz bytes)
-          0 or 1 byte of padding (since alignof(fd_txn) is 2)
-          fd_txn ....... (size computed by fd_txn_footprint)
-          payload_sz  (2B)
-      mline->sz includes all three fields and the padding */
-    payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-    uchar    const * payload = dcache_entry;
-    fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-    fd_memcpy( ctx->cur_spot->payload, payload, payload_sz                                                     );
-    fd_memcpy( TXN(ctx->cur_spot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-    ctx->cur_spot->payload_sz = payload_sz;
-  } else {
-    /* Here there is just a transaction payload, so it needs to be
-       parsed.  We can parse right out into the pack structure. */
-    FD_MCNT_INC( PACK, GOSSIPED_VOTES_RECEIVED, 1UL );
-    payload_sz = sz;
-    fd_memcpy( ctx->cur_spot->payload, dcache_entry, sz );
-    ulong txn_t_sz = fd_txn_parse( ctx->cur_spot->payload, sz, TXN(ctx->cur_spot), NULL );
-    if( FD_UNLIKELY( !txn_t_sz ) ) {
-      FD_LOG_WARNING(( "fd_txn_parse failed for gossiped vote" ));
-      fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
-      *opt_filter = 1;
-      return;
-    }
-    ctx->cur_spot->payload_sz = payload_sz;
-  }
+  /* We get transactions from the dedup tile.
+     The transactions should have been parsed and verified. */
+  FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
+  /* Assume that the dcache entry is:
+        Payload ....... (payload_sz bytes)
+        0 or 1 byte of padding (since alignof(fd_txn) is 2)
+        fd_txn ....... (size computed by fd_txn_footprint)
+        payload_sz  (2B)
+    mline->sz includes all three fields and the padding */
+  payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
+  uchar    const * payload = dcache_entry;
+  fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
+  fd_memcpy( ctx->cur_spot->payload, payload, payload_sz                                                     );
+  fd_memcpy( TXN(ctx->cur_spot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+  ctx->cur_spot->payload_sz = payload_sz;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
@@ -589,6 +593,9 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
+  } else if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
+    fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
+    ctx->pending_rebate_cnt = 0UL;
   } else {
     /* Normal transaction case */
     if( FD_LIKELY( !ctx->insert_to_extra ) ) {
@@ -609,6 +616,22 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
+  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX+tile->pack.bank_tile_count ||
+                   strcmp( topo->links[ tile->in_link_id[ DEDUP_IN_IDX ] ].name, "dedup_pack" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX   ] ].name, "poh_pack"   ) ) ) {
+    FD_LOG_ERR(( "pack tile has none or unexpected input links %lu %s %s",
+                 tile->in_cnt,
+                 tile->in_cnt>=1 ? topo->links[ tile->in_link_id[ 0 ] ].name : "NULL",
+                 tile->in_cnt>=2 ? topo->links[ tile->in_link_id[ 1 ] ].name : "NULL" ));
+  }
+  for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
+    if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
+      FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
+            topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
+    }
+  }
+  if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many bank tiles" ));
+
   ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
 
   if( FD_UNLIKELY( !out_cnt ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));

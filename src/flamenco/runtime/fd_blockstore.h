@@ -109,7 +109,6 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #define MAP_KEY_T              fd_shred_key_t
 #define MAP_KEY_EQ(k0,k1)      FD_SHRED_KEY_EQ(*k0,*k1)
 #define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key) ^ seed)
-#define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
@@ -152,10 +151,14 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
    Other flags mainly provide useful metadata for read-only callers, eg.
    RPC. */
 
-#define FD_BLOCK_FLAG_PREPARING 0 /* xxxxxxx1 */
-#define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x */
-#define FD_BLOCK_FLAG_CONFIRMED 2 /* xxxxx1xx */
-#define FD_BLOCK_FLAG_FINALIZED 3 /* xxxx1xxx */
+#define FD_BLOCK_FLAG_SHREDDING 0 /* xxxxxxx1 still receiving shreds */
+#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received all shreds (DATA_COMPLETE) */
+#define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
+#define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
+#define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
+#define FD_BLOCK_FLAG_CONFIRMED 5 /* xxx1xxxx 2/3 of cluster has voted on this (slot, bank hash) */
+#define FD_BLOCK_FLAG_FINALIZED 6 /* xx1xxxxx 2/3 of cluster has rooted this slot */
+#define FD_BLOCK_FLAG_DEADBLOCK 7 /* x1xxxxxx failed to replay the block */
 
 /* Remaining bits [4, 8) are reserved.
 
@@ -206,8 +209,8 @@ struct fd_block_map {
 
   /* Windowing */
 
-  uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0. */
-  uint received_idx; /* the highest shred idx we've received. */
+  uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0 (inclusive). */
+  uint received_idx; /* the highest shred idx we've received (exclusive). */
   uint complete_idx; /* the shred idx with the FD_SHRED_DATA_FLAG_SLOT_COMPLETE flag set. */
 
   /* Block */
@@ -267,7 +270,12 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
 
   /* Slot metadata */
 
-  ulong root; /* the current root slot */
+  ulong min;  /* minimum slot in the blockstore with a block. we retain
+                 blocks prior to the smr to serve repair and RPC */
+  ulong max;  /* maximum slot in the blockstore with a block */
+  ulong lps;  /* latest processed slot */
+  ulong hcs;  /* highest confirmed slot */
+  ulong smr;  /* supermajority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
 
   /* Internal data structures */
 
@@ -275,9 +283,9 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  ulong slot_max;           /* maximum # of blocks. */
+  ulong slot_max;           /* maximum # of blocks */
   ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
-  ulong slot_deque_gaddr;   /* deque of slots (ulongs). used to traverse blockstore ancestry. */
+  ulong slot_deque_gaddr;   /* deque of slots (ulongs) used to traverse blockstore ancestry */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
@@ -420,6 +428,11 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
 }
 
+FD_FN_PURE static inline ulong
+fd_blockstore_block_cnt( fd_blockstore_t * blockstore ) {
+  return blockstore->max - blockstore->min + 1;
+}
+
 /* Operations */
 
 /* Insert shred into the blockstore, fast O(1).  Fail if this shred is already in the blockstore or
@@ -527,7 +540,7 @@ int
 fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] );
 
 /* Remove slot from blockstore, including all relevant internal structures. */
-int
+void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* Remove all the unassembled shreds for a slot */

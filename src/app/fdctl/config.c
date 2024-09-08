@@ -325,37 +325,37 @@ validate_ports( config_t * result ) {
 
   *dash = '\0';
   char * endptr;
-  ulong solana_port_min = strtoul( dynamic_port_range, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr != '\0' || solana_port_min > USHORT_MAX ) )
+  ulong agave_port_min = strtoul( dynamic_port_range, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || agave_port_min > USHORT_MAX ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "This must be formatted like `<min>-<max>`",
                  result->dynamic_port_range ));
-  ulong solana_port_max = strtoul( dash + 1, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr != '\0' || solana_port_max > USHORT_MAX ) )
+  ulong agave_port_max = strtoul( dash + 1, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || agave_port_max > USHORT_MAX ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "This must be formatted like `<min>-<max>`",
                  result->dynamic_port_range ));
-  if( FD_UNLIKELY( solana_port_min > solana_port_max ) )
+  if( FD_UNLIKELY( agave_port_min > agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "The minimum port must be less than or equal to the maximum port",
                  result->dynamic_port_range ));
 
-  if( FD_UNLIKELY( result->tiles.quic.regular_transaction_listen_port >= solana_port_min &&
-                   result->tiles.quic.regular_transaction_listen_port < solana_port_max ) )
+  if( FD_UNLIKELY( result->tiles.quic.regular_transaction_listen_port >= agave_port_min &&
+                   result->tiles.quic.regular_transaction_listen_port < agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.transaction_listen_port] `%hu`. "
                  "This must be outside the dynamic port range `%s`",
                  result->tiles.quic.regular_transaction_listen_port,
                  result->dynamic_port_range ));
 
-  if( FD_UNLIKELY( result->tiles.quic.quic_transaction_listen_port >= solana_port_min &&
-                   result->tiles.quic.quic_transaction_listen_port < solana_port_max ) )
+  if( FD_UNLIKELY( result->tiles.quic.quic_transaction_listen_port >= agave_port_min &&
+                   result->tiles.quic.quic_transaction_listen_port < agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
                  "This must be outside the dynamic port range `%s`",
                  result->tiles.quic.quic_transaction_listen_port,
                  result->dynamic_port_range ));
 
-  if( FD_UNLIKELY( result->tiles.shred.shred_listen_port >= solana_port_min &&
-                   result->tiles.shred.shred_listen_port < solana_port_max ) )
+  if( FD_UNLIKELY( result->tiles.shred.shred_listen_port >= agave_port_min &&
+                   result->tiles.shred.shred_listen_port < agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.shred.shred_listen_port] `%hu`. "
                  "This must be outside the dynamic port range `%s`",
                  result->tiles.shred.shred_listen_port,
@@ -444,8 +444,18 @@ default_user( void ) {
   name = getenv( "LOGNAME" );
   if( FD_LIKELY( name ) ) return name;
 
+  name = getenv( "USER" );
+  if( FD_LIKELY( name ) ) return name;
+
+  name = getenv( "LNAME" );
+  if( FD_LIKELY( name ) ) return name;
+
+  name = getenv( "USERNAME" );
+  if( FD_LIKELY( name ) ) return name;
+
   name = getlogin();
-  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !name && (errno==ENXIO || errno==ENOTTY) ) ) return NULL;
+  else if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return name;
 }
 
@@ -479,8 +489,9 @@ fdctl_cfg_from_env( int *      pargc,
 
   if( FD_UNLIKELY( !strcmp( config->user, "" ) ) ) {
     const char * user = default_user();
+    if( FD_UNLIKELY( !user ) ) FD_LOG_ERR(( "could not automatically determine a user to run Firedancer as. You must specify a [user] in your configuration TOML file." ));
     if( FD_UNLIKELY( strlen( user ) >= sizeof( config->user ) ) )
-      FD_LOG_ERR(( "user name `%s` is too long", user ));
+                              FD_LOG_ERR(( "user name `%s` is too long", user ));
     strncpy( config->user, user, 256 );
   }
 
@@ -628,6 +639,11 @@ fdctl_cfg_from_env( int *      pargc,
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
+  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
+    replace( config->consensus.authorized_voter_paths[ i ], "{user}", config->user );
+    replace( config->consensus.authorized_voter_paths[ i ], "{name}", config->name );
+  }
+
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -648,8 +664,12 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.bench.rocksdb_disable_wal ) )
-      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.rocksdb_disable_wal] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.disable_blockstore ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_blockstore] which is a development only feature" ));
+  }
+
+  if( FD_UNLIKELY( !strcmp( config->layout.agave_affinity, "" ) ) ) {
+    strncpy( config->layout.agave_affinity, config->layout.solana_labs_affinity, sizeof(config->layout.agave_affinity) );
   }
 
   if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port != config->tiles.quic.regular_transaction_listen_port + 6 ) )

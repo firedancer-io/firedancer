@@ -1,10 +1,17 @@
 #include <stdio.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../disco/topo/fd_topo.h"
 #include "fd_rpc_service.h"
+
+extern int inet_aton (const char *__cp, struct in_addr *__inp) __THROW;
 
 /*
 static void usage( char const * progname ) {
@@ -12,7 +19,6 @@ static void usage( char const * progname ) {
   fprintf( stderr, " --wksp-name-funk <workspace name>          funk workspace name\n" );
   fprintf( stderr, " --wksp-name-blockstore <workspace name>    blockstore workspace name\n" );
   fprintf( stderr, " --wksp-name-replay-notify <workspace name> replay notification workspace name\n" );
-  fprintf( stderr, " --num-threads <count>                      number of http service threads\n" );
   fprintf( stderr, " --port <port number>                       http service port\n" );
 }
 */
@@ -50,8 +56,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
-  FD_LOG_NOTICE(( "blockstore has slot min=%lu smr=%lu max=%lu",
-                  args->blockstore->min, args->blockstore->smr, args->blockstore->max ));
+  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->smr ));
   fd_wksp_mprotect( wksp, 1 );
 
   wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-replay-notify", NULL, "fd1_replay_notif.wksp" );
@@ -65,10 +70,34 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
     FD_LOG_ERR(( "failed to join a replay notifier" ));
   }
 
-  args->num_threads = fd_env_strip_cmdline_ulong( argc, argv, "--num-threads", NULL, 10 );
-
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
-  args->ws_port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--ws-port", NULL, 8900 );
+
+  args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 10 );
+  args->params.max_ws_connection_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-connection-cnt", NULL, 10 );
+  args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
+  args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
+  args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
+
+  args->hcache_size = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf", NULL, 100U<<20U );
+
+  const char * tpu_host = fd_env_strip_cmdline_cstr ( argc, argv, "--local-tpu-host", NULL, "127.0.0.1" );
+  ulong tpu_port = fd_env_strip_cmdline_ulong( argc, argv, "--local-tpu-port", NULL, 9001U );
+  memset( &args->tpu_addr, 0, sizeof(args->tpu_addr) );
+  args->tpu_addr.sin_family = AF_INET;
+  if( !inet_aton( tpu_host, &args->tpu_addr.sin_addr ) ) {
+    struct hostent * hent = gethostbyname( tpu_host );
+    if( hent == NULL ) {
+      FD_LOG_WARNING(( "unable to resolve tpu host %s", tpu_host ));
+      exit(-1);
+    }
+    args->tpu_addr.sin_addr.s_addr = ( (struct in_addr *)hent->h_addr_list[0] )->s_addr;
+  }
+  if( tpu_port < 1024 || tpu_port > (int)USHORT_MAX ) {
+    FD_LOG_ERR(( "invalid tpu port number" ));
+    exit(-1);
+  }
+  args->tpu_addr.sin_port = htons( (ushort)tpu_port );
+  FD_LOG_NOTICE(( "using tpu %s:%u", inet_ntoa( args->tpu_addr.sin_addr ), (uint)ntohs( args->tpu_addr.sin_port ) ));
 }
 
 static int stopflag = 0;
@@ -91,6 +120,7 @@ int main( int argc, char ** argv ) {
     FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  signal( SIGPIPE, SIG_IGN );
 
   fd_rpc_ctx_t * ctx = NULL;
   fd_rpc_start_service( &args, &ctx );

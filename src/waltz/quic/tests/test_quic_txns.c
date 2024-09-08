@@ -50,11 +50,9 @@ cb_conn_final( fd_quic_conn_t * conn,
 
 void
 cb_stream_new( fd_quic_stream_t * stream,
-               void *             quic_ctx,
-               int stream_type ) {
+               void *             quic_ctx ) {
   (void)stream;
   (void)quic_ctx;
-  (void)stream_type;
   FD_LOG_NOTICE(( "cb_stream_new" ));
 }
 

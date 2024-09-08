@@ -20,22 +20,11 @@
 
    In-memory representation:
 
-   - fd_ghost_node_t implements a left-child right-sibling n-ary tree.
-     Each node holds a pointer to its left-most child (`child`), and a
-     pointer to its right sibling (`sibling`).
-
    - Each tree node is keyed by slot number.
 
    - Each tree node tracks the amount of stake (`stake`) that has voted
      for its slot, as well as the recursive sum of stake for the subtree
      rooted at that node (`weight`).
-
-   - fd_ghost_t is the top-level structure that holds the root of the
-     tree, as well as the memory pools and map structures for nodes and
-     votes.
-
-   - fd_ghost_vote_t represents a validator's vote.  This includes a
-     slot hash and the validator's pubkey and stake.
 
    Link to original GHOST paper: https://eprint.iacr.org/2013/881.pdf.
    This is simply a reference for those curious about the etymology, and
@@ -51,14 +40,19 @@
 #endif
 
 /* clang-format off */
+
+/* fd_ghost_node_t implements a left-child, right-sibling n-ary tree.
+   Each node maintains pointers to its left-most child, its
+   immediate-right sibling, and its parent. */
+
 typedef struct fd_ghost_node fd_ghost_node_t;
 struct __attribute__((aligned(128UL))) fd_ghost_node {
-  ulong             slot;         /* both the ghost and map key */
+  ulong             slot;         /* slot this node is tracking, also the map key */
   ulong             next;         /* reserved for internal use by fd_pool and fd_map_chain */
-  ulong             weight;       /* amount of stake that has voted for this slot hash or descendants */
-  ulong             stake;        /* amount of stake that has voted for this slot hash */
-  ulong             gossip_stake; /* amount of stake from gossip votes (sans replay overlap) */
-  ulong             rooted_stake; /* amount of stake that has rooted this slot */
+  ulong             weight;       /* amount of stake (in lamports) that has voted for this slot or any of its descendants */
+  ulong             stake;        /* amount of stake (in lamports) that has voted for this slot */
+  ulong             gossip_stake; /* amount of stake (in lamports) that has voted for this slot via gossip (sans replay overlap) */
+  ulong             rooted_stake; /* amount of stake (in lamports) that has rooted this slot */
   int               eqv;          /* flag for equivocation (multiple blocks) in this slot */
   fd_ghost_node_t * parent;       /* pointer to the parent */
   fd_ghost_node_t * child;        /* pointer to the left-most child */
@@ -77,11 +71,16 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
 #define MAP_KEY                slot
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* fd_ghost_vote_t represents a validator's vote.  This includes the
+   slot being voted for, the validator's pubkey identity, and the
+   validator's stake. */
+
 struct fd_ghost_vote {
-  fd_pubkey_t    pubkey;    /* validator identity, also the map key */
-  ulong          next;      /* reserved for internal use by fd_pool and fd_map_chain */
-  ulong          slot;      /* slot being voted for */
-  ulong          stake;     /* validator's stake */
+  fd_pubkey_t    pubkey; /* validator identity, also the map key */
+  ulong          next;   /* reserved for internal use by fd_pool and fd_map_chain */
+  ulong          slot;   /* latest vote slot */
+  ulong          root;   /* latest root slot */
+  ulong          stake;  /* validator's stake */
 };
 typedef struct fd_ghost_vote fd_ghost_vote_t;
 
@@ -97,9 +96,33 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
 #define MAP_KEY_HASH(key,seed) (key->ui[0]^seed)
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* fd_ghost_t is the top-level structure that holds the root of the
+   tree, as well as the memory pools and map structures for tracking
+   ghost nodes and votes.
+
+   These structures are bump-allocated and laid out contiguously in
+   memory from the fd_ghost_t * pointer which points to the beginning of
+   the memory region.
+
+   ---------------------- <--- fd_ghost_t *
+   | root | total_stake |
+   ----------------------
+   | node_pool          |
+   ----------------------
+   | node_map           |
+   ----------------------
+   | vote_map           |
+   ----------------------
+*/
+
 struct __attribute__((aligned(128UL))) fd_ghost {
+
+  /* Metadata */
+
   fd_ghost_node_t *     root;
   ulong                 total_stake;
+
+  /* Inline data structures */
 
   fd_ghost_node_t *     node_pool; /* memory pool of ghost nodes */
   fd_ghost_node_map_t * node_map;  /* map of slot_hash->fd_ghost_node_t */
@@ -107,8 +130,6 @@ struct __attribute__((aligned(128UL))) fd_ghost {
   fd_ghost_vote_map_t * vote_map;  /* each node's latest vote. map of pubkey->fd_ghost_vote_t */
 };
 typedef struct fd_ghost fd_ghost_t;
-
-/* clang-format on */
 
 FD_PROTOTYPES_BEGIN
 
@@ -120,10 +141,9 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline ulong
 fd_ghost_align( void ) {
-  return alignof( fd_ghost_t );
+  return alignof(fd_ghost_t);
 }
 
-/* clang-format off */
 FD_FN_CONST static inline ulong
 fd_ghost_footprint( ulong node_max, ulong vote_max ) {
   return FD_LAYOUT_FINI(
@@ -138,7 +158,7 @@ fd_ghost_footprint( ulong node_max, ulong vote_max ) {
       fd_ghost_node_map_align(),  fd_ghost_node_map_footprint( node_max ) ),
       fd_ghost_vote_pool_align(), fd_ghost_vote_pool_footprint( vote_max ) ),
       fd_ghost_vote_map_align(),  fd_ghost_vote_map_footprint( vote_max ) ),
-    alignof(fd_ghost_t) );
+    fd_ghost_align() );
 }
 /* clang-format on */
 
@@ -160,8 +180,7 @@ fd_ghost_join( void * ghost );
 
 /* fd_ghost_leave leaves a current local join.  Returns a pointer to the
    underlying shared memory region on success and NULL on failure (logs
-   details).  Reasons for failure include ghost is NULL.
- */
+   details).  Reasons for failure include ghost is NULL. */
 
 void *
 fd_ghost_leave( fd_ghost_t const * ghost );
@@ -189,106 +208,120 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake );
 
 /* Accessors */
 
-/* fd_ghost_head_query returns ghost's head.  Assumes caller has called
-   fd_ghost_init and that the ghost is non-empty, ie. has a root. */
-
-fd_ghost_node_t *
-fd_ghost_head_query( fd_ghost_t * ghost );
-
-/* fd_ghost_head_query_const is the const version of the above. */
-
-fd_ghost_node_t const *
-fd_ghost_head_query_const( fd_ghost_t const * ghost );
-
-/* fd_ghost_leaf_insert inserts a new leaf node with key into the ghost,
-   with parent_slot_hash optionally specified.  The caller promises
-   slot_hash is not currently in the map and parent_slot_hash is. */
-
-fd_ghost_node_t *
-fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot );
-
-/* fd_ghost_node_query queries and returns the node keyed by slot_hash.
-   Returns NULL if not found. */
-
-fd_ghost_node_t *
-fd_ghost_node_query( fd_ghost_t * ghost, ulong slot );
-
-/* fd_ghost_node_query_const is the const version of
-   fd_ghost_node_query. */
-
-fd_ghost_node_t const *
-fd_ghost_node_query_const( fd_ghost_t const * ghost, ulong slot );
+FD_FN_PURE static inline fd_ghost_node_t const *
+fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
+  return fd_ghost_node_map_ele_query_const( ghost->node_map, &slot, NULL, ghost->node_pool );
+}
 
 /* Operations */
 
-/* fd_ghost_replay_vote_upsert inserts a replay vote into ghost.
-
-   The stake associated with pubkey is added to the ancestry chain
-   beginning at slot hash ("insert").  If pubkey has previously voted,
-   the previous vote's stake is removed from the previous vote slot
-   hash's ancestry chain ("update").
-
-   TODO the implementation can be made more efficient by
-   short-circuiting and doing fewer traversals, but as it exists this is
-   bounded to O(h), where h is the height of ghost. */
-
-void
-fd_ghost_replay_vote_upsert( fd_ghost_t *        ghost,
-                             ulong               slot,
-                             fd_pubkey_t const * pubkey,
-                             ulong               stake );
-
-/* fd_ghost_gossip_vote_upsert inserts a gossip vote into ghost.
-
-   Unlike fd_ghost_replay_vote_upsert, the stake associated with pubkey
-   is not propagated to ancestors of slot_hash.  It is only counted
-   towards slot_hash itself. */
-
-void
-fd_ghost_gossip_vote_upsert( fd_ghost_t *        ghost,
-                             ulong               slot,
-                             fd_pubkey_t const * pubkey,
-                             ulong               stake );
-
-/* fd_ghost_publish publishes slot as the new ghost root, promoting the
-   subtree beginning from root to the new ghost tree.  Prunes all nodes
-   not in slot's ancestry.  Assumes slot is present in ghost.  Returns
-   the new root. */
+/* fd_ghost_node_insert inserts a new node with slot as the key into the
+   ghost.  Assumes slot >= ghost->smr, slot is not already in ghost,
+   parent_slot is already in ghost, and the node pool has a free element
+   (if handholding is enabled, explicitly checks and errors).  Returns
+   the inserted ghost node. */
 
 fd_ghost_node_t *
+fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot );
+
+/* fd_ghost_replay_vote votes for slot, adding pubkey's stake to the
+   `replay_stake` field for slot and to the `weight` field for both slot
+   and slot's ancestors.  If pubkey has previously voted, pubkey's stake
+   is also subtracted from `weight` for its previous vote slot and its
+   ancestors.
+
+   Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the ghost node keyed by slot.
+
+   TODO the implementation can be made more efficient by
+   short-circuiting and doing fewer traversals.  Currently this is
+   bounded to O(h), where h is the height of ghost. */
+
+fd_ghost_node_t const *
+fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
+
+/* fd_ghost_gossip_vote adds stake amount to the gossip_stake field of
+   slot.
+
+   Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the ghost node keyed by slot.
+
+   Unlike fd_ghost_replay_vote, this stake is not propagated to
+   the weight field for slot and slot's ancestors.  It is only counted
+   towards slot itself, as gossip votes are only used for optimistic
+   confirmation and not fork choice. */
+
+fd_ghost_node_t const *
+fd_ghost_gossip_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
+
+/* fd_ghost_rooted_vote adds stake amount to the rooted_stake field of
+   slot.
+
+   Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the ghost node keyed by slot.
+
+   Note rooting a slot implies rooting its ancestor, but ghost does not
+   explicitly track this. */
+
+fd_ghost_node_t const *
+fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
+
+/* fd_ghost_publish publishes slot as the new ghost root, setting the
+   subtree beginning from slot as the new ghost tree (ie. slot and all
+   its descendants).  Prunes all nodes not in slot's ancestry.  Assumes
+   slot is present in ghost.  Returns the new root. */
+
+fd_ghost_node_t const *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
 
-/* Utilties */
+/* Traversals */
 
-/* fd_ghost_is_ancestor checks if ancestor_slot is in fact an ancestor
-   of slot.  Returns 1 if true, 0 otherwise.  Assumes slot is present in
-   ghost (does not assume the same for ancestor_slot but warns when
-   handholding is enabled). */
+/* fd_ghost_gca returns the greatest common ancestor of slot1, slot2 in
+   ghost.  Assumes slot1 or slot2 are present in ghost (warns and
+   returns NULL with handholding enabled).  This is guaranteed to be
+   non-NULL if slot1 and slot2 are both present. */
 
-int
-fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor_slot, ulong slot );
+FD_FN_PURE fd_ghost_node_t const *
+fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 );
 
-/* fd_ghost_print_node pretty-prints a formatted ghost tree.  node
-   controls which node to begin printing from.  depth controls how many
-   additional ancestors to walk back from node to begin printing from.
+/* fd_ghost_head returns ghost's head.  Assumes caller has called
+fd_ghost_init and that the ghost is non-empty, ie. has a root. */
 
-   NULL and 0 are valid defaults for the above, respectively. In that
-   case, ghost would begin printing from the root. See fd_ghost_print.
+FD_FN_PURE fd_ghost_node_t const *
+fd_ghost_head( fd_ghost_t const * ghost );
 
-   Typical usage is to pass in the most recently executed slot for node,
-   so that node is always in a leaf position, and pick an appropriate
-   depth for visualization (FD_GHOST_PRINT_DEPTH_DEFAULT is the
-   recommended default). */
+/* fd_ghost_is_descendant returns 1 if slot descends from ancestor_slot,
+   0 otherwise.  Assumes slot is present in ghost (warns and returns 0
+   early if handholding is on).  Does not assume the same of
+   ancestor_slot. */
+
+FD_FN_PURE int
+fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slot );
+
+/* Misc */
+
+/* fd_ghost_slot_print pretty-prints a formatted ghost tree.  slot
+   controls which slot to begin printing from (will appear as the root
+   in the print output).  depth allows caller to specify additional
+   ancestors to walk back from slot to set as the root.
+
+   ghost->root->slot and 0 are valid defaults for the above,
+   respectively.  In that case, this would print ghost beginning from
+   the root.  See fd_ghost_print.
+
+   Typical usage is to pass in the most recently executed slot, in which
+   that slot in a leaf in ghost, and pick an appropriate depth for
+   visualization (20 is a reasonable default). */
 
 void
-fd_ghost_print_node( fd_ghost_t * ghost, fd_ghost_node_t * node, ulong depth );
+fd_ghost_slot_print( fd_ghost_t * ghost, ulong slot, ulong depth );
 
 /* fd_ghost_print pretty-prints a formatted ghost tree starting from the
-   root using fd_ghost_print_node. */
+   root using fd_ghost_slot_print. */
 
 static inline void
 fd_ghost_print( fd_ghost_t * ghost ) {
-  fd_ghost_print_node( ghost, ghost->root, 0 );
+  fd_ghost_slot_print( ghost, ghost->root->slot, 0 );
 }
 
 FD_PROTOTYPES_END

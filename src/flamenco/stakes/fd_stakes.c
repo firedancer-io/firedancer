@@ -279,8 +279,7 @@ refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
-                          ulong                 next_epoch ) {
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx) {
   
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
@@ -380,71 +379,22 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_sysvar_stake_history_update( slot_ctx, &new_elem);
 
-  /* Update the current epoch value */
-  stakes->epoch = next_epoch;
-
   fd_valloc_free( slot_ctx->valloc,
     fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
-
-  // Update the list of vote accounts in the epoch stake cache
-  // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L314
-  // refresh_vote_accounts( slot_ctx, &history );
-
-  // TODO: Update epoch stakes?
-  // refresh_vote_accounts( slot_ctx, &history );
-
-  // ulong sz = fd_vote_accounts_pair_t_map_size( slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
-  // fd_vote_accounts_pair_t_mapnode_t * new_vote_root = NULL;
-  // fd_vote_accounts_pair_t_mapnode_t * new_vote_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, sz );
-  // fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
-
-  // for ( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
-  //         n;
-  //         n = fd_vote_accounts_pair_t_map_successor_const( slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, n )) {
-  //     fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_acquire( new_vote_pool );
-  //     fd_memcpy( &entry->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-  //     fd_vote_accounts_pair_t_map_insert( new_vote_pool, &new_vote_root, entry );
-  //   }
-  //   fd_vote_accounts_destroy( &slot_ctx->slot_bank.epoch_stakes, &destroy );
-
-  //   slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = new_vote_root;
-  //   slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = new_vote_pool;
-
 }
 
 int
-write_stake_state( fd_exec_slot_ctx_t *   global,
-                   fd_pubkey_t const * stake_acc,
-                   fd_stake_state_v2_t *  stake_state,
-                   ushort              is_new_account ) {
-                    // TODO
-                    (void)stake_state;
+write_stake_state( fd_borrowed_account_t *  stake_acc_rec,
+                   fd_stake_state_v2_t *    stake_state ) {
 
-  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_v2_size(stake_state);
+  ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
 
-  FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
-
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, stake_acc_rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "write_stake_state failed" ));
-    return err;
-  }
-
-  if (is_new_account)
-    fd_memset( stake_acc_rec->data, 0, encoded_stake_state_size );
-
-  fd_bincode_encode_ctx_t ctx3;
-  ctx3.data    = stake_acc_rec->data;
-  ctx3.dataend = stake_acc_rec->data + encoded_stake_state_size;
-  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_stake_state_encode failed"));
-
-  if( is_new_account ) {
-    stake_acc_rec->meta->dlen = STAKE_ACCOUNT_SIZE;
-    /* TODO Lamports? */
-    stake_acc_rec->meta->info.executable = 0;
-    stake_acc_rec->meta->info.rent_epoch = 0UL;
-    memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
+  fd_bincode_encode_ctx_t ctx = {
+    .data = stake_acc_rec->data,
+    .dataend = stake_acc_rec->data + encoded_stake_state_size,
+  };
+  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx ) != FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_stake_state_encode failed" ));
   }
 
   return 0;

@@ -1,10 +1,10 @@
 #include <assert.h>
 #include <ballet/aes/fd_aes_gcm.h>
 #include <ballet/hmac/fd_hmac.h>
-#include <tango/quic/crypto/fd_quic_crypto_suites.h>
-#include <tango/quic/fd_quic.h>
-#include <tango/quic/fd_quic_conn.h>
-#include <tango/quic/fd_quic_private.h>
+#include <waltz/quic/crypto/fd_quic_crypto_suites.h>
+#include <waltz/quic/fd_quic.h>
+#include <waltz/quic/fd_quic_conn.h>
+#include <waltz/quic/fd_quic_private.h>
 
 #define MTU (2048UL)
 
@@ -22,6 +22,7 @@ ulong
 fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_conn_t *  conn,
                          fd_quic_pkt_t *   pkt,
+                         uint              pkt_type,
                          uchar const *     buf,
                          ulong             buf_sz,
                          fd_quic_frame_u * frame_union ) {
@@ -59,7 +60,9 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 }
 
 void
-fd_quic_conn_error( fd_quic_conn_t * conn, uint reason ) {
+fd_quic_conn_error( fd_quic_conn_t * conn,
+                    uint             reason,
+                    uint             error_line ) {
   (void)conn; (void)reason;
 }
 
@@ -73,13 +76,13 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
 
 void
 harness( void ) {
-  fd_quic_t quic;
-  quic.cb.now = quic_now;
-  quic.aio_rx.send_func = NULL;
-  quic.aio_tx.send_func = NULL;
+  fd_quic_t * quic = calloc( 1, 0x2000 ); __CPROVER_assume( quic );
+  quic->cb.now = quic_now;
+  quic->aio_rx.send_func = NULL;
+  quic->aio_tx.send_func = NULL;
 
   fd_quic_conn_t conn;
-  conn.quic = &quic;
+  conn.quic = quic;
   conn.suites[ fd_quic_enc_level_appdata_id ] = &mock_crypto_suite;
   __CPROVER_assume( conn.server==0 || conn.server==1 );
 
@@ -94,6 +97,6 @@ harness( void ) {
   ulong const payload_sz;  __CPROVER_assume( payload_sz<=MTU );
   uchar const payload[ payload_sz ];
 
-  ulong res = fd_quic_handle_v1_one_rtt( &quic, &conn, &pkt, payload, payload_sz );
+  ulong res = fd_quic_handle_v1_one_rtt( quic, &conn, &pkt, payload, payload_sz );
   assert( res<=payload_sz || res==FD_QUIC_PARSE_FAIL );
 }

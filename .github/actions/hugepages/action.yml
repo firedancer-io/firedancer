@@ -16,8 +16,10 @@ runs:
     - shell: bash
       run: |
         set -x
-        sudo src/util/shmem/fd_shmem_cfg fini || true
+        sudo src/util/shmem/fd_shmem_cfg reset || true
         sudo src/util/shmem/fd_shmem_cfg init 0775 $USER "" || true
-        sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_gigantic }}' gigantic 0
-        sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_huge }}' huge 0
+        [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages) -lt '${{ inputs.count_gigantic }}' ] && \
+          sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_gigantic }}' gigantic 0
+        [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages) -lt '${{ inputs.count_huge }}' ] && \
+          sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_huge }}' huge 0
         sudo chown -R $USER:$USER /mnt/.fd

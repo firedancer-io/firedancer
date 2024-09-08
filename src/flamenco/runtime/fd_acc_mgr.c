@@ -176,9 +176,6 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
   fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
 
-  if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
-    FD_LOG_WARNING(( "null pubkey (system program?) is being modified" ));
-
 //#ifdef VLOG
 //  ulong rec_cnt = 0;
 //  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
@@ -217,8 +214,9 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
-  if( do_create && ret->magic == 0 )
-    fd_account_meta_init(ret);
+  if( do_create && ret->magic==0UL ) {
+    fd_account_meta_init( ret );
+  }
 
   if( ret->magic != FD_ACCOUNT_META_MAGIC )
     FD_LOG_ERR(( "bad magic" ));
@@ -372,8 +370,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
                             fd_funk_txn_t *         txn,
                             fd_borrowed_account_t * * accounts,
                             ulong accounts_cnt,
-                            fd_tpool_t * tpool,
-                            ulong max_workers ) {
+                            fd_tpool_t * tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_funk_t *        funk = acc_mgr->funk;
     fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -381,7 +378,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     ulong batch_cnt = fd_ulong_min(
       fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
-      fd_ulong_pow2_up( max_workers )
+      fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
     );
     ulong batch_mask = (batch_cnt - 1UL);
 
@@ -414,6 +411,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * account = accounts[i];
+
       ulong batch_idx = i & batch_mask;
       fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
       task_info->accounts[task_info->accounts_cnt++] = account;
@@ -422,11 +420,20 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       if( rec == NULL ) {
         int err;
         rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
-        if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %s", err ));
+        if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
       }
       account->rec = rec;
       if ( acc_mgr->slots_per_epoch != 0 )
         fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+
+      /* This check is to prevent a seg fault in the case where an account with
+         null data tries to get saved. This notably happens if firedancer is
+         attemping to execute a bad block. This should NEVER happen in the case
+         of a proper replay. */
+      if( FD_UNLIKELY( !account->const_meta ) ) {
+        FD_LOG_ERR(( "An account likely does not exist. This block could be invalid." ));
+      }
+
       ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
       int err;
       if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
@@ -439,7 +446,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     };
 
     /* Save accounts in a thread pool */
-    fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+    fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     fd_funk_end_write( funk );
 

@@ -1,0 +1,8 @@
+$ ./build/native/gcc/bin/fddev bench
+[32mNOTICE [0m main configure.c(106): kill ... configuring
+[32mNOTICE [0m main configure.c(81): netns ... skipping .. not enabled
+[32mNOTICE [0m main configure.c(102): hugetlbfs ... already valid
+[32mNOTICE [0m main configure.c(102): sysctl ... already valid
+[ ... snip ... ]
+[32mNOTICE [0m bencho:0 fd_bencho.c(137): 63373 txn/s
+[32mNOTICE [0m bencho:0 fd_bencho.c(137): 63340 txn/s

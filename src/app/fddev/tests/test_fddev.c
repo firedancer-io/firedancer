@@ -43,7 +43,7 @@ fddev_configure( config_t * config,
 
 static int
 fddev_wksp( config_t * config,
-             int        pipefd ) {
+            int        pipefd ) {
   (void)pipefd;
 
   fd_log_thread_set( "wksp" );
@@ -77,7 +77,7 @@ fddev_dev( config_t * config,
     .dev.parent_pipefd      = pipefd,
     .dev.no_configure       = 1,
     .dev.no_init_workspaces = 1,
-    .dev.no_solana_labs     = 0,
+    .dev.no_agave           = 0,
     .dev.monitor            = 0,
   };
   args.dev.debug_tile[ 0 ] = '\0';

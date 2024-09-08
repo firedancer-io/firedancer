@@ -4,6 +4,130 @@
 #include "../../runtime/fd_account.h"
 #include "../../runtime/fd_executor.h"
 #include "../../runtime/fd_account_old.h" /* FIXME: remove this and update to use new APIs */
+#include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
+#include "../../nanopb/pb_encode.h"
+#include "../../runtime/tests/generated/vm.pb.h"
+#include "../../runtime/tests/fd_exec_instr_test.h"
+
+#define STRINGIFY(x) TOSTRING(x)
+#define TOSTRING(x) #x
+
+/* Captures the state of the VM (including the instruction context).
+   Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
+
+  ```
+   dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
+                     instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt);
+  ```
+
+  Assumes that a `vm_cp_state` directory exists in the current working directory. Generates a
+  unique dump for combination of (tile_id, caller_pubkey, instr_sz). */
+
+static FD_FN_UNUSED void
+dump_vm_cpi_state(fd_vm_t *vm,
+                  char const * fn_name,
+                  ulong   instruction_va,
+                  ulong   acct_infos_va,
+                  ulong   acct_info_cnt,
+                  ulong   signers_seeds_va,
+                  ulong   signers_seeds_cnt ) {
+  char filename[100];
+  fd_instr_info_t const *instr = vm->instr_ctx->instr;
+  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+
+  // Check if file exists
+  if( access (filename, F_OK) != -1 ) {
+    return;
+  }
+
+  fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO;
+  sys_ctx.has_instr_ctx = 1;
+  sys_ctx.has_vm_ctx = 1;
+  sys_ctx.has_syscall_invocation = 1;
+
+  // Copy function name
+  sys_ctx.syscall_invocation.function_name.size = fd_uint_min( (uint) strlen(fn_name), sizeof(sys_ctx.syscall_invocation.function_name.bytes) );
+  fd_memcpy( sys_ctx.syscall_invocation.function_name.bytes,
+             fn_name,
+             sys_ctx.syscall_invocation.function_name.size );
+
+  // VM Ctx integral fields
+  sys_ctx.vm_ctx.r1 = instruction_va;
+  sys_ctx.vm_ctx.r2 = acct_infos_va;
+  sys_ctx.vm_ctx.r3 = acct_info_cnt;
+  sys_ctx.vm_ctx.r4 = signers_seeds_va;
+  sys_ctx.vm_ctx.r5 = signers_seeds_cnt;
+
+  sys_ctx.vm_ctx.rodata_text_section_length = vm->text_sz;
+  sys_ctx.vm_ctx.rodata_text_section_offset = vm->text_off;
+
+  sys_ctx.vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
+
+  FD_SCRATCH_SCOPE_BEGIN{
+    sys_ctx.vm_ctx.rodata = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->rodata_sz) );
+    sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
+    fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
+
+    pb_size_t stack_sz = (pb_size_t) ( (vm->frame_cnt + 1)*FD_VM_STACK_GUARD_SZ*2 );
+    sys_ctx.syscall_invocation.stack_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(stack_sz) );
+    sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
+    fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
+
+    sys_ctx.syscall_invocation.heap_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->heap_max) );
+    sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
+    fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
+
+    sys_ctx.vm_ctx.input_data_regions_count = vm->input_mem_regions_cnt;
+    sys_ctx.vm_ctx.input_data_regions = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
+    for( ulong i=0UL; i<vm->input_mem_regions_cnt; i++ ) {
+      sys_ctx.vm_ctx.input_data_regions[i].content = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->input_mem_regions[i].region_sz) );
+      sys_ctx.vm_ctx.input_data_regions[i].content->size = (pb_size_t) vm->input_mem_regions[i].region_sz;
+      fd_memcpy( sys_ctx.vm_ctx.input_data_regions[i].content->bytes, (uchar *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
+      sys_ctx.vm_ctx.input_data_regions[i].offset = vm->input_mem_regions[i].vaddr_offset;
+      sys_ctx.vm_ctx.input_data_regions[i].is_writable = vm->input_mem_regions[i].is_writable;
+    }
+
+    fd_create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
+                                                        vm->instr_ctx->txn_ctx,
+                                                        vm->instr_ctx->instr );
+
+    // Serialize the protobuf to file (using mmap)
+    size_t pb_alloc_size = 100 * 1024 * 1024; // 100MB (largest so far is 19MB)
+    FILE *f = fopen(filename, "wb+");
+    if( ftruncate(fileno(f), (off_t) pb_alloc_size) != 0 ) {
+      FD_LOG_WARNING(("Failed to resize file %s", filename));
+      fclose(f);
+      return;
+    }
+
+    uchar *pb_alloc = mmap( NULL,
+                            pb_alloc_size,
+                            PROT_READ | PROT_WRITE,
+                            MAP_SHARED,
+                            fileno(f),
+                            0 /* offset */);
+    if( pb_alloc == MAP_FAILED ) {
+      FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
+      fclose(f);
+      return;
+    }
+
+    pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
+    if( !pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
+      FD_LOG_WARNING(( "Failed to encode instruction context" ));
+    }
+    // resize file to actual size
+    if( ftruncate( fileno(f), (off_t) stream.bytes_written ) != 0 ) {
+      FD_LOG_WARNING(( "Failed to resize file %s", filename ));
+    }
+
+    fclose(f);
+
+  } FD_SCRATCH_SCOPE_END;
+}
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int
@@ -266,7 +390,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     // TODO: return SyscallError::TooManySigners
     FD_LOG_WARNING(("TODO: return too many signers" ));
-    return FD_VM_ERR_INVAL;
+    return FD_VM_CPI_ERR_TOO_MANY_SIGNERS;
   }
 
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
@@ -274,7 +398,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {
       // TODO: return SyscallError::MaxInstructionAccountInfosExceeded
       FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
-      return FD_VM_ERR_INVAL;
+      return FD_VM_CPI_ERR_TOO_MANY_ACC_INFOS;
     }
   } else {
     ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
@@ -282,7 +406,8 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
       /* Cap the number of account_infos a caller can pass to approximate
          maximum that accounts that could be passed in an instruction
          TODO: return SyscallError::TooManyAccounts */
-      return FD_VM_ERR_INVAL;
+      FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
+      return FD_VM_CPI_ERR_TOO_MANY_ACC_INFOS;
     }
   }
 
@@ -295,19 +420,19 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 
 static int
 fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
-                                     ulong                        acct_cnt,
-                                     ulong                        data_sz ) {
+                                     ulong           acct_cnt,
+                                     ulong           data_sz ) {
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_ERR_INVAL;
+      return FD_VM_CPI_ERR_INSTR_DATA_TOO_LARGE;
     }
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
       // SyscallError::MaxInstructionAccountsExceeded
-      return FD_VM_ERR_INVAL;
+      return FD_VM_CPI_ERR_TOO_MANY_ACC_METAS;
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
@@ -315,7 +440,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
       // SyscallError::InstructionTooLarge
-      return FD_VM_ERR_INVAL;
+      return FD_VM_CPI_ERR_INSTR_TOO_LARGE;
     }
   }
 
@@ -417,6 +542,10 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl ) \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) \
   acc_info->data_sz = len;
 
@@ -442,6 +571,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
 
 /**********************************************************************
@@ -475,7 +605,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 /* The lamports and the account data are stored behind RefCells,
    so we have an additional layer of indirection to unwrap. */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                         \
-    /* Translate the pointer to the RefCell */                                                                         \
+    /* Translate the pointer to the RefCell */                                                                          \
     fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                          \
       FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) );       \
     /* Translate the pointer to the underlying data */                                                                 \
@@ -491,6 +621,15 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
     /* Translate the pointer to the underlying data */                                                           \
     uchar * decl = FD_VM_MEM_HADDR_ST(                                                                           \
       vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _box)->len );   \
+    /* Declare the size of the underlying data */                                                                \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
+
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl )                                                   \
+    /* Translate the pointer to the RefCell */                                                                   \
+    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
+      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
+    /* Declare the vm addr of the underlying data, as we sometimes need it later */                              \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;                     \
     /* Declare the size of the underlying data */                                                                \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
 
@@ -519,4 +658,5 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN

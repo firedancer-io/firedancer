@@ -26,4 +26,3 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h */
-

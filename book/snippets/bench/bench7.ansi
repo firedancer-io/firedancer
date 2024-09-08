@@ -1,0 +1,5 @@
+$ ./build/native/gcc/bin/fddev bench --config src/app/fdctl/config/bench-zen3-32core.toml
+[ ... snip ... ]
+[32mNOTICE [0m bencho:0 fd_bencho.c(137): 272840 txn/s
+[32mNOTICE [0m bencho:0 fd_bencho.c(137): 278380 txn/s
+[32mNOTICE [0m bencho:0 fd_bencho.c(137): 268246 txn/s

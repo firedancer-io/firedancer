@@ -24,8 +24,9 @@ extern ulong fd_quic_conn_id_hash_seed;
 /* pad fd_quic_conn_id struct */
 #define FD_QUIC_CONN_ID_PAD (24 - 1 - FD_QUIC_MAX_CONN_ID_SZ)
 
-// have to support variable length connection ids
-// in various parts of the protocol
+/* fd_quic_conn_id_t contains a QUIC connection ID with size in [0,20]
+   bytes.  The unused conn_id high bytes MUST be zeroed. */
+
 struct fd_quic_conn_id {
   uchar sz;
   uchar conn_id[FD_QUIC_MAX_CONN_ID_SZ];
@@ -39,7 +40,7 @@ FD_PROTOTYPES_BEGIN
 
 static inline fd_quic_conn_id_t
 fd_quic_conn_id_new( void const * conn_id,
-                     ulong        sz /* in [0,16] */ ) {
+                     ulong        sz /* in [0,20] */ ) {
   /* TODO debug assertion verifying sz */
   fd_quic_conn_id_t id = { .sz = (uchar)sz };
   fd_memcpy( id.conn_id, conn_id, sz );
@@ -47,12 +48,11 @@ fd_quic_conn_id_new( void const * conn_id,
 }
 
 /* fd_quic_conn_id_rand creates a new random 8 byte conn ID.  Returns
-   conn_id on success.  In the rare case that the platform RNG fails
-   returns NULL. */
+   conn ID.  Cannot fail. */
 
-__attribute__((warn_unused_result))
 static inline fd_quic_conn_id_t *
-fd_quic_conn_id_rand( fd_quic_conn_id_t * conn_id ) {
+fd_quic_conn_id_rand( fd_quic_conn_id_t * conn_id,
+                      fd_rng_t *          rng ) {
 
   /* from rfc9000:
      Each endpoint selects connection IDs using an implementation-specific (and
@@ -65,7 +65,8 @@ fd_quic_conn_id_rand( fd_quic_conn_id_t * conn_id ) {
 
   /* padding must be set to zero also */
   *conn_id = (fd_quic_conn_id_t){ .sz = 8u, .conn_id = {0u}, .pad = {0u} };
-  return fd_rng_secure( conn_id->conn_id, 8u ) ? conn_id : NULL;
+  FD_STORE( ulong, conn_id->conn_id, fd_rng_ulong( rng ) );
+  return conn_id;
 }
 
 FD_PROTOTYPES_END

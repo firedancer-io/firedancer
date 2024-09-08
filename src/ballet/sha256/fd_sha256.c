@@ -349,16 +349,15 @@ fd_sha256_fini( fd_sha256_t * sha,
 
   /* Unpack the result into md (annoying bswaps here) */
 
-  uint * hash = (uint *)_hash;
-  hash[0] = fd_uint_bswap( state[0] );
-  hash[1] = fd_uint_bswap( state[1] );
-  hash[2] = fd_uint_bswap( state[2] );
-  hash[3] = fd_uint_bswap( state[3] );
-  hash[4] = fd_uint_bswap( state[4] );
-  hash[5] = fd_uint_bswap( state[5] );
-  hash[6] = fd_uint_bswap( state[6] );
-  hash[7] = fd_uint_bswap( state[7] );
-  return _hash;
+  state[0] = fd_uint_bswap( state[0] );
+  state[1] = fd_uint_bswap( state[1] );
+  state[2] = fd_uint_bswap( state[2] );
+  state[3] = fd_uint_bswap( state[3] );
+  state[4] = fd_uint_bswap( state[4] );
+  state[5] = fd_uint_bswap( state[5] );
+  state[6] = fd_uint_bswap( state[6] );
+  state[7] = fd_uint_bswap( state[7] );
+  return memcpy( _hash, state, 32 );
 }
 
 void *
@@ -401,16 +400,15 @@ fd_sha256_hash( void const * _data,
   FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
   fd_sha256_core( state, buf, 1UL );
 
-  uint * hash = (uint *)_hash;
-  hash[0] = fd_uint_bswap( state[0] );
-  hash[1] = fd_uint_bswap( state[1] );
-  hash[2] = fd_uint_bswap( state[2] );
-  hash[3] = fd_uint_bswap( state[3] );
-  hash[4] = fd_uint_bswap( state[4] );
-  hash[5] = fd_uint_bswap( state[5] );
-  hash[6] = fd_uint_bswap( state[6] );
-  hash[7] = fd_uint_bswap( state[7] );
-  return _hash;
+  state[0] = fd_uint_bswap( state[0] );
+  state[1] = fd_uint_bswap( state[1] );
+  state[2] = fd_uint_bswap( state[2] );
+  state[3] = fd_uint_bswap( state[3] );
+  state[4] = fd_uint_bswap( state[4] );
+  state[5] = fd_uint_bswap( state[5] );
+  state[6] = fd_uint_bswap( state[6] );
+  state[7] = fd_uint_bswap( state[7] );
+  return memcpy( _hash, state, 32 );
 }
 
 void *
@@ -454,16 +452,15 @@ fd_sha256_hash_32( void const * _data,
   FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
   fd_sha256_core( state, buf, 1UL );
 
-  uint * hash = (uint *)_hash;
-  hash[0] = fd_uint_bswap( state[0] );
-  hash[1] = fd_uint_bswap( state[1] );
-  hash[2] = fd_uint_bswap( state[2] );
-  hash[3] = fd_uint_bswap( state[3] );
-  hash[4] = fd_uint_bswap( state[4] );
-  hash[5] = fd_uint_bswap( state[5] );
-  hash[6] = fd_uint_bswap( state[6] );
-  hash[7] = fd_uint_bswap( state[7] );
-  return _hash;
+  state[0] = fd_uint_bswap( state[0] );
+  state[1] = fd_uint_bswap( state[1] );
+  state[2] = fd_uint_bswap( state[2] );
+  state[3] = fd_uint_bswap( state[3] );
+  state[4] = fd_uint_bswap( state[4] );
+  state[5] = fd_uint_bswap( state[5] );
+  state[6] = fd_uint_bswap( state[6] );
+  state[7] = fd_uint_bswap( state[7] );
+  return memcpy( _hash, state, 32 );
 }
 
 #undef fd_sha256_core

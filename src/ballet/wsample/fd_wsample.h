@@ -41,7 +41,7 @@ typedef struct fd_wsample_private fd_wsample_t;
    respectively required to create a weighted sampler with at most
    ele_cnt stake weights.  If restore_enabled is zero, calls to
    wsample_restore_all will be no-ops, but the footprint required will
-   be smaller. ele_cnt in [0, UINT_MAX-1) (note, not ULONG MAX).
+   be smaller. ele_cnt in [0, UINT_MAX-2) (note, not ULONG MAX).
 
    fd_wsample_{join,leave} join and leave a memory region formatted as a
    weighted sampler, respectively.  They both are simple casts.
@@ -103,12 +103,17 @@ void *            fd_wsample_delete   ( void * shmem  );
    region.  shmem must be a partially constructed region of memory, as
    returned by fd_wsample_new_init or fd_wsample_new_add_weight, weight
    must be strictly positive, and the cumulative sum of this weight and
-   all other weights must be less than ULONG_MAX.
+   all other weights must be no more than ULONG_MAX.
 
    fd_wsample_new_fini finalizes the formatting of a partially formatted
    memory region.  shmem must be a partially constructed region of
    memory, as returned by fd_wsample_new_add_weight (or
-   fd_wsample_new_init if ele_cnt==0).
+   fd_wsample_new_init if ele_cnt==0).  If poisoned_weight is non-zero,
+   the weighted sampler will end with a poisoned region representing an
+   indeterminate number of unknown elements with total weight equal to
+   poisoned_weight.  This is useful for chopping off a long tail so that
+   the number of elements can be bounded easily.  The sum of all weights
+   and poisoned_weight must be no more than ULONG_MAX.
 
    Retains read/write interest in rng.
 
@@ -124,8 +129,8 @@ void * fd_wsample_new_init( void             * shmem,
                             ulong              ele_cnt,
                             int                restore_enabled,
                             int                opt_hint );
-void * fd_wsample_new_add ( void * shmem, ulong weight );
-void * fd_wsample_new_fini( void * shmem               );
+void * fd_wsample_new_add ( void * shmem, ulong weight          );
+void * fd_wsample_new_fini( void * shmem, ulong poisoned_weight );
 
 /* fd_wsample_get_rng returns the value provided for rng in new. */
 fd_chacha20rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
@@ -150,10 +155,20 @@ void fd_wsample_seed_rng( fd_chacha20rng_t * rng, uchar seed[static 32] );
    If the sampler has no unremoved elements, these functions will
    return/store FD_WSAMPLE_EMPTY.
 
+   If the RNG sample lands in the poisoned region, these functions will
+   return/store FD_WSAMPLE_INDETERMINATE.  If such a sample is produced
+   in the without replacement mode, all subsequent calls (with and
+   without replacement) will also return FD_WSAMPLE_INDETERMINATE until
+   the next call to fd_wsample_restore_all.  This is necessary because
+   the poisoned region represents an indeterminate number of elements,
+   so it's not possible to know how removing one of them will affect the
+   total weight, and thus all subsequent random samples.
+
    For each index i, fd_wsample_sample returns i with
    probability weights[i]/sum(weights), only considering weights of
    elements that have not been removed. */
-#define FD_WSAMPLE_EMPTY UINT_MAX
+#define FD_WSAMPLE_EMPTY          UINT_MAX
+#define FD_WSAMPLE_INDETERMINATE (UINT_MAX-1UL)
 ulong fd_wsample_sample                ( fd_wsample_t * sampler );
 ulong fd_wsample_sample_and_remove     ( fd_wsample_t * sampler );
 void  fd_wsample_sample_many           ( fd_wsample_t * sampler, ulong * idxs, ulong cnt );

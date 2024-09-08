@@ -75,14 +75,14 @@ clean:
 	#######################################################################
 	# Cleaning $(OBJDIR)
 	#######################################################################
-	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
+	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean:
 	#######################################################################
 	# Cleaning $(BASEDIR)
 	#######################################################################
-	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
+	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 run-unit-test:
@@ -238,9 +238,9 @@ endif
 
 define _fuzz-test
 
-$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test,$(LDFLAGS_FUZZ) $(FUZZ_EXTRA)))
+$(eval $(call _make-exe,$(1),$(2),$(3),fuzz-test,fuzz-test,$(LDFLAGS_FUZZ) $(FUZZ_EXTRA)))
 
-$(OBJDIR)/fuzz-test/$(1)/$(1): $(FUZZ_EXTRA)
+$(OBJDIR)/fuzz-test/$(1): $(FUZZ_EXTRA)
 
 .PHONY: $(1)_unit
 $(1)_unit:
@@ -248,7 +248,7 @@ $(1)_unit:
 $(MKDIR) -p "$(OBJDIR)/cov/raw" && \
 FD_LOG_PATH="" \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_unit.profraw" \
-$(FIND) corpus/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
+$(FIND) corpus/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1) $(FUZZFLAGS) {} +
 
 .PHONY: $(1)_run
 $(1)_run:
@@ -256,7 +256,7 @@ $(1)_run:
 $(MKDIR) -p "$(OBJDIR)/cov/raw" && \
 FD_LOG_PATH="" \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_run.profraw" \
-$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=corpus/$(1)/ $(FUZZFLAGS) corpus/$(1)/explore corpus/$(1)
+$(OBJDIR)/fuzz-test/$(1) -artifact_prefix=corpus/$(1)/ $(FUZZFLAGS) corpus/$(1)/explore corpus/$(1)
 
 run-fuzz-test: $(1)_unit
 

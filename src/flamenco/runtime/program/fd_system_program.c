@@ -8,7 +8,6 @@
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
-#include "../../../ballet/utf8/fd_utf8.h"
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
@@ -58,14 +57,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L191-L192 */
 
-  fd_borrowed_account_t * from = NULL;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, from_acct_idx, &from );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( from ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, from_acct_idx, from) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L193-L196 */
 
@@ -91,19 +83,11 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L208 */
 
-  fd_borrowed_account_release_write( from );
+  } FD_BORROWED_ACCOUNT_DROP( from );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L209-L210 */
 
-  fd_borrowed_account_t * to = NULL;
-
-  do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, to_acct_idx, 0UL, &to );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( to ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, to_acct_idx, to ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L211 */
 
@@ -112,7 +96,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_borrowed_account_release_write( to );  /* implicit drop */
+  } FD_BORROWED_ACCOUNT_DROP( to );
 
   return 0;
 }
@@ -265,14 +249,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L160-L161 */
 
-  fd_borrowed_account_t * to = NULL;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, to_acct_idx, &to );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( to ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, to_acct_idx, to ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
 
@@ -292,7 +269,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L172
      Implicit drop */
 
-  fd_borrowed_account_release_write( to );
+  } FD_BORROWED_ACCOUNT_DROP( to );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L173-L180 */
 
@@ -342,14 +319,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L383-L384 */
 
-  fd_borrowed_account_t * account;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, 0, account ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L385-L391
      system_processor::Address::create eliminated (dead code) */
@@ -363,7 +333,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
   } while(0);
 
   /* Implicit drop */
-  fd_borrowed_account_release_write( account );
+  } FD_BORROWED_ACCOUNT_DROP( account );
 
   return 0;
 }
@@ -443,14 +413,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L506-L507 */
 
-  fd_borrowed_account_t * account;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, 0, account ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L508-L514
      system_processor::Address::create eliminated (dead code) */
@@ -465,7 +428,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   } while(0);
 
   /* Implicit drop */
-  fd_borrowed_account_release_write( account );
+   } FD_BORROWED_ACCOUNT_DROP( account );
 
   return 0;
 }
@@ -485,14 +448,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#524-525 */
 
-  fd_borrowed_account_t * account;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, 0, account ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L526-L532 */
 
@@ -522,7 +478,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
   } while(0);
 
   /* Implicit drop */
-  fd_borrowed_account_release_write( account );
+  } FD_BORROWED_ACCOUNT_DROP( account );
 
   return 0;
 }
@@ -542,14 +498,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L544-L545 */
 
-  fd_borrowed_account_t * account;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, 0, account ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L546-L552 */
 
@@ -574,14 +523,10 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   } while(0);
 
   /* Implicit drop */
-  fd_borrowed_account_release_write( account );
+  } FD_BORROWED_ACCOUNT_DROP( account );
 
   return 0;
 }
-
-/* Convenience macro for fd_utf8_verify */
-
-#define VERIFY_SEED_UTF8( seed ) ( fd_utf8_verify( (char const *)(seed), (seed##_len) ) )
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L405-L422
 
@@ -645,19 +590,22 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 }
 
 int
-fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
+fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   do {
-    int err = fd_exec_consume_cus( ctx.txn_ctx, 150UL );
+    int err = fd_exec_consume_cus( ctx->txn_ctx, 150UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
   /* Deserialize the SystemInstruction enum */
-  uchar * data = ctx.instr->data;
+  uchar * data = ctx->instr->data;
+  if( FD_UNLIKELY( data==NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   fd_system_program_instruction_t instruction;
   fd_bincode_decode_ctx_t decode =
     { .data    = data,
-      .dataend = data + ctx.instr->data_sz,
+      .dataend = data + ctx->instr->data_sz,
       .valloc  = fd_scratch_virtual() };
   /* Fail if the number of bytes consumed by deserialize exceeds 1232 */
   if( fd_system_program_instruction_decode( &instruction, &decode ) ||
@@ -669,81 +617,73 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
   switch( instruction.discriminant ) {
   case fd_system_program_instruction_enum_create_account: {
     result = fd_system_program_exec_create_account(
-        &ctx, &instruction.inner.create_account );
+        ctx, &instruction.inner.create_account );
     break;
   }
   case fd_system_program_instruction_enum_assign: {
     result = fd_system_program_exec_assign(
-        &ctx, &instruction.inner.assign );
+        ctx, &instruction.inner.assign );
     break;
   }
   case fd_system_program_instruction_enum_transfer: {
     result = fd_system_program_exec_transfer(
-        &ctx, instruction.inner.transfer );
+        ctx, instruction.inner.transfer );
     break;
   }
   case fd_system_program_instruction_enum_create_account_with_seed: {
-    if( !VERIFY_SEED_UTF8( instruction.inner.create_account_with_seed.seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_create_account_with_seed(
-        &ctx, &instruction.inner.create_account_with_seed );
+        ctx, &instruction.inner.create_account_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_advance_nonce_account: {
-    result = fd_system_program_exec_advance_nonce_account( &ctx );
+    result = fd_system_program_exec_advance_nonce_account( ctx );
     break;
   }
   case fd_system_program_instruction_enum_withdraw_nonce_account: {
     result = fd_system_program_exec_withdraw_nonce_account(
-        &ctx, instruction.inner.withdraw_nonce_account );
+        ctx, instruction.inner.withdraw_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_initialize_nonce_account: {
     result = fd_system_program_exec_initialize_nonce_account(
-        &ctx, &instruction.inner.initialize_nonce_account );
+        ctx, &instruction.inner.initialize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_authorize_nonce_account: {
     result = fd_system_program_exec_authorize_nonce_account(
-        &ctx, &instruction.inner.authorize_nonce_account );
+        ctx, &instruction.inner.authorize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_allocate: {
-    result = fd_system_program_exec_allocate( &ctx, instruction.inner.allocate );
+    result = fd_system_program_exec_allocate( ctx, instruction.inner.allocate );
     break;
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
-    if( !VERIFY_SEED_UTF8( instruction.inner.allocate_with_seed.seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_allocate_with_seed(
-        &ctx, &instruction.inner.allocate_with_seed );
+        ctx, &instruction.inner.allocate_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
-    if( !VERIFY_SEED_UTF8( instruction.inner.assign_with_seed.seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_assign_with_seed(
-        &ctx, &instruction.inner.assign_with_seed );
+        ctx, &instruction.inner.assign_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
-    if( !VERIFY_SEED_UTF8( instruction.inner.transfer_with_seed.from_seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_transfer_with_seed(
-        &ctx, &instruction.inner.transfer_with_seed );
+        ctx, &instruction.inner.transfer_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_upgrade_nonce_account: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
-    result = fd_system_program_exec_upgrade_nonce_account( &ctx );
+    result = fd_system_program_exec_upgrade_nonce_account( ctx );
     break;
   }
   }
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx->valloc };
   fd_system_program_instruction_destroy( &instruction, &destroy );
   return result;
 }

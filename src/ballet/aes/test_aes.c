@@ -1,5 +1,10 @@
+#if defined(__linux__)
+#define _DEFAULT_SOURCE
+#include <sys/mman.h>
+#endif
+
+#include "fd_aes_base.h"
 #include "fd_aes_gcm.h"
-#include "fd_aes_private.h"
 
 /* Key expansion tests ************************************************/
 
@@ -16,42 +21,6 @@ fixture_key_expansion_128_zeros[ 176 ] = {
   0x0e, 0xf9, 0x03, 0x33, 0x3b, 0xa9, 0x61, 0x38, 0x97, 0x06, 0x0a, 0x04, 0x51, 0x1d, 0xfa, 0x9f,
   0xb1, 0xd4, 0xd8, 0xe2, 0x8a, 0x7d, 0xb9, 0xda, 0x1d, 0x7b, 0xb3, 0xde, 0x4c, 0x66, 0x49, 0x41,
   0xb4, 0xef, 0x5b, 0xcb, 0x3e, 0x92, 0xe2, 0x11, 0x23, 0xe9, 0x51, 0xcf, 0x6f, 0x8f, 0x18, 0x8e
-};
-
-static uchar const __attribute__((aligned(16UL)))
-fixture_key_expansion_192_zeros[ 208 ] = {
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63,
-  0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63,
-  0x9b, 0x98, 0x98, 0xc9, 0xf9, 0xfb, 0xfb, 0xaa, 0x9b, 0x98, 0x98, 0xc9, 0xf9, 0xfb, 0xfb, 0xaa,
-  0x9b, 0x98, 0x98, 0xc9, 0xf9, 0xfb, 0xfb, 0xaa, 0x90, 0x97, 0x34, 0x50, 0x69, 0x6c, 0xcf, 0xfa,
-  0xf2, 0xf4, 0x57, 0x33, 0x0b, 0x0f, 0xac, 0x99, 0x90, 0x97, 0x34, 0x50, 0x69, 0x6c, 0xcf, 0xfa,
-  0xc8, 0x1d, 0x19, 0xa9, 0xa1, 0x71, 0xd6, 0x53, 0x53, 0x85, 0x81, 0x60, 0x58, 0x8a, 0x2d, 0xf9,
-  0xc8, 0x1d, 0x19, 0xa9, 0xa1, 0x71, 0xd6, 0x53, 0x7b, 0xeb, 0xf4, 0x9b, 0xda, 0x9a, 0x22, 0xc8,
-  0x89, 0x1f, 0xa3, 0xa8, 0xd1, 0x95, 0x8e, 0x51, 0x19, 0x88, 0x97, 0xf8, 0xb8, 0xf9, 0x41, 0xab,
-  0xc2, 0x68, 0x96, 0xf7, 0x18, 0xf2, 0xb4, 0x3f, 0x91, 0xed, 0x17, 0x97, 0x40, 0x78, 0x99, 0xc6,
-  0x59, 0xf0, 0x0e, 0x3e, 0xe1, 0x09, 0x4f, 0x95, 0x83, 0xec, 0xbc, 0x0f, 0x9b, 0x1e, 0x08, 0x30,
-  0x0a, 0xf3, 0x1f, 0xa7, 0x4a, 0x8b, 0x86, 0x61, 0x13, 0x7b, 0x88, 0x5f, 0xf2, 0x72, 0xc7, 0xca,
-  0x43, 0x2a, 0xc8, 0x86, 0xd8, 0x34, 0xc0, 0xb6, 0xd2, 0xc7, 0xdf, 0x11, 0x98, 0x4c, 0x59, 0x70
-};
-
-static uchar const __attribute__((aligned(16UL)))
-fixture_key_expansion_256_zeros[ 240 ] = {
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63, 0x62, 0x63, 0x63, 0x63,
-  0xaa, 0xfb, 0xfb, 0xfb, 0xaa, 0xfb, 0xfb, 0xfb, 0xaa, 0xfb, 0xfb, 0xfb, 0xaa, 0xfb, 0xfb, 0xfb,
-  0x6f, 0x6c, 0x6c, 0xcf, 0x0d, 0x0f, 0x0f, 0xac, 0x6f, 0x6c, 0x6c, 0xcf, 0x0d, 0x0f, 0x0f, 0xac,
-  0x7d, 0x8d, 0x8d, 0x6a, 0xd7, 0x76, 0x76, 0x91, 0x7d, 0x8d, 0x8d, 0x6a, 0xd7, 0x76, 0x76, 0x91,
-  0x53, 0x54, 0xed, 0xc1, 0x5e, 0x5b, 0xe2, 0x6d, 0x31, 0x37, 0x8e, 0xa2, 0x3c, 0x38, 0x81, 0x0e,
-  0x96, 0x8a, 0x81, 0xc1, 0x41, 0xfc, 0xf7, 0x50, 0x3c, 0x71, 0x7a, 0x3a, 0xeb, 0x07, 0x0c, 0xab,
-  0x9e, 0xaa, 0x8f, 0x28, 0xc0, 0xf1, 0x6d, 0x45, 0xf1, 0xc6, 0xe3, 0xe7, 0xcd, 0xfe, 0x62, 0xe9,
-  0x2b, 0x31, 0x2b, 0xdf, 0x6a, 0xcd, 0xdc, 0x8f, 0x56, 0xbc, 0xa6, 0xb5, 0xbd, 0xbb, 0xaa, 0x1e,
-  0x64, 0x06, 0xfd, 0x52, 0xa4, 0xf7, 0x90, 0x17, 0x55, 0x31, 0x73, 0xf0, 0x98, 0xcf, 0x11, 0x19,
-  0x6d, 0xbb, 0xa9, 0x0b, 0x07, 0x76, 0x75, 0x84, 0x51, 0xca, 0xd3, 0x31, 0xec, 0x71, 0x79, 0x2f,
-  0xe7, 0xb0, 0xe8, 0x9c, 0x43, 0x47, 0x78, 0x8b, 0x16, 0x76, 0x0b, 0x7b, 0x8e, 0xb9, 0x1a, 0x62,
-  0x74, 0xed, 0x0b, 0xa1, 0x73, 0x9b, 0x7e, 0x25, 0x22, 0x51, 0xad, 0x14, 0xce, 0x20, 0xd4, 0x3b,
-  0x10, 0xf8, 0x0a, 0x17, 0x53, 0xbf, 0x72, 0x9c, 0x45, 0xc9, 0x79, 0xe7, 0xcb, 0x70, 0x63, 0x85
 };
 
 void
@@ -71,13 +40,6 @@ test_key_expansion_zeros( ulong         bit_cnt,
   FD_TEST( expanded->rounds == expected_round_cnt );
   FD_LOG_INFO(( "OK: AES-%lu encrypt key expansion (ref)", bit_cnt ));
 
-# if FD_HAS_AESNI
-  fd_memset( expanded, 0, sizeof(fd_aes_key_t) );
-  fd_aesni_set_encrypt_key( key, bit_cnt, expanded );
-  FD_TEST( 0==memcmp( expanded, expected, expanded_key_sz ) );
-  FD_TEST( expanded->rounds+1 == expected_round_cnt );
-  FD_LOG_INFO(( "OK: AES-%lu encrypt key expansion (AES-NI)", bit_cnt ));
-# endif /* FD_HAS_AESNI */
 }
 
 /* AES-ECB tests ******************************************************/
@@ -240,16 +202,6 @@ test_aes_128_ecb_( fd_aes_128_ecb_fixture_t const * ecb ) {
   fd_aes_ref_decrypt_core( ecb->c, p, key );
   FD_TEST( 0==memcmp( p, ecb->p, 16 ) );
 
-# if FD_HAS_AESNI
-  fd_aesni_set_encrypt_key( ecb->k, 128, key );
-  fd_aesni_encrypt( ecb->p, c, key );
-  FD_TEST( 0==memcmp( c, ecb->c, 16 ) );
-
-  fd_aesni_set_decrypt_key( ecb->k, 128, key );
-  fd_aesni_decrypt( ecb->c, p, key );
-  FD_TEST( 0==memcmp( p, ecb->p, 16 ) );
-# endif /* FD_HAS_AESNI */
-
 }
 
 void
@@ -262,12 +214,71 @@ test_aes_128_ecb( void ) {
   }
 
   FD_LOG_INFO(( "OK: AES-128-ECB encrypt+decrypt (ref)" ));
-# if FD_HAS_AESNI
-  FD_LOG_INFO(( "OK: AES-128-ECB encrypt+decrypt (AES-NI)" ));
-# endif /* FD_HAS_AESNI */
 }
 
 /* AEAD Decrypt *******************************************************/
+
+void
+test_aes_128_gcm_bounds( fd_rng_t * rng ) {
+# if defined(__linux__)
+
+  /* Execute AES-GCM ops just before unmapped memory to trap
+     out-of-bounds accesses.  ASan is uneffective here because memory
+     accesses occur from uninstrumented assembly blobs. */
+
+  ulong region_sz = (1UL<<30);
+  uchar * ptr_p     = mmap( NULL, region_sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  uchar * ptr_c     = mmap( NULL, region_sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  uchar * state_mem = mmap( NULL, region_sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( ptr_p    !=MAP_FAILED );
+  FD_TEST( ptr_c    !=MAP_FAILED );
+  FD_TEST( state_mem!=MAP_FAILED );
+
+  uchar * ptr_p_end = ptr_p     + FD_SHMEM_NORMAL_PAGE_SZ;
+  uchar * ptr_c_end = ptr_c     + FD_SHMEM_NORMAL_PAGE_SZ;
+  uchar * state_end = state_mem + FD_SHMEM_NORMAL_PAGE_SZ;
+  FD_TEST( 0==munmap( ptr_p_end, region_sz - FD_SHMEM_NORMAL_PAGE_SZ ) );
+  FD_TEST( 0==munmap( ptr_c_end, region_sz - FD_SHMEM_NORMAL_PAGE_SZ ) );
+  FD_TEST( 0==munmap( state_end, region_sz - FD_SHMEM_NORMAL_PAGE_SZ ) );
+
+  fd_memset( ptr_p,     0, FD_SHMEM_NORMAL_PAGE_SZ );
+  fd_memset( ptr_c,     0, FD_SHMEM_NORMAL_PAGE_SZ );
+  fd_memset( state_mem, 0, FD_SHMEM_NORMAL_PAGE_SZ );
+
+  fd_aes_gcm_t * aes_gcm = fd_type_pun( state_end - sizeof(fd_aes_gcm_t) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)aes_gcm, FD_AES_GCM_ALIGN ) );
+
+  uchar const key[ FD_AES_128_KEY_SZ ] = {0};
+  uchar const iv [ FD_AES_GCM_IV_SZ  ] = {0};
+
+  for( ulong sz=0UL; sz<=FD_SHMEM_NORMAL_PAGE_SZ; sz++ ) {
+    uchar * p = ptr_p_end - sz;
+    uchar * c = ptr_c_end - sz;
+    uchar tag[16];
+
+    /* Write garbage into the memory region backing the state object to
+       detect uninitialized memory reads */
+    for( ulong laddr=(ulong)aes_gcm; laddr<(ulong)state_end; laddr+=sizeof(ulong) ) {
+      FD_STORE( ulong, laddr, fd_rng_ulong( rng ) );
+    }
+    fd_aes_128_gcm_init( aes_gcm, key, iv );
+    fd_aes_gcm_encrypt( aes_gcm, c, p, sz, p, sz, tag );
+
+    for( ulong laddr=(ulong)aes_gcm; laddr<(ulong)state_end; laddr+=sizeof(ulong) ) {
+      FD_STORE( ulong, laddr, fd_rng_ulong( rng ) );
+    }
+    fd_aes_128_gcm_init( aes_gcm, key, iv );
+    int rc = fd_aes_gcm_decrypt( aes_gcm, c, p, sz, p, sz, tag );
+    FD_TEST( rc==FD_AES_GCM_DECRYPT_OK );
+  }
+  for( uchar const * p=ptr_p; p<ptr_p_end; p++ ) FD_TEST( *p==0 );
+
+  FD_TEST( 0==munmap( ptr_p,     FD_SHMEM_NORMAL_PAGE_SZ ) );
+  FD_TEST( 0==munmap( ptr_c,     FD_SHMEM_NORMAL_PAGE_SZ ) );
+  FD_TEST( 0==munmap( state_mem, FD_SHMEM_NORMAL_PAGE_SZ ) );
+
+# endif /* defined(__linux__) */
+}
 
 void
 test_aes_128_gcm( void ) {
@@ -389,7 +400,7 @@ test_aes_128_gcm( void ) {
 
   fd_aes_gcm_t gcm[1];
   fd_aes_128_gcm_init( gcm, key, iv );
-  fd_aes_gcm_aead_encrypt( gcm, actual_ciphertext, plaintext, sizeof(plaintext), aad, sizeof(aad), actual_tag );
+  fd_aes_gcm_encrypt( gcm, actual_ciphertext, plaintext, sizeof(plaintext), aad, sizeof(aad), actual_tag );
 
   FD_TEST( 0==memcmp( actual_ciphertext, ciphertext, sizeof( ciphertext ) ) );
   FD_TEST( 0==memcmp( actual_tag,        tag,        sizeof( tag        ) ) );
@@ -401,7 +412,7 @@ test_aes_128_gcm( void ) {
   static uchar actual_plaintext[ 1162 ];
 
   fd_aes_128_gcm_init( gcm, key, iv );
-  int decrypt_ok = fd_aes_gcm_aead_decrypt( gcm, actual_ciphertext, actual_plaintext, sizeof(ciphertext), aad, sizeof(aad), tag );
+  int decrypt_ok = fd_aes_gcm_decrypt( gcm, actual_ciphertext, actual_plaintext, sizeof(ciphertext), aad, sizeof(aad), tag );
 
   FD_TEST( decrypt_ok );
   FD_TEST( 0==memcmp( actual_plaintext, plaintext, sizeof( plaintext ) ) );
@@ -416,7 +427,7 @@ test_aes_128_gcm( void ) {
   for( ulong i=0UL; i<128UL; i++ ) {
     BITFLIP( actual_tag, i );
     fd_aes_128_gcm_init( gcm, key, iv );
-    FD_TEST( !fd_aes_gcm_aead_decrypt( gcm, ciphertext, actual_plaintext, sizeof(ciphertext), aad, sizeof(aad), actual_tag ) );
+    FD_TEST( !fd_aes_gcm_decrypt( gcm, ciphertext, actual_plaintext, sizeof(ciphertext), aad, sizeof(aad), actual_tag ) );
     BITFLIP( actual_tag, i );
   }
 
@@ -424,7 +435,7 @@ test_aes_128_gcm( void ) {
   for( ulong i=0UL; i<(sizeof(actual_ciphertext)*8UL); i++ ) {
     BITFLIP( actual_ciphertext, i );
     fd_aes_128_gcm_init( gcm, key, iv );
-    FD_TEST( !fd_aes_gcm_aead_decrypt( gcm, actual_ciphertext, actual_plaintext, sizeof(ciphertext), aad, sizeof(aad), tag ) );
+    FD_TEST( !fd_aes_gcm_decrypt( gcm, actual_ciphertext, actual_plaintext, sizeof(ciphertext), aad, sizeof(aad), tag ) );
     BITFLIP( actual_ciphertext, i );
   }
 
@@ -433,7 +444,7 @@ test_aes_128_gcm( void ) {
   for( ulong i=0UL; i<(sizeof(corrupt_aad)*8UL); i++ ) {
     BITFLIP( corrupt_aad, i );
     fd_aes_128_gcm_init( gcm, key, iv );
-    FD_TEST( !fd_aes_gcm_aead_decrypt( gcm, ciphertext, actual_plaintext, sizeof(ciphertext), corrupt_aad, sizeof(corrupt_aad), tag ) );
+    FD_TEST( !fd_aes_gcm_decrypt( gcm, ciphertext, actual_plaintext, sizeof(ciphertext), corrupt_aad, sizeof(corrupt_aad), tag ) );
     BITFLIP( corrupt_aad, i );
   }
 
@@ -464,19 +475,30 @@ test_aes_128_gcm_unroll( void ) {
       0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
       0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f };
 
+  ulong const canary = 0xdb04fb2a65323a97; /* random */
+
   for( ulong j=1; j<sizeof(plaintext); j++ ) {
 
-    uchar result[ 2048 ];
+    uchar result[ 2056 ];
     uchar tag[ 16 ];
+    FD_STORE( ulong, result+j, canary );
 
     fd_aes_gcm_t gcm[1];
     fd_aes_128_gcm_init( gcm, key, iv );
-    fd_aes_gcm_aead_encrypt( gcm, result, plaintext, j, aad, sizeof(aad), tag );
+    fd_aes_gcm_encrypt( gcm, result, plaintext, j, aad, sizeof(aad), tag );
+
+    if( FD_UNLIKELY( FD_LOAD( ulong, result+j )!=canary ) )
+      FD_LOG_ERR(( "FAIL: buffer overrun detected" ));
+
     if( FD_UNLIKELY( 0!=memcmp( result, fixture_aes_128_gcm_unroll, j ) ) )
       FD_LOG_ERR(( "FAIL: AES-128-GCM unroll encrypt (AES-NI) for sz %lu (encrypt fail)", j ));
 
     fd_aes_128_gcm_init( gcm, key, iv );
-    int ok = fd_aes_gcm_aead_decrypt( gcm, fixture_aes_128_gcm_unroll, result, j, aad, sizeof(aad), tag );
+    int ok = fd_aes_gcm_decrypt( gcm, fixture_aes_128_gcm_unroll, result, j, aad, sizeof(aad), tag );
+
+    if( FD_UNLIKELY( FD_LOAD( ulong, result+j )!=canary ) )
+      FD_LOG_ERR(( "FAIL: buffer overrun detected" ));
+
     if( FD_UNLIKELY( !ok || 0!=memcmp( result, plaintext, j ) ) )
       FD_LOG_ERR(( "FAIL: AES-128-GCM unroll decrypt (AES-NI) for sz %lu (decrypt fail)", j ));
 
@@ -490,14 +512,32 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_key_expansion_zeros( 128, fixture_key_expansion_128_zeros, 10 );
-  test_key_expansion_zeros( 192, fixture_key_expansion_192_zeros, 12 );
-  test_key_expansion_zeros( 256, fixture_key_expansion_256_zeros, 14 );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  //test_aes_128_ecb();
-  //test_aes_128_gcm();
+# if FD_AES_IMPL == 0
+  FD_LOG_NOTICE(( "Using AES-ECB portable backend" ));
+# elif FD_AES_IMPL == 1
+  FD_LOG_NOTICE(( "Using AES-ECB AESNI backend" ));
+# endif
+
+# if FD_AES_GCM_IMPL == 0
+  FD_LOG_NOTICE(( "Using AES-GCM portable backend" ));
+# elif FD_AES_GCM_IMPL == 1
+  FD_LOG_NOTICE(( "Using AES-GCM AESNI backend" ));
+# elif FD_AES_GCM_IMPL == 2
+  FD_LOG_NOTICE(( "Using AES-GCM AVX2 AESNI backend" ));
+# elif FD_AES_GCM_IMPL == 3
+  FD_LOG_NOTICE(( "Using AES-GCM AVX512 VAES VPCLMUL backend" ));
+# endif
+
+  test_key_expansion_zeros( 128, fixture_key_expansion_128_zeros, 10 );
+
+  test_aes_128_ecb();
+  test_aes_128_gcm_bounds( rng );
+  test_aes_128_gcm();
   test_aes_128_gcm_unroll();
 
+  fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

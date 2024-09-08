@@ -116,6 +116,11 @@ main( int     argc,
       FD_TEST( fd_shred_header_sz ( shred->variant )==header_sz  );
       FD_TEST( fd_shred_payload_sz( shred          )==payload_sz );
       FD_TEST( fd_shred_merkle_sz ( shred->variant )==merkle_sz  );
+
+      FD_TEST( is_data    ==fd_shred_is_data(     fd_shred_type( shred->variant ) ) );
+      FD_TEST( is_code    ==fd_shred_is_code(     fd_shred_type( shred->variant ) ) );
+      FD_TEST( is_chained ==fd_shred_is_chained ( fd_shred_type( shred->variant ) ) );
+      FD_TEST( is_resigned==fd_shred_is_resigned( fd_shred_type( shred->variant ) ) );
     } else {
       FD_LOG_NOTICE(( "shred type 0x%02x: invalid", i ));
       /* Invalid shred types should always be rejected irrespective of buffer size */
@@ -167,6 +172,15 @@ main( int     argc,
   FD_TEST( shred->code.idx     ==        43 );
 
 # undef PARSE
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_LEGACY_DATA                  )==FD_SHRED_TYPE_LEGACY_CODE                  );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_LEGACY_CODE                  )==FD_SHRED_TYPE_LEGACY_DATA                  );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_DATA                  )==FD_SHRED_TYPE_MERKLE_CODE                  );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_CODE                  )==FD_SHRED_TYPE_MERKLE_DATA                  );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_DATA_CHAINED          )==FD_SHRED_TYPE_MERKLE_CODE_CHAINED          );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_CODE_CHAINED          )==FD_SHRED_TYPE_MERKLE_DATA_CHAINED          );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );
+  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED )==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED );
+
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

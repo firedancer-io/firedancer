@@ -29,6 +29,7 @@ FD_PROTOTYPES_BEGIN
 void
 fd_snapshot_load( const char *         source_cstr,
                   fd_exec_slot_ctx_t * slot_ctx,
+                  fd_tpool_t *         tpool,
                   uint                 verify_hash,
                   uint                 check_hash,
                   int                  snapshot_type );

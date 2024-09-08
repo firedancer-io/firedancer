@@ -24,12 +24,13 @@ fd_stake_ci_new( void             * mem,
   info->shred_dest  [ 0 ] = dummy_dests [ 0 ];
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_per_epoch_info_t * ei = info->epoch_info + i;
-    ei->epoch      = i;
-    ei->start_slot = 0UL;
-    ei->slot_cnt   = 0UL;
+    ei->epoch          = i;
+    ei->start_slot     = 0UL;
+    ei->slot_cnt       = 0UL;
+    ei->excluded_stake = 0UL;
 
-    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->stake_weight       ) );
-    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key ) );
+    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->stake_weight,       0UL ) );
+    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, 0UL ) );
   }
   info->identity_key[ 0 ] = *identity_key;
 
@@ -51,17 +52,19 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t * info,
   ulong staked_cnt          = hdr[ 1 ];
   ulong start_slot          = hdr[ 2 ];
   ulong slot_cnt            = hdr[ 3 ];
+  ulong excluded_stake      = hdr[ 4 ];
 
   if( FD_UNLIKELY( staked_cnt > MAX_SHRED_DESTS ) )
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
 
-  info->scratch->epoch      = epoch;
-  info->scratch->start_slot = start_slot;
-  info->scratch->slot_cnt   = slot_cnt;
-  info->scratch->staked_cnt = staked_cnt;
+  info->scratch->epoch          = epoch;
+  info->scratch->start_slot     = start_slot;
+  info->scratch->slot_cnt       = slot_cnt;
+  info->scratch->staked_cnt     = staked_cnt;
+  info->scratch->excluded_stake = excluded_stake;
 
-  fd_memcpy( info->stake_weight, hdr+4UL, sizeof(fd_stake_weight_t)*staked_cnt );
+  fd_memcpy( info->stake_weight, hdr+5UL, sizeof(fd_stake_weight_t)*staked_cnt );
 }
 
 static inline void
@@ -158,14 +161,17 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( new_ei->lsched ) );
 
   /* And create the new one */
-  new_ei->epoch      = epoch;
-  new_ei->start_slot = info->scratch->start_slot;
-  new_ei->slot_cnt   = info->scratch->slot_cnt;
+  ulong excluded_stake = info->scratch->excluded_stake;
+
+  new_ei->epoch          = epoch;
+  new_ei->start_slot     = info->scratch->start_slot;
+  new_ei->slot_cnt       = info->scratch->slot_cnt;
+  new_ei->excluded_stake = excluded_stake;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                staked_cnt, info->stake_weight ) );
+                                                                staked_cnt, info->stake_weight,     excluded_stake ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
-                                                                new_ei->lsched, info->identity_key ) );
+                                                                new_ei->lsched, info->identity_key, excluded_stake ) );
   log_summary( "stake update", info );
 }
 
@@ -194,8 +200,9 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_shred_dest_idx_t idx = fd_shred_dest_pubkey_to_idx( ei->sdest, &(info->shred_dest[ i ].pubkey) );
     fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( ei->sdest, idx );
-    if( FD_UNLIKELY( dest->stake_lamports==0UL ) ) {
-      /* Copy this destination to the unstaked part of the new list */
+    if( FD_UNLIKELY( (dest->stake_lamports==0UL)&(j<MAX_SHRED_DESTS) ) ) {
+      /* Copy this destination to the unstaked part of the new list.
+         This also handles the new unstaked case */
       info->shred_dest_temp[ j ] = info->shred_dest[ i ];
       info->shred_dest_temp[ j ].stake_lamports = 0UL;
       j++;
@@ -236,7 +243,18 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key ) );
+  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key,
+                                                      ei->excluded_stake ) );
+
+  if( FD_UNLIKELY( ei->sdest==NULL ) ) {
+    /* Happens if the identity key is not present, which can only happen
+       if the current validator's stake is not in the top 40,200.  We
+       could initialize ei->sdest to a dummy value, but having the wrong
+       stake weights could lead to potentially slashable issues
+       elsewhere (e.g. we might product a block when we're not actually
+       leader).  We're just going to terminate in this case. */
+    FD_LOG_ERR(( "Too many validators have higher stake than this validator.  Cannot continue." ));
+  }
 }
 
 

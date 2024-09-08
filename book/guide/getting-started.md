@@ -31,7 +31,10 @@ for that validator. Firedancer hopes to reduce these over time.
 
 ### Prerequisites
 
-Firedancer must be built from source and requires the following,
+Firedancer must be built from source and currently only supports
+building and running on Linux. Firedancer requires a recent Linux
+kernel, at least v4.18. This corresponds to Ubuntu 20.04, Fedora 29,
+Debian 11, or RHEL 8.
 
  - GCC version 8.5 or higher. Only GCC version 11, 12, and 13 are
 supported and tested by the Firedancer developers.
@@ -277,7 +280,7 @@ systemd --switched-root --system --deserialize 17
   └─sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
       └─fdctl run --config ~/config.toml
           └─fdctl run --config ~/config.toml
-              ├─fdctl run-solana --config-fd 0
+              ├─fdctl run-agave --config-fd 0
               │   └─35*[{fdctl}]
               ├─fdctl run1 net 0 --pipe-fd 7 --config-fd 0
               ├─fdctl run1 quic 0 --pipe-fd 8 --config-fd 0
@@ -295,3 +298,32 @@ systemd --switched-root --system --deserialize 17
 
 If any of the processes dies or is killed it will bring all of the
 others down with it.
+
+### Networking
+Firedancer uses `AF_XDP`, a Linux API for high performance networking. For
+more background see the [kernel
+documentation](https://www.kernel.org/doc/html/next/networking/af_xdp.html).
+
+Although `AF_XDP` works with any ethernet network interface, results may
+vary across drivers. Popular well tested drivers include:
+
+- `ixgbe` &mdash; Intel X540
+- `i40e` &mdash; Intel X710 series
+- `ice` &mdash; Intel E800 series
+
+Firedancer installs an XDP program on the network interface
+`[tiles.net.interface]` and `lo` while it is running. This program 
+redirects traffic on ports that Firedancer is listening on via `AF_XDP`.
+Traffic targetting any other applications (e.g. an SSH or HTTP server
+running on the system) passes through as usual. The XDP program is
+unloaded when the Firedancer process exits.
+
+`AF_XDP` requires `CAP_SYS_ADMIN` and `CAP_NET_RAW` privileges. This is
+one of the reasons why Firedancer requires root permissions on Linux.
+
+::: warning
+
+Packets received and sent via `AF_XDP` will not appear under standard
+network monitoring tools like `tcpdump`.
+
+:::

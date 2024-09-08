@@ -64,8 +64,8 @@
    of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_REC_KEY_ALIGN     (32UL)
-#define FD_FUNK_REC_KEY_FOOTPRINT (64UL)
+#define FD_FUNK_REC_KEY_ALIGN     (8UL)
+#define FD_FUNK_REC_KEY_FOOTPRINT (40UL) /* 32 byte hash + 8 byte meta */
 
 /* A fd_funk_rec_key_t identifies a funk record.  Compact binary keys
    are encouraged but a cstr can be used so long as it has
@@ -87,8 +87,8 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
    of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_TXN_XID_ALIGN     (32UL)
-#define FD_FUNK_TXN_XID_FOOTPRINT (32UL)
+#define FD_FUNK_TXN_XID_ALIGN     (8UL)
+#define FD_FUNK_TXN_XID_FOOTPRINT (16UL)
 
 /* A fd_funk_txn_xid_t identifies a funk transaction.  Compact binary
    identifiers are encouraged but a cstr can be used so long as it has
@@ -111,8 +111,8 @@ typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
    power of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_XID_KEY_PAIR_ALIGN     (32UL)
-#define FD_FUNK_XID_KEY_PAIR_FOOTPRINT (96UL)
+#define FD_FUNK_XID_KEY_PAIR_ALIGN     (8UL)
+#define FD_FUNK_XID_KEY_PAIR_FOOTPRINT (56UL)
 
 /* A fd_funk_xid_key_pair_t identifies a funk record.  It is just
    xid and key packed into the same structure. */
@@ -141,10 +141,9 @@ FD_PROTOTYPES_BEGIN
 FD_FN_UNUSED FD_FN_PURE static ulong /* Workaround -Winline */
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
-  return ( (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
-           (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) ) ) ^
-         ( (fd_ulong_hash( seed ^ (1UL<<4) ^ k->ul[4] ) ^ fd_ulong_hash( seed ^ (1UL<<5) ^ k->ul[5] ) ) ^
-           (fd_ulong_hash( seed ^ (1UL<<6) ^ k->ul[6] ) ^ fd_ulong_hash( seed ^ (1UL<<7) ^ k->ul[7] ) ) ); /* tons of ILP */
+  return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
+         (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) ) ^
+         (fd_ulong_hash( seed ^ (1UL<<4) ^ k->ul[4] ) ); /* tons of ILP */
 }
 
 /* fd_funk_rec_key_eq returns 1 if keys pointed to by ka and kb are
@@ -156,8 +155,7 @@ fd_funk_rec_key_eq( fd_funk_rec_key_t const * ka,
                     fd_funk_rec_key_t const * kb ) {
   ulong const * a = ka->ul;
   ulong const * b = kb->ul;
-  return !( (((a[0]^b[0]) | (a[1]^b[1])) | ((a[2]^b[2]) | (a[3]^b[3]))) |
-            (((a[4]^b[4]) | (a[5]^b[5])) | ((a[6]^b[6]) | (a[7]^b[7]))) );
+  return !( ((a[0]^b[0]) | (a[1]^b[1])) | ((a[2]^b[2]) | (a[3]^b[3])) | (a[4]^b[4]) ) ;
 }
 
 /* fd_funk_rec_key_copy copies the key pointed to by ks into the key
@@ -169,8 +167,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
                       fd_funk_rec_key_t const * ks ) {
   ulong *       d = kd->ul;
   ulong const * s = ks->ul;
-  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
-  d[4] = s[4]; d[5] = s[5]; d[6] = s[6]; d[7] = s[7];
+  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3]; d[4] = s[4];
   return kd;
 }
 
@@ -184,8 +181,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
                       ulong                     seed ) {
-  return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ) ^
-         ( fd_ulong_hash( seed ^ (1UL<<2) ^ x->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ x->ul[3] ) ); /* tons of ILP */
+  return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ); /* tons of ILP */
 }
 
 /* fd_funk_txn_xid_eq returns 1 if transaction id pointed to by xa and
@@ -197,7 +193,7 @@ fd_funk_txn_xid_eq( fd_funk_txn_xid_t const * xa,
                     fd_funk_txn_xid_t const * xb ) {
   ulong const * a = xa->ul;
   ulong const * b = xb->ul;
-  return !( (a[0]^b[0]) | (a[1]^b[1]) | (a[2]^b[2]) | (a[3]^b[3]) );
+  return !( (a[0]^b[0]) | (a[1]^b[1]) );
 }
 
 /* fd_funk_txn_xid_copy copies the transaction id pointed to by xs into
@@ -209,7 +205,7 @@ fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
                       fd_funk_txn_xid_t const * xs ) {
   ulong *       d = xd->ul;
   ulong const * s = xs->ul;
-  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
+  d[0] = s[0]; d[1] = s[1];
   return xd;
 }
 
@@ -220,7 +216,7 @@ fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
 FD_FN_PURE static inline int
 fd_funk_txn_xid_eq_root( fd_funk_txn_xid_t const * x ) {
   ulong const * a = x->ul;
-  return !(a[0] | a[1] | a[2] | a[3]);
+  return !(a[0] | a[1]);
 }
 
 /* fd_funk_txn_xid_set_root sets transaction id pointed to by x to the
@@ -230,7 +226,7 @@ fd_funk_txn_xid_eq_root( fd_funk_txn_xid_t const * x ) {
 static inline fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_root( fd_funk_txn_xid_t * x ) {
   ulong * a = x->ul;
-  a[0] = 0UL; a[1] = 0UL; a[2] = 0UL; a[3] = 0UL;
+  a[0] = 0UL; a[1] = 0UL;
   return x;
 }
 

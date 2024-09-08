@@ -3,7 +3,7 @@
 
 #include <assert.h>
 #include <ballet/aes/fd_aes.h>
-#include <ballet/aes/fd_aes_gcm.h>
+#include <ballet/aes/fd_aes_gcm_private.h>
 
 int
 fd_aes_ref_set_encrypt_key( uchar const *  user_key,
@@ -45,10 +45,10 @@ fd_aes_gcm_aead_decrypt( fd_aes_gcm_t * aes_gcm,
                          ulong          aad_sz,
                          uchar const    tag[ static 16 ] ) {
   __CPROVER_rw_ok( aes_gcm, sizeof(fd_aes_gcm_t) );
-  __CPROVER_r_ok( c, sz       );
-  __CPROVER_w_ok( p, sz       );
-  __CPROVER_r_ok( aad, aad_sz );
+  if( sz     ) __CPROVER_r_ok( c,   sz     );
+  if( sz     ) __CPROVER_w_ok( p,   sz     );
+  if( aad_sz ) __CPROVER_r_ok( aad, aad_sz );
   __CPROVER_r_ok( tag, 16     );
   __CPROVER_havoc_slice( aes_gcm, sizeof(fd_aes_gcm_t) );
-  __CPROVER_havoc_slice( p, sz );
+  if( sz ) __CPROVER_havoc_slice( p, sz );
 }

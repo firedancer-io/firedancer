@@ -1,13 +1,16 @@
 #include "fd_exec_sol_compat.h"
-#include "../../nanopb/pb_decode.h"
 #include "../../nanopb/pb_encode.h"
+#include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/vm.pb.h"
 #include <assert.h>
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
-#include "fd_vm_validate_test.h"
+#include "fd_vm_test.h"
+#include "../../features/fd_features.h"
+#include "../fd_executor_err.h"
+#include "../../fd_flamenco.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -18,42 +21,18 @@
 
 typedef struct {
   ulong   struct_size;
-  ulong * hardcoded_features;
-  ulong   hardcoded_feature_cnt;
+  ulong * cleaned_up_features;
+  ulong   cleaned_up_feature_cnt;
   ulong * supported_features;
   ulong   supported_feature_cnt;
 } sol_compat_features_t;
 
 static sol_compat_features_t features;
-static ulong hardcoded_features[] =
-  { 0xd924059c5749c4c1,  // secp256k1_program_enabled
-    0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
-    0x50a615bae8ca3874,  // native_programs_consume_cu
-    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
-  };
-
-static ulong supported_features[] =
-  { 0xe8f97382b03240a1,  // system_transfer_zero_check
-    0x10a1e092dd7f1573,  // dedupe_config_program_signers
-    0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
-    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
-    0x74b022574093eeec,  // reduce_stake_warmup_cooldown
-    0xd56fc1708dc98c13,  // stake_redelegate_instruction
-    0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
-    0x4b241cb4c6f3b3b2,  // require_rent_exempt_split_destination
-    0x74326f811fd7d861,  // vote_state_add_vote_latency
-    0x86fa44f01141c71a,  // timely_vote_credits
-    0xe9d32123513c4d0d,  // timely_vote_credits
-    0x5795654d01457757,  // vote_authorize_with_seed
-    0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
-    0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
-    0x2ca5833736ba5c69,  // compact_vote_state_updates
-    0x7e787d5c6d662d23,  // reject_callx_r10
-  };
-
 static       uchar *     smem;
 static const ulong       smax = 1UL<<30;
 static       fd_wksp_t * wksp = NULL;
+
+#define WKSP_TAG 2
 
 void
 sol_compat_init( void ) {
@@ -65,6 +44,7 @@ sol_compat_init( void ) {
   setenv( "FD_LOG_PATH", "", 1 );
   fd_boot( &argc, &argv_ );
   fd_log_level_logfile_set(5);
+  fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
   sol_compat_wksp_init();
@@ -80,38 +60,69 @@ sol_compat_wksp_init( void ) {
   smem = malloc( smax );  /* 1 GiB */
   assert( smem );
 
-  features.struct_size           = sizeof(sol_compat_features_t);
-  features.hardcoded_features    = hardcoded_features;
-  features.hardcoded_feature_cnt = sizeof(hardcoded_features)/sizeof(ulong);
-  features.supported_features    = supported_features;
-  features.supported_feature_cnt = sizeof(supported_features)/sizeof(ulong);
+  features.struct_size         = sizeof(sol_compat_features_t);
+  features.cleaned_up_features = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
+  features.supported_features  = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
+
+  for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
+    // Skip reverted features
+    if( current_feature->reverted ) continue;
+  
+    if( current_feature->cleaned_up ) {
+      memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
+    } else {
+      memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );
+    }
+  }
 }
 
 void
 sol_compat_fini( void ) {
   fd_wksp_delete_anonymous( wksp );
   free( smem );
+  free( features.cleaned_up_features );
+  free( features.supported_features );
   wksp = NULL;
   smem = NULL;
+}
+
+void
+sol_compat_check_wksp_usage( void ) {
+  fd_wksp_usage_t usage[1];
+  ulong tags[1] = { WKSP_TAG };
+  fd_wksp_usage( wksp, tags, 1, usage );
+  if( usage->used_sz ) {
+    FD_LOG_ERR(( "%lu bytes leaked in %lu allocations", usage->used_sz, usage->used_cnt ));
+  }
+}
+
+sol_compat_features_t const *
+sol_compat_get_features_v1( void ) {
+  return &features;
 }
 
 fd_exec_instr_test_runner_t *
 sol_compat_setup_scratch_and_runner( void * fmem ) {
   // Setup scratch
   fd_scratch_attach( smem, fmem, smax, 64UL );
+  /* Push frame */
+  fd_scratch_push();
 
   // Setup test runner
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 3 );
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_TAG );
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, WKSP_TAG );
 
   return runner;
 }
 
 void
 sol_compat_cleanup_scratch_and_runner( fd_exec_instr_test_runner_t * runner ) {
-  // Cleanup test runner
+  /* Cleanup test runner */
   fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
-  // Cleanup scratch
+
+  /* Pop frame */
+  fd_scratch_pop();
+  /* Cleanup scratch */
   fd_scratch_detach( NULL );
 }
 
@@ -154,19 +165,17 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  // fd_scratch_push();
-  do {
-    ulong out_bufsz = 100000000;  /* 100 MB */
-    void * out0 = fd_scratch_prepare( 1UL );
-    assert( out_bufsz < fd_scratch_free() );
-    fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
-    ulong out_used = exec_test_run_fn( runner, input, output, out0, out_bufsz );
-    if( FD_UNLIKELY( !out_used ) ) {
-      *output = NULL;
-      break;
-    }
-  } while(0);
-  // fd_scratch_pop();
+  
+  assert( fd_scratch_prepare_is_safe( 1UL ) );
+  ulong out_bufsz = 100000000;  /* 100 MB */
+  void * out0 = fd_scratch_prepare( 1UL );
+  assert( out_bufsz < fd_scratch_free() );
+  fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
+
+  ulong out_used = exec_test_run_fn( runner, input, output, out0, out_bufsz );
+  if( FD_UNLIKELY( !out_used ) ) {
+    *output = NULL;
+  }
 }
 
 /*
@@ -203,6 +212,191 @@ sol_compat_cmp_binary_strict( void const * effects,
   }
   if( !fd_memeq( out, exp, out_sz ) ) {
     FD_LOG_WARNING(( "Binary cmp failed: different values." ));
+    return 0;
+  }
+
+  return 1;
+}
+
+static int
+_diff_txn_acct( fd_exec_test_acct_state_t * expected,
+                fd_exec_test_acct_state_t * actual ) {
+  /* AcctState -> address (This must hold true when calling this function!) */
+  assert( fd_memeq( expected->address, actual->address, sizeof(fd_pubkey_t) ) );
+
+  /* AcctState -> lamports */
+  if( expected->lamports != actual->lamports ) {
+    FD_LOG_WARNING(( "Lamports mismatch: expected=%lu actual=%lu", expected->lamports, actual->lamports ));
+    return 0;
+  }
+
+  /* AcctState -> data */
+  if( expected->data != NULL || actual->data != NULL ) {
+    if( expected->data == NULL ) {
+      FD_LOG_WARNING(( "Expected account data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( actual->data == NULL ) {
+      FD_LOG_WARNING(( "Expected account data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( expected->data->size != actual->data->size ) {
+      FD_LOG_WARNING(( "Account data size mismatch: expected=%u actual=%u", expected->data->size, actual->data->size ));
+      return 0;
+    }
+
+    if( !fd_memeq( expected->data->bytes, actual->data->bytes, expected->data->size ) ) {
+      FD_LOG_WARNING(( "Account data mismatch" ));
+      return 0;
+    }
+  }
+
+  /* AcctState -> executable */
+  if( expected->executable != actual->executable ) {
+    FD_LOG_WARNING(( "Executable mismatch: expected=%d actual=%d", expected->executable, actual->executable ));
+    return 0;
+  }
+
+  /* AcctState -> rent_epoch 
+     TODO: Add this check back in once rent epoch is more stable */
+  // if( expected->rent_epoch != actual->rent_epoch ) {
+  //   FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
+  //   return 0;
+  // }
+
+  /* AcctState -> owner */
+  if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
+    char a[ FD_BASE58_ENCODED_32_SZ ];
+    char b[ FD_BASE58_ENCODED_32_SZ ];
+    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", fd_acct_addr_cstr( a, expected->owner ), fd_acct_addr_cstr( b, actual->owner ) ));
+    return 0;
+  }
+
+  return 1;
+}
+
+
+static int
+_diff_resulting_states( fd_exec_test_resulting_state_t *  expected,
+                        fd_exec_test_resulting_state_t *  actual ) {
+  // Verify that the number of accounts are the same
+  if( expected->acct_states_count != actual->acct_states_count ) {
+    FD_LOG_WARNING(( "Account states count mismatch: expected=%u actual=%u", expected->acct_states_count, actual->acct_states_count ));
+    return 0;
+  }
+
+  // Verify that the account states are the same
+  for( ulong i = 0; i < expected->acct_states_count; ++i ) {
+    for( ulong j = 0; j < actual->acct_states_count; ++j ) {
+      if( fd_memeq( expected->acct_states[i].address, actual->acct_states[j].address, sizeof(fd_pubkey_t) ) ) {
+        if( !_diff_txn_acct( &expected->acct_states[i], &actual->acct_states[j] ) ) {
+          return 0;
+        }
+      }
+    }
+  }
+
+  // TODO: resulting_state -> rent_debits, resulting_state->transaction_rent
+  return 1;
+}
+
+int
+sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
+                    fd_exec_test_txn_result_t *  actual ) {
+  /* TxnResult -> executed */
+  if( expected->executed != actual->executed ) {
+    FD_LOG_WARNING(( "Executed mismatch: expected=%d actual=%d", expected->executed, actual->executed ));
+    return 0;
+  }
+
+  /* TxnResult -> sanitization_error */
+  if( expected->sanitization_error != actual->sanitization_error ) {
+    FD_LOG_WARNING(( "Sanitization error mismatch: expected=%d actual=%d", expected->sanitization_error, actual->sanitization_error ));
+    return 0;
+  }
+
+  /* TxnResult -> resulting_state */
+  if( !_diff_resulting_states( &expected->resulting_state, &actual->resulting_state ) ) {
+    return 0;
+  }
+  
+  /* TxnResult -> rent */
+  if( expected->rent != actual->rent ) {
+    FD_LOG_WARNING(( "Rent mismatch: expected=%lu actual=%lu", expected->rent, actual->rent ));
+    return 0;
+  }
+
+  /* TxnResult -> is_ok */
+  if( expected->is_ok != actual->is_ok ) {
+    FD_LOG_WARNING(( "Is ok mismatch: expected=%d actual=%d", expected->is_ok, actual->is_ok ));
+    return 0;
+  }
+
+  /* TxnResult -> status */
+  if( expected->status != actual->status ) {
+    FD_LOG_WARNING(( "Status mismatch: expected=%d actual=%d", expected->status, actual->status ));
+    return 0;
+  }
+
+  /* TxnResult -> instruction_error */
+  if( expected->instruction_error != actual->instruction_error ) {
+    FD_LOG_WARNING(( "Instruction error mismatch: expected=%d actual=%d", expected->instruction_error, actual->instruction_error ));
+    return 0;
+  }
+
+  if( expected->instruction_error ) {
+    /* TxnResult -> instruction_error_index */
+    if( expected->instruction_error_index != actual->instruction_error_index ) {
+      FD_LOG_WARNING(( "Instruction error index mismatch: expected=%d actual=%d", expected->instruction_error_index, actual->instruction_error_index ));
+      return 0;
+    }
+
+    /* TxnResult -> custom_error */
+    if( expected->instruction_error == (ulong) -FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && expected->custom_error != actual->custom_error ) {
+      FD_LOG_WARNING(( "Custom error mismatch: expected=%d actual=%d", expected->custom_error, actual->custom_error ));
+      return 0;
+    }
+  }
+
+  /* TxnResult -> return_data */
+  if( expected->return_data != NULL || actual->return_data != NULL ) {
+    if( expected->return_data == NULL ) {
+      FD_LOG_WARNING(( "Expected return data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( actual->return_data == NULL ) {
+      FD_LOG_WARNING(( "Expected return data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( expected->return_data->size != actual->return_data->size ) {
+      FD_LOG_WARNING(( "Return data size mismatch: expected=%u actual=%u", expected->return_data->size, actual->return_data->size ));
+      return 0;
+    }
+
+    if( !fd_memeq( expected->return_data->bytes, actual->return_data->bytes, expected->return_data->size ) ) {
+      FD_LOG_WARNING(( "Return data mismatch" ));
+      return 0;
+    }
+  }
+
+  /* TxnResult -> executed_units */
+  if( expected->executed_units != actual->executed_units ) {
+    FD_LOG_WARNING(( "Executed units mismatch: expected=%lu actual=%lu", expected->executed_units, actual->executed_units ));
+    return 0;
+  }
+
+  /* TxnResult -> fee_details */
+  if( expected->fee_details.transaction_fee != actual->fee_details.transaction_fee ) {
+    FD_LOG_WARNING(( "Transaction fee mismatch: expected=%lu actual=%lu", expected->fee_details.transaction_fee, actual->fee_details.transaction_fee ));
+    return 0;
+  }
+
+  if( expected->fee_details.prioritization_fee != actual->fee_details.prioritization_fee ) {
+    FD_LOG_WARNING(( "Priority fee mismatch: expected=%lu actual=%lu", expected->fee_details.prioritization_fee, actual->fee_details.prioritization_fee ));
     return 0;
   }
 
@@ -254,7 +448,7 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_instr_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg );
@@ -265,27 +459,30 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 }
 
 int
-sol_compat_precompile_fixture( fd_exec_instr_test_runner_t * runner,
-                               uchar const *                 in,
-                               ulong                         in_sz ) {
-  // Decode fixture
-  fd_exec_test_instr_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
-  if ( res==NULL ) {
-    FD_LOG_WARNING(( "Invalid instr fixture." ));
-    return 0;
-  }
+sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
+                        uchar const *                 in,
+                        ulong                         in_sz ) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    // Decode fixture
+    fd_exec_test_txn_fixture_t fixture[1] = {0};
+    void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
+    if ( res==NULL ) {
+      FD_LOG_WARNING(( "Invalid txn fixture." ));
+      return 0;
+    }
 
-  // Execute
-  void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+    // Execute
+    void * output = NULL;
+    sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_txn_test_run );
 
-  // Compare effects
-  int ok = sol_compat_cmp_success_fail_only( output, &fixture->output );
+    // Compare effects
+    fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
+    int ok = sol_compat_cmp_txn( effects, &fixture->output );
 
-  // Cleanup
-  pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
-  return ok;
+    // Cleanup
+    pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
+    return ok;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 int
@@ -302,7 +499,7 @@ sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_sbpf_program_load_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_sbpf_program_load_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg );
@@ -325,7 +522,7 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_vm_syscall_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_syscall_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg );
@@ -348,17 +545,14 @@ sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner,
-                              &fixture->input,
-                              &output, 
-                              (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_validate_test_run );
+
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
 
   // Cleanup
   pb_release( &fd_exec_test_validate_vm_fixture_t_msg, fixture );
   return ok;
-
 }
 
 /*
@@ -384,7 +578,7 @@ sol_compat_instr_execute_v1( uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_instr_test_run );
 
   // Encode effects
   int ok = 0;
@@ -395,9 +589,48 @@ sol_compat_instr_execute_v1( uchar *       out,
   // Cleanup
   pb_release( &fd_exec_test_instr_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
 }
 
+int
+sol_compat_txn_execute_v1( uchar *       out,
+                           ulong *       out_sz,
+                           uchar const * in,
+                           ulong         in_sz ) {
+  // Setup
+  ulong fmem[ 64 ];
+  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+
+  // Decode context
+  fd_exec_test_txn_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_txn_context_t_msg );
+  if ( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_txn_test_run );
+
+  // Encode effects
+  int ok = 0;
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_txn_result_t_msg );
+  }
+
+  // Cleanup
+  pb_release( &fd_exec_test_txn_context_t_msg, input );
+  sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+  return ok;
+}
 
 int
 sol_compat_elf_loader_v1( uchar *       out,
@@ -422,7 +655,7 @@ sol_compat_elf_loader_v1( uchar *       out,
     void * out0 = fd_scratch_prepare( 1UL );
     assert( out_bufsz < fd_scratch_free() );
     fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
-    ulong out_used = fd_sbpf_program_load_test_run( NULL, input, &output, out0, out_bufsz );
+    ulong out_used = fd_sbpf_program_load_test_run( NULL, fd_type_pun_const( input ), fd_type_pun( &output ), out0, out_bufsz );
     if( FD_UNLIKELY( !out_used ) ) {
       output = NULL;
       break;
@@ -443,14 +676,13 @@ sol_compat_elf_loader_v1( uchar *       out,
   pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
   fd_scratch_pop();
   fd_scratch_detach( NULL );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
-
 }
 
-sol_compat_features_t const *
-sol_compat_get_features_v1( void ) {
-  return &features;
-}
 
 int
 sol_compat_vm_syscall_execute_v1( uchar *       out,
@@ -471,7 +703,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_syscall_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_syscall_test_run );
 
   // Encode effects
   int ok = 0;
@@ -482,6 +714,10 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   // Cleanup
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
 }
 
@@ -489,7 +725,7 @@ int
 sol_compat_vm_validate_v1(  uchar *       out,
                             ulong *       out_sz,
                             uchar const * in,
-                            ulong         in_sz) {
+                            ulong         in_sz ) {
   // Setup
   ulong fmem[ 64 ];
   fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
@@ -504,7 +740,7 @@ sol_compat_vm_validate_v1(  uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_validate_test_run );
 
   // Encode effects
   int ok = 0;
@@ -515,9 +751,56 @@ sol_compat_vm_validate_v1(  uchar *       out,
   // cleanup
   pb_release( &fd_exec_test_full_vm_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
+}
 
+/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave) 
+   do something other than wrap their vm_syscall equivalent */
+int
+sol_compat_vm_cpi_syscall_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz ) {
+  /* Just a wrapper to vm_syscall_execute_v1 */
+  return sol_compat_vm_syscall_execute_v1( out, out_sz, in, in_sz );
+}
+int
+sol_compat_vm_interp_v1( uchar *       out,
+                         ulong *       out_sz,
+                         uchar const * in,
+                         ulong         in_sz ) {
+  // Setup
+  ulong fmem[ 64 ];
+  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
 
+  // Decode context
+  fd_exec_test_syscall_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+  if ( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
+    return 0;
+  }
 
-  
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
+
+  // Encode effects
+  int ok = 0;
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
+  }
+
+  // Cleanup
+  pb_release( &fd_exec_test_syscall_context_t_msg, input );
+  sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
+  return ok;
 }

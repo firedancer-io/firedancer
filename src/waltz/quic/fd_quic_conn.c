@@ -42,9 +42,8 @@ static ulong
 fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
                             fd_quic_conn_layout_t *  layout ) {
 
-  ulong  tx_buf_sz           = limits->tx_buf_sz;
-  double stream_sparsity     = limits->stream_sparsity;
-  ulong  inflight_pkt_cnt    = limits->inflight_pkt_cnt;
+  double stream_sparsity  = limits->stream_sparsity;
+  ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
 
   ulong  stream_cnt = (
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] +
@@ -53,9 +52,8 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
     limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] );
   layout->stream_cnt = stream_cnt;
 
-  if( FD_UNLIKELY( stream_cnt         ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( tx_buf_sz          ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( inflight_pkt_cnt   ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( stream_cnt      ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
   if( FD_UNLIKELY( stream_sparsity==0.0 ) ) {
     stream_sparsity = FD_QUIC_DEFAULT_SPARSITY;
   }
@@ -280,16 +278,24 @@ fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
   uint type = peer + ( (uint)dirtype << 1u );
 
   /* get tgt_sup_stream_id, sup_stream_id */
-  ulong tgt_sup_stream_id = conn->tgt_sup_stream_id[type];
-  ulong sup_stream_id     = conn->sup_stream_id[type];
+  ulong tgt_sup_stream_id = conn->tgt_sup_stream_id[type] >> 2UL;
+  ulong sup_stream_id     = conn->sup_stream_id[type]     >> 2UL;
+  ulong cur_stream_cnt    = conn->cur_stream_cnt[type];
 
   /* update the cs_tree */
 
   /* determine the weight */
+  float assigned = (float)cur_stream_cnt;
+  float desired  = (float)fd_ulong_if( tgt_sup_stream_id > sup_stream_id,
+                                ( tgt_sup_stream_id - sup_stream_id ),
+                                0UL );
+  float tot      = assigned + desired;
 
-  ulong weight = fd_ulong_if( tgt_sup_stream_id > sup_stream_id,
-                              ( tgt_sup_stream_id - sup_stream_id ) >> 2UL,
-                              0UL );
+  float MAX_WEIGHT = (float)(1UL<<36UL);
+  float alpha      = logf( MAX_WEIGHT ) / tot;
+
+  /* weight is a function of desired vs assigned */
+  float weight = desired == 0.0f ? 0.0f : expf( alpha * desired );
 
   if( conn->state != FD_QUIC_CONN_STATE_ACTIVE &&
       conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
@@ -299,7 +305,7 @@ fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
   /* set the weight in the cs_tree */
   fd_quic_cs_tree_t * cs_tree = fd_quic_get_state( conn->quic )->cs_tree;
   ulong               idx     = ( conn->conn_idx << 1UL ) + dirtype;
-  fd_quic_cs_tree_update( cs_tree, idx, weight );
+  fd_quic_cs_tree_update( cs_tree, idx, (ulong)weight );
 
   /* don't assign streams here to avoid unwanted recursion */
 }

@@ -113,7 +113,7 @@ typedef struct fd_pack_private fd_pack_t;
    object.
 
    pack_depth sets the maximum number of pending transactions that pack
-   stores and may eventually schedule.
+   stores and may eventually schedule.  pack_depth must be at least 4.
 
    bank_tile_cnt sets the number of bank tiles to which this pack object
    can schedule transactions.  bank_tile_cnt must be in [1,
@@ -216,13 +216,9 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
       fee failed, typically because the transaction contained a
       malformed ComputeBudgetProgram instruction.
     * WRITES_SYSVAR: the transaction attempts to write-lock a sysvar.
-      Write-locking a sysvar can cause heavy contention.  Solana Labs
+      Write-locking a sysvar can cause heavy contention.  Agave
       solves this by downgrading these to read locks, but we instead
       solve it by refusing to pack such transactions.
-    * FULL: in rare situations where the heap is full, pack may not be
-      able to accept a transaction regardless of its priority because a
-      transaction cannot be found to be replaced.  This mostly can
-      happen if the whole heap is full of votes.
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -240,15 +236,14 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
 #define FD_PACK_INSERT_REJECT_DUPLICATE_ACCT  (-8)
 #define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-9)
 #define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-10)
-#define FD_PACK_INSERT_REJECT_FULL            (-11)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 11
-#define FD_PACK_INSERT_RETVAL_CNT 15
+#define FD_PACK_INSERT_RETVAL_OFF 10
+#define FD_PACK_INSERT_RETVAL_CNT 14
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_FULL>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_WRITES_SYSVAR>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
@@ -297,6 +292,11 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn      
    the number of transactions will not exceed the value of
    max_txn_per_microblock given in fd_pack_new.
 
+   The requested_cus field of each transaction will be populated with
+   the requested execution CUs, which is different from the total cost
+   CUs used by `total_cus`.  The flags field will be set to 0 or
+   FD_TXN_P_FLAGS_IS_SIMPLE_VOTE.
+
    The block will not contain more than
    vote_fraction*max_txn_per_microblock votes, and votes in total will
    not consume more than vote_fraction*total_cus of the microblock.
@@ -307,6 +307,43 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn      
 
 ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float vote_fraction, ulong bank_tile, fd_txn_p_t * out );
 
+
+/* fd_pack_rebate_cus adjusts the compute unit accounting for the
+   specified transactions to take into account the actual consumed CUs
+   after execution.  When a transaction is scheduled by
+   schedule_next_microblock, pack assumes that it uses all the CUs it
+   requests for the purposes of several CU limits.  If it doesn't use
+   all the requested CUs, this function "rebates" them to pack so that
+   they can be consumed by a different transaction in the block.
+
+   pack must be a valid local join of a pack object.  txns, indexed [0,
+   txn_cnt), should point to the first of txn_cnt transactions scheduled
+   in a microblock by pack.  Although txns does not need to be the same
+   specific pointer passed to out in a call to schedule_next_microblock,
+   it should point to the same data as returned by a call to
+   schedule_next_microblock, other than flags and executed_cus fields.
+   Similarly, txn_cnt should be the return value of the corresponding
+   prior call to schedule_next_microblock.  txn_cnt==0 is okay and a
+   no-op.  txns==NULL is okay if txn_cnt==0.
+
+   This function reads the requested_cus and executed_cus fields of the
+   transactions in txns.  It expects that both refer to just execution
+   CUs, and do not include e.g. write lock cost units.
+
+   IMPORTANT: CU limits are reset at the end of each block, so this
+   should not be called for transactions from a prior block.
+   Specifically, there must not be a call to fd_pack_end_block between
+   the call to schedule_next_microblock this is paired with and the call
+   to rebate_cus.
+
+   This function operates independently of microblock_complete.  In
+   general, you probably need to call both.  microblock_complete must be
+   called before scheduling another microblock to that bank tile, while
+   rebate_cus is optional and has much more relaxed ordering
+   constraints.  The restriction about intervening calls to end_block
+   and that this must come after schedule_next_microblock are the only
+   ordering constraints. */
+void fd_pack_rebate_cus( fd_pack_t * pack, fd_txn_p_t const * txns, ulong txn_cnt );
 
 /* fd_pack_microblock_complete signals that the bank_tile with index
    bank_tile has completed its previously scheduled microblock.  This

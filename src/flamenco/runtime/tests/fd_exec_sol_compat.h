@@ -14,6 +14,9 @@ sol_compat_wksp_init( void );
 void
 sol_compat_fini( void );
 
+void
+sol_compat_check_wksp_usage( void );
+
 fd_exec_instr_test_runner_t *
 sol_compat_setup_scratch_and_runner( void * fmem );
 
@@ -26,9 +29,9 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
                           ulong                         in_sz );
 
 int
-sol_compat_precompile_fixture( fd_exec_instr_test_runner_t * runner,
-                               uchar const *                 in,
-                               ulong                         in_sz );
+sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
+                        uchar const *                 in,
+                        ulong                         in_sz );
 
 int
 sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
@@ -40,7 +43,7 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
                             uchar const *                 in,
                             ulong                         in_sz );
 
-int 
+int
 sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 uchar const *                 in,
                                 ulong                         in_sz );

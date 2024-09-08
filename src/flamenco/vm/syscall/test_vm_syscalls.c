@@ -3,6 +3,13 @@
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
+static void 
+test_vm_syscall_toggle_direct_mapping( fd_exec_instr_ctx_t * instr_ctx, int enable ) {
+  ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
+  char const * one_offs[] = { "EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33" };
+  fd_features_enable_one_offs( (fd_features_t*)&instr_ctx->epoch_ctx->features, one_offs, 1U, slot );
+}
+
 static void
 test_vm_syscall_sol_memset( char const * test_case_name,
                             fd_vm_t *    vm,
@@ -174,28 +181,43 @@ main( int     argc,
   uchar rodata[ rodata_sz ];
   set_memory_region( rodata, rodata_sz );
 
+  /* Setup multi region input region. */
+  ulong const input_sz = 1000UL;
+  uchar input[ input_sz ];
+  ulong const mem_regions_cnt = 4UL;
+  fd_vm_input_region_t input_mem_regions[ mem_regions_cnt ];
+  input_mem_regions[0] = (fd_vm_input_region_t){ .haddr = (ulong)input,         .region_sz = 100UL, .is_writable = 1, .vaddr_offset = 0UL };
+  input_mem_regions[1] = (fd_vm_input_region_t){ .haddr = (ulong)input + 100UL, .region_sz = 1UL,   .is_writable = 1, .vaddr_offset = 100UL };
+  input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
+  input_mem_regions[3] = (fd_vm_input_region_t){ .haddr = (ulong)input + 501UL, .region_sz = 499UL, .is_writable = 1, .vaddr_offset = 501UL };
+
   fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false );
 
   int vm_ok = !!fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ instr_ctx,
-      /* heap_max  */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu  */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata    */ rodata,
-      /* rodata_sz */ rodata_sz,
-      /* text      */ NULL,
-      /* text_cnt  */ 0UL,
-      /* text_off  */ 0UL,
-      /* text_sz   */ 0UL,
-      /* entry_pc  */ 0UL,
-      /* calldests */ NULL,
-      /* syscalls  */ NULL,
-      /* input     */ NULL,
-      /* input_sz  */ 0UL,
-      /* trace     */ NULL,
-      /* sha       */ sha
+      /* vm               */ vm,
+      /* instr_ctx        */ instr_ctx,
+      /* heap_max         */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu         */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata           */ rodata,
+      /* rodata_sz        */ rodata_sz,
+      /* text             */ NULL,
+      /* text_cnt         */ 0UL,
+      /* text_off         */ 0UL,
+      /* text_sz          */ 0UL,
+      /* entry_pc         */ 0UL,
+      /* calldests        */ NULL,
+      /* syscalls         */ NULL,
+      /* trace            */ NULL,
+      /* sha              */ sha,
+      /* mem_regions      */ input_mem_regions,
+      /* mem_regions_cnt  */ (uint)mem_regions_cnt,
+      /* mem_regions_accs */ NULL,
+      /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
+
+  /* Run relevant tests with and without direct mapping enabled */
+  test_vm_syscall_toggle_direct_mapping( instr_ctx, 0 ); /* disable direct mapping */
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region without offset",
                               vm,
@@ -221,6 +243,62 @@ main( int     argc,
                               0UL,
                               100UL,
                               0UL, FD_VM_ERR_SIGSEGV );
+
+  test_vm_syscall_toggle_direct_mapping( instr_ctx, 1 ); /* enable direct mapping */
+
+  test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region without offset",
+                              vm,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              (ulong)&vm->heap[0],
+                              0UL,
+                              100UL,
+                              0UL, FD_VM_SUCCESS );
+
+  test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region with offset",
+                              vm,
+                              FD_VM_MEM_MAP_HEAP_REGION_START + 10UL,
+                              (ulong)&vm->heap[10],
+                              0UL,
+                              100UL,
+                              0UL, FD_VM_SUCCESS );
+
+  // test we cannot memset at the rodata region
+  test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the rodata region",
+                              vm,
+                              FD_VM_MEM_MAP_PROGRAM_REGION_START,
+                              0UL,
+                              0UL,
+                              100UL,
+                              0UL, FD_VM_ERR_SIGSEGV );
+
+  test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset across multiple input mem regions",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START,
+                              (ulong)&input,
+                              1UL,
+                              1000UL,
+                              0UL, FD_VM_SUCCESS );
+  
+  test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset across multiple input mem regions 2",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START,
+                              (ulong)&input + 50UL,
+                              1UL,
+                              800UL,
+                              0UL, FD_VM_SUCCESS );
+    
+  input_mem_regions[2].is_writable=0;
+  test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset across multiple input mem regions invalid write",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START,
+                              (ulong)&input + 50UL,
+                              1UL,
+                              800UL,
+                              1UL, FD_VM_ERR_INVAL );
+  input_mem_regions[2].is_writable=1;
+
+
+  test_vm_syscall_toggle_direct_mapping( instr_ctx, 0 ); /* disable direct mapping */
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy at the heap region",
                               vm,
@@ -281,6 +359,106 @@ main( int     argc,
                               100UL,
                               0UL, FD_VM_ERR_MEM_OVERLAP );
 
+  test_vm_syscall_toggle_direct_mapping( instr_ctx, 1 ); /* enable direct mapping */
+
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy at the heap region",
+                              vm,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              FD_VM_MEM_MAP_HEAP_REGION_START + 100UL,
+                              (ulong)&vm->heap[0],
+                              (ulong)&vm->heap[100],
+                              100UL,
+                              0UL, FD_VM_SUCCESS );
+
+  // test we can copy from ready only region to heap region
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy from read only region to heap region",
+                              vm,
+                              FD_VM_MEM_MAP_PROGRAM_REGION_START,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              (ulong)&vm->rodata[0],
+                              (ulong)&vm->heap[0],
+                              100UL,
+                              0UL, FD_VM_SUCCESS );
+
+  // test we cannot copy from heap region to read only region
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy from heap region to read only region",
+                              vm,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              FD_VM_MEM_MAP_PROGRAM_REGION_START,
+                              (ulong)&vm->heap[0],
+                              (ulong)&vm->rodata[0],
+                              100UL,
+                              0UL, FD_VM_ERR_SIGSEGV );
+
+  // test we cannot copy more than the available size from the read-only region
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy from read only region to heap region",
+                              vm,
+                              FD_VM_MEM_MAP_PROGRAM_REGION_START,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              (ulong)&vm->rodata[0],
+                              (ulong)&vm->heap[0],
+                              rodata_sz + 1UL,
+                              0UL, FD_VM_ERR_SIGSEGV );
+
+  // test we cannot copy overlapping regions in heap where src is before dst
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src before dst",
+                              vm,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              FD_VM_MEM_MAP_HEAP_REGION_START + 10UL,
+                              (ulong)&vm->heap[0],
+                              (ulong)&vm->heap[10],
+                              100UL,
+                              0UL, FD_VM_ERR_MEM_OVERLAP );
+
+  // test we cannot copy overlapping regions in heap where src is after dst
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src after dst",
+                              vm,
+                              FD_VM_MEM_MAP_HEAP_REGION_START + 10UL,
+                              FD_VM_MEM_MAP_HEAP_REGION_START,
+                              (ulong)&vm->heap[10],
+                              (ulong)&vm->heap[0],
+                              100UL,
+                              0UL, FD_VM_ERR_MEM_OVERLAP );
+
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input (single region)",
+                                vm,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 10UL,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 800UL,
+                                vm->input_mem_regions[0].haddr + 10UL,
+                                vm->input_mem_regions[0].haddr + 800UL,
+                                50UL,
+                                0UL, FD_VM_SUCCESS );
+                      
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input overlapping vaddr",
+                                vm,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 80UL,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 120UL,
+                                vm->input_mem_regions[0].haddr + 80UL,
+                                vm->input_mem_regions[0].haddr + 120UL,
+                                50UL,
+                                0UL, FD_VM_ERR_MEM_OVERLAP );
+
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input multiple regions",
+                                vm,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 50UL,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 450UL,
+                                vm->input_mem_regions[0].haddr + 50UL,
+                                vm->input_mem_regions[0].haddr + 450UL,
+                                100UL,
+                                0UL, FD_VM_SUCCESS );
+
+  test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input overlapping vaddr multiple regions",
+                                vm,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 50UL,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 450UL,
+                                vm->input_mem_regions[0].haddr + 50UL,
+                                vm->input_mem_regions[0].haddr + 450UL,
+                                500UL,
+                                0UL, FD_VM_ERR_MEM_OVERLAP );              
+
+
+  test_vm_syscall_toggle_direct_mapping( instr_ctx, 0 ); /* disable direct mapping */
+
   // test we can memmove from heap region to heap region
   test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove from heap region to heap region",
                                vm,
@@ -321,6 +499,85 @@ main( int     argc,
                                100UL,
                                0UL, FD_VM_ERR_SIGSEGV );
 
+  test_vm_syscall_toggle_direct_mapping( instr_ctx, 1 ); /* enable direct mapping */
+
+  // test we can memmove from heap region to heap region
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove from heap region to heap region",
+                               vm,
+                               FD_VM_MEM_MAP_HEAP_REGION_START,
+                               FD_VM_MEM_MAP_HEAP_REGION_START + 100UL,
+                               (ulong)&vm->heap[0],
+                               (ulong)&vm->heap[100],
+                               100UL,
+                               0UL, FD_VM_SUCCESS );
+
+  // test we can memmove overlapping regions in heap
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove overlapping regions in heap",
+                               vm,
+                               FD_VM_MEM_MAP_HEAP_REGION_START,
+                               FD_VM_MEM_MAP_HEAP_REGION_START + 10UL,
+                               (ulong)&vm->heap[0],
+                               (ulong)&vm->heap[10],
+                               100UL,
+                               0UL, FD_VM_SUCCESS );
+
+  // test we can memmove from read only region to heap region
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove from read only region to heap region",
+                               vm,
+                               FD_VM_MEM_MAP_PROGRAM_REGION_START,
+                               FD_VM_MEM_MAP_HEAP_REGION_START,
+                               (ulong)&vm->rodata[0],
+                               (ulong)&vm->heap[0],
+                               100UL,
+                               0UL, FD_VM_SUCCESS );
+
+  // test we cannot memmove from heap region to read only region
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove from heap region to read only region",
+                               vm,
+                               FD_VM_MEM_MAP_HEAP_REGION_START,
+                               FD_VM_MEM_MAP_PROGRAM_REGION_START,
+                               (ulong)&vm->heap[0],
+                               (ulong)&vm->rodata[0],
+                               100UL,
+                               0UL, FD_VM_ERR_SIGSEGV );
+
+
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input (single region)",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 10UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 800UL,
+                              vm->input_mem_regions[0].haddr + 10UL,
+                              vm->input_mem_regions[0].haddr + 800UL,
+                              50UL,
+                              0UL, FD_VM_SUCCESS );
+                      
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input overlapping vaddr",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 80UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 120UL,
+                              vm->input_mem_regions[0].haddr + 80UL,
+                              vm->input_mem_regions[0].haddr + 120UL,
+                              50UL,
+                              0UL, FD_VM_SUCCESS );
+
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input multiple regions",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 50UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 450UL,
+                              vm->input_mem_regions[0].haddr + 50UL,
+                              vm->input_mem_regions[0].haddr + 450UL,
+                              100UL,
+                              0UL, FD_VM_SUCCESS );
+
+  test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input overlapping vaddr multiple regions",
+                                vm,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 50UL,
+                                FD_VM_MEM_MAP_INPUT_REGION_START + 450UL,
+                                vm->input_mem_regions[0].haddr + 50UL,
+                                vm->input_mem_regions[0].haddr + 450UL,
+                                500UL,
+                                0UL, FD_VM_SUCCESS );   
+
   // test for memcmp at the heap region
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp at the heap region",
                               vm,
@@ -357,6 +614,30 @@ main( int     argc,
                               100UL,
                               0UL, FD_VM_ERR_SIGSEGV );
 
+  memset( (void*)input_mem_regions[0].haddr, 0xFF, 400UL );
+  test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp input region equal",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 200UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 600UL,
+                              input_mem_regions[0].haddr,
+                              input_mem_regions[0].haddr + 200UL,
+                              input_mem_regions[0].haddr + 600UL,
+                              200UL,
+                              0UL, FD_VM_SUCCESS );
+
+  memset( (void*)input_mem_regions[0].haddr, 0xEE, 200UL );
+  test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp input region not equal",
+                              vm,
+                              FD_VM_MEM_MAP_INPUT_REGION_START,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 200UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 600UL,
+                              input_mem_regions[0].haddr,
+                              input_mem_regions[0].haddr + 200UL,
+                              input_mem_regions[0].haddr + 600UL,
+                              200UL,
+                              0UL, FD_VM_SUCCESS );
+                      
   uchar expected_log[ FD_VM_LOG_MAX ];
   ulong expected_log_sz = 0UL;
 
@@ -368,7 +649,7 @@ main( int     argc,
 
   FD_TEST( fd_vm_log_reset( vm )==vm ); expected_log_sz = 0UL;
 
-  APPEND( "hello world", 11UL );
+  APPEND( "Program log: hello world", 24UL );
   memcpy( &vm->heap[0], "hello world", 11 );
   // test for collecting logs at the heap region
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log at the heap region",
@@ -380,6 +661,7 @@ main( int     argc,
                            expected_log, expected_log_sz );
 
   // test for collecting logs at the read only region
+  APPEND( "Program log: ", 13UL );
   APPEND( &vm->rodata[0], 100UL );
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log at the read only region",
                            vm,
@@ -390,6 +672,7 @@ main( int     argc,
                            expected_log, expected_log_sz );
 
   // test for writing logs that exceed the remaining space
+  APPEND( "Program log: ", 13UL );
   APPEND( &vm->heap[0], FD_VM_LOG_MAX );
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log that exceeds the limit",
                            vm,
@@ -416,7 +699,8 @@ main( int     argc,
   ulong r3 = fd_rng_ulong(rng);
   ulong r4 = fd_rng_ulong(rng);
   char  msg[1024];
-  ulong msg_len = (ulong)sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r0, r1, r2, r3, r4 );
+  ulong msg_len = (ulong)sprintf( msg, "Program log: 0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx", r0, r1, r2, r3, r4 );
+
   APPEND( msg, msg_len );
   test_vm_syscall_sol_log_64( "test_vm_syscall_sol_log_64: log_64 at the heap region",
                               vm,

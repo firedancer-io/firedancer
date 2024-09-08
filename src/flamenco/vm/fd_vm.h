@@ -18,6 +18,28 @@ typedef struct fd_vm fd_vm_t;
 struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong pc; };
 typedef struct fd_vm_shadow fd_vm_shadow_t;
 
+/* fd_vm_input_region_t holds information about fragmented memory regions 
+   within the larger input region. */
+   
+struct __attribute__((aligned(8UL))) fd_vm_input_region {
+   ulong         vaddr_offset; /* Represents offset from the start of the input region. */
+   ulong         haddr;        /* Host address corresponding to the start of the mem region. */
+   uint          region_sz;    /* Size of the memory region. */
+   uint          is_writable;  /* If the region can be written to or is read-only */
+};
+typedef struct fd_vm_input_region fd_vm_input_region_t;
+
+/* fd_vm_acc_region_meta_t holds metadata about a given account.  An array of these
+   structs will map an instruction account index to its respective input memory
+   region location. */
+
+struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
+   uint  region_idx;
+   uchar has_data_region;
+   uchar has_resizing_region;        
+};
+typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
+
 struct fd_vm {
 
   /* VM configuration */
@@ -56,9 +78,6 @@ struct fd_vm {
      INTO THE MIDDLE OF A MULTIWORD INSTRUCTION) */
 
   fd_sbpf_syscalls_t const * syscalls; /* The map of syscalls (sharable over multiple concurrently running vm) */
-
-  uchar * input;    /* Program input memory, indexed [0,input_sz) FIXME: ALIGN? */
-  ulong   input_sz; /* Program input memory size in bytes, FIXME: BOUNDS? */
 
   fd_vm_trace_t * trace; /* Location to stream traces (no tracing if NULL) */
 
@@ -118,13 +137,21 @@ struct fd_vm {
 
      region_{ld,st}_sz[0] and region_{ld,st}_sz[5] are zero such that
      requests to access data from a positive sz range in these regions
-     will fail, making regions 0 and 5 unreadable and unwriteable.  As
+     will fail, making regions 0 and 5 unreadable and unwritable.  As
      such, region_haddr[0] and region_haddr[5] are arbitrary; NULL is
      used as the obvious default.
 
      region_st_sz[1] is also zero such that requests to store data to
      any positive sz range in this region will fail, making region 1
-     unwriteable. */
+     unwritable.
+     
+     When the direct mapping feature is enabled, the input region will
+     no longer be a contigious buffer of host memory.  Instead 
+     it will compose of several fragmented regions of memory each with
+     its own read/write privleges and size.  Address translation to the
+     input region will now have to rely on a binary search lookup of the
+     start of the appropriate area of physical memory. It also involves
+     doing a check against if the region can be written to. */
 
    /* FIXME: If accessing memory beyond the end of the current heap
       region is not allowed, sol_alloc_free will need to update the tlb
@@ -136,19 +163,32 @@ struct fd_vm {
   uint  region_ld_sz[6];
   uint  region_st_sz[6];
 
-  ulong          reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT.
-                                                     As such, malformed instructions, which can have src/dst reg index in
-                                                     [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
-  fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
-                                                     bottom/top.  Aligned 8. */
-  uchar          stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
-                                                     frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
-                                                     FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-                                                     current stack frame.  Aligned 8. */
-  uchar          heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
-  uchar          log   [ FD_VM_LOG_MAX + FD_VM_LOG_TAIL ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.
-                                                              Aligned 8.  Includes a tail region large enough so various string
-                                                              operations can clobber to simplify a lot of string parsing code. */
+  /* fd_vm_input_region_t and fd_vm_acc_to_mem arrays are passed in by the bpf
+     loaders into fd_vm_init.
+     TODO: It might make more sense to allocate space for these in the VM. */
+  fd_vm_input_region_t *    input_mem_regions;               /* An array of input mem regions represent the input region.
+                                                                The virtual addresses of each region are contigiuous and
+                                                                strictly increasing. */
+  uint                      input_mem_regions_cnt;          
+  fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indicies
+                                                                from the instruction context to the input memory region index
+                                                                of the account's data region in the input space. */
+  uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
+                                                                vm's current instance was initialized by a deprecated program. */
+
+  ulong                     reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT.
+                                                                As such, malformed instructions, which can have src/dst reg index in
+                                                                [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
+  fd_vm_shadow_t            shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
+                                                                bottom/top.  Aligned 8. */
+  uchar                     stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
+                                                                frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
+                                                                FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
+                                                                current stack frame.  Aligned 8. */
+  uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
+  uchar                     log   [ FD_VM_LOG_MAX + FD_VM_LOG_TAIL ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.
+                                                                Aligned 8.  Includes a tail region large enough so various string
+                                                                operations can clobber to simplify a lot of string parsing code. */
 
    fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
@@ -164,9 +204,10 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_VM_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
-   integer power of 2.  FOOTPRINT is a multiple of align. These are provided to facilitate compile time declarations. */
-#define FD_VM_ALIGN     (8UL)
-#define FD_VM_FOOTPRINT (799536UL)
+   integer power of 2.  FOOTPRINT is a multiple of align. 
+   These are provided to facilitate compile time declarations. */
+#define FD_VM_ALIGN     (8UL     )
+#define FD_VM_FOOTPRINT (799552UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -222,10 +263,12 @@ fd_vm_init(
    ulong entry_pc,
    ulong * calldests,
    fd_sbpf_syscalls_t * syscalls,
-   uchar * input,
-   ulong input_sz,
    fd_vm_trace_t * trace,
-   fd_sha256_t * sha );
+   fd_sha256_t * sha,
+   fd_vm_input_region_t * mem_regions,
+   uint mem_regions_cnt,
+   fd_vm_acc_region_meta_t * acc_region_metas,
+   uchar is_deprecated );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.
    Returns a pointer to the memory region holding the vm on success

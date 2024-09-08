@@ -58,6 +58,10 @@ typedef struct {
   } log;
 
   struct {
+    char solana_metrics_config[ 512 ];
+  } reporting;
+
+  struct {
     char  path[ PATH_MAX ];
     char  accounts_path[ PATH_MAX ];
     uint  limit_size;
@@ -81,6 +85,8 @@ typedef struct {
     int    vote;
     char   identity_path[ PATH_MAX ];
     char   vote_account_path[ PATH_MAX ];
+    ulong  authorized_voter_paths_cnt;
+    char   authorized_voter_paths[ 16 ][ PATH_MAX ];
     int    snapshot_fetch;
     int    genesis_fetch;
     int    poh_speed_test;
@@ -117,6 +123,7 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    char agave_affinity[ AFFINITY_SZ ];
     char solana_labs_affinity[ AFFINITY_SZ ];
 
     uint net_tile_count;
@@ -135,7 +142,7 @@ typedef struct {
   struct {
     int sandbox;
     int no_clone;
-    int no_solana_labs;
+    int no_agave;
     int bootstrap;
     uint debug_tile;
     char topology[ 32 ];
@@ -170,7 +177,7 @@ typedef struct {
       char affinity[ AFFINITY_SZ ];
       int  larger_max_cost_per_block;
       int  larger_shred_limits_per_block;
-      int  rocksdb_disable_wal;
+      int  disable_blockstore;
     } bench;
   } development;
 
@@ -198,7 +205,6 @@ typedef struct {
       uint stream_pool_cnt;
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
-      uint tx_buf_size;
       uint idle_timeout_millis;
       int  retry;
 
@@ -255,6 +261,7 @@ typedef struct {
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
+      uint  cluster_version;
     } replay;
 
     struct {

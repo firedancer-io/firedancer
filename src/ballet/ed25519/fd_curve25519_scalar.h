@@ -56,10 +56,10 @@ fd_curve25519_scalar_reduce( uchar       out[ 32 ],
 
 static inline uchar const *
 fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
-  ulong s0 = *(ulong *)(&s[  0 ]);
-  ulong s1 = *(ulong *)(&s[  8 ]);
-  ulong s2 = *(ulong *)(&s[ 16 ]);
-  ulong s3 = *(ulong *)(&s[ 24 ]);
+  ulong s0 = fd_ulong_load_8_fast( s      );
+  ulong s1 = fd_ulong_load_8_fast( s +  8 );
+  ulong s2 = fd_ulong_load_8_fast( s + 16 );
+  ulong s3 = fd_ulong_load_8_fast( s + 24 );
   ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
   ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
   ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
@@ -119,6 +119,20 @@ fd_curve25519_scalar_neg   ( uchar *       s,
                              uchar const * a ) {
   //TODO implement dedicated neg/sub
   return fd_curve25519_scalar_muladd( s, fd_curve25519_scalar_minus_one, a, fd_curve25519_scalar_zero );
+}
+
+static inline uchar *
+fd_curve25519_scalar_set   ( uchar *       s,
+                             uchar const * a ) {
+  return fd_memcpy( s, a, 32 );
+}
+
+static inline uchar *
+fd_curve25519_scalar_from_u64( uchar *     s,
+                               ulong const x ) {
+  fd_memset( s, 0, 32 );
+  *((ulong *)s) = x;
+  return s;
 }
 
 static inline uchar *

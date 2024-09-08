@@ -589,7 +589,11 @@ fd_double_eq( double x,
    cases need to be wrapped in a fd_type_pun.  In short, mixing pointer
    types between t and f is strongly discouraged. */
 
+#if FD_HAS_UBSAN
+#define fd_ptr_if(c,t,f) ((__typeof__((t)))( (c) ? (ulong)(t) : (ulong)(f) ))
+#else
 #define fd_ptr_if(c,t,f) ((__typeof__((t)))fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
+#endif
 
 /* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP} are the same as
    fd_ulong_{mask_lsb,mask_msb,align_up} but can be used at compile
@@ -625,7 +629,7 @@ fd_double_eq( double x,
    if such is beneficial for higher performance.
 
    Accesses that would normally be atomic (e.g. an aligned access to a
-   primitive type like a ulong) are no guaranteed to be atomic if done
+   primitive type like a ulong) are not guaranteed to be atomic if done
    through these annotations. */
 
 #ifndef FD_UNALIGNED_ACCESS_STYLE

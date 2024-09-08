@@ -1,5 +1,0 @@
-{
-  "expected-missing-functions": [],
-  "proof-name": "fd_tls_client_hs_harness",
-  "proof-root": "verification/proofs"
-}

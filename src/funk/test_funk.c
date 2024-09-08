@@ -8,7 +8,7 @@ FD_STATIC_ASSERT( FD_FUNK_FOOTPRINT==256UL,                unit-test );
 FD_STATIC_ASSERT( FD_FUNK_ALIGN    ==alignof(fd_funk_t),   unit-test );
 FD_STATIC_ASSERT( FD_FUNK_FOOTPRINT==sizeof (fd_funk_t),   unit-test );
 
-FD_STATIC_ASSERT( FD_FUNK_MAGIC    ==0xf17eda2ce7fc2c00UL, unit-test );
+FD_STATIC_ASSERT( FD_FUNK_MAGIC    ==0xf17eda2ce7fc2c01UL, unit-test );
 
 int
 main( int     argc,

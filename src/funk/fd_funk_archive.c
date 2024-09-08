@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include "../util/io/fd_io.h"
 
-#define FD_ARCH_MAGIC 0x92a1234fU
+#define FD_ARCH_MAGIC 0x92a1235fU
 
 int
 fd_funk_archive( fd_funk_t *  funk,
@@ -18,7 +18,7 @@ fd_funk_archive( fd_funk_t *  funk,
 
   FD_LOG_NOTICE(( "writing %s ...", filename ));
 
-  int fd = open( filename, O_CREAT | O_RDWR | O_TRUNC, S_IRUSR | S_IWUSR );
+  int fd = open( filename, O_CREAT | O_RDWR | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH );
   if( fd == -1 ) {
     FD_LOG_WARNING(( "failed to open %s: %s", filename, strerror(errno) ));
     return FD_FUNK_ERR_SYS;
@@ -85,6 +85,7 @@ fd_funk_unarchive( fd_funk_t *  funk,
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
   ulong rec_max = funk->rec_max;
+  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
 
   FD_LOG_NOTICE(( "reading %s ...", filename ));
 
@@ -165,7 +166,7 @@ fd_funk_unarchive( fd_funk_t *  funk,
       fd_funk_val_init( rec );
       if( val_sz ) {
         int err;
-        if( !fd_funk_val_speed_load( funk, rec, val_sz, wksp, &err ) ) {
+        if( !fd_funk_val_truncate( rec, val_sz, alloc, wksp, &err ) ) {
           FD_LOG_WARNING(( "archive %s has too much data to fit in given funk wksp", filename ));
           close( fd );
           return err;

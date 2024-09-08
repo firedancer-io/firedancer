@@ -11,7 +11,6 @@ assert_eq( char const * base58,
 
 static inline int
 old_fd_pubkey_is_sysvar_id( fd_pubkey_t const * acct ) {
-  if (memcmp(acct->key, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_sysvar_clock_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_sysvar_slot_history_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
@@ -47,7 +46,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  assert_eq( "Sysvar1111111111111111111111111111111111111", fd_sysvar_owner_id                          );
   assert_eq( "SysvarRecentB1ockHashes11111111111111111111", fd_sysvar_recent_block_hashes_id            );
   assert_eq( "SysvarC1ock11111111111111111111111111111111", fd_sysvar_clock_id                          );
   assert_eq( "SysvarS1otHistory11111111111111111111111111", fd_sysvar_slot_history_id                   );
@@ -73,14 +71,12 @@ main( int     argc,
   assert_eq( "Ed25519SigVerify111111111111111111111111111", fd_solana_ed25519_sig_verify_program_id     );
   assert_eq( "KeccakSecp256k11111111111111111111111111111", fd_solana_keccak_secp_256k_program_id       );
   assert_eq( "ComputeBudget111111111111111111111111111111", fd_solana_compute_budget_program_id         );
-  assert_eq( "ZkTokenProof1111111111111111111111111111111", fd_solana_zk_token_proof_program_id         );
   assert_eq( "AddressLookupTab1e1111111111111111111111111", fd_solana_address_lookup_table_program_id   );
   assert_eq( "So11111111111111111111111111111111111111112", fd_solana_spl_native_mint_id                );
   assert_eq( "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", fd_solana_spl_token_id                      );
-  assert_eq( "ZkE1Gama1Proof11111111111111111111111111111", fd_solana_zk_el_gamal_program_id            );
+  assert_eq( "ZkE1Gama1Proof11111111111111111111111111111", fd_solana_zk_elgamal_proof_program_id       );
 
-  char const * const test_pubkeys[ 34 ] = {
-    "Sysvar1111111111111111111111111111111111111",
+  char const * const test_pubkeys[ 33 ] = {
     "SysvarRecentB1ockHashes11111111111111111111",
     "SysvarC1ock11111111111111111111111111111111",
     "SysvarS1otHistory11111111111111111111111111",
@@ -115,7 +111,7 @@ main( int     argc,
     "11111111111111111111111111111112",
     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
   };
-  for( ulong j=0UL; j<34UL; j++ ) {
+  for( ulong j=0UL; j<33UL; j++ ) {
     fd_pubkey_t decoded[ 1 ];
     FD_TEST( fd_base58_decode_32( test_pubkeys[ j ], decoded->uc ) );
 

@@ -23,11 +23,16 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   /* Prune */
   fd_funk_t *              pruned_funk; /* Capturing accessed accounts during execution*/
 
+  /*======== PROTOBUF ========*/
+  char const *             dump_proto_output_dir;
+  char const *             dump_proto_sig_filter;
+  ulong                    dump_proto_start_slot;
+
   /* Instruction Capture */
   int                      dump_insn_to_pb;
-  char const *             dump_insn_sig_filter;
-  char const *             dump_insn_output_dir;
-  ulong                    dump_insn_start_slot;
+
+  /* Transaction Capture */
+  int                      dump_txn_to_pb;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )

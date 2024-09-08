@@ -44,7 +44,7 @@ FD_PROTOTYPES_BEGIN
    vote account may have been modified. */
 
 int
-fd_vote_program_execute( fd_exec_instr_ctx_t ctx );
+fd_vote_program_execute( fd_exec_instr_ctx_t * ctx );
 
 int
 fd_vote_get_state( fd_borrowed_account_t const * self,

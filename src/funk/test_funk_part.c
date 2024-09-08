@@ -3,20 +3,6 @@
 
 #if FD_HAS_HOSTED
 
-static fd_funk_txn_xid_t *
-fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
-  static FD_TL ulong tag = 0UL;
-  xid->ul[0] = fd_log_app_id();
-  xid->ul[1] = fd_log_thread_id();
-  xid->ul[2] = ++tag;
-# if FD_HAS_X86
-  xid->ul[3] = (ulong)fd_tickcount();
-# else
-  xid->ul[3] = 0UL;
-# endif
-  return xid;
-}
-
 static fd_funk_rec_key_t *
 fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
   static FD_TL ulong tag = 0UL;
@@ -29,9 +15,6 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
   key->ul[3] = 0UL;
 # endif
   key->ul[4] = 0UL;
-  key->ul[5] = 0UL;
-  key->ul[6] = 0UL;
-  key->ul[7] = 0UL;
   return key;
 }
 
@@ -89,7 +72,7 @@ main( int     argc,
   fd_funk_repartition(funk, NUM_PART, random_part, rng);
 
   fd_funk_start_write(funk);
-  
+
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
     uint r = fd_rng_uint( rng );
     int op = (int)(r & 7U); r >>= 3;
@@ -98,7 +81,8 @@ main( int     argc,
     case 0: { /* commit/create a transaction */
       if ( txn == NULL || (r&3) ) {
         fd_funk_txn_xid_t xid[1];
-        txn = fd_funk_txn_prepare(funk, txn, fd_funk_txn_xid_set_unique(xid), 0);
+        xid[0] = fd_funk_generate_xid();
+        txn = fd_funk_txn_prepare(funk, txn, xid, 0);
         FD_TEST(txn);
       } else {
         fd_funk_txn_publish(funk, txn, 0);

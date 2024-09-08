@@ -1,6 +1,5 @@
 #include "fd_bpf_program_util.h"
-#include "fd_bpf_loader_v2_program.h"
-#include "fd_bpf_loader_v3_program.h"
+#include "fd_bpf_loader_program.h"
 #include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
@@ -99,7 +98,6 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
     }
 
     if( FD_UNLIKELY( programdata_rec->const_meta->dlen < PROGRAMDATA_METADATA_SIZE ) ) {
-      FD_LOG_WARNING(( "programdata_rec->const_meta->dlen < PROGRAMDATA_METADATA_SIZE (%lu<%lu)", programdata_rec->const_meta->dlen, PROGRAMDATA_METADATA_SIZE ));
       return -1;
     }
 
@@ -144,8 +142,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     fd_sbpf_elf_info_t elf_info;
-    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, false ) == NULL ) {
-      FD_LOG_WARNING(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0 ) == NULL ) {
+      FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
@@ -221,18 +219,13 @@ fd_bpf_scan_task( void * tpool,
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                       fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool,
-                                                      ulong                max_workers ) {
+                                                      fd_tpool_t *         tpool ) {
   long elapsed_ns = -fd_log_wallclock();
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cached_cnt = 0;
 
   /* Use random-ish xid to avoid concurrency issues */
-  fd_funk_txn_xid_t cache_xid;
-  cache_xid.ul[0] = fd_log_cpu_id() + 1;
-  cache_xid.ul[1] = fd_log_cpu_id() + 1;
-  cache_xid.ul[2] = fd_log_app_id() + 1;
-  cache_xid.ul[3] = fd_log_thread_id() + 1;
+  fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
@@ -242,12 +235,12 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
 
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
-  
+
   fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
   while( rec!=NULL ) {
     FD_SCRATCH_SCOPE_BEGIN {
       fd_funk_rec_t const * * recs = fd_scratch_alloc( alignof(fd_funk_rec_t const *), 65536UL * sizeof(fd_funk_rec_t const *) );
-      uchar * is_bpf_program = fd_scratch_alloc( 8UL, 65536UL * sizeof(uchar) );      
+      uchar * is_bpf_program = fd_scratch_alloc( 8UL, 65536UL * sizeof(uchar) );
 
       /* Make a list of rec ptrs to process */
       ulong rec_cnt = 0;
@@ -261,7 +254,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
         rec_cnt++;
       }
 
-      fd_tpool_exec_all_block( tpool, 0, max_workers, fd_bpf_scan_task, recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
+      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task, recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
 
       for( ulong i = 0; i<rec_cnt; i++ ) {
         if( !is_bpf_program[ i ] ) {
@@ -274,7 +267,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
           cached_cnt++;
         }
       }
-      
+
     } FD_SCRATCH_SCOPE_END;
   }
 
@@ -299,11 +292,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   ulong cnt = 0;
 
   /* Use random-ish xid to avoid concurrency issues */
-  fd_funk_txn_xid_t cache_xid;
-  cache_xid.ul[0] = fd_log_cpu_id() + 1;
-  cache_xid.ul[1] = fd_log_cpu_id() + 1;
-  cache_xid.ul[2] = fd_log_app_id() + 1;
-  cache_xid.ul[3] = fd_log_thread_id() + 1;
+  fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
@@ -343,7 +332,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn, 
+                                                 fd_funk_txn_t *      funk_txn,
                                                  fd_pubkey_t const *  pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(exec_rec);
   if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {

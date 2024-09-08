@@ -13,12 +13,12 @@ scratch_directory = "/dev/shm/fd1"
 
 [layout]
   affinity = "28-78/2,1-69/2"
-  solana_labs_affinity = "71-79/2"
+  agave_affinity = "71-79/2"
   verify_tile_count = 33
   bank_tile_count = 19
+  shred_tile_count = 1
 
 [development.genesis]
-  hashes_per_tick = 12500
   fund_initial_accounts = 10000
 
 [development.bench]
@@ -27,6 +27,7 @@ scratch_directory = "/dev/shm/fd1"
   affinity = "f1,0-26/2"
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
+  disable_blockstore = true
 
 [rpc]
   transaction_history = false

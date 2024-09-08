@@ -110,11 +110,15 @@ fetch () {
     checkout_repo zlib      https://github.com/madler/zlib            "v1.3.1"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
+    checkout_repo luajit    https://github.com/LuaJIT/LuaJIT          "v2.0.5"
   fi
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel protobuf-compiler llvm-toolset lcov )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel protobuf-compiler llvm-toolset lcov systemd-devel pkgconf )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_RPMS+=( lua5.1 lua5.1-bitop )
+  fi
 
   echo "[~] Checking for required RPM packages"
 
@@ -138,7 +142,10 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev cmake libclang-dev )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev libudev-dev cmake libclang-dev pkgconf )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_DEBS+=( lua5.1 lua5.1-bitop )
+  fi
 
   echo "[~] Checking for required DEB packages"
 

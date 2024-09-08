@@ -157,7 +157,7 @@
 /* The details of a fd_funk_private are exposed here to facilitate
    inlining various operations. */
 
-#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c00UL) /* firedancer funk version 0 */
+#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c01UL) /* firedancer funk version 1 */
 
 struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 

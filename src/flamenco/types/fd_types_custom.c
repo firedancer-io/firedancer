@@ -11,7 +11,7 @@ fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
   static FD_TL fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz );
   if( FD_UNLIKELY( !res ) ) {
     /* TODO: Remove this debug print in prod */
     FD_LOG_DEBUG(( "Failed to decode txn (fd_txn.c:%lu)",
@@ -29,7 +29,7 @@ fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   fd_flamenco_txn_t self;
   ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self.txn, NULL, &sz, 0 );
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self.txn, NULL, &sz );
   if( FD_UNLIKELY( !res ) ) {
     return -1000001;
   }
@@ -43,7 +43,7 @@ fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
   static FD_TL fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
+  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz );
   if( FD_UNLIKELY( !res ) ) {
     FD_LOG_ERR(( "Failed to decode txn (fd_txn.c:%lu)",
                  counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
@@ -91,7 +91,27 @@ int fd_tower_sync_decode( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx 
 }
 
 int fd_tower_sync_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  return fd_compact_tower_sync_decode_preflight( ctx );
+  FD_SCRATCH_SCOPE_BEGIN {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1054-L1060
+    fd_compact_tower_sync_t compact_tower_sync[1];
+    fd_bincode_decode_ctx_t decode_ctx = { .data = ctx->data, .dataend = ctx->dataend, .valloc = fd_scratch_virtual() };
+    // Try to decode compact_tower_sync to check that lockout offsets don't cause an overflow
+    int err = fd_compact_tower_sync_decode( compact_tower_sync, &decode_ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    ctx->data = decode_ctx.data;
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1061
+    ulong root = compact_tower_sync->root != ULONG_MAX ? compact_tower_sync->root : 0;
+    for (deq_fd_lockout_offset_t_iter_t iter = deq_fd_lockout_offset_t_iter_init( compact_tower_sync->lockout_offsets );
+                                              !deq_fd_lockout_offset_t_iter_done( compact_tower_sync->lockout_offsets, iter );
+                                        iter = deq_fd_lockout_offset_t_iter_next( compact_tower_sync->lockout_offsets, iter )) {
+      const fd_lockout_offset_t * lockout_offset = deq_fd_lockout_offset_t_iter_ele_const( compact_tower_sync->lockout_offsets, iter );
+      // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1066
+      err = __builtin_uaddl_overflow( root, lockout_offset->offset, &root );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+    return FD_BINCODE_SUCCESS;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -296,4 +316,64 @@ int fd_solana_vote_account_encode( fd_solana_vote_account_t const * self, fd_bin
   err = fd_bincode_uint64_encode( self->rent_epoch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
+}
+
+int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {
+  /* Extract the meta tag */
+  tag = tag & (ushort)((1<<6)-1);
+  uint len;
+  switch( tag ) {
+  case FD_ARCHIVE_META_CHAR:      len = sizeof(uchar);   break;
+  case FD_ARCHIVE_META_CHAR32:    len = 32;              break;
+  case FD_ARCHIVE_META_DOUBLE:    len = sizeof(double);  break;
+  case FD_ARCHIVE_META_LONG:      len = sizeof(long);    break;
+  case FD_ARCHIVE_META_UINT:      len = sizeof(uint);    break;
+  case FD_ARCHIVE_META_UINT128:   len = sizeof(uint128); break;
+  case FD_ARCHIVE_META_BOOL:      len = 1;               break;
+  case FD_ARCHIVE_META_UCHAR:     len = sizeof(uchar);   break;
+  case FD_ARCHIVE_META_UCHAR32:   len = 32;              break;
+  case FD_ARCHIVE_META_UCHAR128:  len = 128;             break;
+  case FD_ARCHIVE_META_UCHAR2048: len = 2048;            break;
+  case FD_ARCHIVE_META_ULONG:     len = sizeof(ulong);   break;
+  case FD_ARCHIVE_META_USHORT:    len = sizeof(ushort);  break;
+
+  case FD_ARCHIVE_META_STRING: {
+    ulong slen;
+    int err = fd_bincode_uint64_decode( &slen, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    len = (uint)slen;
+    break;
+  }
+
+  case FD_ARCHIVE_META_STRUCT:
+  case FD_ARCHIVE_META_VECTOR:
+  case FD_ARCHIVE_META_DEQUE:
+  case FD_ARCHIVE_META_MAP:
+  case FD_ARCHIVE_META_TREAP:
+  case FD_ARCHIVE_META_OPTION:
+  case FD_ARCHIVE_META_ARRAY: {
+    int err = fd_bincode_uint32_decode( &len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    break;
+  }
+
+  default:
+    return FD_BINCODE_ERR_ENCODING;
+  }
+
+  uchar * ptr = (uchar *)ctx->data;
+  if ( FD_UNLIKELY((void *)(ptr + len) > ctx->dataend ) )
+    return FD_BINCODE_ERR_UNDERFLOW;
+  ctx->data = ptr + len;
+  return FD_BINCODE_SUCCESS;
+}
+
+#define REDBLK_T fd_vote_reward_t_mapnode_t
+#define REDBLK_NAME fd_vote_reward_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_vote_reward_t_map_compare( fd_vote_reward_t_mapnode_t * left, fd_vote_reward_t_mapnode_t * right ) {
+  return memcmp( left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey) );
 }

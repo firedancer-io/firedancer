@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../ballet/txn/fd_txn.h" /* FD_TXN_MTU */
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
@@ -47,10 +48,9 @@ fd_quic_test_cb_conn_final( fd_quic_conn_t * conn,
 
 static void
 fd_quic_test_cb_stream_new( fd_quic_stream_t * stream,
-                            void *             quic_ctx,
-                            int                stream_type ) {
-  FD_LOG_DEBUG(( "cb_stream_new(stream=%lu, quic_ctx=%p, stream_type=%#x)",
-                 stream->stream_id, (void *)quic_ctx, stream_type ));
+                            void *             quic_ctx ) {
+  FD_LOG_DEBUG(( "cb_stream_new(stream=%lu, quic_ctx=%p)",
+                 stream->stream_id, (void *)quic_ctx ));
 }
 
 static void
@@ -137,6 +137,7 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   /* Default settings */
   config->idle_timeout     = (ulong)200e6; /* 200ms */
   config->service_interval = (ulong) 10e6; /*  10ms */
+  config->initial_rx_max_stream_data = FD_TXN_MTU;
   strcpy( config->sni, "local" );
 
   /* Default callbacks */
@@ -195,7 +196,7 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
     .stream_sparsity    = 4.0,
     .inflight_pkt_cnt   = 64UL,
     .tx_buf_sz          = 1UL<<15UL,
-    .stream_pool_cnt    = 16
+    .stream_pool_cnt    = 1024
   };
 
   return fd_quic_new_anonymous( wksp, &quic_limits, role, rng );

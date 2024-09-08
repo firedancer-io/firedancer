@@ -21,6 +21,7 @@ build/native/gcc/bin/fd_ledger --cmd replay \
                             --rocksdb $instr_rocksdb_path \
                             --index-max $INDEX_MAX \
                             --end-slot $instr_protobuf_end_slot \
+                            --cluster-version $FIREDANCER_CLUSTER_VERSION \
                             --funk-only 1 \
                             --txn-max 100 \
                             --page-cnt $PAGES \
@@ -31,8 +32,8 @@ build/native/gcc/bin/fd_ledger --cmd replay \
                             --allocator wksp \
                             --on-demand-block-ingest 1 \
                             --dump-insn-to-pb 1 \
-                            --dump-insn-start-slot $instr_mismatch_slot \
-                            --dump-insn-output-dir $instr_fd_dump_instr_out \
+                            --dump-proto-start-slot $instr_mismatch_slot \
+                            --dump-proto-output-dir $instr_fd_dump_instr_out \
                             --tile-cpus 5-21 2>&1
 
 # Run against solana-conformance

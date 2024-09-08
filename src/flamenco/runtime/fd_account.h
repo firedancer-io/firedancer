@@ -202,7 +202,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
    solana_sdk::transaction_context::BorrowedAccount::set_data.
    Assumes that destination account already has enough space to fit
    data.  Acquires a writable handle.
-   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L860-882 */
+   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L867-882 */
 
 int
 fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
@@ -400,22 +400,27 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
 
 /* Transaction account APIs *******************************************/
 
+/* https://github.com/anza-xyz/agave/blob/92ad51805862fbb47dc40968dff9f93b57395b51/sdk/program/src/message/legacy.rs#L636 */
 static inline int
-fd_txn_account_is_writable_idx( fd_txn_t const *    txn_descriptor,
-                                fd_pubkey_t const * accounts,
-                                int                 idx ) {
+fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t * txn_ctx, int idx ) {
+  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
+  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
+  }
 
-  int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
-  if( txn_descriptor->transaction_version == FD_TXN_V0 )
-    acct_addr_cnt += txn_descriptor->addr_table_adtl_cnt;
-
-  if( idx == acct_addr_cnt )
+  if( idx==acct_addr_cnt ) {
     return 0;
+  }
 
-  if( fd_pubkey_is_builtin_program( &accounts[idx] ) || fd_pubkey_is_sysvar_id( &accounts[idx] ) )
+  if( fd_pubkey_is_builtin_program( &txn_ctx->accounts[idx] ) || fd_pubkey_is_sysvar_id( &txn_ctx->accounts[idx] ) ) {
     return 0;
+  }
 
-  return fd_txn_is_writable(txn_descriptor, idx);
+  if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
+    return 0;
+  }
+
+  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
 }
 
 FD_PROTOTYPES_END

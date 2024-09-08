@@ -79,10 +79,16 @@ send_udp_packet( fd_quic_t *   quic,
 
   fd_eth_hdr_t eth = { .net_type = FD_ETH_HDR_TYPE_IP };
   fd_ip4_hdr_t ip4 = {
-    .verihl   = FD_IP4_VERIHL(4,5),
-    .protocol = FD_IP4_HDR_PROTOCOL_UDP,
+    .verihl      = FD_IP4_VERIHL(4,5),
+    .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+    .net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)+size ),
   };
-  fd_udp_hdr_t udp = {0};
+  fd_udp_hdr_t udp = {
+    .net_sport = 8000,
+    .net_dport = 8001,
+    .net_len   = (ushort)( sizeof(fd_udp_hdr_t)+size ),
+    .check     = 0
+  };
 
   /* Guaranteed to not overflow */
   fd_quic_encode_eth( cur, (ulong)( end-cur ), &eth ); cur += sizeof(fd_eth_hdr_t);
@@ -116,7 +122,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .stream_sparsity  = 1.0,
     .inflight_pkt_cnt = 8UL,
     .tx_buf_sz        = 4096UL,
-    .stream_pool_cnt  = 16
+    .stream_pool_cnt  = 1024
   };
 
   /* Enable features depending on the last few bits.  The last bits are
@@ -161,12 +167,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   conn->tx_max_data                            =       512UL;
   conn->tx_initial_max_stream_data_uni         =        64UL;
-  conn->tx_initial_max_stream_data_bidi_local  =        64UL;
-  conn->tx_initial_max_stream_data_bidi_remote =        64UL;
   conn->rx_max_data                            =       512UL;
   conn->rx_initial_max_stream_data_uni         =        64UL;
-  conn->rx_initial_max_stream_data_bidi_local  =        64UL;
-  conn->rx_initial_max_stream_data_bidi_remote =        64UL;
   conn->tx_max_datagram_sz                     = FD_QUIC_MTU;
   fd_quic_conn_set_max_streams( conn, 0, 1 );
   fd_quic_conn_set_max_streams( conn, 1, 1 );
@@ -286,7 +288,7 @@ decrypt_packet( uchar * const data,
 
   /* Decrypt the packet */
 
-  int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, suite, keys );
+  int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
   uint  pkt_number_sz = ( (uint)data[0] & 0x03U ) + 1U;
@@ -297,7 +299,7 @@ decrypt_packet( uchar * const data,
   decrypt_res =
     fd_quic_crypto_decrypt( data,           size,
                             pkt_num_pnoff,  pkt_number,
-                            suite,          keys );
+                            keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
   return fd_ulong_min( total_len + FD_QUIC_CRYPTO_TAG_SZ, size );
@@ -356,6 +358,11 @@ encrypt_packet( uchar * const data,
   uchar const * hdr    = data;
   ulong         hdr_sz = pkt_num_pnoff + pkt_number_sz;
 
+  ulong pkt_number = 0UL;
+  for( ulong j = 0UL; j < pkt_number_sz; ++j ) {
+    pkt_number = ( pkt_number << 8UL ) + (ulong)( hdr[pkt_num_pnoff + j] );
+  }
+
   if( ( out_sz          < hdr_sz ) |
       ( out_sz - hdr_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
     return size;
@@ -367,7 +374,8 @@ encrypt_packet( uchar * const data,
     fd_quic_crypto_encrypt( out, &out_sz,
                             hdr, hdr_sz,
                             pay, pay_sz,
-                            suite, keys, keys );
+                            keys, keys,
+                            pkt_number );
   if( encrypt_res != FD_QUIC_SUCCESS )
     return size;
   assert( out_sz == total_len );

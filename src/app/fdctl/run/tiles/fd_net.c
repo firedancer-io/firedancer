@@ -19,7 +19,7 @@
    There are two reasons we send traffic locally,
 
    * For testing and development.
-   * The Solana Labs code sends local traffic to itself to
+   * The Agave code sends local traffic to itself to
      as part of routine operation (eg, when it's the leader
      it sends votes to its own TPU socket).
 

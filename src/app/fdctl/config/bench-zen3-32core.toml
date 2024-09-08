@@ -10,12 +10,12 @@
 
 [layout]
   affinity = "14-57,f1"
-  solana_labs_affinity = "58-63"
+  agave_affinity = "58-63"
   verify_tile_count = 30
   bank_tile_count = 6
+  shred_tile_count = 1
 
 [development.genesis]
-  hashes_per_tick = 12500
   fund_initial_accounts = 32768
 
 [development.bench]
@@ -24,6 +24,7 @@
   affinity = "f1,0-13"
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
+  disable_blockstore = true
 
 [rpc]
   transaction_history = false

@@ -6,7 +6,7 @@ INCLUDES += -I$(SRCDIR)
 
 PROOF_SOURCES += $(PROOFDIR)/$(HARNESS_FILE).c
 PROOF_SOURCES += $(PROOF_STUB)/fd_log.c
-PROJECT_SOURCES = $(SRCDIR)/tango/quic/templ/fd_quic_transport_params.c
+PROJECT_SOURCES = $(SRCDIR)/waltz/quic/templ/fd_quic_transport_params.c
 
 CBMC_FLAG_UNSIGNED_OVERFLOW_CHECK =
 

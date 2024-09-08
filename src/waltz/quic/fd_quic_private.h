@@ -114,6 +114,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* secret for generating RETRY tokens */
   uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ];
+  uchar retry_iv    [FD_QUIC_RETRY_IV_SZ];
 
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
@@ -280,10 +281,9 @@ fd_quic_cb_conn_final( fd_quic_t *      quic,
 
 static inline void
 fd_quic_cb_stream_new( fd_quic_t *        quic,
-                       fd_quic_stream_t * stream,
-                       int                stream_type ) {
+                       fd_quic_stream_t * stream ) {
   if( FD_UNLIKELY( !quic->cb.stream_new ) ) return;
-  quic->cb.stream_new( stream, quic->cb.quic_ctx, stream_type );
+  quic->cb.stream_new( stream, quic->cb.quic_ctx );
 
   /* update metrics */
   ulong stream_id = stream->stream_id;
@@ -343,6 +343,12 @@ fd_quic_send_retry( fd_quic_t *                  quic,
                     uchar const                  dst_mac_addr_u6[ 6 ],
                     uint                         dst_ip_addr,
                     ushort                       dst_udp_port );
+
+ulong
+fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
+                                fd_quic_pkt_t * pkt,
+                                uchar *         cur_ptr,
+                                ulong           cur_sz );
 
 ulong
 fd_quic_handle_v1_initial( fd_quic_t *               quic,

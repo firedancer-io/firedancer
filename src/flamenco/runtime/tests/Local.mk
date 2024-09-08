@@ -3,13 +3,22 @@ $(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb genera
 
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
-$(call add-hdrs,fd_exec_instr_test.h fd_vm_validate_test.h)
-$(call add-objs,fd_exec_instr_test fd_vm_validate_test,fd_flamenco)
+$(call add-hdrs,fd_exec_instr_test.h fd_vm_test.h)
+$(call add-objs,fd_exec_instr_test fd_vm_test,fd_flamenco)
 $(call add-objs,fd_exec_sol_compat,fd_flamenco)
 
 $(call make-unit-test,test_exec_instr,test_exec_instr,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 $(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 $(call make-shared,libfd_exec_sol_compat.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+
+ifdef FD_HAS_FUZZ
+# The --wrap flag stubs out a function so that we can replace it with our own implementation in the fuzz harness(es)
+# See __wrap_fd_execute_instr in  fd_exec_instr_test.c for example
+# We guard this with FD_HAS_FUZZ because the --wrap flag may not be portable across linkers
+WRAP_FLAGS += -Xlinker --wrap=fd_execute_instr
+$(call make-shared,libfd_exec_sol_compat_stubbed.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
+endif
+
 endif
 endif
 

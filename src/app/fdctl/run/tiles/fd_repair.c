@@ -28,8 +28,10 @@
 #define CONTACT_IN_IDX  1
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
+#define SIGN_IN_IDX     4
 
 #define NET_OUT_IDX   0
+#define SIGN_OUT_IDX  1
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -100,6 +102,8 @@ struct fd_repair_tile_ctx {
 
   fd_wksp_t  *      blockstore_wksp;
   fd_blockstore_t * blockstore;
+
+  fd_keyguard_client_t keyguard_client[1];
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -128,6 +132,16 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_repair_tile_ctx_t) );
+}
+
+void
+repair_signer( void *        signer_ctx,
+               uchar         signature[ static 64 ],
+               uchar const * buffer,
+               ulong         len,
+               int           sign_type ) {
+  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *) signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
 }
 
 static void
@@ -195,7 +209,7 @@ handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
                             ulong                  buf_sz ) {
 
   fd_repair_request_t const * repair_reqs = (fd_repair_request_t const *) buf;
-  ulong repair_req_cnt = buf_sz;
+  ulong repair_req_cnt = buf_sz / sizeof(fd_repair_request_t);
 
   for( ulong i=0UL; i<repair_req_cnt; i++ ) {
     fd_repair_request_t const * repair_req = &repair_reqs[i];
@@ -330,7 +344,7 @@ during_frag( void * _ctx,
     }
 
     dcache_entry = fd_chunk_to_laddr_const( ctx->repair_req_in_mem, chunk );
-    dcache_entry_sz = sz * sizeof(fd_repair_request_t);
+    dcache_entry_sz = sz;
   } else if ( FD_LIKELY( in_idx == NET_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->net_in_chunk0 || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
@@ -487,17 +501,19 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
 
-  if( FD_UNLIKELY( tile->in_cnt != 4 ||
+  if( FD_UNLIKELY( tile->in_cnt != 5 ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 1 ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name, "repair_net" ) ) ) {
+  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "repair_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name, "repair_sign" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -536,6 +552,17 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_net_create_packet_header_template( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->src_mac_addr, ctx->repair_intake_listen_port );
   fd_net_create_packet_header_template( ctx->serve_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_serve_addr.addr, ctx->src_mac_addr, ctx->repair_serve_listen_port );
+
+  /* Keyguard setup */
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                        sign_out->mcache,
+                                                        sign_out->dcache,
+                                                        sign_in->mcache,
+                                                        sign_in->dcache ) ) == NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
+  }
 
   /* Blockstore setup */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
@@ -608,6 +635,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_config.serv_send_fun = repair_send_serve_packet;
   ctx->repair_config.serv_get_shred_fun = repair_get_shred;
   ctx->repair_config.serv_get_parent_fun = repair_get_parent;
+  ctx->repair_config.sign_fun = repair_signer;
+  ctx->repair_config.sign_arg = ctx;
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
     FD_LOG_ERR( ( "error setting repair config" ) );

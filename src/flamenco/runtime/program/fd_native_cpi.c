@@ -11,16 +11,17 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   ulong acct_metas_len,
                                                   fd_pubkey_t const * signers,
                                                   ulong signers_cnt ) {
-  fd_instr_info_t * instr_info = fd_executor_acquire_instr_info_elem( ctx->txn_ctx );
-  if ( FD_UNLIKELY( instr_info == NULL ) ) {
+  fd_instr_info_t * instr_info = &ctx->txn_ctx->instr_infos[ ctx->txn_ctx->instr_info_cnt ];
+  ctx->txn_ctx->instr_info_cnt++;
+  if( FD_UNLIKELY( ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
   }
 
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
 
-  for ( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; i++ ) {
-    if ( memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) == 0 ) {
+  for( ulong i = 0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
+    if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) ) {
       instr_info->program_id = (uchar)i;
       break;
     }
@@ -58,15 +59,8 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
         if( acct_meta->is_writable ) {
           instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
-        if( acct_meta->is_signer && fd_instr_acc_is_signer_idx( ctx->instr, k ) ) {
+        if( acct_meta->is_signer ) {
           instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        } else {
-          for( ulong k = 0; k < signers_cnt; k++ ) {
-            if( memcmp( &signers[k], &acct_meta->pubkey, sizeof( fd_pubkey_t ) ) == 0 ) {
-              instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-              break;
-            }
-          }
         }
         break;
       }
@@ -89,7 +83,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   instr_info->data = buf;
   instr_info->data_sz = sizeof(buf);
   int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
-                                              &instruction_accounts_cnt, signers, signers_cnt );
+                                            &instruction_accounts_cnt, signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("Preparing instruction failed"));
     return exec_err;

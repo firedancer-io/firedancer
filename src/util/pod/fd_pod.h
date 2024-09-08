@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_pod_fd_pod_h
 #define HEADER_fd_src_pod_fd_pod_h
 
-/* pod is a set a of APIs for managing flexible hierarchies of typed
+/* pod is a set of APIs for managing flexible hierarchies of typed
    key-val pairs.  A pod is a data structure for holds these in memory
    contiguously and compactly such that it can be easily saved to
    permanent storage, sent over networks, distributed between different
@@ -55,8 +55,7 @@
                '\0' to facilitate zero-copy user operation /
                interoperability with standard cstr handling APIs
    - val_type: 1 byte, a FD_POD_VAL_TYPE_* for extensibility
-   - val_sz:   number of bytes in in the pod encoded representation
-               of val
+   - val_sz:   number of bytes in the pod encoded representation of val
    - val:      val_sz bytes, interpreted as specified by val_type
 
    key_sz and val_sz are both svw encoded.  There are no theoretical

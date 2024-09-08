@@ -10,6 +10,9 @@ target/
 *.lcov
 *.profraw
 
+# GDB
+.gdb_history
+
 # Clangd
 .cache
 .clangd

@@ -13,5 +13,31 @@ harness( void ) {
   uchar * buf = malloc( size );
   if( !buf ) return;
 
-  assert( fd_keyguard_payload_check_ambiguous( buf, size )==0 );
+  int sign_type;
+  __CPROVER_assume( sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 ||
+                    sign_type==FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
+
+  ulong result = fd_keyguard_payload_match( buf, size, sign_type );
+
+  /* Prune messages may resemble transactions */
+  if( result==(FD_KEYGUARD_PAYLOAD_PRUNE | FD_KEYGUARD_PAYLOAD_TXN) ) {
+    return;
+  }
+
+  /* Treat gossip, prune, and repair as one */
+  ulong conflict1_mask =
+    result &
+    ( FD_KEYGUARD_PAYLOAD_GOSSIP |
+      FD_KEYGUARD_PAYLOAD_PRUNE  |
+      FD_KEYGUARD_PAYLOAD_REPAIR );
+  if( conflict1_mask ) {
+    /* No other matches */
+    result ^= conflict1_mask;
+    assert( result==0 );
+    return;
+  }
+
+  /* All other types must be non-ambiguous */
+  assert( fd_ulong_popcnt( result )<=1UL );
+
 }

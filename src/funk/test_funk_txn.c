@@ -14,20 +14,6 @@ FD_STATIC_ASSERT( FD_FUNK_TXN_FOOTPRINT==sizeof (fd_funk_txn_t), unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_TXN_IDX_NULL==(ulong)UINT_MAX, unit_test );
 
-static fd_funk_txn_xid_t *
-fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
-  static FD_TL ulong tag = 0UL;
-  xid->ul[0] = fd_log_app_id();
-  xid->ul[1] = fd_log_thread_id();
-  xid->ul[2] = ++tag;
-# if FD_HAS_X86
-  xid->ul[3] = (ulong)fd_tickcount();
-# else
-  xid->ul[3] = 0UL;
-# endif
-  return xid;
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -82,7 +68,7 @@ main( int     argc,
   FD_TEST( !fd_funk_txn_cnt    ( map ) );
   FD_TEST( !fd_funk_txn_is_full( map ) );
 
-  fd_funk_txn_xid_t recent_xid[ 64 ]; for( ulong idx=0UL; idx<64UL; idx++ ) fd_funk_txn_xid_set_unique( &recent_xid[ idx ] );
+  fd_funk_txn_xid_t recent_xid[ 64 ]; for( ulong idx=0UL; idx<64UL; idx++ ) recent_xid[ idx ] = fd_funk_generate_xid();
   ulong recent_cursor = 0UL;
 
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
@@ -117,7 +103,8 @@ main( int     argc,
     }
 
     case 2: { /* look up never seen xid (always fail) */
-      fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_unique( xid );
+      fd_funk_txn_xid_t xid[1];
+      xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
       break;
@@ -142,7 +129,8 @@ main( int     argc,
     }
 
     case 5: { /* prepare from most recent published never seen xid (succeed if not full) */
-      fd_funk_txn_xid_t const * xid = fd_funk_txn_xid_set_unique( &recent_xid[ recent_cursor ] );
+      fd_funk_txn_xid_t * xid = &recent_xid[ recent_cursor ];
+      *xid = fd_funk_generate_xid();
       recent_cursor = (recent_cursor+1UL) & 63UL;
       int is_full = fd_funk_txn_is_full( map );
       fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, NULL, xid, verbose );
@@ -178,7 +166,8 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( live_pmap );
       fd_funk_txn_t * parent = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( parent && fd_funk_txn_xid_eq( fd_funk_txn_xid( parent ), &recent_xid[idx] ) );
-      fd_funk_txn_xid_t const * xid = fd_funk_txn_xid_set_unique( &recent_xid[ recent_cursor ] );
+      fd_funk_txn_xid_t * xid = &recent_xid[ recent_cursor ];
+      *xid = fd_funk_generate_xid();
       recent_cursor = (recent_cursor+1UL) & 63UL;
       int is_full = fd_funk_txn_is_full( map );
       fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent, xid, verbose );
@@ -206,7 +195,8 @@ main( int     argc,
     }
 
     case 11: { /* cancel a never seen xid (should always be 0) */
-      fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_unique( xid );
+      fd_funk_txn_xid_t xid[1];
+      xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
       FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
@@ -233,7 +223,8 @@ main( int     argc,
     }
 
     case 14: { /* publish a never seen xid (should always be 0) */
-      fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_unique( xid );
+      fd_funk_txn_xid_t xid[1];
+      xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
       FD_TEST( fd_funk_txn_publish( funk, txn, verbose )==0UL );
@@ -243,7 +234,8 @@ main( int     argc,
     default: { /* various sanity checks */
       uint idx = r & 63U; r >>= 6;
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
-      fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_unique( xid );
+      fd_funk_txn_xid_t xid[1];
+      xid[0] = fd_funk_generate_xid();
 
       fd_funk_txn_t * dead = NULL;
       if( txn_max && !fd_funk_txn_query( fd_funk_txn_xid( &map[0] ), map ) ) dead = &map[0];

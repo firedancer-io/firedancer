@@ -149,32 +149,6 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 #define FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ   ( sizeof( FD_QUIC_CRYPTO_LABEL_QUIC_IV ) - 1 )
 #define FD_QUIC_CRYPTO_LABEL_QUIC_HP_SZ   ( sizeof( FD_QUIC_CRYPTO_LABEL_QUIC_HP ) - 1 )
 
-/* retry token plaintext: 1 + orig dst conn id (padded to 20 bytes) + fd_log_wallclock (long) */
-#define FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ (1 + FD_QUIC_MAX_CONN_ID_SZ + sizeof(long))
-/* ciphertext length should equal plaintext in chosen AEAD scheme */
-#define FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ
-/* retry token authenticated associated data (AAD): ipv4 + port + retry src conn id length */
-#define FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ (4 + 2 + 1)
-/* 256-bit key */
-#define FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ 32
-/* retry token = prepended random bytes + encrypted ciphertext + appended authentication tag */
-#define FD_QUIC_RETRY_TOKEN_SZ (FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ + FD_QUIC_CRYPTO_TAG_SZ)
-/* RETRY secret size in bytes */
-#define FD_QUIC_RETRY_SECRET_SZ 32
-/* RETRY iv size in bytes */
-#define FD_QUIC_RETRY_IV_SZ 12
-/* 256-bit output from HKDF */
-#define FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ 32
-/* HKFD application-specific context (similar to a salt) */
-#define FD_QUIC_RETRY_TOKEN_AEAD_INFO ((const uchar *)"fd quic retry token")
-#define FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ (sizeof("fd quic retry token") - 1)
-/* Retry token lifetime is 15 seconds */
-#define FD_QUIC_RETRY_TOKEN_LIFETIME (ulong)(15 * 1e9L)
-/* The retry integrity tag is the 16-byte tag output of AES-128-GCM */
-#define FD_QUIC_RETRY_INTEGRITY_TAG_SZ FD_QUIC_CRYPTO_TAG_SZ
-#define FD_QUIC_RETRY_INTEGRITY_TAG_KEY ((uchar *)"\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e")
-#define FD_QUIC_RETRY_INTEGRITY_TAG_NONCE ((uchar *)"\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb")
-
 /* bound the max size of the above labels */
 #define FD_QUIC_CRYPTO_LABEL_BOUND 64
 
@@ -367,7 +341,6 @@ fd_quic_gen_new_keys(
     hdr_sz    the size of the input header
     pkt       the input plain text payload
     pkt_sz    the size of the input payload
-    suite     the encryption suite to use
     keys      the keys to use
    */
 int
@@ -378,9 +351,9 @@ fd_quic_crypto_encrypt(
     ulong                          const hdr_sz,
     uchar const *                  const pkt,
     ulong                          const pkt_sz,
-    fd_quic_crypto_suite_t const * const suite,
     fd_quic_crypto_keys_t const *  const pkt_keys,
-    fd_quic_crypto_keys_t const *  const hp_keys );
+    fd_quic_crypto_keys_t const *  const hp_keys,
+    ulong                          const pkt_number );
 
 
 /* decrypt a quic protected packet
@@ -402,7 +375,6 @@ fd_quic_crypto_encrypt(
      buf_sz             the size of the QUIC packet
      pkt_number_off     the offset of the packet number within the cipher text
                         this must be determined from unprotected header data
-     suite              which particular cipher suite the packet was protected with
      keys               the keys needed to decrypt */
 
 int
@@ -411,7 +383,6 @@ fd_quic_crypto_decrypt(
     ulong                          buf_sz,
     ulong                          pkt_number_off,
     ulong                          pkt_number,
-    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys );
 
 
@@ -435,7 +406,6 @@ fd_quic_crypto_decrypt(
      buf_sz             size of the QUIC packet
      pkt_number_off     the offset of the packet number within the cipher text
                         this must be determined from unprotected header data
-     suite              which particular cipher suite the packet was protected with
      keys               the keys needed to decrypt */
 
 int
@@ -443,7 +413,6 @@ fd_quic_crypto_decrypt_hdr(
     uchar *                        buf,
     ulong                          buf_sz,
     ulong                          pkt_number_off,
-    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys );
 
 
@@ -472,69 +441,5 @@ fd_quic_crypto_lookup_suite( uchar major,
 #undef _
   }
 }
-
-/* Create a retry token (RFC 9000, Section 17.2.5). Note the RFC does not specify how to generate
-   the token, only specifying that it is "an opaque token that the server can use to validate the
-   client's address."
-
-   Hence, in this particular QUIC implementation, the token is generated via the following scheme:
-     1. Generate a sequence of 32 cryptographically-secure pseudorandom bytes (256 bits).
-     2. HKDF-expand these bytes to form a key for the subsequent AEAD function.
-          See RFC 5869, Section 3.3 for why it's ok to skip the HKDF-extract step.
-     3. Run AES-256-GCM.
-          The input plaintext is the client's original destination connection id and the current
-          timestamp. The associated data is the server's retry source connection id and client's
-          IPv4 address and UDP port.
-     4. The token is the concatenation of random bytes, encrypted ciphertext, and authentication
-        tag, in that order.
-
-  Returns the ciphertext's length, -1 on error.
-
-  Footnotes
-  - This is _not_ the Retry Integrity Tag scheme specified in RFC 9001, Section 5.8.
-  - This scheme is based on what's done in quinn (which is the QUIC implementation used by the
-    original Solana validator client), though a similar HKDF + AEAD scheme is used in other
-    implementations as well (quic-go, msquic). The differences are mainly what metadata is passed
-    to AEAD as plaintext vs. as associated data. */
-int
-fd_quic_retry_token_encrypt(
-    uchar const               retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
-    /* plaintext (timestamp calculated in function) */
-    fd_quic_conn_id_t const * orig_dst_conn_id,
-    ulong                     now,
-    /* aad */
-    fd_quic_conn_id_t const * retry_src_conn_id,
-    uint                      ip_addr,
-    ushort                    udp_port,
-    /* ciphertext */
-    uchar                     retry_token[static FD_QUIC_RETRY_TOKEN_SZ]
-);
-
-/* Decrypt a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
-int
-fd_quic_retry_token_decrypt(
-    uchar const         retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
-    /* ciphertext */
-    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ],
-    /* aad */
-    fd_quic_conn_id_t * retry_src_conn_id,
-    uint                ip_addr,
-    ushort              udp_port,
-    /* plaintext */
-    fd_quic_conn_id_t * orig_dst_conn_id,
-    ulong *             now
-);
-
-int fd_quic_retry_integrity_tag_encrypt(
-    uchar * retry_pseudo_pkt,
-    int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
-);
-
-int fd_quic_retry_integrity_tag_decrypt(
-    uchar * retry_pseudo_pkt,
-    int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
-);
 
 #endif /* HEADER_fd_src_waltz_quic_crypto_fd_quic_crypto_suites_h */

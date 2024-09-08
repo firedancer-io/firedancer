@@ -211,7 +211,7 @@ fd_dcache_compact_is_safe( void const * base,
 
   /* At this point, complete chunks in dcache cover [chunk0,chunk1)
      relative to the base address and any range of chunks in the dcache
-     can be be losslessly compressed into two 32-bit values. */
+     can be losslessly compressed into two 32-bit values. */
 
   /* Validate mtu */
 

@@ -80,13 +80,12 @@
    the order they decided to write their code.
    These are all fatal errors, so the specific errors doesn't matter for
    consensus.
-   We cover a number of them, but to reduce complexity we just summarize
-   them in 2 codes: error verifying signature, error retrieving data. */
+   To simplify our fuzzers, we return the same error code for all errors. */
 #define FD_EXECUTOR_PRECOMPILE_ERR_PUBLIC_KEY                    ( -1 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_RECOVERY_ID                   ( -2 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE                     ( -3 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( -4 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( -5 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_RECOVERY_ID                   ( -1 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE                     ( -1 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( -1 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( -1 )
 
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)

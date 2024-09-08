@@ -38,13 +38,14 @@
 typedef union fd_features fd_features_t;
 
 /* fd_feature_id_t maps a feature ID (account address) to the byte
-   byte offset in fd_features_t. */
+   offset in fd_features_t. */
 
 struct fd_feature_id {
   ulong        index;          /* index of feature in fd_features_t */
   fd_pubkey_t  id;             /* pubkey of feature */
   char const * name;           /* feature name cstr */
-  uint         hardcoded;      /* hardcoded cluster version for feature */
+  uint         cleaned_up;     /* cleaned_up cluster version for feature */
+  uchar        reverted;       /* if the feature was reverted */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
@@ -54,7 +55,7 @@ FD_PROTOTYPES_BEGIN
    The last element has offset==ULONG_MAX. */
 extern fd_feature_id_t const ids[];
 
-/* fd_features_disable_all disables all features (hardcoded or not). */
+/* fd_features_disable_all disables all features (cleaned_up or not). */
 
 void
 fd_features_disable_all( fd_features_t * f );
@@ -64,12 +65,20 @@ fd_features_disable_all( fd_features_t * f );
 void
 fd_features_enable_all( fd_features_t * );
 
-/* fd_features_enable_hardcoded enables all features marked as "hard
+/* fd_features_enable_cleaned_up enables all features marked as "hard
    coded".  These are features that are baked into the current version
    of the Firedancer software and can't be disabled. */
 
 void
-fd_features_enable_hardcoded( fd_features_t *, uint );
+fd_features_enable_cleaned_up( fd_features_t *, uint );
+
+/* fd_features_enable_one_offs enables all manually passed in features. */
+
+void
+fd_features_enable_one_offs( fd_features_t * features, 
+                             char const * *  one_offs,
+                             uint            one_offs_cnt,
+                             ulong           slot );
 
 /* fd_feature_iter_{...} is an iterator-style API over all supported
    features in this version of Firedancer.  Usage:

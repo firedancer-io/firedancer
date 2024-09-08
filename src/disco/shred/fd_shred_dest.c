@@ -51,7 +51,8 @@ fd_shred_dest_new( void                           * mem,
                    fd_shred_dest_weighted_t const * info,
                    ulong                            cnt,
                    fd_epoch_leaders_t const       * lsched,
-                   fd_pubkey_t const              * source ) {
+                   fd_pubkey_t const              * source,
+                   ulong                            excluded_stake ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -88,6 +89,12 @@ fd_shred_dest_new( void                           * mem,
   ulong staked_cnt   = cnts[0];
   ulong unstaked_cnt = cnts[1];
 
+  if( FD_UNLIKELY( (excluded_stake>0UL) & (unstaked_cnt>0UL) ) ) {
+    /* If excluded stake > 0, then the list must be filled with staked nodes. */
+    FD_LOG_WARNING(( "cannot have excluded stake and unstaked validators" ));
+    return NULL;
+  }
+
   void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
   void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
 
@@ -97,7 +104,7 @@ fd_shred_dest_new( void                           * mem,
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
 
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
-  _staked   = fd_wsample_new_fini( _staked   );
+  _staked   = fd_wsample_new_fini( _staked, excluded_stake );
 
   pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt ) );
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -118,6 +125,7 @@ fd_shred_dest_new( void                           * mem,
   sdest->unstaked_unremoved_cnt     = 0UL; /* unstaked doesn't get initialized until it's needed */
   sdest->staked_cnt                 = staked_cnt;
   sdest->unstaked_cnt               = unstaked_cnt;
+  sdest->excluded_stake             = excluded_stake;
   sdest->pubkey_to_idx_map          = pubkey_to_idx_map;
   sdest->source_validator_orig_idx  = query->idx;
 
@@ -276,7 +284,8 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] );
-    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (ushort)fd_wsample_sample( sdest->staked );
+    /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
+    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (ushort)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
     else                                     out[i] = (ushort)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
   }
   fd_wsample_restore_all( sdest->staked );
@@ -345,6 +354,12 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
 
     if( FD_UNLIKELY( !i_am_staked ) ) {
+      /* If there's excluded stake, we don't know about any unstaked
+         validators, so if I am unstaked, then I'm in the excluded
+         region, and we have no hope of computing my position in the
+         shuffle. */
+      if( FD_UNLIKELY( sdest->excluded_stake>0UL ) ) return NULL;
+
       /* Quickly burn through all the staked nodes since I'll be in the
          unstaked portion.  We don't care about the values, but we need
          to advance the RNG the right number of times, and sadly there's
@@ -371,8 +386,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
            trigger sample==FD_WSAMPLE_EMPTY below.  Thus, this access is
            safe. */
         ulong sample = staked_shuffle[ my_idx ];
-        if( FD_UNLIKELY( sample==my_orig_idx      ) ) break; /* Found me! */
-        if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) return NULL; /* I couldn't find myself.  This should be impossible. */
+        if( FD_UNLIKELY( sample==my_orig_idx              ) ) break; /* Found me! */
+        if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY         ) ) return NULL; /* I couldn't find myself.  This should be impossible. */
+        if( FD_UNLIKELY( sample==FD_WSAMPLE_INDETERMINATE ) ) my_idx=ULONG_MAX-1UL; /* Hit poisoned region before myself. No
+                                                                                       clue about position. Break immediately and
+                                                                                       fill with NO_DEST below. */
         my_idx++;
       }
     }
@@ -391,7 +409,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
         0                |  1, 2, ..., F
         j in [1, F]      |  j + l*F for l in [1,F]
         [F+1, F^2+F]     |  Nobody
-        [F^2+F+1, inf)   |  Not yet implemented in Labs code
+        [F^2+F+1, inf)   |  Not yet implemented in Agave code
      */
     ulong last_dest_idx = fd_ulong_if( my_idx==0UL, fanout, my_idx+fanout*fanout ); /* inclusive */
     ulong stride        = fd_ulong_if( my_idx==0UL, 1UL,    fanout               );
@@ -410,7 +428,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
     while( cursor<=fd_ulong_min( last_dest_idx, sdest->staked_cnt ) ) {
       ulong sample = staked_shuffle[ cursor ];
-      if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) break;
+      if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY         ) ) break;
+      if( FD_UNLIKELY( sample==FD_WSAMPLE_INDETERMINATE ) ) break;
 
       if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
         out[ stored_cnt*out_stride + i ] = (ushort)sample;
@@ -418,8 +437,13 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       }
       cursor++;
     }
+    /* If we broke from the above loop because of indeterminate, then
+       unstaked_cnt==0, so the next loop will also be a no-op, and we'll
+       fill the remaining array with NO_DEST, as desired. */
 
-    /* Next set of samples (if any) come from the unstaked portion */
+    /* Next set of samples (if any) come from the unstaked portion. If I
+       am not staked, then prepare_unstaked_sampling was already called
+       earlier. */
     if( FD_LIKELY( (cursor<=last_dest_idx) & !!i_am_staked ) ) prepare_unstaked_sampling( sdest, leader_idx );
     while( cursor<=last_dest_idx ) {
       ulong sample = sample_unstaked( sdest );

@@ -5,12 +5,13 @@
 
 #include "generated/fd_metrics_all.h"
 #include "generated/fd_metrics_quic.h"
+#include "generated/fd_metrics_dedup.h"
 #include "generated/fd_metrics_pack.h"
 #include "generated/fd_metrics_bank.h"
 #include "generated/fd_metrics_poh.h"
 #include "generated/fd_metrics_store.h"
 #include "generated/fd_metrics_shred.h"
-#ifdef FD_HAS_NO_SOLANA
+#ifdef FD_HAS_NO_AGAVE
 #include "generated/fd_metrics_replay.h"
 #include "generated/fd_metrics_storei.h"
 #endif

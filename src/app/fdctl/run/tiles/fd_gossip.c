@@ -1,6 +1,6 @@
 /* Gossip tile runs the gossip networking protcol for a Firedancer node. */
 
-#define _GNU_SOURCE 
+#define _GNU_SOURCE
 
 #include "../../../../disco/tiles.h"
 
@@ -32,7 +32,7 @@
 
 #define SHRED_OUT_IDX   0
 #define REPAIR_OUT_IDX  1
-#define PACK_OUT_IDX    2
+#define DEDUP_OUT_IDX   2
 #define SIGN_OUT_IDX    3
 #define VOTER_OUT_IDX   4
 
@@ -54,7 +54,7 @@ fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
 
 static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) ); 
+  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
 
 static void
@@ -110,15 +110,15 @@ struct fd_gossip_tile_ctx {
   ulong       voter_contact_out_wmark;
   ulong       voter_contact_out_chunk;
 
-  fd_frag_meta_t * pack_out_mcache;
-  ulong *          pack_out_sync;
-  ulong            pack_out_depth;
-  ulong            pack_out_seq;
+  fd_frag_meta_t * dedup_out_mcache;
+  ulong *          dedup_out_sync;
+  ulong            dedup_out_depth;
+  ulong            dedup_out_seq;
 
-  fd_wksp_t * pack_out_mem;
-  ulong       pack_out_chunk0;
-  ulong       pack_out_wmark;
-  ulong       pack_out_chunk;
+  fd_wksp_t * dedup_out_mem;
+  ulong       dedup_out_chunk0;
+  ulong       dedup_out_wmark;
+  ulong       dedup_out_chunk;
 
   fd_wksp_t * replay_in_mem;
   ulong       replay_in_chunk0;
@@ -131,7 +131,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_peer_addr_t tpu_my_addr;
   fd_gossip_peer_addr_t tpu_vote_my_addr;
   ushort                gossip_listen_port;
-  
+
   fd_wksp_t *     net_in_mem;
   ulong           net_in_chunk;
   ulong           net_in_wmark;
@@ -216,9 +216,9 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
   fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
-  hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ), 
-                                      *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ), 
-                                      (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ), 
+  hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ),
+                                      *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ),
+                                      (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ),
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -227,10 +227,10 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
-static void 
-gossip_send_packet( uchar const * msg, 
-                    size_t msglen, 
-                    fd_gossip_peer_addr_t const * addr, 
+static void
+gossip_send_packet( uchar const * msg,
+                    size_t msglen,
+                    fd_gossip_peer_addr_t const * addr,
                     void * arg ) {
 ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
@@ -285,15 +285,15 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       return;
     }
 
-    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
+    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->dedup_out_mem, ctx->dedup_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
 
-    ulong sig = 1UL; 
-    fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, sig, ctx->pack_out_chunk,
+    ulong sig = 1UL;
+    fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, sig, ctx->dedup_out_chunk,
       vote_txn_sz, 0UL, 0, 0 );
-    ctx->pack_out_seq   = fd_seq_inc( ctx->pack_out_seq, 1UL );
-    ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, vote_txn_sz, ctx->pack_out_chunk0, ctx->pack_out_wmark );
+    ctx->dedup_out_seq   = fd_seq_inc( ctx->dedup_out_seq, 1UL );
+    ctx->dedup_out_chunk = fd_dcache_compact_next( ctx->dedup_out_chunk, vote_txn_sz, ctx->dedup_out_chunk0, ctx->dedup_out_wmark );
 
   } else if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
@@ -308,6 +308,22 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     if (ele) {
       ele->contact_info = *contact_info;
     }
+  } else if( fd_crds_data_is_contact_info_v2( data ) ) {
+    fd_gossip_contact_info_v2_t const * contact_info_v2 = &data->inner.contact_info_v2;
+
+    fd_gossip_contact_info_v1_t contact_info;
+    fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
+    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.addr.inner.ip4 ), contact_info.gossip.port ));
+
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
+    if (FD_UNLIKELY(!ele &&
+                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
+      ele = fd_contact_info_table_insert(ctx->contact_info_table,
+                                         &contact_info.id);
+    }
+    if (ele) {
+      ele->contact_info = contact_info;
+    }
   }
 }
 
@@ -315,14 +331,15 @@ void
 gossip_signer( void *        signer_ctx,
                uchar         signature[ static 64 ],
                uchar const * buffer,
-               ulong         len ) {
+               ulong         len,
+               int           sign_type ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)signer_ctx;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
 }
 
 static void
 before_frag( void * _ctx        FD_PARAM_UNUSED,
-             ulong  in_idx      FD_PARAM_UNUSED, 
+             ulong  in_idx      FD_PARAM_UNUSED,
              ulong  seq         FD_PARAM_UNUSED,
              ulong  sig,
              int *  opt_filter ) {
@@ -497,6 +514,7 @@ after_credit( void *             _ctx,
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
+    FD_LOG_INFO(( "publishing peers - tvu: %lu, repair: %lu, tpu_vote: %lu", tvu_peer_cnt, repair_peers_cnt, voter_peers_cnt ));
     if( tvu_peer_cnt>0 ) {
       *shred_dest_msg         = tvu_peer_cnt;
       ulong shred_contact_sz  = sizeof(ulong) + (tvu_peer_cnt * sizeof(fd_shred_dest_wire_t));
@@ -552,9 +570,9 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
   if( FD_UNLIKELY( tile->in_cnt != 3UL ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_gossip" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX  ] ].name,  "voter_gossip" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].name, "sign_gossip" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX   ] ].name, "net_gossip" )   ||
+                   strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ].name, "voter_gossip" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX  ] ].name, "sign_gossip" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
@@ -562,9 +580,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_cnt != 5 ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name, "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "gossip_repai" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ PACK_OUT_IDX   ] ].name, "gossip_pack" )   ||
+                   strcmp( topo->links[ tile->out_link_id[ DEDUP_OUT_IDX  ] ].name, "gossip_dedup" )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name, "gossip_sign" )   ||
-                   strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ].name,  "gossip_voter" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX  ] ].name, "gossip_voter" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -624,7 +642,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Gossip set up */
   ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, ctx->gossip_seed ) );
 
-  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u", 
+  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
   ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v2_t){
@@ -676,7 +694,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_in_chunk  = fd_disco_compact_chunk0( ctx->net_in_mem );
   ctx->net_in_wmark  = fd_disco_compact_wmark( ctx->net_in_mem, netmux_link->mtu );
-  
+
   fd_topo_link_t * replay_in = &topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ];
   ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in->dcache );
@@ -704,16 +722,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_contact_out_wmark       = fd_dcache_compact_wmark ( ctx->repair_contact_out_mem, repair_contact_out->dcache, repair_contact_out->mtu );
   ctx->repair_contact_out_chunk       = ctx->repair_contact_out_chunk0;
 
-  /* Set up repair contact info tile output */
-  fd_topo_link_t * pack_out = &topo->links[ tile->out_link_id[ PACK_OUT_IDX ] ];
-  ctx->pack_out_mcache      = pack_out->mcache;
-  ctx->pack_out_sync        = fd_mcache_seq_laddr( ctx->pack_out_mcache );
-  ctx->pack_out_depth       = fd_mcache_depth( ctx->pack_out_mcache );
-  ctx->pack_out_seq         = fd_mcache_seq_query( ctx->pack_out_sync );
-  ctx->pack_out_mem         = topo->workspaces[ topo->objs[ pack_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_out_chunk0      = fd_dcache_compact_chunk0( ctx->pack_out_mem, pack_out->dcache );
-  ctx->pack_out_wmark       = fd_dcache_compact_wmark ( ctx->pack_out_mem, pack_out->dcache, pack_out->mtu );
-  ctx->pack_out_chunk       = ctx->pack_out_chunk0;
+  /* Set up dedup tile output */
+  fd_topo_link_t * dedup_out = &topo->links[ tile->out_link_id[ DEDUP_OUT_IDX ] ];
+  ctx->dedup_out_mcache      = dedup_out->mcache;
+  ctx->dedup_out_sync        = fd_mcache_seq_laddr( ctx->dedup_out_mcache );
+  ctx->dedup_out_depth       = fd_mcache_depth( ctx->dedup_out_mcache );
+  ctx->dedup_out_seq         = fd_mcache_seq_query( ctx->dedup_out_sync );
+  ctx->dedup_out_mem         = topo->workspaces[ topo->objs[ dedup_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->dedup_out_chunk0      = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out->dcache );
+  ctx->dedup_out_wmark       = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out->dcache, dedup_out->mtu );
+  ctx->dedup_out_chunk       = ctx->dedup_out_chunk0;
 
   /* Set up crds vote voter tile output  */
   fd_topo_link_t * voter_out = &topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ];

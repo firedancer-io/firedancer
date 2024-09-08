@@ -1,10 +1,12 @@
 #include "fd_quic.h"
 #include "fd_quic_common.h"
 #include "fd_quic_conn_id.h"
+#include "fd_quic_enum.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_proto.h"
+#include "fd_quic_retry.h"
 
 #include "templ/fd_quic_frame_handler_decl.h"
 #include "templ/fd_quic_frames_templ.h"
@@ -16,6 +18,7 @@
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
@@ -61,6 +64,25 @@
  * which may only contain acks. */
 # define FD_QUIC_OPT_SEND_ALL_ACKS 0
 
+/* FD_QUIC_PING_ENABLE
+ *
+ * This compile time option specifies whether the server should use
+ * QUIC PING frames to keep connections alive
+ *
+ * Set to 1 to keep connections alive
+ * Set to 0 to allow connections to close on idle */
+# define FD_QUIC_PING_ENABLE 0
+
+/* FD_QUIC_MAX_STREAMS_ALWAYS  */
+/* Defines whether a MAX_STREAMS frame is sent even if it was just */
+/* sent */
+/* They take very little space, and a dropped MAX_STREAMS frame can */
+/* be very consequential */
+/* Even when set, QUIC won't send this frame if the client has ackd */
+/* the most recent value */
+# define FD_QUIC_MAX_STREAMS_ALWAYS 1
+
+
 
 /* Construction API ***************************************************/
 
@@ -101,8 +123,11 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( tx_buf_sz       ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( stream_pool_cnt ==0UL ) ) return 0UL;
+
+  /* Ensure we have enough streams to cover at least FD_QUIC_STREAM_MIN per */
+  /* connection */
+  if( FD_UNLIKELY( stream_pool_cnt < FD_QUIC_STREAM_MIN * conn_cnt ) ) return 0UL;
 
   if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
     conn_id_sparsity = FD_QUIC_DEFAULT_SPARSITY;
@@ -198,8 +223,7 @@ fd_quic_new( void * mem,
 
   if( FD_UNLIKELY( ( limits->conn_cnt        ==0UL )
                  | ( limits->handshake_cnt   ==0UL )
-                 | ( limits->inflight_pkt_cnt==0UL )
-                 | ( limits->tx_buf_sz       ==0UL ) ) ) {
+                 | ( limits->inflight_pkt_cnt==0UL ) ) ) {
     FD_LOG_WARNING(( "invalid limits" ));
     return NULL;
   }
@@ -322,7 +346,6 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->tx_tot_data        = 0;
   stream->tx_last_byte       = 0;
 
-  stream->rx_max_stream_data = 0;
   stream->rx_tot_data        = 0;
 
   stream->upd_pkt_number     = 0;
@@ -504,14 +527,21 @@ fd_quic_init( fd_quic_t * quic ) {
   state->cs_tree = (fd_quic_cs_tree_t*)cs_tree_laddr;
   fd_quic_cs_tree_init( state->cs_tree, ( limits->conn_cnt << 1UL ) + 1UL );
 
-  fd_rng_new( state->_rng, 0UL, 0UL );
+  /* generate a secure random number as seed for fd_rng */
+  uint rng_seed = 0;
+  int rng_seed_ok = !!fd_rng_secure( &rng_seed, sizeof(rng_seed) );
+  if( FD_UNLIKELY( !rng_seed_ok ) ) {
+    FD_LOG_ERR(( "fd_rng_secure failed" ));
+  }
+  fd_rng_new( state->_rng, rng_seed, 0UL );
 
   /* use rng to generate secret bytes for future RETRY token generation */
-  fd_rng_t * rng = fd_rng_join( state->_rng );
-  for( ulong j = 0; j < FD_QUIC_RETRY_SECRET_SZ; ++j ) {
-    state->retry_secret[j] = fd_rng_uchar( rng );
+  int rng1_ok = !!fd_rng_secure( state->retry_secret, FD_QUIC_RETRY_SECRET_SZ );
+  int rng2_ok = !!fd_rng_secure( state->retry_iv,     FD_QUIC_RETRY_IV_SZ     );
+  if( FD_UNLIKELY( !rng1_ok || !rng2_ok ) ) {
+    FD_LOG_ERR(( "fd_rng_secure failed" ));
+    return NULL;
   }
-  fd_rng_leave( rng );
 
   /* Initialize crypto */
 
@@ -531,8 +561,6 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms          );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    0                        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  initial_max_stream_data  );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             0                        );
@@ -733,7 +761,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   }
 
   if( conn->flags && conn->upd_pkt_number >= app_pkt_number ) {
-    enc_level = fd_quic_enc_level_appdata_id;
+    return fd_quic_enc_level_appdata_id;
   }
 
   /* nothing to send */
@@ -913,6 +941,11 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
     return NULL;
   }
 
+  if( FD_UNLIKELY( dirtype==FD_QUIC_TYPE_BIDIR ) ) {
+    /* bidirectional streams not supported */
+    return NULL;
+  }
+
   fd_quic_stream_init( stream );
   FD_QUIC_STREAM_LIST_INIT_STREAM( stream );
 
@@ -922,14 +955,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   stream->context   = NULL;
 
   /* set the max stream data to the appropriate initial value */
-  stream->tx_max_stream_data = fd_ulong_if( dirtype == FD_QUIC_TYPE_BIDIR,
-                                     conn->tx_initial_max_stream_data_bidi_local,
-                                     conn->tx_initial_max_stream_data_uni );
-
-  /* probably we should add rx_buf */
-  stream->rx_max_stream_data = fd_ulong_if( dirtype == FD_QUIC_TYPE_BIDIR,
-                                     conn->rx_initial_max_stream_data_bidi_local,
-                                     0ul );
+  stream->tx_max_stream_data = conn->tx_initial_max_stream_data_uni;
 
   /* set state depending on stream type */
   stream->state = fd_uint_if( dirtype == FD_QUIC_TYPE_UNIDIR,
@@ -1087,11 +1113,6 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
   conn->rx_max_data = rx_max_data;
 }
 
-void
-fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data ) {
-  stream->rx_max_stream_data = rx_max_stream_data;
-}
-
 /* packet processing */
 
 void
@@ -1128,9 +1149,9 @@ fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
 }
 
 int fd_quic_gen_initial_secret_and_keys(
-    fd_quic_crypto_suite_t *suite,
-    fd_quic_conn_t *conn,
-    fd_quic_conn_id_t *orig_dst_conn_id)
+    fd_quic_crypto_suite_t *  suite,
+    fd_quic_conn_t *          conn,
+    fd_quic_conn_id_t const * dst_conn_id)
 {
   /* Initial Packets
      from rfc:
@@ -1141,7 +1162,7 @@ int fd_quic_gen_initial_secret_and_keys(
   if (FD_UNLIKELY(fd_quic_gen_initial_secret(
                       &conn->secrets,
                       initial_salt, initial_salt_sz,
-                      orig_dst_conn_id->conn_id, orig_dst_conn_id->sz) != FD_QUIC_SUCCESS))
+                      dst_conn_id->conn_id, dst_conn_id->sz) != FD_QUIC_SUCCESS))
   {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )) );
     return FD_QUIC_FAILED;
@@ -1183,101 +1204,29 @@ int fd_quic_gen_initial_secret_and_keys(
 }
 
 ulong
-fd_quic_send_retry( fd_quic_t *                  quic,
-                    fd_quic_pkt_t *              pkt,
-                    fd_quic_conn_id_t const *    orig_dst_conn_id,
-                    fd_quic_conn_id_t const *    new_conn_id,
-                    uchar const                  dst_mac_addr_u6[ 6 ],
-                    uint                         dst_ip_addr,
-                    ushort                       dst_udp_port ) {
-  fd_quic_retry_t retry_pkt = {
-    .hdr_form = 1,
-    .fixed_bit = 1,
-    // .long_packet_type (initialized below)
-    .unused = 0xf,
-    .version = 1,
-    .dst_conn_id_len = pkt->long_hdr->src_conn_id_len,
-    // .dst_conn_id (initialized below)
-    .src_conn_id_len = new_conn_id->sz,
-    // .src_conn_id (initialized below)
-    // .retry_token (initialized below)
-    // .retry_integrity_tag (initialized below)
-  };
-
-  fd_memcpy(
-      retry_pkt.dst_conn_id, pkt->long_hdr->src_conn_id, pkt->long_hdr->src_conn_id_len
-  );
-  fd_memcpy( retry_pkt.src_conn_id, &new_conn_id->conn_id, retry_pkt.src_conn_id_len );
-
-  /* copy to avoid alignment issues */
-  uint saddr = 0;
-  memcpy( &saddr, pkt->ip4->saddr_c, 4 );
+fd_quic_send_retry( fd_quic_t *               quic,
+                    fd_quic_pkt_t *           pkt,
+                    fd_quic_conn_id_t const * orig_dst_conn_id,
+                    fd_quic_conn_id_t const * new_conn_id,
+                    uchar const               dst_mac_addr_u6[ 6 ],
+                    uint                      dst_ip_addr,
+                    ushort                    dst_udp_port ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  /* Retry token */
-  ulong now = fd_quic_get_state( quic )->now;
-  int   rc  = fd_quic_retry_token_encrypt(
-      state->retry_secret,
-      orig_dst_conn_id,
-      now,
-      new_conn_id,
-      saddr,
-      pkt->udp->net_sport,
-      retry_pkt.retry_token
-  );
-  if( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
-    quic->metrics.conn_err_retry_fail_cnt++;
-    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_retry_token_encrypt failed" )); )
-    return FD_QUIC_PARSE_FAIL;
-  }
+  uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
+  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, orig_dst_conn_id, new_conn_id, state->now );
 
-  /* Retry integrity tag */
-  fd_quic_retry_pseudo_t retry_pseudo_pkt = {
-      .odcid_len = orig_dst_conn_id->sz,
-      // .odcid
-      .hdr_form = retry_pkt.hdr_form,
-      .fixed_bit = retry_pkt.fixed_bit,
-      .long_packet_type = retry_pkt.long_packet_type,
-      .unused = retry_pkt.unused,
-      .version = retry_pkt.version,
-      .dst_conn_id_len = retry_pkt.dst_conn_id_len,
-      // .dst_conn_id
-      .src_conn_id_len = retry_pkt.src_conn_id_len,
-      // .src_conn_id
-      // .retry_token
-  };
-  // TODO can make this more efficient by directly manipulating the retry_pkt pkt
-  // bytes directly: prepending the ODCID and removing the retry_pkt integrity tag
-
-  // TODO zero-copy?
-  memcpy( &retry_pseudo_pkt.odcid,       &orig_dst_conn_id->conn_id, orig_dst_conn_id->sz      );
-  memcpy( &retry_pseudo_pkt.dst_conn_id, &retry_pkt.dst_conn_id,     retry_pkt.dst_conn_id_len );
-  memcpy( &retry_pseudo_pkt.src_conn_id, &retry_pkt.src_conn_id,     retry_pkt.src_conn_id_len );
-  memcpy( &retry_pseudo_pkt.retry_token, &retry_pkt.retry_token,     FD_QUIC_RETRY_TOKEN_SZ    );
-
-  ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo( &retry_pseudo_pkt );
-
-  uchar retry_pseudo_buf[FD_QUIC_MAX_FOOTPRINT(retry_pseudo)];
-  if( FD_UNLIKELY( retry_pseudo_footprint > sizeof(retry_pseudo_buf) ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
-  fd_quic_encode_retry_pseudo( retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt );
-  fd_quic_retry_integrity_tag_encrypt( retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag );
-
-  ulong tx_buf_sz = fd_quic_encode_footprint_retry( &retry_pkt );
-  uchar tx_buf[tx_buf_sz];
-  fd_quic_encode_retry( tx_buf, tx_buf_sz, &retry_pkt );
-  uchar * tx_ptr  = tx_buf + tx_buf_sz;
-  ulong   tx_sz   = 0;  // no space remaining after encoding
+  uchar * tx_ptr = retry_pkt         + retry_pkt_sz;
+  ulong   tx_rem = sizeof(retry_pkt) - retry_pkt_sz;
   if( FD_UNLIKELY( fd_quic_tx_buffered_raw(
         quic,
         // these are state variable's normally updated on a conn, but irrelevant in retry so we
         // just size it exactly as the encoded retry packet
         &tx_ptr,
-        tx_buf,
-        tx_buf_sz,
-        &tx_sz,
+        retry_pkt,
+        retry_pkt_sz,
+        &tx_rem,
         // encode buffer
         dst_mac_addr_u6,
         &pkt->ip4->net_id,
@@ -1331,14 +1280,20 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   fd_quic_initial_t initial[1];
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_initial failed" )) );
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   /* check bounds on initial */
 
   /* len indicated the number of bytes after the packet number offset
      so verify this value is within the packet */
   ulong len = (ulong)( initial->pkt_num_pnoff + initial->len );
-  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( len > cur_sz ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Bogus initial packet length" )) );
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   /* Check it is valid for a token to be present in an initial packet in the current context.
 
@@ -1352,8 +1307,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
      - Indicates the server is not configured to retry, but a client attached a token to this
      initial packet. NEW_TOKEN frames are not supported, so this implementation treats the presence
      of a token when retry is disabled as an error. */
-  if ( FD_UNLIKELY( initial->token_len > 0 &&
-                    ( quic->config.role == FD_QUIC_ROLE_CLIENT || !quic->config.retry ) ) ) {
+  if( FD_UNLIKELY( initial->token_len > 0 &&
+                   ( quic->config.role == FD_QUIC_ROLE_CLIENT || !quic->config.retry ) ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Rejecting initial with token" )); )
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1361,6 +1317,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   if( FD_UNLIKELY( ( initial->src_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) |
                    ( initial->dst_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Bogus conn ID length" )) );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1390,10 +1347,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          with in the future (via dest conn ID). */
 
       fd_quic_conn_id_t new_conn_id;
-      if( FD_UNLIKELY( !fd_quic_conn_id_rand( &new_conn_id ) ) ) {
-        FD_LOG_DEBUG(( "fd_quic_conn_id_rand failed" ));
-        return FD_QUIC_PARSE_FAIL;
-      }
+      fd_quic_conn_id_rand( &new_conn_id, state->_rng );
 
       /* Save peer's conn ID, which we will use to address peer with. */
 
@@ -1433,7 +1387,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          most transport params ahead of time.  Only the conn-specific
          differences will have to be appended here. */
 
-      fd_quic_transport_params_t * tp = &state->transport_params;
+      fd_quic_transport_params_t tp[1] = { state->transport_params };
 
       /* assume no retry */
       tp->retry_source_connection_id_present = 0;
@@ -1464,8 +1418,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           new_conn_id.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
-      fd_quic_conn_id_t retry_src_conn_id[1] = {0};
-
       /* Handle retry if configured. */
       if( quic->config.retry ) {
         fd_quic_metrics_t * metrics = &quic->metrics;
@@ -1494,33 +1446,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           return (initial->pkt_num_pnoff + initial->len);
         }
 
-        /* Otherwise this is the initial packet _after_ retry, i.e. the client's response to retry
-           (which is also an initial packet). */
-        if( FD_UNLIKELY( initial->token_len != FD_QUIC_RETRY_TOKEN_SZ ) ) {
-          metrics->conn_err_retry_fail_cnt++;
-          /* No need to set conn error, no conn object exists */
-          return FD_QUIC_PARSE_FAIL;
-        }
-
-        /* The destination_connection_id was chosen by us, and must be length FD_QUIC_CONN_ID_SZ */
-        if( FD_UNLIKELY( initial->dst_conn_id_len != FD_QUIC_CONN_ID_SZ ) ) {
-          return FD_QUIC_PARSE_FAIL;
-        }
-
-        /* Validate the relevant fields of this post-retry INITIAL packet,
+        /* This Initial packet is in response to our Retry.
+           Validate the relevant fields of this post-retry INITIAL packet,
            i.e. retry src conn id, ip, port */
-        retry_src_conn_id->sz = initial->dst_conn_id_len;
-        fd_memcpy( &retry_src_conn_id->conn_id, initial->dst_conn_id, FD_QUIC_CONN_ID_SZ );
 
-        fd_quic_conn_id_t orig_dst_conn_id;
-        ulong issued = 0UL;
-        if( FD_UNLIKELY( fd_quic_retry_token_decrypt( state->retry_secret,
-                                                      (uchar*)initial->token,
-                                                      retry_src_conn_id,
-                                                      dst_ip_addr,
-                                                      dst_udp_port,
-                                                      &orig_dst_conn_id,
-                                                      &issued ) ) ) {
+        fd_quic_conn_id_t retry_src_conn_id;
+        int retry_ok = fd_quic_retry_server_verify( pkt, initial, &orig_dst_conn_id, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
+        if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
@@ -1557,18 +1489,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                 orig_dst_conn_id.conn_id,
                 orig_dst_conn_id.sz );
 
+        /* Client echoes back the SCID we sent via Retry.  Safe to trust because we signed the Retry Token
+           (Length and content validated in fd_quic_retry_server_verify) */
         tp->retry_source_connection_id_present = 1;
-        tp->retry_source_connection_id_len     = retry_src_conn_id->sz;
-        memcpy( tp->retry_source_connection_id,
-                retry_src_conn_id->conn_id,
-                retry_src_conn_id->sz );
+        tp->retry_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
+        memcpy( tp->retry_source_connection_id, retry_src_conn_id.conn_id, FD_QUIC_CONN_ID_SZ );
 
-        ulong now = state->now;
-        if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
-          metrics->conn_err_retry_fail_cnt++;
-          /* No need to set conn error, no conn object exists */
-          return FD_QUIC_PARSE_FAIL;
-        }
         metrics->conn_retry_cnt++;
       }
 
@@ -1605,31 +1531,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       insert_entry->conn = conn;
 
       /* keep orig_dst_conn_id */
-
-      memcpy( &conn->orig_dst_conn_id, &orig_dst_conn_id, sizeof( orig_dst_conn_id ) );
-
-      /* keep retry_src_conn_id */
-      memcpy( &conn->retry_src_conn_id, retry_src_conn_id, sizeof( retry_src_conn_id ) );
+      conn->orig_dst_conn_id = orig_dst_conn_id;
 
       /* set the value for the caller */
       *p_conn = conn;
 
       /* if we fail after here, we must reap the connection
          TODO maybe actually set the connection to reset, and clean up resources later */
-
-      /* Encode transport params to be sent to peer */
-
-      uchar transport_params_raw[ FD_QUIC_TRANSPORT_PARAMS_RAW_SZ ];
-      ulong tp_rc = fd_quic_encode_transport_params(
-          transport_params_raw,
-          FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
-          tp );
-      if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
-        /* FIXME log error in counters */
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
-        return FD_QUIC_PARSE_FAIL;
-      }
-      ulong transport_params_raw_sz = tp_rc;
 
       /* Create a TLS handshake */
 
@@ -1638,8 +1546,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           (void*)conn,
           1 /*is_server*/,
           quic->config.sni,
-          transport_params_raw,
-          transport_params_raw_sz );
+          tp );
       if( FD_UNLIKELY( !tls_hs ) ) {
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         fd_quic_reschedule_conn( conn, 0 );
@@ -1650,7 +1557,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       }
       conn->tls_hs = tls_hs;
 
-      if( FD_UNLIKELY( fd_quic_gen_initial_secret_and_keys( suite, conn, &orig_dst_conn_id ) ) == FD_QUIC_FAILED ) {
+      if( FD_UNLIKELY( fd_quic_gen_initial_secret_and_keys( suite, conn, conn_id ) ) == FD_QUIC_FAILED ) {
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         fd_quic_reschedule_conn( conn, 0 );
         quic->metrics.conn_aborted_cnt++;
@@ -1682,7 +1589,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     if( FD_UNLIKELY(
           fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                       pn_offset,
-                                      suite,
                                       &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       /* As this is an INITIAL packet, change the status to DEAD, and allow
          it to be reaped */
@@ -1721,7 +1627,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                   pn_offset,
                                   pkt_number,
-                                  suite,
                                   &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
       quic->metrics.conn_err_tls_fail_cnt++;
@@ -1863,7 +1768,6 @@ fd_quic_handle_v1_handshake(
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                     pn_offset,
-                                    suite,
                                     &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
     quic->metrics.conn_err_tls_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
@@ -1893,7 +1797,6 @@ fd_quic_handle_v1_handshake(
         fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                 pn_offset,
                                 pkt_number,
-                                suite,
                                 &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
@@ -1972,76 +1875,31 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  fd_quic_retry_t retry_pkt = {0};
-  ulong decode_rc = fd_quic_decode_retry( &retry_pkt, cur_ptr, cur_sz );
-  if( FD_UNLIKELY( decode_rc == FD_QUIC_PARSE_FAIL ) ) {
+  fd_quic_conn_id_t const * orig_dst_conn_id = &conn->peer[0].conn_id;
+  uchar const *             retry_token      = NULL;
+  ulong                     retry_token_sz   = 0UL;
+
+  int rc = fd_quic_retry_client_verify(
+      cur_ptr, cur_sz,
+      orig_dst_conn_id,
+      &conn->retry_src_conn_id,
+      &retry_token, &retry_token_sz
+  );
+  if( FD_UNLIKELY( rc!=FD_QUIC_SUCCESS ) ) {
+    quic->metrics.conn_err_retry_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 
-  if( FD_UNLIKELY( retry_pkt.src_conn_id_len == 0 ) ) {
-    /* something is horribly broken or some attack - ignore packet */
-    return FD_QUIC_FAILED;
-  }
-
-  fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer[0].conn_id;
-
-  /* Validate the Retry Integrity Tag. TODO can we make this more efficient? */
-  fd_quic_retry_pseudo_t retry_pseudo_pkt = {
-      .odcid_len        = orig_dst_conn_id->sz,
-      // .odcid
-      .hdr_form         = retry_pkt.hdr_form,
-      .fixed_bit        = retry_pkt.fixed_bit,
-      .long_packet_type = retry_pkt.long_packet_type,
-      .unused           = retry_pkt.unused,
-      .version          = retry_pkt.version,
-      .dst_conn_id_len  = retry_pkt.dst_conn_id_len,
-      // .dst_conn_id
-      .src_conn_id_len  = retry_pkt.src_conn_id_len,
-      // .src_conn_id
-      // .retry_token
-  };
-
-  /* Retry-pseudo packet is the retry packet with ODCID prepended and integrity
-     tag removed*/
-  fd_memcpy( retry_pseudo_pkt.odcid, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz );
-  fd_memcpy( retry_pseudo_pkt.dst_conn_id, retry_pkt.dst_conn_id, retry_pkt.dst_conn_id_len );
-  fd_memcpy( retry_pseudo_pkt.src_conn_id, retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
-  memcpy( retry_pseudo_pkt.retry_token, retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ );
-
-  ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo( &retry_pseudo_pkt );
-  uchar retry_pseudo_buf[retry_pseudo_footprint];
-  fd_quic_encode_retry_pseudo( retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt );
-
-  /* Validate the retry integrity tag
-
-     Retry packets (see Section 17.2.5 of [QUIC-TRANSPORT]) carry a Retry Integrity Tag that
-     provides two properties: it allows the discarding of packets that have accidentally been
-     corrupted by the network, and only an entity that observes an Initial packet can send a valid
-     Retry packet.*/
-  int rc = fd_quic_retry_integrity_tag_decrypt(
-      retry_pseudo_buf, (int)retry_pseudo_footprint, retry_pkt.retry_integrity_tag
-  );
-
-  /* Clients MUST discard Retry packets that have a Retry Integrity Tag that
-     cannot be validated */
-
-  if ( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
-    return cur_sz;  // FIXME hack to drop packet
-  }
-
   /* Update the peer using the retry src conn id */
-  fd_quic_endpoint_t * peer         = &conn->peer[conn->cur_peer_idx];
-  peer->conn_id.sz = retry_pkt.src_conn_id_len;
-  fd_memcpy( peer->conn_id.conn_id, retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
+  fd_quic_endpoint_t * peer = &conn->peer[conn->cur_peer_idx];
+  peer->conn_id = conn->retry_src_conn_id;
 
   /* Re-send the ClientHello */
   conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
-  fd_quic_state_t *state = fd_quic_get_state(quic);
+  fd_quic_state_t * state = fd_quic_get_state(quic);
 
   /* Need to regenerate keys using the retry source connection id */
-  fd_quic_crypto_suite_t *suite = &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
-  conn->retry_src_conn_id.sz = retry_pkt.src_conn_id_len;
-  fd_memcpy( &conn->retry_src_conn_id.conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
+  fd_quic_crypto_suite_t * suite = &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
   if( FD_UNLIKELY( fd_quic_gen_initial_secret_and_keys( suite, conn, &conn->retry_src_conn_id ) )
                    == FD_QUIC_FAILED )
   {
@@ -2052,12 +1910,8 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
   /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
-  conn->token_len = cur_sz - FD_QUIC_EMPTY_RETRY_PKT_SZ - retry_pkt.src_conn_id_len - retry_pkt.dst_conn_id_len;
-  if( FD_UNLIKELY( conn->token_len > FD_QUIC_TOKEN_SZ_MAX ) ) {
-    conn->token_len = 0UL;
-    return FD_QUIC_PARSE_FAIL;
-  }
-  fd_memcpy( &conn->token, retry_pkt.retry_token, conn->token_len );
+  conn->token_len = retry_token_sz;
+  fd_memcpy( &conn->token, retry_token, conn->token_len );
 
   /* have to rewind the handshake data */
   uint enc_level                 = 0;
@@ -2140,7 +1994,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     if( FD_UNLIKELY(
           fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                       pn_offset,
-                                      suite,
                                       &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
       quic->metrics.conn_err_tls_fail_cnt++;
@@ -2227,7 +2080,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
           fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                   pn_offset,
                                   pkt_number,
-                                  suite,
                                   keys ) != FD_QUIC_SUCCESS ) ) {
       /* remove connection from map, and insert into free list */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
@@ -2547,8 +2399,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
     if( FD_LIKELY( cur_ack ) ) {
       uint cur_flags = (uint)cur_ack->flags;
       if( FD_LIKELY( FD_QUIC_OPT_EXTEND_SENT || !(cur_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) ) ) {
-        if( FD_LIKELY( pkt_number == cur_ack->pkt_number.offset_hi
-            && ( flag_mandatory == ( cur_ack->flags & FD_QUIC_ACK_FLAGS_MANDATORY ) ) ) ) {
+        if( FD_LIKELY( pkt_number == cur_ack->pkt_number.offset_hi ) ) {
           /* combine extend */
           cur_ack->pkt_number.offset_hi = pkt_number + 1;
           cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, ack_time );
@@ -2569,8 +2420,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
           return;
         }
 
-        if( FD_LIKELY( pkt_number+1 == cur_ack->pkt_number.offset_lo
-            && ( flag_mandatory == ( cur_ack->flags & FD_QUIC_ACK_FLAGS_MANDATORY ) ) ) ) {
+        if( FD_LIKELY( pkt_number+1 == cur_ack->pkt_number.offset_lo ) ) {
           /* combine extend */
           cur_ack->pkt_number.offset_lo = pkt_number;
           cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, ack_time );
@@ -2594,8 +2444,17 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   }
 
   /* already have an ack for this */
-  if( FD_UNLIKELY( cur_ack && pkt_number >= cur_ack->pkt_number.offset_lo ) ) {
+  if( FD_UNLIKELY( cur_ack && pkt_number >= cur_ack->pkt_number.offset_lo
+                           && pkt_number <  cur_ack->pkt_number.offset_hi ) ) {
     return;
+  }
+
+  /* ensure we are past the relevant ranges */
+  while( FD_LIKELY( cur_ack ) ) {
+    if( FD_UNLIKELY( pkt_number < cur_ack->pkt_number.offset_hi ) ) break;
+
+    pri_ack = cur_ack;
+    cur_ack = cur_ack->next;
   }
 
   /* we need to create a new ack range */
@@ -2681,6 +2540,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   fd_quic_common_hdr_t common_hdr[1];
   ulong rc = fd_quic_decode_common_hdr( common_hdr, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_common_hdr failed" )); )
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -2691,11 +2551,13 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     fd_quic_long_hdr_t * long_hdr = pkt->long_hdr;
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr+1, cur_sz-1 );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_long_hdr failed" )); )
       return FD_QUIC_PARSE_FAIL;
     }
 
     dst_conn_id.sz = long_hdr->dst_conn_id_len;
     if( FD_UNLIKELY( dst_conn_id.sz > sizeof( dst_conn_id.conn_id ) ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "Oversz dst conn ID" )); )
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2716,6 +2578,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       case FD_QUIC_PKTTYPE_V1_INITIAL:
         rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
         if( FD_UNLIKELY( !conn ) ) {
+          /* FIXME not really a fail - Could be a retry */
           return FD_QUIC_PARSE_FAIL;
         }
         break;
@@ -2731,6 +2594,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     }
 
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet (type=%d)", common_hdr->long_packet_type )); )
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2800,7 +2664,8 @@ fd_quic_process_packet( fd_quic_t * quic,
   /* parse eth, ip, udp */
   rc = fd_quic_decode_eth( pkt.eth, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    /* TODO count failure, log-debug failure */
+    /* TODO count failure */
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_eth failed" )) );
     return;
   }
 
@@ -2817,12 +2682,21 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   rc = fd_quic_decode_ip4( pkt.ip4, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    /* TODO count failure, log-debug failure */
+    /* TODO count failure */
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_ip4 failed" )) );
     return;
   }
 
   /* check version, tot_len, protocol, checksum? */
   if( FD_UNLIKELY( pkt.ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Packet is not UDP" )) );
+    return;
+  }
+
+  /* verify ip4 packet isn't truncated
+   * AF_XDP can silently do this */
+  if( FD_UNLIKELY( pkt.ip4->net_tot_len > cur_sz ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "IPv4 header indicates truncation" )) );
     return;
   }
 
@@ -2832,13 +2706,21 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   rc = fd_quic_decode_udp( pkt.udp, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    /* TODO count failure, log-debug failure */
+    /* TODO count failure  */
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_udp failed" )) );
+    return;
+  }
+
+  /* sanity check udp length */
+  if( FD_UNLIKELY( pkt.udp->net_len < sizeof(fd_udp_hdr_t) ||
+                   pkt.udp->net_len > cur_sz ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "UDP header indicates truncation" )) );
     return;
   }
 
   /* update pointer + size */
   cur_ptr += rc;
-  cur_sz  -= rc;
+  cur_sz   = pkt.udp->net_len - rc; /* replace with udp length */
 
   /* cur_ptr[0..cur_sz-1] should be payload */
 
@@ -2856,14 +2738,9 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   /* shortest valid quic payload? */
   if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Undersize QUIC packet" )) );
     return;
   }
-
-#define DECODE_UINT32(p) ( \
-    ( (uint)((p)[0]) << (uint)0x18 ) + \
-    ( (uint)((p)[1]) << (uint)0x10 ) + \
-    ( (uint)((p)[2]) << (uint)0x08 ) + \
-    ( (uint)((p)[3]) << (uint)0x00 ) )
 
   /* check version */
 
@@ -2874,17 +2751,12 @@ fd_quic_process_packet( fd_quic_t * quic,
   uint version = 0;
 
   if( long_pkt ) {
-    version = DECODE_UINT32( cur_ptr + 1 );
+    version = fd_uint_bswap( FD_LOAD( uint, cur_ptr + 1 ) );
 
     /* version negotiation packet has version 0 */
     if( version == 0 ) {
       /* TODO implement version negotiation */
-      return;
-    }
-
-    if( version != 1 ) {
-      /* cannot interpret length, so discard entire packet */
-      /* TODO send version negotiation */
+      FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet" )) );
       return;
     }
 
@@ -2892,12 +2764,21 @@ fd_quic_process_packet( fd_quic_t * quic,
        TODO implement */
     if( ( version & 0x0a0a0a0au ) == 0x0a0a0a0au ) {
       /* at present, ignore */
+      FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet (forced)" )) );
+      return;
+    }
+
+    if( version != 1 ) {
+      /* cannot interpret length, so discard entire packet */
+      /* TODO send version negotiation */
+      FD_DEBUG( FD_LOG_DEBUG(( "Got unknown version QUIC packet" )) );
       return;
     }
 
     /* multiple QUIC packets in a UDP packet */
     /* shortest valid quic payload? */
-    while(1) {
+    ulong pkt_idx;
+    for( pkt_idx=0UL; pkt_idx<FD_QUIC_PKT_COALESCE_LIMIT; pkt_idx++ ) {
       /* Are we done? Omit short packet handling that follows */
       if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return;
 
@@ -2907,7 +2788,7 @@ fd_quic_process_packet( fd_quic_t * quic,
       if( FD_UNLIKELY( short_pkt ) ) break;
 
       /* check version */
-      uint cur_version = DECODE_UINT32( cur_ptr + 1 );
+      uint cur_version = fd_uint_bswap( FD_LOAD( uint, cur_ptr + 1 ) );
 
       if( cur_version != version ) {
         /* multiple versions in a single connection is a violation, and by
@@ -2918,6 +2799,7 @@ fd_quic_process_packet( fd_quic_t * quic,
              all quic packets in a udp datagram must be for the same connection id
                (section 12.2) and therefore the same connection
              all packets on a connection must be of the same version (5.2) */
+        FD_DEBUG( FD_LOG_DEBUG(( "Mixed QUIC versions in packet" )) );
         return;
       }
 
@@ -2935,16 +2817,22 @@ fd_quic_process_packet( fd_quic_t * quic,
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
                        ( rc == 0UL ) )) {
+        FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_process_quic_packet_v1 failed (stuck=%d)", rc==0UL )) );
         return;
       }
 
       if( FD_UNLIKELY( rc > cur_sz ) ) {
+        FD_DEBUG( FD_LOG_WARNING(( "fd_quic_process_quic_packet_v1 read too much" )) );
         return;
       }
 
       /* return code (rc) is the number of bytes consumed */
       cur_sz  -= rc;
       cur_ptr += rc;
+    }
+    if( pkt_idx==FD_QUIC_PKT_COALESCE_LIMIT ) {
+      /* too many packets in a single udp datagram */
+      return;
     }
   }
 
@@ -2971,8 +2859,6 @@ fd_quic_process_packet( fd_quic_t * quic,
 #else
   (void)fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
 #endif
-
-# undef DECODE_UINT32
 }
 
 /* main receive-side entry point */
@@ -3171,10 +3057,8 @@ fd_quic_tls_cb_peer_params( void *        context,
   }
 
   /* flow control parameters */
-  conn->tx_max_data                            = peer_tp->initial_max_data;
-  conn->tx_initial_max_stream_data_uni         = peer_tp->initial_max_stream_data_uni;
-  conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
-  conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
+  conn->tx_max_data                   = peer_tp->initial_max_data;
+  conn->tx_initial_max_stream_data_uni= peer_tp->initial_max_stream_data_uni;
 
   if( conn->server ) {
     conn->peer_sup_stream_id[0x01] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x01;
@@ -3429,7 +3313,7 @@ fd_quic_service( fd_quic_t * quic ) {
           conn->state = FD_QUIC_CONN_STATE_DEAD;
           quic->metrics.conn_aborted_cnt++;
         }
-      } else {
+      } else if( FD_QUIC_PING_ENABLE ) {
         /* send PING */
         if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
           conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
@@ -3466,14 +3350,6 @@ fd_quic_service( fd_quic_t * quic ) {
         }
     }
   }
-
-  FD_DEBUG(
-    t1 = fd_quic_now( quic );
-    long delta = (long)( t1 - t0 );
-    if( delta > (long)500e3 ) {
-      FD_LOG_NOTICE(( "SERVICE took %lu  t0: %lu  t1: %lu", delta, t0, t1 ));
-    }
-  )
 }
 
 /* attempt to transmit buffered data
@@ -3640,7 +3516,7 @@ struct fd_quic_pkt_hdr {
     fd_quic_initial_t   initial;
     fd_quic_handshake_t handshake;
     fd_quic_one_rtt_t   one_rtt;
-    fd_quic_retry_t     retry;
+    fd_quic_retry_hdr_t retry;
     /* don't currently support early data */
   } quic_pkt;
   uint enc_level; /* implies the type of quic_pkt */
@@ -4264,11 +4140,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       /* are we at application level of encryption? */
       if( enc_level == fd_quic_enc_level_appdata_id ) {
         if( conn->handshake_done_send ) {
-          if( FD_UNLIKELY( conn->handshake_done_ackd ) ) {
-            /* already acked? then ignore it
-             * just clear the send flag */
-            conn->handshake_done_send = 0;
-          } else {
+          conn->handshake_done_send = 0;
+          if( FD_LIKELY( !conn->handshake_done_ackd ) ) {
             /* send handshake done frame */
             frame_sz = 1;
             pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
@@ -4303,6 +4176,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                       .type      = FD_QUIC_PKT_META_TYPE_OTHER,
                       .flags     = FD_QUIC_CONN_FLAGS_MAX_DATA
                     };
+                pkt_meta->var[pkt_meta_var_idx].value = conn->rx_max_data;
                 pkt_meta_var_idx++;
                 pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
               }
@@ -4311,54 +4185,50 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             }
           }
 
-          /* 0x00 Client-Initiated, Bidirectional
-             0x01 Server-Initiated, Bidirectional
-             0x02 Client-Initiated, Unidirectional
+          /* 0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional
              */
-          if( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR ) {
+          ulong peer_initiated_unidir = 2u | !conn->server;
+
+          ulong max_streams_unidir = conn->sup_stream_id[peer_initiated_unidir] >> 2;
+
+          if( ( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) &&
+                ( FD_QUIC_MAX_STREAMS_ALWAYS ||
+                  ( ( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR ) &&
+                    pkt_meta_var_idx < FD_QUIC_PKT_META_VAR_MAX ) ) ) {
             /* send max streams frame */
-            ulong stream_type_idx = 2u | !conn->server;
-            frame.max_streams.stream_type = 1;
-            frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
 
-            /* attempt to write into buffer */
-            frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
-                                                         (ulong)( payload_end - payload_ptr ),
-                                                         &frame.max_streams );
-            if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
-              /* successful? then update payload_ptr and tot_frame_sz */
-              payload_ptr  += frame_sz;
-              tot_frame_sz += frame_sz;
+            if( FD_LIKELY( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) ) {
 
-              /* set flag on pkt meta */
-              pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
-              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+              frame.max_streams.stream_type = 1;
+              frame.max_streams.max_streams = max_streams_unidir;
 
-              conn->upd_pkt_number = pkt_number;
-            }
-          }
+              /* attempt to write into buffer */
+              frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
+                                                           (ulong)( payload_end - payload_ptr ),
+                                                           &frame.max_streams );
+              if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
+                /* successful? then update payload_ptr and tot_frame_sz */
+                payload_ptr  += frame_sz;
+                tot_frame_sz += frame_sz;
 
-          if( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR ) {
-            /* send max streams frame */
-            ulong stream_type_idx = 0u | !conn->server;
-            frame.max_streams.stream_type = 0;
-            frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
+                /* set flag on pkt meta */
+                pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
+                pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
 
-            /* attempt to write into buffer */
-            frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
-                                                         (ulong)( payload_end - payload_ptr ),
-                                                         &frame.max_streams );
-            if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
-              /* successful? then update payload_ptr and tot_frame_sz */
-              payload_ptr  += frame_sz;
-              tot_frame_sz += frame_sz;
+                conn->upd_pkt_number = pkt_number;
 
-              /* set flag on pkt meta */
-              pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
-              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
-
-              conn->upd_pkt_number = pkt_number;
+                /* add max_data to pkt_meta->var */
+                pkt_meta->var[pkt_meta_var_idx].key = (fd_quic_pkt_meta_key_t){
+                                                        .type      = FD_QUIC_PKT_META_TYPE_OTHER,
+                                                        .flags     = FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
+                                                      };
+                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams.max_streams;
+                pkt_meta_var_idx++;
+                pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
+              }
+            } else {
+              conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
             }
           }
 
@@ -4500,49 +4370,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                 }
               }
 
-              /* if we need to send a max_data frame, and we have space to
-               * track it in pkt_meta */
-              if( ( cur_stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA )
-                  && pkt_meta_var_idx < FD_QUIC_PKT_META_VAR_MAX ) {
-                /* send max_stream_data frame */
-                frame.max_stream_data.stream_id       = cur_stream->stream_id;
-                frame.max_stream_data.max_stream_data = cur_stream->rx_max_stream_data;
-
-                /* attempt to write into buffer */
-                frame_sz = fd_quic_encode_max_stream_data( payload_ptr,
-                                                           (ulong)( payload_end - payload_ptr ),
-                                                           &frame.max_stream_data );
-                if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
-                  /* successful? then update payload_ptr and tot_frame_sz */
-                  payload_ptr  += frame_sz;
-                  tot_frame_sz += frame_sz;
-
-                  /* and set actual pkt_number on the stream */
-                  cur_stream->upd_pkt_number = pkt_number;
-
-                  /* set flag on pkt meta */
-                  pkt_meta->flags           |= FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA;
-                  pkt_meta->expiry           = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
-
-                  /* add max_data to pkt_meta->var */
-                  pkt_meta->var[pkt_meta_var_idx].key =
-                                                FD_QUIC_PKT_META_KEY(
-                                                  FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA,
-                                                  0,
-                                                  cur_stream->stream_id );
-                  pkt_meta->var[pkt_meta_var_idx].value = frame.max_stream_data.max_stream_data;
-                  pkt_meta_var_idx++;
-                  pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
-
-                  /* remove flag from cur_stream */
-                  cur_stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-                  if( !FD_QUIC_STREAM_ACTION( cur_stream ) ) {
-                    /* remove cur_stream from action list */
-                    FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
-                    FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, cur_stream );
-                  }
-                }
-              }
             }
 
             cur_stream = nxt_stream;
@@ -4641,8 +4468,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     uchar * pay            = hdr + hdr_sz;
     ulong   pay_sz         = quic_pkt_sz - hdr_sz;
 
-    fd_quic_crypto_suite_t const * suite = conn->suites[enc_level];
-
     int server = conn->server;
 
     fd_quic_crypto_keys_t * hp_keys  = &conn->keys[enc_level][server];
@@ -4652,7 +4477,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     pkt_meta->flags |= key_phase_flags;
 
     if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr, hdr_sz,
-          pay, pay_sz, suite, pkt_keys, hp_keys ) != FD_QUIC_SUCCESS ) ) {
+          pay, pay_sz, pkt_keys, hp_keys, pkt_number ) != FD_QUIC_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_quic_crypto_encrypt failed" ));
 
       /* reschedule, since some data was unable to be sent */
@@ -4734,6 +4559,14 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     /* did we send handshake-done? */
     if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
       conn->handshake_done_send = 0;
+    }
+
+    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
+      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
+    }
+
+    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
+      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
     }
 
     /* add to sent list */
@@ -4833,8 +4666,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
               fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
               hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
             }
-
-            /* TODO we should be able to free the TLS object now */
           }
 
           /* if we're the client, fd_quic_conn_tx will flush the hs
@@ -4985,10 +4816,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
   fd_memset( conn->keys, 0, sizeof(conn->keys) );
 
   /* free tls-hs */
-  if( conn->tls_hs ) {
-    fd_quic_tls_hs_delete( conn->tls_hs );
-    conn->tls_hs = NULL;
-  }
+  fd_quic_tls_hs_delete( conn->tls_hs );
+  conn->tls_hs = NULL;
 
   /* put connection back in free list */
   conn->next   = state->conns;
@@ -5037,16 +4866,16 @@ fd_quic_connect( fd_quic_t *  quic,
                  char const * sni ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
+  state->now = fd_quic_now( quic );
+
+  fd_rng_t * rng = state->_rng;
 
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
   fd_quic_conn_id_t our_conn_id;
   fd_quic_conn_id_t peer_conn_id;
-  if( FD_UNLIKELY( !fd_quic_conn_id_rand( &peer_conn_id ) ||
-                   !fd_quic_conn_id_rand( &our_conn_id  ) ) ) {
-    FD_LOG_DEBUG(( "fd_rng_secure failed" ));
-    return NULL;
-  }
+  fd_quic_conn_id_rand( &peer_conn_id, rng );
+  fd_quic_conn_id_rand( &our_conn_id,  rng );
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,
@@ -5084,7 +4913,7 @@ fd_quic_connect( fd_quic_t *  quic,
 
       See RFC 9000 Section 18 */
 
-  fd_quic_transport_params_t * tp = &state->transport_params;
+  fd_quic_transport_params_t tp[1] = { state->transport_params };
 
   /* The original_destination_connection_id is omitted by clients.
      Since this is a mutable field, explicitly clear it here. */
@@ -5111,21 +4940,6 @@ fd_quic_connect( fd_quic_t *  quic,
     goto fail_conn;
   }
 
-  /* Encode transport params to be sent to peer */
-
-  uchar transport_params_raw[ FD_QUIC_TRANSPORT_PARAMS_RAW_SZ ];
-  ulong tp_rc = fd_quic_encode_transport_params(
-      transport_params_raw,
-      FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
-      tp );
-  if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
-    /* FIXME log error in counters */
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_encode_transport_params failed" )) );
-    goto fail_conn;
-  }
-
-  ulong transport_params_raw_sz = tp_rc;
-
   /* Create a TLS handshake */
 
   fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
@@ -5133,8 +4947,7 @@ fd_quic_connect( fd_quic_t *  quic,
       (void*)conn,
       0 /*is_server*/,
       sni,
-      transport_params_raw,
-      transport_params_raw_sz );
+      tp );
   if( FD_UNLIKELY( !tls_hs ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )) );
     goto fail_conn;
@@ -5270,6 +5083,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   for( ulong j = 0; j < 4; ++j ) conn->max_concur_streams[j] = 0; /* set below via set_max_streams          */
   for( ulong j = 0; j < 4; ++j ) conn->cur_stream_cnt[j]     = 0;
 
+  conn->rx_max_streams_unidir_ackd = 0;
+
   /* points to free tx space */
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
@@ -5365,11 +5180,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );
 
   /* transport params */
-  fd_quic_transport_params_t * our_tp = &state->transport_params;
-  conn->rx_max_data                            = our_tp->initial_max_data;
-  conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
-  conn->rx_initial_max_stream_data_bidi_local  = our_tp->initial_max_stream_data_bidi_local;
-  conn->rx_initial_max_stream_data_bidi_remote = our_tp->initial_max_stream_data_bidi_remote;
+  fd_quic_transport_params_t * our_tp  = &state->transport_params;
+  conn->rx_max_data                    = our_tp->initial_max_data;
+  conn->rx_initial_max_stream_data_uni = our_tp->initial_max_stream_data_uni;
 
   /* update metrics */
   quic->metrics.conn_active_cnt++;
@@ -5378,10 +5191,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* return connection */
   return conn;
 }
-
-extern inline FD_FN_PURE
-int
-fd_quic_handshake_complete( fd_quic_conn_t * conn );
 
 ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic ) {
@@ -5620,47 +5429,17 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       conn->flags         |= FD_QUIC_CONN_FLAGS_PING_SENT;
       conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     }
-    if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA    ) {
-      /* iterate thru the variable section of the pkt_meta
-       * and set the max_stream_data to resend for each
-       * appropriate entry */
-      ulong var_sz = pkt_meta->var_sz;
-      for( ulong j = 0UL; j < var_sz; ++j ) {
-        if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA ) {
-          ulong stream_id = FD_QUIC_PKT_META_STREAM_ID( pkt_meta->var[j].key );
-
-          /* find the stream */
-          fd_quic_stream_t *     stream       = NULL;
-          fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-          if( FD_LIKELY( stream_entry &&
-                ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
-            stream = stream_entry->stream;
-
-            /* do we have something to send? */
-            if( stream->rx_max_stream_data > stream->rx_max_stream_data_ackd ) {
-              if( FD_LIKELY( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
-                if( !FD_QUIC_STREAM_ACTION( stream ) ) {
-                  /* add to list */
-                  FD_QUIC_STREAM_LIST_REMOVE( stream );
-                  FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
-                }
-                stream->stream_flags  |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-                stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-              }
-            }
-          }
-        }
-      }
-    }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
-      /* set the data to go out on the next packet */
-      conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
-      conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
-    }
-    if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR  ) {
-      /* set the data to go out on the next packet */
-      conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
-      conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
+      /* do we still need to send? */
+      /* get required value */
+      ulong peer_initiated_unidir = 2u | !conn->server;
+      ulong max_streams_unidir = conn->sup_stream_id[peer_initiated_unidir] >> 2;
+
+      if( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) {
+        /* set the data to go out on the next packet */
+        conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
+        conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
+      }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_ACK                ) {
       /* iterate thru the acks */
@@ -5766,6 +5545,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
+    /* Note that tls_hs could already be freed */
     /* is this ack'ing the next consecutive bytes?
        if so, we can increase the ack'd bytes
        if not, we retransmit the bytes expected to be ack'd
@@ -5800,7 +5580,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
     }
 
-    /* TODO we should be able to free the TLS object now */
+    conn->handshake_done_ackd = 1;
+    conn->handshake_done_send = 0;
+    conn->hs_data_empty       = 1;
+
+    fd_quic_tls_hs_delete( conn->tls_hs );
+    conn->tls_hs = NULL;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
@@ -5809,6 +5594,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_OTHER &&
           pkt_meta->var[j].key.flags == FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
         max_data_ackd = pkt_meta->var[j].value;
+        break;
       }
     }
 
@@ -5831,50 +5617,33 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     conn->rx_max_data_ackd = max_data_ackd;
   }
 
-  if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
-    conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
-  }
-
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
-    conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
-  }
-
-  if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA ) {
     ulong var_sz = pkt_meta->var_sz;
+
+    /* find the value ackd */
+    ulong max_streams_unidir_ackd = 0UL;
     for( ulong j = 0UL; j < var_sz; ++j ) {
-      fd_quic_pkt_meta_var_t * var = &pkt_meta->var[j];
-
-      if( var->key.type == FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA ) {
-        /* find stream */
-        ulong                  stream_id            = FD_QUIC_PKT_META_STREAM_ID( pkt_meta->var[j].key );
-        ulong                  max_stream_data_ackd = pkt_meta->var[j].value;
-        fd_quic_stream_t *     stream               = NULL;
-        fd_quic_stream_map_t * stream_entry         = fd_quic_stream_map_query(
-                                                        conn->stream_map,
-                                                        stream_id,
-                                                        NULL );
-        if( FD_LIKELY( stream_entry &&
-              ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
-          stream = stream_entry->stream;
-
-          /* set ackd value */
-          stream->rx_max_stream_data_ackd = fd_ulong_max(
-              stream->rx_max_stream_data_ackd,
-              max_stream_data_ackd );
-
-          /* clear flag, remove from list if necessary */
-          if( FD_LIKELY( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
-            stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-            if( !FD_QUIC_STREAM_ACTION( stream ) ) {
-              /* remove from list */
-              FD_QUIC_STREAM_LIST_REMOVE( stream );
-              FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
-            }
-          }
-
-        }
+      if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_OTHER &&
+          pkt_meta->var[j].key.flags == FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
+        max_streams_unidir_ackd = pkt_meta->var[j].value;
+        break;
       }
     }
+
+    /* ack can only increase max_streams_unidir_ackd */
+    max_streams_unidir_ackd = fd_ulong_max( max_streams_unidir_ackd, conn->rx_max_streams_unidir_ackd );
+
+    /* get required value */
+    ulong peer_initiated_unidir = 2u | !conn->server;
+    ulong max_streams_unidir = conn->sup_stream_id[peer_initiated_unidir] >> 2;
+
+    /* clear flag only if acked value == current value */
+    if( FD_LIKELY( max_streams_unidir_ackd == max_streams_unidir ) ) {
+      conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
+    }
+
+    /* set the ackd value */
+    conn->rx_max_streams_unidir_ackd = max_streams_unidir_ackd;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
@@ -6412,6 +6181,13 @@ fd_quic_frame_handle_stream_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* bidirectional streams not permitted */
+  int bidir = !( ( (uint)stream_id >> 1u ) & 1u );
+  if( FD_UNLIKELY( bidir ) ) {
+    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* find stream */
   fd_quic_stream_t *     stream       = NULL;
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
@@ -6435,14 +6211,6 @@ fd_quic_frame_handle_stream_frame(
     FD_QUIC_STREAM_LIST_REMOVE( stream );
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( context.conn->used_streams, stream );
 
-    /* bidirectional? */
-    int bidir = !( ( (uint)stream_id >> 1u ) & 1u );
-
-    /* if unidir, we can't send - since peer initiated */
-    /* if bidir we can only send up to the peer's advertised limit */
-    ulong tx_max_stream_data = bidir ?
-                context.conn->tx_initial_max_stream_data_bidi_local : 0;
-
     stream->conn        = context.conn;
 
     stream->context     = NULL; /* TODO where do we get this from? */
@@ -6452,34 +6220,28 @@ fd_quic_frame_handle_stream_frame(
     stream->tx_sent     = 0; /* first unsent byte of tx_buf */
     memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
 
-    /* peer created a stream. If it's unidirectional, we cannot send on it */
-    stream->state        = fd_uint_if( bidir, 0u, FD_QUIC_STREAM_STATE_TX_FIN );
+    /* peer created a stream, we cannot send on it */
+    stream->state        = FD_QUIC_STREAM_STATE_TX_FIN;
     stream->stream_flags = 0UL;
 
     /* flow control */
-    stream->tx_max_stream_data = tx_max_stream_data;
+    stream->tx_max_stream_data = 0; /* can't send since peer initiated */
     stream->tx_tot_data        = 0;
     stream->tx_last_byte       = 0;
 
-    stream->rx_max_stream_data = context.quic->config.initial_rx_max_stream_data;
     stream->rx_tot_data        = 0;
 
     stream->upd_pkt_number     = 0;
 
-    fd_quic_cb_stream_new( context.quic, stream, bidir ? FD_QUIC_TYPE_BIDIR : FD_QUIC_TYPE_UNIDIR );
+    fd_quic_cb_stream_new( context.quic, stream );
   }
 
   /* A receiver MUST close the connection with an error of type FLOW_CONTROL_ERROR if the sender
      violates the advertised connection or stream data limits */
-  if( FD_UNLIKELY( stream->rx_max_stream_data < offset + data_sz ) ) {
+  if( FD_UNLIKELY( context.quic->config.initial_rx_max_stream_data < offset + data_sz ) ) {
     fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
-
-  /* TODO pass the fin bit to the user here? */
-  /* or provide in API */
-
-  /* TODO if fin bit set, store the final size */
 
   /* determine whether any of these bytes were already received
      or whether these bytes are out of order */
@@ -6518,9 +6280,6 @@ fd_quic_frame_handle_stream_frame(
     conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
-    /* increase max_stream_data */
-    stream->rx_max_stream_data += delivered;
-
     /* ensure we ack the packet, and send any max data or max stream data
        frames */
     fd_quic_reschedule_conn( context.conn, 0 );
@@ -6547,8 +6306,6 @@ fd_quic_frame_handle_stream_frame(
       FD_QUIC_STREAM_LIST_REMOVE( stream );
       FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
     }
-
-    stream->stream_flags |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
   } else {
     if( offset > exp_offset ) {
       /* TODO technically "future" out of order bytes should be counted,
@@ -7052,13 +6809,12 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
   fd_quic_stream_pool_t * stream_pool = state->stream_pool;
   fd_rng_t *              rng         = fd_rng_join( state->_rng );
 
-  /* we want to reserve 1 stream for each connection */
-  /* TODO could add a config for larger reservations */
-  /* to avoid complete starvation */
+  /* we want to reserve FD_QUIC_STREAM_MIN streams for each connection */
   ulong unused_conns      = state->free_conns;
+  ulong reserved_streams  = unused_conns * FD_QUIC_STREAM_MIN;
   ulong stream_pool_avail = fd_quic_stream_pool_avail( stream_pool );
-  ulong avail_streams     = stream_pool_avail > unused_conns ?
-                            stream_pool_avail - unused_conns :
+  ulong avail_streams     = stream_pool_avail > reserved_streams ?
+                            stream_pool_avail - reserved_streams :
                             0UL;
 
   while( FD_LIKELY( avail_streams > 0UL ) ) {
@@ -7120,6 +6876,7 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   }
 
   uint dirtype = ( (uint)stream_type & 2U ) >> 1U;
+  if( FD_UNLIKELY( dirtype==FD_QUIC_TYPE_BIDIR ) ) return FD_QUIC_FAILED;
 
   fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
   if( FD_UNLIKELY( !entry ) ) {
@@ -7143,23 +6900,15 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
 
   /* set the max stream data to the appropriate initial value */
-  stream->tx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
-                                   ? conn->tx_initial_max_stream_data_bidi_local
-                                   : 0ul;
-
-  /* probably we should add rx_buf */
-  stream->rx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
-                                   ? conn->rx_initial_max_stream_data_bidi_local
-                                   : conn->tx_initial_max_stream_data_uni;
+  stream->tx_max_stream_data = 0UL;
 
   /* send a max data update to allow data on this stream */
-  conn->rx_max_data   += stream->rx_max_stream_data;
+  conn->rx_max_data   += conn->quic->config.initial_rx_max_stream_data;
   conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
   /* set state depending on stream type */
-  stream->state        = FD_QUIC_STREAM_STATE_UNUSED;
-  stream->stream_flags = FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+  stream->state = FD_QUIC_STREAM_STATE_UNUSED;
 
   /* update metrics */
   metrics->stream_opened_cnt[ next_stream_id&0x3 ]++;
@@ -7168,8 +6917,7 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   conn->sup_stream_id[stream_type] += 4UL; /* allows the peer one more stream */
 
   /* trigger frame to increase max_streams for peer */
-  uint flag = ( stream_type & 2u ) ? FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
-                                   : FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
+  uint flag = FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
   conn->flags         |= flag;
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 

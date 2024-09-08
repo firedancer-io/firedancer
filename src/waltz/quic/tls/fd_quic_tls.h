@@ -6,6 +6,7 @@
 
 #include "../fd_quic_common.h"
 #include "../../tls/fd_tls.h"
+#include "../templ/fd_quic_transport_params.h"
 
 /* QUIC-TLS
 
@@ -197,9 +198,8 @@ struct fd_quic_tls_hs {
   /* TLS alert code */
   uint  alert;
 
-  /* buffer our own QUIC transport params.  This is even more annoying. */
-  uchar self_transport_params_sz;
-  uchar self_transport_params[ 255 ];
+  /* our own QUIC transport params */
+  fd_quic_transport_params_t self_transport_params;
 };
 
 ulong
@@ -229,12 +229,12 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     void *          context,
                     int             is_server,
                     char const *    hostname,
-                    uchar const *   transport_params_raw,
-                    ulong           transport_params_raw_sz );
+                    fd_quic_transport_params_t const * self_transport_params );
 
-/* delete a handshake object and free resources */
+/* fd_quic_tls_hs_delete frees a handshake object and its resources.
+   Fine if hs is NULL. */
 void
-fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self );
+fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );
 
 /* fd_quic_tls_provide_data forwards an incoming QUIC CRYPTO frame
    containing TLS handshake message data to the underlying TLS
@@ -273,7 +273,7 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
      fd_quic_tls_hs_delete
 
    args
-     self        the handshake in question
+     self        the handshake in question (fine if NULL)
      enc_level   a pointer for receiving the encryption level
      data        a pointer for receiving the pointer to the data buffer
      data_sz     a pointer for receiving the data size */

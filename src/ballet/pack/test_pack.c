@@ -903,15 +903,25 @@ test_limits( void ) {
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
     /* The limit is based on cost units, and make_transaction takes just
-       compute CUs.  Add the +1 to force the rounding to make these
-       close enough. */
-    for( ulong j=0UL; j<FD_PACK_MAX_WRITE_COST_PER_ACCT/1000001UL; j++ ) {
-      make_transaction( 0UL, 1000001U, 11.0, "A", "B" );
+       compute CUs.  The additional cost units are 1475. */
+    for( ulong j=0UL; j<25UL; j++ ) {
+      make_transaction( 0UL, 478466UL, 11.0, "A", "B" );
       insert( 0UL, pack );
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
     }
+    /* Consumed 11,998,525 cost units, so this next one can't fit. */
 
-    make_transaction( 0UL, 1000001U, 11.0, "A", "B" );
+    make_transaction( 0UL, 478466UL, 11.0, "A", "B" );
+    insert( 0UL, pack );
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+
+    outcome.results->executed_cus = 0U;
+    fd_pack_rebate_cus( pack, outcome.results, 1UL );
+    /* Now consumed CUs is 11,520,059, so it just fits. */
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
+
+    make_transaction( 0UL, 478466U, 11.0, "A", "B" );
     insert( 0UL, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
@@ -943,8 +953,18 @@ test_limits( void ) {
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    fd_pack_end_block( pack );
+    outcome.results[ 0 ].executed_cus = 0U;
+    outcome.results[ 1 ].executed_cus = 0U;
+    outcome.results[ 2 ].executed_cus = 0U;
+    fd_pack_rebate_cus( pack, outcome.results, 3UL );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
+
+    fd_pack_end_block( pack );
+    make_transaction( i, 1000001U, 11.0, "J", "K" );     insert( i++, pack );
+    make_transaction( i, 1000001U, 11.0, "L", "M" );     insert( i++, pack );
+    make_transaction( i, 1000001U, 11.0, "N", "P" );     insert( i++, pack );
+    make_transaction( i, 1000001U, 10.0, "Q", "R" );     insert( i++, pack );
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 4UL, 0UL, 0UL, &outcome );
   }
 
   /* Test the data size limit */
@@ -977,6 +997,52 @@ test_limits( void ) {
     fd_pack_end_block( pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
   }
+}
+
+static inline void
+test_vote_qos( void ) {
+  FD_LOG_NOTICE(( "TEST VOTE QOS" ));
+  fd_pack_t * pack = init_all( 16UL, 1UL, 128UL, &outcome );
+
+  /* Fill with votes */
+  for( ulong i=0UL; i<16UL; i++ ) {
+    make_vote_transaction( i );
+    FD_TEST( insert( i, pack )==FD_PACK_INSERT_ACCEPT_VOTE_ADD );
+  }
+  ulong i=16UL;
+  /* treap is imbalanced so will accept any non-vote, even extremely
+     non-lucrative ones. */
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  /* Now it's balanced, so the non-vote will be compared with the other
+     non-votes.  It's not better than them, so reject. */
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
+
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  /* The first non-votes are worse than the votes, so now these
+     lucrative transactions have replaced the old non-votes and we still
+     have 12 pending votes */
+  for( ulong j=16UL; j<20UL; j++ ) {
+    fd_ed25519_sig_t const * sig = fd_txn_get_signatures( (fd_txn_t *)txn_scratch[j], payload_scratch[j] );
+    FD_TEST( !fd_pack_delete_transaction( pack, sig ) );
+  }
+
+  /* Now replace 8 votes with non-votes */
+  for( ulong j=0UL; j<8UL; j++ ) {
+    make_transaction( i, 100UL, 13.0, "A", "B" );    FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  }
+  /* Exactly 25% votes, so this is not considered imbalanced and QoS
+     rules allow it. */
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+
+  /* It's now low on votes (<25%), so inserting a non-vote will compare
+     only against other non-votes. */
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
 }
 
 static inline void
@@ -1084,6 +1150,7 @@ main( int     argc,
   test_expiration();
   test_gap();
   test_limits();
+  test_vote_qos();
   test_reject_writes_to_sysvars();
   test_reject();
   performance_test( extra_benchmark );

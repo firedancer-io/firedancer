@@ -211,10 +211,13 @@ CHECKFLAGS += $(USE_EXTERNAL_SAT_SOLVER)
 
 ifeq ($(strip $(ENABLE_POOLS)),)
   POOL =
+  INIT_POOLS =
 else ifeq ($(strip $(EXPENSIVE)),)
   POOL =
+  INIT_POOLS =
 else
   POOL = --pool expensive
+  INIT_POOLS = --pools expensive:1
 endif
 
 # Similar to the pool feature above. If Litani is new enough, enable
@@ -229,29 +232,31 @@ endif
 #
 # Each variable below controls a specific property checking flag
 # within CBMC. If desired, a property flag can be disabled within
-# a particular proof by nulling the corresponding variable. For
-# instance, the following line:
+# a particular proof by nulling the corresponding variable when CBMC's default
+# is not to perform such checks, or setting to --no-<CHECK>-check when CBMC's
+# default is to perform such checks. For instance, the following lines:
 #
-#     CHECK_FLAG_POINTER_CHECK =
+#     CBMC_FLAG_POINTER_CHECK = --no-pointer-check
+#     CBMC_FLAG_UNSIGNED_OVERFLOW_CHECK =
 #
-# would disable the --pointer-check CBMC flag within:
+# would disable pointer checks and unsigned overflow checks with CBMC flag
+# within:
 #   * an entire project when added to Makefile-project-defines
 #   * a specific proof when added to the harness Makefile
 
-CBMC_FLAG_MALLOC_MAY_FAIL ?= --malloc-may-fail
-CBMC_FLAG_MALLOC_FAIL_NULL ?= --malloc-fail-null
-CBMC_FLAG_BOUNDS_CHECK ?= --bounds-check
+CBMC_FLAG_MALLOC_MAY_FAIL ?= # set to --no-malloc-may-fail to disable
+CBMC_FLAG_BOUNDS_CHECK ?= # set to --no-bounds-check to disable
 CBMC_FLAG_CONVERSION_CHECK ?= --conversion-check
-CBMC_FLAG_DIV_BY_ZERO_CHECK ?= --div-by-zero-check
+CBMC_FLAG_DIV_BY_ZERO_CHECK ?= # set to --no-div-by-zero-check to disable
 CBMC_FLAG_FLOAT_OVERFLOW_CHECK ?= --float-overflow-check
 CBMC_FLAG_NAN_CHECK ?= --nan-check
-CBMC_FLAG_POINTER_CHECK ?= --pointer-check
+CBMC_FLAG_POINTER_CHECK ?= #set to --no-pointer-check to disable
 CBMC_FLAG_POINTER_OVERFLOW_CHECK ?= --pointer-overflow-check
-CBMC_FLAG_POINTER_PRIMITIVE_CHECK ?= --pointer-primitive-check
-CBMC_FLAG_SIGNED_OVERFLOW_CHECK ?= --signed-overflow-check
-CBMC_FLAG_UNDEFINED_SHIFT_CHECK ?= --undefined-shift-check
+CBMC_FLAG_POINTER_PRIMITIVE_CHECK ?= # set to --no-pointer-primitive-check to disable
+CBMC_FLAG_SIGNED_OVERFLOW_CHECK ?= # set to --no-signed-overflow-check to disable
+CBMC_FLAG_UNDEFINED_SHIFT_CHECK ?= # set to --no-undefined-shift-check to disable
 CBMC_FLAG_UNSIGNED_OVERFLOW_CHECK ?= --unsigned-overflow-check
-CBMC_FLAG_UNWINDING_ASSERTIONS ?= --unwinding-assertions
+CBMC_FLAG_UNWINDING_ASSERTIONS ?= # set to --no-unwinding-assertions to disable
 CBMC_DEFAULT_UNWIND ?= --unwind 1
 CBMC_FLAG_FLUSH ?= --flush
 
@@ -299,8 +304,8 @@ CHECKFLAGS += $(CBMC_FLAG_UNSIGNED_OVERFLOW_CHECK)
 NONDET_STATIC ?=
 
 # Flags to pass to goto-cc for compilation and linking
-COMPILE_FLAGS ?= -Wall
-LINK_FLAGS ?= -Wall
+COMPILE_FLAGS ?= -Wall -Werror
+LINK_FLAGS ?= -Wall -Werror
 EXPORT_FILE_LOCAL_SYMBOLS ?= --export-file-local-symbols
 
 # During instrumentation, it adds models of C library functions
@@ -404,7 +409,7 @@ endif
 
 # Optional configuration library flags
 OPT_CONFIG_LIBRARY ?=
-CBMC_OPT_CONFIG_LIBRARY := $(CBMC_FLAG_MALLOC_MAY_FAIL) $(CBMC_FLAG_MALLOC_FAIL_NULL) $(CBMC_STRING_ABSTRACTION)
+CBMC_OPT_CONFIG_LIBRARY := $(CBMC_FLAG_MALLOC_MAY_FAIL) $(CBMC_STRING_ABSTRACTION)
 
 # Proof writers could add function contracts in their source code.
 # These contracts are ignored by default, but may be enabled in two distinct
@@ -510,7 +515,6 @@ COMMA :=,
 # Set C compiler defines
 
 CBMCFLAGS += --object-bits $(CBMC_OBJECT_BITS)
-COMPILE_FLAGS += --object-bits $(CBMC_OBJECT_BITS)
 
 DEFINES += -DCBMC=1
 DEFINES += -DCBMC_OBJECT_BITS=$(CBMC_OBJECT_BITS)
@@ -833,6 +837,23 @@ $(LOGDIR)/result.xml: $(HARNESS_GOTO).goto
 	  --stderr-file $(LOGDIR)/result-err-log.txt \
 	  --description "$(PROOF_UID): checking safety properties"
 
+$(LOGDIR)/result.txt: $(HARNESS_GOTO).goto
+	$(LITANI) add-job \
+	  $(POOL) \
+	  --command \
+	    '$(CBMC) $(CBMC_VERBOSITY) $(CBMCFLAGS) $(CBMC_FLAG_UNWINDING_ASSERTIONS) $(CHECKFLAGS) --trace $<' \
+	  --inputs $^ \
+	  --outputs $@ \
+	  --ci-stage test \
+	  --stdout-file $@ \
+	  $(MEMORY_PROFILING) \
+	  --ignore-returns 10 \
+	  --timeout $(CBMC_TIMEOUT) \
+	  --pipeline-name "$(PROOF_UID)" \
+	  --tags "stats-group:safety checks" \
+	  --stderr-file $(LOGDIR)/result-err-log.txt \
+	  --description "$(PROOF_UID): checking safety properties"
+
 $(LOGDIR)/property.xml: $(HARNESS_GOTO).goto
 	$(LITANI) add-job \
 	  --command \
@@ -898,7 +919,7 @@ litani-path:
 _goto: $(HARNESS_GOTO).goto
 goto:
 	@ echo Running 'litani init'
-	$(LITANI) init --project $(PROJECT_NAME)
+	$(LITANI) init $(INIT_POOLS) --project $(PROJECT_NAME)
 	@ echo Running 'litani add-job'
 	$(MAKE) -B _goto
 	@ echo Running 'litani build'
@@ -907,7 +928,7 @@ goto:
 _result: $(LOGDIR)/result.txt
 result:
 	@ echo Running 'litani init'
-	$(LITANI) init --project $(PROJECT_NAME)
+	$(LITANI) init $(INIT_POOLS) --project $(PROJECT_NAME)
 	@ echo Running 'litani add-job'
 	$(MAKE) -B _result
 	@ echo Running 'litani build'
@@ -916,7 +937,7 @@ result:
 _property: $(LOGDIR)/property.xml
 property:
 	@ echo Running 'litani init'
-	$(LITANI) init --project $(PROJECT_NAME)
+	$(LITANI) init $(INIT_POOLS) --project $(PROJECT_NAME)
 	@ echo Running 'litani add-job'
 	$(MAKE) -B _property
 	@ echo Running 'litani build'
@@ -925,7 +946,7 @@ property:
 _coverage: $(LOGDIR)/coverage.xml
 coverage:
 	@ echo Running 'litani init'
-	$(LITANI) init --project $(PROJECT_NAME)
+	$(LITANI) init $(INIT_POOLS) --project $(PROJECT_NAME)
 	@ echo Running 'litani add-job'
 	$(MAKE) -B _coverage
 	@ echo Running 'litani build'
@@ -934,7 +955,7 @@ coverage:
 _report: $(PROOFDIR)/report
 report:
 	@ echo Running 'litani init'
-	$(LITANI) init --project $(PROJECT_NAME)
+	$(LITANI) init $(INIT_POOLS) --project $(PROJECT_NAME)
 	@ echo Running 'litani add-job'
 	$(MAKE) -B _report
 	@ echo Running 'litani build'

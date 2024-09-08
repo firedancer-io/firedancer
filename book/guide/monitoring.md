@@ -74,18 +74,8 @@ tile_pid{kind="quic",kind_id="0"} 1108975
 tile_pid{kind="verify",kind_id="0"} 1108978
 ```
 
-All of the metrics have two two lables, a `kind` which tells you what
-type of tile the metric is being reported for, and a `kind_id` which is
-the index of the tile. For example, if there are two bank tiles for
-executing transactions, they have `kind_id` of `0` and `1`, and each
-report metrics separately.
-
-```sh [bash]
-# HELP bank_tile_transaction_executed_program_account_not_found When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail. (Attempt to load a program that does not exist.)
-# TYPE bank_tile_transaction_executed_program_account_not_found counter
-bank_tile_transaction_executed_program_account_not_found{kind="bank",kind_id="0"} 241
-bank_tile_transaction_executed_program_account_not_found{kind="bank",kind_id="1"} 13
-```
+See the [metrics API documentation](/api/metrics.html) for more
+information on the available data.
 
 ## Live monitoring
 Firedancer ships with a monitoring tool included in `fdctl`, which you

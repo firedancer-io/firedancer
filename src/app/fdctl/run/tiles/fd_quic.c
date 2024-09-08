@@ -3,6 +3,7 @@
 #include "generated/quic_seccomp.h"
 #include "../../../../disco/metrics/generated/fd_metrics_quic.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xsk_aio.h"
 #include "../../../../waltz/xdp/fd_xsk.h"
@@ -12,14 +13,11 @@
 #include <linux/unistd.h>
 #include <sys/random.h>
 
-/* fd_quic provides a QUIC server tile.
+/* fd_quic provides a TPU server tile.
 
-   This tile handles all incoming QUIC traffic.  Supported protocols
-   currently include TPU/QUIC (transactions).
-
-   At present, TPU is the only protocol deployed on QUIC.  It allows
-   clients to send transactions to block producers (this tile).    In QUIC, this
-   can occur in as little as a single packet (and an ACK by the server).
+   This tile handles incoming transactions that clients request to be
+   included in blocks.  Supported protocols currently include TPU/UDP
+   and TPU/QUIC.
 
    The fd_quic tile acts as a plain old Tango producer writing to a cnc
    and an mcache.  The tile will defragment multi-packet TPU streams
@@ -29,9 +27,8 @@
 
    QUIC tiles don't service network devices directly, but rely on
    packets being received by net tiles and forwarded on via. a mux
-   (multiplexer).  An arbitrary number of QUIC tiles can be run, and
-   these will round-robin packets from the networking queues based on
-   the source IP address. */
+   (multiplexer).  An arbitrary number of QUIC tiles can be run.  Each
+   UDP flow must stick to one QUIC tile. */
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
@@ -82,26 +79,13 @@ quic_limits( fd_topo_tile_t const * tile ) {
     .conn_cnt                                      = tile->quic.max_concurrent_connections,
     .handshake_cnt                                 = tile->quic.max_concurrent_handshakes,
 
-    /* While in TCP a connection is identified by (Source IP, Source
-       Port, Dest IP, Dest Port) in QUIC a connection is uniquely
-       identified by a connection ID. Because this isn't dependent on
-       network identifiers, it allows connection migration and
-       continuity across network changes. It can also offer enhanced
-       privacy by obfuscating the client IP address and prevent
-       connection-linking by observers.
-
-       Additional connection IDs are simply aliases back to the same
-       connection, and can be created and retired during a connection by
-       either endpoint. This configuration determines how many different
-       connection IDs the connection may have simultaneously.
-
-       Currently this option must be hard coded to
-       FD_QUIC_MAX_CONN_ID_PER_CONN because it cannot exceed a buffer
-       size determined by that constant. */
+    /* fd_quic will not issue nor use any new connection IDs after
+       completing a handshake.  Connection migration is not supported
+       either. */
     .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
     .conn_id_sparsity                              = FD_QUIC_DEFAULT_SPARSITY,
     .inflight_pkt_cnt                              = tile->quic.max_inflight_quic_packets,
-    .tx_buf_sz                                     = tile->quic.tx_buf_size,
+    .tx_buf_sz                                     = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,
@@ -136,8 +120,7 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_quic_ctx_t ) );
 }
 
-/* legacy_stream_notify is called when a non-QUIC transaction is
-   received, that is, a regular unencrypted UDP packet transaction.  For
+/* legacy_stream_notify is called for transactions sent via TPU/UDP. For
    now both QUIC and non-QUIC transactions are accepted, with traffic
    type determined by port.
 
@@ -147,7 +130,7 @@ mux_ctx( void * scratch ) {
 static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
-                      uint            packet_sz ) {
+                      ulong           packet_sz ) {
 
   fd_mux_context_t * mux = ctx->mux;
 
@@ -303,14 +286,21 @@ after_frag( void *             _ctx,
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    if( FD_UNLIKELY( *opt_sz<network_hdr_sz ) ) {
+    if( FD_UNLIKELY( *opt_sz<=network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
       FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
       return;
     }
 
-    if( FD_UNLIKELY( *opt_sz>FD_TPU_MTU ) ) {
+    ulong data_sz = *opt_sz - network_hdr_sz;
+    if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
+      /* Smaller than the smallest possible transaction */
+      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
+      return;
+    }
+
+    if( FD_UNLIKELY( data_sz>FD_TPU_MTU ) ) {
       /* Transaction couldn't possibly be valid if it's longer than transaction
          MTU so drop it. This is not required, as the txn will fail to parse,
          but it's a nice short circuit. */
@@ -318,7 +308,7 @@ after_frag( void *             _ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, (uint)(*opt_sz - network_hdr_sz) );
+    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
   }
 }
 
@@ -350,9 +340,7 @@ quic_conn_new( fd_quic_conn_t * conn,
 
 static void
 quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx,
-                 int                type ) {
-  (void)type; /* TODO reject bidi streams? */
+                 void *             _ctx ) {
 
   /* Load QUIC state */
 
@@ -555,7 +543,7 @@ static void
 fd_quic_tls_cv_signer( void *        signer_ctx,
                        uchar         signature[ static 64 ],
                        uchar const   payload[ static 130] ) {
-  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL );
+  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void
@@ -604,7 +592,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.net.ip_addr                = tile->quic.ip_addr;
   quic->config.net.listen_udp_port        = tile->quic.quic_transaction_listen_port;
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * 1000000UL;
-  quic->config.initial_rx_max_stream_data = 1<<15;
+  quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
   fd_memcpy( quic->config.identity_public_key, ctx->identity_public_key, 32UL );

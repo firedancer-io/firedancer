@@ -32,7 +32,7 @@ get_endpoint_by_location() {
 
 check_gs() {
   local ledger_url=$1
-  if ! /bin/gsutil ls $ledger_url &>/dev/null; then
+  if ! gsutil ls $ledger_url &>/dev/null; then
     echo "[-] error accessing $ledger_url. check permissions or if the bucket URL is correct."
     exit 1
   fi
@@ -46,7 +46,7 @@ download_ext_rocksdb() {
 
   LATEST_SNAPSHOT="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -1)"
 
-  local rocksdb_in_gs=$(/bin/gsutil ls $LATEST_SNAPSHOT/rocksdb.tar.zst 2>&1)
+  local rocksdb_in_gs=$(gsutil ls $LATEST_SNAPSHOT/rocksdb.tar.zst 2>&1)
   if echo "$rocksdb_in_gs" | grep -q -e "No such file or directory" -e "matched no objects"; then
     local second_latest_snapshot="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -2 | head -1)"
     LATEST_SNAPSHOT=$second_latest_snapshot
@@ -54,7 +54,7 @@ download_ext_rocksdb() {
 
   LATEST_SNAPSHOT_SLOT=$(echo "$LATEST_SNAPSHOT" | sed 's#.*/\([0-9]\+\)/#\1#')
 
-  /bin/gcloud storage cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
+  gcloud storage cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
   if [ ! -f rocksdb.tar.zst ]; then
     echo "[-] error rocksdb.tar.zst not found. $ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst might not be present"
     exit 1
@@ -78,7 +78,7 @@ download_ext_snapshot() {
   if [[ $LATEST_SNAPSHOT_SLOT -ge $MIN_SNAPSHOT_SLOT && $is_rooted_status -eq 0 ]]; then
     echo "[~] getting the latest full snapshot"
     fetch_snapshot=${LATEST_SNAPSHOT}snapshot-${LATEST_SNAPSHOT_SLOT}-*.tar.zst
-    local snapshot_in_gs=$(/bin/gsutil ls $fetch_snapshot 2>&1)
+    local snapshot_in_gs=$(gsutil ls $fetch_snapshot 2>&1)
     if ! echo "$snapshot_in_gs" | grep -q -e "No such file or directory" -e "matched no objects"; then
       full_snapshot="true"
     fi
@@ -109,7 +109,7 @@ download_ext_snapshot() {
     exit 1
   fi
 
-  /bin/gcloud storage cp "$fetch_snapshot" .
+  gcloud storage cp "$fetch_snapshot" .
   set -x
 }
 

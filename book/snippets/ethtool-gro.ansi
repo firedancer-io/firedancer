@@ -1,0 +1,7 @@
+$ sudo fdctl configure init ethtool-gro
+[32mNOTICE [0m ethtool-gro ... unconfigured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
+[32mNOTICE [0m ethtool-gro ... configuring
+[32mNOTICE [0m ethtool-gro ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
+
+$ ethtool --show-offload ens3f0 | grep generic-receive-offload
+generic-receive-offload: off

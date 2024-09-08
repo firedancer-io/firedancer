@@ -1,5 +1,0 @@
-{
-  "expected-missing-functions": [],
-  "proof-name": "fd_dcache_compact_harness",
-  "proof-root": "verification/proofs"
-}

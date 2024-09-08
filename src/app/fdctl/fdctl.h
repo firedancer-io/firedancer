@@ -13,7 +13,7 @@
 extern fd_topo_run_tile_t * TILES[];
 
 
-#define CONFIGURE_STAGE_COUNT 9
+#define CONFIGURE_STAGE_COUNT 10
 struct configure_stage;
 
 typedef union {
@@ -44,7 +44,7 @@ typedef union {
     int  monitor;
     int  no_configure;
     int  no_init_workspaces;
-    int  no_solana_labs;
+    int  no_agave;
     char debug_tile[ 32 ];
   } dev;
 
@@ -162,8 +162,8 @@ run1_cmd_fn( args_t *         args,
              config_t * const config );
 
 void
-run_solana_cmd_fn( args_t *         args,
-                   config_t * const config );
+run_agave_cmd_fn( args_t *         args,
+                  config_t * const config );
 
 void
 monitor_cmd_args( int *    pargc,

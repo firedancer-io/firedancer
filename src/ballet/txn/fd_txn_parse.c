@@ -8,8 +8,7 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt,
-                   int                       allow_zero_signatures ) {
+                   ulong *                   payload_sz_opt ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which
      is a potentially dangerous thing.  The main invariants we need to
@@ -86,7 +85,7 @@ fd_txn_parse_core( uchar const             * payload,
      represented the same way. */
   CHECK_LEFT( 1UL                               );   uchar signature_cnt  = payload[ i ];     i++;
   /* Must have at least one signer for the fee payer */
-  CHECK( allow_zero_signatures | ((1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX)) );
+  CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
   CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );   ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
 
   /* Not actually parsing anything, just store. */   ulong message_off    =          i  ;
@@ -105,7 +104,7 @@ fd_txn_parse_core( uchar const             * payload,
   }
   CHECK_LEFT( 1UL                               );   uchar ro_signed_cnt  = payload[ i ];     i++;
   /* Must have at least one writable signer for the fee payer */
-  CHECK( allow_zero_signatures | (ro_signed_cnt<signature_cnt ) );
+  CHECK( ro_signed_cnt<signature_cnt );
 
   CHECK_LEFT( 1UL                               );   uchar ro_unsigned_cnt= payload[ i ];     i++;
 
@@ -126,7 +125,7 @@ fd_txn_parse_core( uchar const             * payload,
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
   /* If it has >0 instructions, it must have at least one other account
      address (the program id) that can't be the fee payer */
-  CHECK( allow_zero_signatures | ((ulong)acct_addr_cnt>(!!instr_cnt)) );
+  CHECK( (ulong)acct_addr_cnt>(!!instr_cnt) );
 
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
 
@@ -165,7 +164,7 @@ fd_txn_parse_core( uchar const             * payload,
        system program is not permitted to own any executable account.
        As of https://github.com/solana-labs/solana/issues/25034, the
        program ID can't come from a table. */
-    CHECK( allow_zero_signatures | ((0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) ) );
+    CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
 
     if( parsed ){
       parsed->instr[ j ].program_id          = program_id;

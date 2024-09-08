@@ -3,6 +3,7 @@
   "name": "fd_runtime_types",
   "extra_header": [
       "#include \"fd_bincode.h\"",
+      "#include \"../../ballet/utf8/fd_utf8.h\"",
       "#include \"fd_types_custom.h\"",
       "#define FD_ACCOUNT_META_MAGIC 9823"
   ],
@@ -49,20 +50,6 @@
         { "name": "lamports_per_signature", "type": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9"
-    },
-    {
-      "name": "epoch_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "distribution_starting_block_height", "type": "ulong"},
-        { "name": "num_partitions", "type": "ulong" },
-        { "name": "parent_blockhash", "type": "hash" },
-        { "name": "total_points", "type": "uint128" },
-        { "name": "total_rewards", "type": "ulong" },
-        { "name": "distributed_rewards", "type": "ulong" },
-        { "name": "active", "type": "bool" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/7fcd8c03fd71418fe49459c8460ab3986a8b608a/sdk/program/src/epoch_rewards.rs#L12"
     },
     {
       "name": "hash_age",
@@ -201,9 +188,10 @@
         { "name": "lamports", "type": "ulong" },
         { "name": "data", "type": "vector", "element": "uchar" },
         { "name": "owner", "type": "pubkey" },
-        { "name": "executable", "type": "uchar" },
+        { "name": "executable", "type": "bool" },
         { "name": "rent_epoch", "type": "ulong" }
-      ]
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37"
     },
     {
       "name": "solana_account_stored_meta",
@@ -318,6 +306,23 @@
       ]
     },
     {
+      "name": "stake",
+      "type": "struct",
+      "fields": [
+        { "name": "delegation", "type": "delegation" },
+        { "name": "credits_observed", "type": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
+    },
+    {
+      "name": "stake_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "pubkey" },
+        { "name": "stake", "type": "stake" }
+      ]
+    },
+    {
       "name": "stakes",
       "type": "struct",
       "fields": [
@@ -327,7 +332,19 @@
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147"
+      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
+    },
+    {
+      "name": "stakes_stake",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "vote_accounts" },
+        { "name": "stake_delegations", "type": "map", "element": "stake_pair", "key": "account" },
+        { "name": "unused", "type": "ulong" },
+        { "name": "epoch", "type": "ulong" },
+        { "name": "stake_history", "type": "stake_history" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
     },
     {
       "name": "bank_incremental_snapshot_persistence",
@@ -492,50 +509,7 @@
         { "name": "staking" },
         { "name": "voting" }
       ],
-      "comment": "https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11"
-    },
-    {
-      "name": "reward_info",
-      "type": "struct",
-      "fields": [
-        { "name": "reward_type", "type": "reward_type" },
-        { "name": "lamports", "type": "ulong" },
-        { "name": "staker_rewards", "type": "ulong" },
-        { "name": "new_credits_observed", "type": "ulong" },
-        { "name": "post_balance", "type": "ulong" },
-        { "name": "commission", "type": "long" }
-      ]
-    },
-    {
-      "name": "stake_reward",
-      "type": "struct",
-      "fields": [
-        { "name": "stake_pubkey", "type": "pubkey" },
-        { "name": "reward_info", "type": "reward_info" }
-      ]
-    },
-    {
-      "name": "serializable_stake_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "body", "type": "vector", "element": "stake_reward" }
-      ]
-    },
-    {
-      "name": "start_block_height_and_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "start_block_height", "type": "ulong" },
-        { "name": "stake_rewards_by_partition", "type": "vector", "element": "serializable_stake_rewards" }
-      ]
-    },
-    {
-      "name": "serializable_epoch_reward_status",
-      "type": "enum",
-      "variants": [
-          { "name": "Active", "type": "start_block_height_and_rewards"},
-          { "name": "Inactive"}
-      ]
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/reward_type.rs#L7"
     },
     {
       "name": "solana_accounts_db_fields",
@@ -551,6 +525,42 @@
       "comment": "Accounts DB related fields in a snapshot"
     },
     {
+      "name": "epoch_stakes_current",
+      "type": "struct",
+      "fields": [
+        { "name": "stakes", "type": "stakes_stake" },
+        { "name": "total_stake", "type": "ulong" },
+        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
+        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
+      ]
+    },
+    {
+      "name": "versioned_epoch_stakes",
+      "type": "enum",
+      "variants": [
+          { "name": "Current", "type": "epoch_stakes_current"}
+      ]
+    },
+    {
+      "name": "versioned_epoch_stakes_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "val", "type": "versioned_epoch_stakes" }
+      ]
+    },
+    {
+      "name": "reward_info",
+      "type": "struct",
+      "fields": [
+        { "name": "reward_type", "type": "reward_type" },
+        { "name": "lamports", "type": "ulong" },
+        { "name": "post_balance", "type": "ulong" },
+        { "name": "commission", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/reward_info.rs#L5"
+    },
+    {
       "name": "solana_manifest",
       "type": "struct",
       "alignment": "16",
@@ -560,7 +570,7 @@
         { "name": "lamports_per_signature",                "type": "ulong" },
         { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence", "ignore_underflow": true },
         { "name": "epoch_account_hash",                    "type": "option", "element": "hash",                                  "ignore_underflow": true },
-        { "name": "epoch_reward_status",                   "type": "option", "element": "serializable_epoch_reward_status",      "ignore_underflow": true }
+        { "name": "versioned_epoch_stakes",                "type": "vector", "element": "versioned_epoch_stakes_pair",           "ignore_underflow": true }
       ]
     },
     {
@@ -584,7 +594,7 @@
       "name": "string_pubkey_pair",
       "type": "struct",
       "fields": [
-        { "name": "string", "type": "char*" },
+        { "name": "string", "type": "string" },
         { "name": "pubkey", "type": "pubkey" }
       ]
     },
@@ -962,9 +972,15 @@
       "name": "sysvar_epoch_rewards",
       "type": "struct",
       "fields": [
-        { "name": "epoch_rewards", "type": "epoch_rewards" }
+        { "name": "distribution_starting_block_height", "type": "ulong" },
+        { "name": "num_partitions", "type": "ulong" },
+        { "name": "parent_blockhash", "type": "hash" },
+        { "name": "total_points", "type": "uint128" },
+        { "name": "total_rewards", "type": "ulong" },
+        { "name": "distributed_rewards", "type": "ulong" },
+        { "name": "active", "type": "bool" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/a02aebaa4b3aa0b24e13644cf0ffa5ae8bd47e7b/sdk/program/src/sysvar/epoch_rewards.rs"
+      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14"
     },
     {
       "name": "config_keys_pair",
@@ -990,7 +1006,7 @@
       "type": "struct",
       "fields": [
         { "name": "pubkey", "type": "pubkey" },
-        { "name": "description", "type": "char*" },
+        { "name": "description", "type": "string" },
         { "name": "since_slot", "type": "ulong" }
       ]
     },
@@ -1038,6 +1054,7 @@
     {
       "name": "epoch_bank",
       "type": "struct",
+      "archival": "true",
       "alignment": "16",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
@@ -1062,6 +1079,7 @@
     {
       "name": "slot_bank",
       "type": "struct",
+      "archival": "true",
       "alignment": "16",
       "fields": [
         { "name": "recent_block_hashes",       "type": "recent_block_hashes" },
@@ -1161,7 +1179,7 @@
       "fields": [
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
-        { "name": "current_authority_derived_key_seed", "type": "vector", "element": "uchar" },
+        { "name": "current_authority_derived_key_seed", "type": "string" },
         { "name": "new_authority", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244"
@@ -1172,7 +1190,7 @@
       "fields": [
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
-        { "name": "current_authority_derived_key_seed", "type": "vector", "element": "uchar" }
+        { "name": "current_authority_derived_key_seed", "type": "string" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252"
     },
@@ -1214,7 +1232,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "vector", "element": "uchar" },
+        { "name": "seed", "type": "string" },
         { "name": "lamports", "type": "ulong" },
         { "name": "space", "type": "ulong" },
         { "name": "owner", "type": "pubkey" }
@@ -1226,7 +1244,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "vector", "element": "uchar" },
+        { "name": "seed", "type": "string" },
         { "name": "space", "type": "ulong" },
         { "name": "owner", "type": "pubkey" }
       ],
@@ -1237,7 +1255,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "vector", "element": "uchar" },
+        { "name": "seed", "type": "string" },
         { "name": "owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
@@ -1247,7 +1265,7 @@
       "type": "struct",
       "fields": [
         { "name": "lamports", "type": "ulong" },
-        { "name": "from_seed", "type": "vector", "element": "uchar" },
+        { "name": "from_seed", "type": "string" },
         { "name": "from_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
@@ -1350,7 +1368,7 @@
       "fields": [
         { "name": "new_authorized_pubkey", "type": "pubkey" },
         { "name": "stake_authorize", "type": "stake_authorize" },
-        { "name": "authority_seed", "type": "vector", "element": "uchar" },
+        { "name": "authority_seed", "type": "string" },
         { "name": "authority_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241"
@@ -1360,7 +1378,7 @@
       "type": "struct",
       "fields": [
         { "name": "stake_authorize", "type": "stake_authorize" },
-        { "name": "authority_seed", "type": "vector", "element": "uchar" },
+        { "name": "authority_seed", "type": "string" },
         { "name": "authority_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249"
@@ -1403,9 +1421,11 @@
         { "name": "set_lockup_checked", "type": "lockup_checked_args" },
         { "name": "get_minimum_delegation" },
         { "name": "deactivate_delinquent" },
-        { "name": "redelegate" }
+        { "name": "redelegate" },
+        { "name": "move_stake", "type": "ulong" },
+        { "name": "move_lamports", "type": "ulong" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58"
+      "comment": "https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/sdk/program/src/stake/instruction.rs#L96"
     },
     {
       "name": "stake_meta",
@@ -1416,15 +1436,6 @@
         { "name": "lockup", "type": "stake_lockup" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248"
-    },
-    {
-      "name": "stake",
-      "type": "struct",
-      "fields": [
-        { "name": "delegation", "type": "delegation" },
-        { "name": "credits_observed", "type": "ulong" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
     },
     {
       "name": "stake_flags",
@@ -2483,6 +2494,51 @@
       "fields": [
         { "name": "slot_deltas", "type": "vector", "element": "slot_delta" }
       ]
+    },
+    {
+      "name": "pubkey_rewardinfo_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "reward_info", "type": "reward_info" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L85"
+    },
+    {
+      "name": "optional_account",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "option", "element": "solana_account" }
+      ]
+    },
+    {
+      "name": "calculated_stake_points",
+      "type": "struct",
+      "fields": [
+        { "name": "points", "type": "uint128" },
+        { "name": "new_credits_observed", "type": "ulong" },
+        { "name": "force_credits_update_with_skipped_reward", "type": "uchar" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27"
+    },
+    {
+      "name": "point_value",
+      "type": "struct",
+      "fields": [
+        { "name": "rewards", "type": "ulong" },
+        { "name": "points", "type": "uint128" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21"
+    },
+    {
+      "name": "calculated_stake_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "staker_rewards", "type": "ulong" },
+        { "name": "voter_rewards", "type": "ulong" },
+        { "name": "new_credits_observed", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24"
     }
   ]
 }

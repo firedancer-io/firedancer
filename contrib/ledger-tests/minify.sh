@@ -61,9 +61,12 @@ minimize_snapshot_frank() {
     echo "[-] rocksdb not found in $in_dir/rocksdb"
     exit 1
   fi
+
   set -x
+  
   "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minified-rocksdb "$out_dir/rocksdb" --start-slot $start_slot --end-slot $end_slot --page-cnt $GIGANTIC_PAGES --copy-txn-status 1
   set +x
+  
   cd "$in_dir" || exit
   cp gen* "$out_dir"
 
@@ -98,6 +101,9 @@ minimize_snapshot_solana() {
   rm -rf "$out_dir"
   cd "$in_dir" || exit
 
+  rm -rf ledger_tool
+  "$SOLANA_LEDGER_TOOL" create-snapshot -l . $start_slot --minimized --ending-slot $end_slot
+  
   rm -rf ledger_tool
   minimize_snapshot_frank $in_dir $out_dir $start_slot $end_slot
 }

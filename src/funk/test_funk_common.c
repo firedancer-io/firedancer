@@ -229,7 +229,11 @@ txn_merge( funk_t * funk,
 
         rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
 
-        rec_unmap( funk, rec_leave( funk, dst_rec ) ); /* Unmap dst rec */
+        if( dst_txn == NULL ) {
+          rec_unmap( funk, rec_leave( funk, dst_rec ) ); /* Unmap dst rec */
+        } else {
+          dst_rec->erase = 1;
+        }
 
       }
 

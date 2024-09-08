@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "../keyguard/fd_keyload.h"
+#include "../keyguard/fd_keyguard.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../metrics/fd_metrics.h"
 #include "../shred/fd_shred_cap.h"
@@ -44,11 +45,13 @@
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 static void
-sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
+sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len, int sign_type ) {
   fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
   fd_sha512_t          sha[1];
-  if (len == 48UL && (memcmp( buffer, "SOLANA_PING_PONG", 16UL ) == 0)) {
-    /* Gossip currently requires special handling of signing the ping/pong messages  */
+
+  switch( sign_type ) {
+
+  case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
     uchar hash[32];
     fd_sha256_hash( buffer, len, hash );
     fd_ed25519_sign( /* sig */ sig,
@@ -57,13 +60,20 @@ sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
                      /* public_key  */ config->public_key->uc,
                      /* private_key */ config->private_key,
                      sha );
-  } else {
+    break;
+  }
+
+  case FD_KEYGUARD_SIGN_TYPE_ED25519:
     fd_ed25519_sign( /* sig */ sig,
                      /* msg */ buffer,
                      /* sz  */ len,
                      /* public_key  */ config->public_key->uc,
                      /* private_key */ config->private_key,
                      sha );
+    break;
+
+  default:
+    FD_LOG_CRIT(( "Invalid sign type %u", sign_type ));
   }
 }
 
@@ -293,25 +303,22 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           vote_instr.inner.compact_update_vote_state.timestamp = &new_timestamp;
 
           /* Generate the vote transaction */
-          vote_txn_sign_args_t sign_args = {
+          FD_PARAM_UNUSED vote_txn_sign_args_t sign_args = {
             .vote_authority_keypair     = arg_->vote_authority_keypair,
             .validator_identity_keypair = arg_->validator_identity_keypair
           };
           fd_pubkey_t const * vote_authority_pubkey     = (fd_pubkey_t const *)fd_type_pun_const( arg_->vote_authority_keypair + 32UL );
           fd_pubkey_t const * validator_identity_pubkey = (fd_pubkey_t const *)fd_type_pun_const( arg_->validator_identity_keypair + 32UL );
           fd_voter_t voter = {
-            .vote_acct_addr              = arg_->vote_acct_addr,
-            .vote_authority_pubkey       = vote_authority_pubkey,
-            .validator_identity_pubkey   = validator_identity_pubkey,
-            .voter_sign_arg              = &sign_args,
-            .vote_authority_sign_fun     = vote_txn_vote_authority_signer,
-            .validator_identity_sign_fun = vote_txn_validator_identity_signer
+            .vote_acc_addr              = *arg_->vote_acct_addr,
+            .vote_authority       = *vote_authority_pubkey,
+            .validator_identity   = *validator_identity_pubkey
           };
           fd_crds_data_t echo_data;
           echo_data.discriminant          = fd_crds_data_enum_vote;
-          echo_data.inner.vote.txn.raw_sz = fd_vote_txn_generate( &voter,
+          echo_data.inner.vote.txn.raw_sz = fd_voter_txn_generate( &voter,
                                                                   &vote_instr.inner.compact_update_vote_state,
-                                                                  vote->txn.raw + parsed_txn->recent_blockhash_off,
+                                                                  (fd_hash_t *)fd_type_pun(vote->txn.raw + parsed_txn->recent_blockhash_off),
                                                                   echo_data.inner.vote.txn.txn_buf,
                                                                   echo_data.inner.vote.txn.raw );
           /* echo through gossip  */

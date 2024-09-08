@@ -1,3 +1,4 @@
+
 #include "generated/invoke.pb.h"
 #undef FD_SCRATCH_USE_HANDHOLDING
 #define FD_SCRATCH_USE_HANDHOLDING 1
@@ -5,12 +6,15 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_account.h"
 #include "../fd_executor.h"
-#include "../program/fd_bpf_loader_v3_program.h"
+#include "../fd_runtime.h"
+#include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_bpf_program_util.h"
+#include "../program/fd_builtin_programs.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
@@ -18,6 +22,10 @@
 #include "../../vm/fd_vm.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_clock.h"
+#include "../../../ballet/pack/fd_pack.h"
+#include "fd_vm_test.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -49,9 +57,6 @@ static FD_TL char _report_prefix[100] = {0};
 #define SORT_BEFORE(a,b) ( memcmp( (a), (b), sizeof(fd_pubkey_t) )<0 )
 #include "../../../util/tmpl/fd_sort.c"
 #include "../../vm/fd_vm_base.h"
-
-static uchar * data_wksp_ptrs[256] = {0};
-static ulong data_wksp_ptrs_idx = 0;
 
 struct __attribute__((aligned(32UL))) fd_exec_instr_test_runner_private {
   fd_funk_t * funk;
@@ -115,6 +120,29 @@ fd_double_is_normal( double dbl ) {
   return !( is_denorm | is_inf | is_nan );
 }
 
+FD_FN_UNUSED static void
+_txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* Copied from fd_runtime_collect_rent. Requires some modifications from fd_runtime_collect_rent */
+  fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong slot = slot_ctx->slot_bank.slot;
+  ulong epoch = fd_slot_to_epoch(schedule, slot, NULL);
+
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
+    FD_BORROWED_ACCOUNT_DECL(acc);
+
+    // Obtain writable handle to account
+    if( fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], 0, 0UL, acc ) ) {
+      continue;
+    }
+
+    /* Actually invoke rent collection */
+    fd_runtime_collect_rent_account( slot_ctx, acc->meta, acc->pubkey, epoch );
+  }
+}
+
 static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
@@ -141,8 +169,6 @@ _load_account( fd_borrowed_account_t *           acc,
   assert( err==FD_ACC_MGR_SUCCESS );
   if( state->data ) fd_memcpy( acc->data, state->data->bytes, size );
 
-  data_wksp_ptrs[data_wksp_ptrs_idx++] = acc->data;
-
   acc->starting_lamports     = state->lamports;
   acc->starting_dlen         = size;
   acc->meta->info.lamports   = state->lamports;
@@ -151,30 +177,63 @@ _load_account( fd_borrowed_account_t *           acc,
   acc->meta->dlen            = size;
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
 
+  /* make the account read-only by default */
+  acc->meta = NULL;
+  acc->data = NULL;
+  acc->rec  = NULL;
+
   return 1;
 }
 
 static int
-_context_create( fd_exec_instr_test_runner_t *        runner,
-                 fd_exec_instr_ctx_t *                ctx,
-                 fd_exec_test_instr_context_t const * test_ctx,
-                 bool                                 is_syscall ) {
-  // TODO: Add an option to use workspace allocators
-  data_wksp_ptrs_idx = 0;
+_load_txn_account( fd_borrowed_account_t *           acc,
+                   fd_acc_mgr_t *                    acc_mgr,
+                   fd_funk_txn_t *                   funk_txn,
+                   fd_exec_test_acct_state_t const * state ) {
+  // In the Agave transaction fuzzing harness, accounts with 0 lamports are not saved in the accounts db.
+  // When they are fetched for transactions, the fields of the account are 0-set.
+  fd_exec_test_acct_state_t account_state_to_save = FD_EXEC_TEST_ACCT_STATE_INIT_ZERO;
+  memcpy( account_state_to_save.address, state->address, sizeof(fd_pubkey_t) );
+  
+  // Restore the account state if it has lamports
+  if( state->lamports ) {
+    account_state_to_save = *state;
+  }
 
+  return _load_account( acc, acc_mgr, funk_txn, &account_state_to_save );
+}
+
+int
+_restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
+                        fd_exec_test_feature_set_t const * feature_set ) {
+  fd_features_disable_all( &epoch_ctx->features );
+  for( ulong j=0UL; j < feature_set->features_count; j++ ) {
+    ulong                   prefix = feature_set->features[j];
+    fd_feature_id_t const * id     = fd_feature_id_query( prefix );
+    if( FD_UNLIKELY( !id ) ) {
+      FD_LOG_WARNING(( "unsupported feature ID 0x%016lx", prefix ));
+      return 0;
+    }
+    /* Enabled since genesis */
+    fd_features_set( &epoch_ctx->features, id, 0UL );
+  }
+  return 1;
+}
+
+int
+fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
+                                   fd_exec_instr_ctx_t *                ctx,
+                                   fd_exec_test_instr_context_t const * test_ctx,
+                                   fd_alloc_t *                         alloc,
+                                   bool                                 is_syscall ) {
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
   fd_funk_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
 
-  static FD_TL ulong xid_seq = 0UL;
-
   fd_funk_txn_xid_t xid[1] = {0};
-  xid->ul[0] = fd_log_app_id();
-  xid->ul[1] = fd_log_thread_id();
-  xid->ul[2] = xid_seq++;
-  xid->ul[3] = (ulong)fd_tickcount();
+  xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and scratch contexts */
 
@@ -189,7 +248,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_libc_alloc_virtual() ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   assert( epoch_ctx );
@@ -197,11 +256,11 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   ctx->slot_ctx   = slot_ctx;
   ctx->txn_ctx    = txn_ctx;
-  txn_ctx->valloc = fd_libc_alloc_virtual();
+  txn_ctx->valloc = slot_ctx->valloc;
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size = FD_VM_HEAP_SIZE;
+  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -223,17 +282,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Restore feature flags */
 
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
-
-  fd_features_disable_all( &epoch_ctx->features );
-  for( ulong j=0UL; j < feature_set->features_count; j++ ) {
-    ulong                   prefix = feature_set->features[j];
-    fd_feature_id_t const * id     = fd_feature_id_query( prefix );
-    if( FD_UNLIKELY( !id ) ) {
-      FD_LOG_WARNING(( "unsupported feature ID 0x%016lx", prefix ));
-      return 0;
-    }
-    /* Enabled since genesis */
-    fd_features_set( &epoch_ctx->features, id, 0UL );
+  if( !_restore_feature_flags( epoch_ctx, feature_set ) ) {
+    return 0;
   }
 
   /* TODO: Restore slot_bank */
@@ -266,12 +316,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->accounts_resize_delta   = 0;
-
-  txn_ctx->instr_info_pool         = fd_instr_info_pool_join( fd_instr_info_pool_new( 
-    fd_valloc_malloc( fd_scratch_virtual(), fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
-    FD_MAX_INSTRUCTION_TRACE_LENGTH
-  ) );
-
+  txn_ctx->instr_info_cnt          = 0;
   txn_ctx->instr_trace_length      = 0;
 
   memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
@@ -281,7 +326,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up instruction context */
 
-  fd_instr_info_t * info = fd_executor_acquire_instr_info_elem( txn_ctx );
+  fd_instr_info_t * info = fd_valloc_malloc( fd_scratch_virtual(), 8UL, sizeof(fd_instr_info_t) );
   assert( info );
   memset( info, 0, sizeof(fd_instr_info_t) );
 
@@ -306,8 +351,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   for ( uint i = 0; i < test_ctx->accounts_count; i++ ) {
     memcpy( &(txn_ctx->accounts[i]), test_ctx->accounts[i].address, sizeof(fd_pubkey_t) );
   }
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(0, 0) );
-  fd_memset(txn_descriptor, 0, sizeof(txn_descriptor));
+  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(1, 0) );
+  fd_memset(txn_descriptor, 0, fd_txn_footprint(1, 0) );
   txn_descriptor->acct_addr_cnt = (ushort) test_ctx->accounts_count;
   txn_descriptor->addr_table_adtl_cnt = 0;
   txn_ctx->txn_descriptor = txn_descriptor;
@@ -347,7 +392,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
       borrowed_accts[i].starting_dlen     = 0UL;
       continue;
     }
-    
+
     if( meta->info.executable ) {
       FD_BORROWED_ACCOUNT_DECL(owner_borrowed_account);
       int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
@@ -448,6 +493,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     if( last ) {
       *recent_block_hash = *last;
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
     }
   }
 
@@ -477,12 +523,21 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
     info->acct_txn_idxs[j]     = (uchar) index;
 
+    if( test_ctx->instr_accounts[j].is_writable ) {
+      acc->meta = (void *)acc->const_meta;
+      acc->data = (void *)acc->const_data;
+      acc->rec  = (void *)acc->const_rec;
+    }
+
     if (acc_idx_seen[index]) {
       info->is_duplicate[j] = 1;
     }
     acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
+
+  //  FIXME: Specifically for CPI syscalls, flag guard this?
+  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* This function is used to create context both for instructions and for syscalls,
      however some of the remaining checks are only relevant for program instructions. */
@@ -501,14 +556,6 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
       REPORT( NOTICE, "Unable to find program_id in accounts" );
       return 0;
     }
-
-    /* For native programs, check that the owner is the native loader */
-    fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
-    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
-    if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
-      REPORT( NOTICE, "Native program owner is not NativeLoader" );
-      return 0;
-    }
   }
 
   ctx->epoch_ctx = epoch_ctx;
@@ -521,32 +568,395 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 }
 
 static void
-_context_destroy( fd_exec_instr_test_runner_t * runner,
-                  fd_exec_instr_ctx_t *         ctx ) {
+_add_to_data(uchar ** data, void const * to_add, ulong size) {
+  while( size-- ) {
+    **data = *(uchar *)to_add;
+    (*data)++;
+    to_add = (uchar *)to_add + 1;
+  }
+}
+
+static void
+_add_compact_u16(uchar ** data, ushort to_add) {
+  fd_bincode_encode_ctx_t encode_ctx = { .data = *data, .dataend = *data + 3 };  // Up to 3 bytes
+  fd_bincode_compact_u16_encode( &to_add, &encode_ctx );
+  *data = (uchar *) encode_ctx.data;
+}
+
+static fd_execute_txn_task_info_t *
+_txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
+                              fd_exec_slot_ctx_t *               slot_ctx,
+                              fd_exec_test_txn_context_t const * test_ctx ) {
+  uchar empty_bytes[64] = { 0 };
+  fd_funk_t * funk = runner->funk;
+
+  /* Generate unique ID for funk txn */
+
+  fd_funk_txn_xid_t xid[1] = {0};
+  xid[0] = fd_funk_generate_xid();
+
+  /* Create temporary funk transaction and scratch contexts */
+
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+
+  ulong vote_acct_max = 128UL;
+
+  /* Allocate contexts */
+  uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
+  fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
+
+  assert( epoch_ctx );
+  assert( slot_ctx  );
+
+  /* Set up epoch context */
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+
+  /* Create account manager */
+  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
+  assert( acc_mgr );
+
+  /* Set up slot context */
+
+  slot_ctx->epoch_ctx = epoch_ctx;
+  slot_ctx->funk_txn  = funk_txn;
+  slot_ctx->acc_mgr   = acc_mgr;
+
+  /* Restore feature flags */
+
+  fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
+  if( !_restore_feature_flags( epoch_ctx, feature_set ) ) {
+    return NULL;
+  }
+
+  /* Restore slot bank */
+  fd_slot_bank_new( &slot_ctx->slot_bank );
+
+  /* Initialize builtin accounts */
+  fd_builtin_programs_init( slot_ctx );
+
+  /* Load account states into funk (note this is different from the account keys):
+    Account state = accounts to populate Funk
+    Account keys = account keys that the transaction needs */
+  for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
+    /* Load the accounts into the account manager
+       Borrowed accounts get reset anyways - we just need to load the account somewhere */
+    FD_BORROWED_ACCOUNT_DECL(acc);
+    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+  }
+
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+
+  /* Default slot */
+  ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
+
+  /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
+  slot_ctx->slot_bank.slot                                            = slot;
+  slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot_bank.slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
+  slot_ctx->slot_bank.fee_rate_governor.burn_percent                  = 50;
+  slot_ctx->slot_bank.fee_rate_governor.min_lamports_per_signature    = 0;
+  slot_ctx->slot_bank.fee_rate_governor.max_lamports_per_signature    = 0;
+  slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature = 10000;
+  slot_ctx->slot_bank.fee_rate_governor.target_signatures_per_slot    = 20000;
+  slot_ctx->slot_bank.lamports_per_signature                          = 5000;
+  slot_ctx->prev_lamports_per_signature                               = 5000;
+
+  /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
+  fd_epoch_schedule_t default_epoch_schedule = {
+                                                .slots_per_epoch             = 432000,
+                                                .leader_schedule_slot_offset = 432000,
+                                                .warmup                      = 1,
+                                                .first_normal_epoch          = 14,
+                                                .first_normal_slot           = 524256
+                                               };
+  fd_rent_t           default_rent           = {
+                                                .lamports_per_uint8_year     = 3480,
+                                                .exemption_threshold         = 2.0,
+                                                .burn_percent                = 50
+                                               };
+  epoch_bank->epoch_schedule = default_epoch_schedule;
+  epoch_bank->rent           = default_rent;
+  epoch_bank->ticks_per_slot = 64;
+
+  // Override default values if provided
+  if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
+    epoch_bank->epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
+  }
+  if( slot_ctx->sysvar_cache->has_rent ) {
+    epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
+  }
+
+  /* Provide a default clock if not present */
+  if( !slot_ctx->sysvar_cache->has_clock ) {
+    fd_sysvar_clock_init( slot_ctx );
+  }
+
+  /* Epoch schedule and rent get set from the epoch bank */
+  fd_sysvar_epoch_schedule_init( slot_ctx );
+  fd_sysvar_rent_init( slot_ctx );
+
+  /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled 
+
+     TODO: The init parameters are not exactly conformant with Agave's epoch rewards sysvar. We should
+     be calling `fd_begin_partitioned_rewards` with the same parameters as Agave. However,
+     we just need the `active` field to be conformant due to a single Stake program check. 
+     THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
+     the epoch rewards sysvar, we may need to update this.
+  */
+  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, 0, (fd_hash_t *) empty_bytes);
+  }
+
+  /* Restore sysvar cache (again, since we may need to provide default sysvars) */
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
+  /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
+      ( rent->exemption_threshold     <      0.0 ) |
+      ( rent->exemption_threshold     >    999.0 ) |
+      ( rent->lamports_per_uint8_year > UINT_MAX ) |
+      ( rent->burn_percent            >      100 ) )
+    return NULL;
+
+  /* Blockhash queue is given in txn message. We need to populate the following three:
+     - slot_ctx->slot_bank.block_hash_queue (TODO: Does more than just the last_hash need to be populated?)
+     - sysvar_cache_recent_block_hashes
+     - slot_ctx->slot_bank.recent_block_hashes */
+  ulong num_blockhashes = test_ctx->blockhash_queue_count;
+
+  /* Recent blockhashes init */
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
+
+  /* Blockhash queue init */
+  slot_ctx->slot_bank.block_hash_queue.max_age   = test_ctx->max_age;
+  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
+  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+
+  // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
+    if( last ) {
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+    }
+  }
+
+  // Clear and reset recent block hashes sysvar
+  slot_ctx->sysvar_cache->has_recent_block_hashes         = 1;
+  slot_ctx->sysvar_cache->val_recent_block_hashes->hashes = recent_block_hashes;
+  slot_ctx->slot_bank.recent_block_hashes.hashes          = recent_block_hashes;
+
+  // Blockhash_queue[end] = last (latest) hash
+  // Blockhash_queue[0] = genesis hash
+  if( num_blockhashes > 0 ) {
+    memcpy( &epoch_bank->genesis_hash, test_ctx->blockhash_queue[0]->bytes, sizeof(fd_hash_t) );
+
+    for( ulong i = 0; i < num_blockhashes; ++i ) {
+      // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
+      fd_block_block_hash_entry_t blockhash_entry;
+      memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
+      slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+      fd_sysvar_recent_hashes_update( slot_ctx );
+    }
+  } else {
+    // Add a default empty blockhash and use it as genesis
+    num_blockhashes = 1;
+    memcpy( &epoch_bank->genesis_hash, empty_bytes, sizeof(fd_hash_t) );
+    fd_block_block_hash_entry_t blockhash_entry;
+    memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
+    slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+    fd_sysvar_recent_hashes_update( slot_ctx );
+  }
+
+  /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
+  uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
+  uchar * txn_raw_cur_ptr = txn_raw_begin;
+
+  /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
+     Note that although documentation interchangably refers to the signature cnt as a compact-u16
+     and a u8, the max signature cnt is capped at 48 (due to txn size limits), so u8 and compact-u16
+     is represented the same way anyways and can be parsed identically. */
+  // Note: always create a valid txn with 1+ signatures, add an empty signature if none is provided
+  uchar signature_cnt = fd_uchar_max( 1, (uchar) test_ctx->tx.signatures_count );
+  _add_to_data( &txn_raw_cur_ptr, &signature_cnt, sizeof(uchar) );
+  for( uchar i = 0; i < signature_cnt; ++i ) {
+    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.signatures && test_ctx->tx.signatures[i] ? test_ctx->tx.signatures[i]->bytes : empty_bytes, FD_TXN_SIGNATURE_SZ );
+  }
+
+  /* Message */
+  /* For v0 transactions, the highest bit of the num_required_signatures is set, and an extra byte is used for the version.
+     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 */
+  // Note: always create a valid txn with 1+ signatures
+  uchar num_required_signatures = fd_uchar_max( 1, (uchar) test_ctx->tx.message.header.num_required_signatures );
+  if( !test_ctx->tx.message.is_legacy ) {
+    uchar header_b0 = (uchar) 0x80UL;
+    _add_to_data( &txn_raw_cur_ptr, &header_b0, sizeof(uchar) );
+  }
+
+  /* Header (3 bytes) (https://solana.com/docs/core/transactions#message-header) */
+  _add_to_data( &txn_raw_cur_ptr, &num_required_signatures, sizeof(uchar) );
+  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_readonly_signed_accounts, sizeof(uchar) );
+  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_readonly_unsigned_accounts, sizeof(uchar) );
+
+  /* Compact array of account addresses (https://solana.com/docs/core/transactions#compact-array-format) */
+  // Array length is a compact u16
+  ushort num_acct_keys = (ushort) test_ctx->tx.message.account_keys_count;
+  _add_compact_u16( &txn_raw_cur_ptr, num_acct_keys );
+  for( ushort i = 0; i < num_acct_keys; ++i ) {
+    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.account_keys[i]->bytes, sizeof(fd_pubkey_t) );
+  }
+
+  /* Recent blockhash (32 bytes) (https://solana.com/docs/core/transactions#recent-blockhash) */
+  // Note: add an empty blockhash if none is provided
+  _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.recent_blockhash ? test_ctx->tx.message.recent_blockhash->bytes : empty_bytes, sizeof(fd_hash_t) );
+
+  /* Compact array of instructions (https://solana.com/docs/core/transactions#array-of-instructions) */
+  // Instruction count is a compact u16
+  ushort instr_count = (ushort) test_ctx->tx.message.instructions_count;
+  _add_compact_u16( &txn_raw_cur_ptr, instr_count );
+  for( ushort i = 0; i < instr_count; ++i ) {
+    // Program ID index
+    uchar program_id_index = (uchar) test_ctx->tx.message.instructions[i].program_id_index;
+    _add_to_data( &txn_raw_cur_ptr, &program_id_index, sizeof(uchar) );
+
+    // Compact array of account addresses
+    ushort acct_count = (ushort) test_ctx->tx.message.instructions[i].accounts_count;
+    _add_compact_u16( &txn_raw_cur_ptr, acct_count );
+    for( ushort j = 0; j < acct_count; ++j ) {
+      uchar account_index = (uchar) test_ctx->tx.message.instructions[i].accounts[j];
+      _add_to_data( &txn_raw_cur_ptr, &account_index, sizeof(uchar) );
+    }
+
+    // Compact array of 8-bit data
+    pb_bytes_array_t * data = test_ctx->tx.message.instructions[i].data;
+    if( data ) {
+      ushort data_len = (ushort) data->size;
+      _add_compact_u16( &txn_raw_cur_ptr, data_len );
+      _add_to_data( &txn_raw_cur_ptr, data->bytes, data_len );
+    } else {
+      _add_compact_u16( &txn_raw_cur_ptr, 0 );
+    }
+  }
+
+  /* Address table lookups (N/A for legacy transactions) */
+  ushort addr_table_cnt = 0;
+  if( !test_ctx->tx.message.is_legacy ) {
+    /* Compact array of address table lookups (https://solanacookbook.com/guides/versioned-transactions.html#compact-array-of-address-table-lookups) */
+    // NOTE: The diagram is slightly wrong - the account key is a 32 byte pubkey, not a u8
+    addr_table_cnt = (ushort) test_ctx->tx.message.address_table_lookups_count;
+    _add_compact_u16( &txn_raw_cur_ptr, addr_table_cnt );
+    for( ushort i = 0; i < addr_table_cnt; ++i ) {
+      // Account key
+      _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.address_table_lookups[i].account_key, sizeof(fd_pubkey_t) );
+
+      // Compact array of writable indexes
+      ushort writable_count = (ushort) test_ctx->tx.message.address_table_lookups[i].writable_indexes_count;
+      _add_compact_u16( &txn_raw_cur_ptr, writable_count );
+      for( ushort j = 0; j < writable_count; ++j ) {
+        uchar writable_index = (uchar) test_ctx->tx.message.address_table_lookups[i].writable_indexes[j];
+        _add_to_data( &txn_raw_cur_ptr, &writable_index, sizeof(uchar) );
+      }
+
+      // Compact array of readonly indexes
+      ushort readonly_count = (ushort) test_ctx->tx.message.address_table_lookups[i].readonly_indexes_count;
+      _add_compact_u16( &txn_raw_cur_ptr, readonly_count );
+      for( ushort j = 0; j < readonly_count; ++j ) {
+        uchar readonly_index = (uchar) test_ctx->tx.message.address_table_lookups[i].readonly_indexes[j];
+        _add_to_data( &txn_raw_cur_ptr, &readonly_index, sizeof(uchar) );
+      }
+    }
+  }
+
+  /* Set up txn descriptor from raw data */
+  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint( instr_count, addr_table_cnt ) );
+  ushort txn_raw_sz = (ushort) (txn_raw_cur_ptr - txn_raw_begin);
+  if( !fd_txn_parse( txn_raw_begin, txn_raw_sz, txn_descriptor, NULL ) ) {
+    FD_LOG_WARNING(("could not parse txn descriptor"));
+    return NULL;
+  }
+
+  /* Run txn preparation phases and execution
+     NOTE: This should be modified accordingly if transaction setup logic changes */
+  fd_txn_p_t * txn = fd_scratch_alloc( alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
+  memcpy( txn->payload, txn_raw_begin, txn_raw_sz );
+  txn->payload_sz = (ulong) txn_raw_sz;
+  txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  memcpy( txn->_, txn_descriptor, fd_txn_footprint( instr_count, addr_table_cnt ) );
+
+  fd_execute_txn_task_info_t * task_info = fd_scratch_alloc( alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
+  memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
+  task_info->txn = txn;
+
+  fd_tpool_t tpool[1];
+  tpool->worker_cnt = 1;
+  tpool->worker_max = 1;
+
+  int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_info, txn, 1 );
+  (void)res;
+  // if (res != 0) {
+  //   return task_info;
+  // }
+
+  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, tpool );
+  // if (res != 0) {
+  //   return task_info;
+  // }
+
+  res |= fd_runtime_prepare_txns_phase3( slot_ctx, task_info, 1 );
+  // if (res != 0) {
+  //   return task_info;
+  // }
+
+  // Below is a stripped-out version of fd_runtime_execute_txn_task because the Agave harness does not reclaim accounts
+  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+    // At this point the transaction error code should have been propogated
+    // to task_info->exec_res
+    return task_info;
+  }
+
+  res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
+  // if( res != 0 ) {
+  //   return task_info;
+  // }
+  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+  task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  return task_info;
+}
+
+void
+fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
+                                    fd_exec_instr_ctx_t *         ctx,
+                                    fd_wksp_t *                   wksp,
+                                    fd_alloc_t *                  alloc ) {
   if( !ctx ) return;
   fd_exec_slot_ctx_t *  slot_ctx  = ctx->slot_ctx;
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  // Free any libc-allocated borrowed account data
+  // Free any allocated borrowed account data
   for( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; ++i ) {
-    bool wksp_allocated = false;
-    for( ulong j = 0; j < data_wksp_ptrs_idx; ++j ) {
-      if( ctx->txn_ctx->borrowed_accounts[i].data == data_wksp_ptrs[j] ) {
-        wksp_allocated = true;
-        break;
-      }
-    }
-
-    if( ctx->txn_ctx->borrowed_accounts[i].data == NULL ) {
-      continue;
-    }
-
-    if( !wksp_allocated ) {
-      fd_valloc_free( ctx->txn_ctx->valloc, ctx->txn_ctx->borrowed_accounts[i].data - sizeof(fd_account_meta_t) );
+    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[i];
+    void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
+    fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
+    if( belongs_to_wksp ) {
+      fd_wksp_free_laddr( borrowed_account_mem );
     }
   }
+
+  // Free alloc
+  if( alloc ) {
+    fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
+  }
+
+  // Detach from workspace
+  fd_wksp_detach( wksp );
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
@@ -554,6 +964,45 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
 
   ctx->slot_ctx = NULL;
+}
+
+static void
+_txn_context_destroy( fd_exec_instr_test_runner_t * runner,
+                      fd_exec_txn_ctx_t *           txn_ctx,
+                      fd_exec_slot_ctx_t *          slot_ctx,
+                      fd_wksp_t *                   wksp,
+                      fd_alloc_t *                  alloc ) {
+  if( !slot_ctx ) return; // This shouldn't be false either
+  fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
+  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
+
+  // Free any allocated borrowed account data
+  if( txn_ctx ) {
+    for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
+      fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[i];
+      void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
+      fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
+      if( belongs_to_wksp ) {
+        fd_wksp_free_laddr( borrowed_account_mem );
+      }
+    }
+  }
+
+  // Free alloc
+  if( alloc ) {
+    fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
+  }
+
+  // Detach from workspace
+  fd_wksp_detach( wksp );
+
+  if( txn_ctx ) {
+    fd_wksp_free_laddr( fd_exec_txn_ctx_delete( fd_exec_txn_ctx_leave( txn_ctx ) ) );
+  }
+
+  fd_exec_slot_ctx_free( slot_ctx );
+  fd_acc_mgr_delete( acc_mgr );
+  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
 }
 
 /* fd_exec_instr_fixture_diff_t compares a test fixture against the
@@ -764,8 +1213,10 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
              (ulong) data_sz, ctx->txn_ctx->return_data.len );
   }
   else if (data_sz > 0 ) {
-    check->has_diff = memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size );
-    REPORT( WARNING, "return data mismatch" );
+    if( memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size ) ) {
+      check->has_diff = 1;
+      REPORT( WARNING, "return data mismatch" );
+    }
   }
 
   /* TODO: Capture account side effects outside of the access list by
@@ -773,13 +1224,34 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
            violation) */
 }
 
+static fd_sbpf_syscalls_t *
+lookup_syscall_func( fd_sbpf_syscalls_t *syscalls,
+                     const char *syscall_name,
+                     size_t len) {
+  ulong i;
+
+  if (!syscall_name) return NULL;
+
+  for (i = 0; i < fd_sbpf_syscalls_slot_cnt(); ++i) {
+    if (!fd_sbpf_syscalls_key_inval(syscalls[i].key) && syscalls[i].name && strlen(syscalls[i].name) == len) {
+      if (!memcmp(syscalls[i].name, syscall_name, len)) {
+        return syscalls + i;
+      }
+    }
+  }
+
+  return NULL;
+}
+
 int
 fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
                            char const *                         log_name ) {
+  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
   fd_exec_instr_ctx_t ctx[1];
-  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input, false ) ) ) {
-    _context_destroy( runner, ctx );
+  if( FD_UNLIKELY( !fd_exec_test_instr_context_create( runner, ctx, &test->input, alloc, false ) ) ) {
+    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
     return 0;
   }
 
@@ -806,21 +1278,25 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
     has_diff = diff.has_diff;
   } while(0);
 
-  _context_destroy( runner, ctx );
+  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
   return !has_diff;
 }
 
 ulong
-fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
-                        fd_exec_test_instr_context_t const * input,
-                        fd_exec_test_instr_effects_t **      output,
-                        void *                               output_buf,
-                        ulong                                output_bufsz ) {
+fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
+                        void const *                  input_,
+                        void **                       output_,
+                        void *                        output_buf,
+                        ulong                         output_bufsz ) {
+  fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
+  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input, false ) ) {
-    _context_destroy( runner, ctx );
+  if( !fd_exec_test_instr_context_create( runner, ctx, input, alloc, false ) ) {
+    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
     return 0UL;
   }
 
@@ -838,7 +1314,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
                                 sizeof (fd_exec_test_instr_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
+    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
@@ -856,17 +1332,13 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Allocate space for captured accounts */
-
-  fd_funk_t *     funk     = runner->funk;
-  fd_funk_txn_t * funk_txn = ctx->funk_txn;
-
   ulong modified_acct_cnt = ctx->txn_ctx->accounts_cnt;
 
   fd_exec_test_acct_state_t * modified_accts =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
                                 sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
+    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
     return 0;
   }
   effects->modified_accounts       = modified_accts;
@@ -891,7 +1363,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      _context_destroy( runner, ctx );
+      fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
       return 0UL;
     }
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
@@ -902,12 +1374,6 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;
-
-    /* Delete funk record */
-    fd_funk_rec_key_t rec_key = fd_acc_funk_key( acc->pubkey );
-    fd_funk_rec_t const * rec_ = fd_funk_rec_query( funk, funk_txn, &rec_key );
-    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_ );
-    fd_funk_rec_remove( funk, rec, 1 );
   }
 
   /* Capture return data */
@@ -915,44 +1381,194 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                               PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
+    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
     return 0UL;
   }
   effects->return_data->size = (pb_size_t)return_data->len;
   fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
 
-  /* TODO verify that there are no outstanding funk records */
-
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  _context_destroy( runner, ctx );
+  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 }
 
 ulong
+fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only contains funk instance, so we can borrow instr test runner
+                      void const *                  input_,
+                      void **                       output_,
+                      void *                        output_buf,
+                      ulong                         output_bufsz ) {
+  fd_exec_test_txn_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_txn_result_t **       output = fd_type_pun( output_ );
+
+  FD_SCRATCH_SCOPE_BEGIN {
+    /* Initialize memory */
+    fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
+    fd_alloc_t *          alloc         = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
+    uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
+    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+
+    /* Create and exec transaction */
+    fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
+    if( task_info == NULL ) {
+      _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
+      return 0UL;
+    }
+    fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
+
+    int exec_res = task_info->exec_res;
+
+    /* Collect rent */
+    //TODO: _txn_collect_rent( txn_ctx );
+
+    /* Start saving txn exec results */
+    FD_SCRATCH_ALLOC_INIT( l, output_buf );
+    ulong output_end = (ulong)output_buf + output_bufsz;
+
+    fd_exec_test_txn_result_t * txn_result =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
+                                  sizeof (fd_exec_test_txn_result_t) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      abort();
+    }
+    fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
+
+    /* Capture basic results fields */
+    txn_result->executed                          = task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
+    txn_result->has_resulting_state               = false;
+    txn_result->resulting_state.acct_states_count = 0;
+    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
+    txn_result->is_ok                             = !exec_res;
+    txn_result->status                            = (uint32_t) -exec_res;
+    txn_result->instruction_error                 = 0;
+    txn_result->instruction_error_index           = 0;
+    txn_result->custom_error                      = 0;
+    txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+    txn_result->has_fee_details                   = false;
+
+    if( txn_result->sanitization_error ) {
+      ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
+
+      *output = txn_result;
+      return actual_end - (ulong)output_buf;
+    }
+
+    txn_result->has_fee_details                   = true;
+    txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
+
+    assert(txn_result->executed);
+
+    /* At this point, the transaction has executed */
+    if (exec_res) {
+      /* Instruction error index must be set for the txn error to be an instruction error */
+      if( txn_ctx->instr_err_idx != INT32_MAX ) {
+        txn_result->status = (uint32_t) -FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+        txn_result->instruction_error = (uint32_t) -exec_res;
+        txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
+        if (exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
+          txn_result->custom_error = txn_ctx->custom_err;
+        }
+      } else {
+        txn_result->status = (uint32_t) -exec_res;
+      }
+    }
+
+    if( txn_ctx->return_data.len > 0 ) {
+      txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
+      if( FD_UNLIKELY( _l > output_end ) ) {
+        abort();
+      }
+
+      txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
+      fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
+    }
+
+    /* Allocate space for captured accounts */
+    ulong modified_acct_cnt = txn_ctx->accounts_cnt;
+
+    txn_result->has_resulting_state         = true;
+    txn_result->resulting_state.acct_states =
+      FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
+                                  sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      abort();
+    }
+
+    /* Capture borrowed accounts */
+    for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
+      fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
+      if( !acc->const_meta ) continue;
+
+      ulong modified_idx = txn_result->resulting_state.acct_states_count;
+      assert( modified_idx < modified_acct_cnt );
+
+      fd_exec_test_acct_state_t * out_acct = &txn_result->resulting_state.acct_states[ modified_idx ];
+      memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
+      /* Copy over account content */
+
+      memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
+
+      out_acct->lamports = acc->const_meta->info.lamports;
+
+      if( acc->const_meta->dlen > 0 ) {
+        out_acct->data =
+          FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+        if( FD_UNLIKELY( _l > output_end ) ) {
+          abort();
+        }
+        out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
+        fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
+      }
+
+      out_acct->executable     = acc->const_meta->info.executable;
+      out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;
+      memcpy( out_acct->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
+
+      txn_result->resulting_state.acct_states_count++;
+    }
+
+    ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+    _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
+
+    *output = txn_result;
+    return actual_end - (ulong)output_buf;
+  } FD_SCRATCH_SCOPE_END;
+}
+
+
+ulong
 fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
-                               fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t **  output,
-                               void *                                output_buf,
-                               ulong                                 output_bufsz ){
+                               void const *                  input_,
+                               void **                       output_,
+                               void *                        output_buf,
+                               ulong                         output_bufsz ) {
+  fd_exec_test_elf_loader_ctx_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
+
   fd_sbpf_elf_info_t info;
   fd_valloc_t valloc = fd_scratch_virtual();
 
   if ( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ){
     return 0UL;
   }
-  
+
   ulong elf_sz = input->elf_sz;
   void const * _bin;
 
   /* elf_sz will be passed as arguments to elf loader functions.
      pb decoder allocates memory for elf.data based on its actual size,
-     not elf_sz !. 
+     not elf_sz !.
      If elf_sz is larger than the size of actual elf data, this may result
      in out-of-bounds accesses which will upset ASAN (however intentional).
-     So in this case we just copy the data into a memory region of elf_sz bytes 
-     
+     So in this case we just copy the data into a memory region of elf_sz bytes
+
      ! The decoupling of elf_sz and the actual binary size is intentional to test
       underflow/overflow behavior */
   if ( elf_sz > input->elf.data->size ){
@@ -979,9 +1595,9 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
   }
   fd_memset( elf_effects, 0, sizeof(fd_exec_test_elf_loader_effects_t) );
 
-  /* wrap the loader code in do-while(0) block so that we can exit 
+  /* wrap the loader code in do-while(0) block so that we can exit
      immediately if execution fails at any point */
-     
+
   do{
 
     if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks ) ) ) {
@@ -1044,17 +1660,24 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
 }
 
 ulong
-fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
-                             fd_exec_test_syscall_context_t const * input,
-                             fd_exec_test_syscall_effects_t **      output,
-                             void *                                 output_buf,
-                             ulong                                  output_bufsz ) {
+fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
+                             void const *                  input_,
+                             void **                       output_,
+                             void *                        output_buf,
+                             ulong                         output_bufsz ) {
+  fd_exec_test_syscall_context_t const * input =  fd_type_pun_const( input_ );
+  fd_exec_test_syscall_effects_t **      output = fd_type_pun( output_ );
+  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input_instr_ctx, true ) )
-    return 0UL;
+  // Skip extra checks for non-CPI syscalls
+  bool skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+
+  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
+    goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
   /* Capture outputs */
@@ -1064,10 +1687,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
                                 sizeof (fd_exec_test_syscall_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
-    return 0UL;
+    goto error;
   }
-  fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   /* Set up the VM instance */
   fd_sha256_t _sha[1];
@@ -1076,27 +1699,28 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Pull out the memory regions */
-  FD_TEST( input->has_vm_ctx );
-  FD_TEST( input->vm_ctx.rodata );
-  uchar * rodata = input->vm_ctx.rodata->bytes;
-  ulong rodata_sz = input->vm_ctx.rodata->size;
+  if( !input->has_vm_ctx ) {
+    goto error;
+  }
+  uchar * rodata = input->vm_ctx.rodata ? input->vm_ctx.rodata->bytes : NULL;
+  ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
 
-  /* Concatenate the input data regions into the flat input memory region */
-  ulong input_data_sz = 0;
-  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-    input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
+  /* Load input data regions */
+  fd_vm_input_region_t * input_regions = NULL;
+  uint input_regions_count = 0U;
+  if( !!(input->vm_ctx.input_data_regions_count) ) {
+    input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
   }
-  uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
-  uchar * input_data_ptr = input_data;
-  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-    pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
-    fd_memcpy( input_data_ptr, array->bytes, array->size );
-    input_data_ptr += array->size;
+
+  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+    goto error;
   }
-  FD_TEST( input_data_ptr == (input_data + input_data_sz) );
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
-  FD_TEST( vm );
+  if ( !vm ) {
+    goto error;
+  }
   fd_vm_init(
     vm,
     ctx,
@@ -1111,13 +1735,17 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     0, // TODO
     NULL, // TODO
     syscalls,
-    input_data,
-    input_data_sz,
     NULL, // TODO
-    sha);
+    sha,
+    input_regions,
+    input_regions_count,
+    NULL,
+    (uchar)false );
 
   // Setup the vm state for execution
-  FD_TEST( fd_vm_setup_state_for_execution( vm ) == FD_VM_SUCCESS );
+  if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
+    goto error;
+  }
 
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously
@@ -1134,45 +1762,57 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
 
+  vm->check_align = input->vm_ctx.check_align;
+  vm->check_size = input->vm_ctx.check_size;
+
   // Override initial part of the heap, if specified the syscall fuzzer input
   if( input->syscall_invocation.heap_prefix ) {
     fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes,
                fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
   }
 
+  // Override initial part of the stack, if specified the syscall fuzzer input
+  if( input->syscall_invocation.stack_prefix ) {
+    fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes,
+               fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
+  }
+
+  // Propogate the acc_regions_meta to the vm
+  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
+  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+
   // Look up the syscall to execute
-  const char * syscall_name = input->syscall_invocation.function_name;
-  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const(
-    syscalls,
-    fd_murmur3_32( syscall_name, strlen( syscall_name ), 0U ),
-    NULL );
-  if( !syscall ) return 0;
+  char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;
+  fd_sbpf_syscalls_t const * syscall = lookup_syscall_func(syscalls, syscall_name, input->syscall_invocation.function_name.size);
+  if( !syscall ) {
+    goto error;
+  }
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
 
   /* Capture the effects */
   effects->error = -syscall_err;
-  effects->r0 = vm->reg[0];
+  effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
   effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  fd_memcpy( effects->heap->bytes, vm->heap, fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-
-  if( input_data_sz ) {
-    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
-    effects->inputdata->size = (uint)input_data_sz;
-    fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
+  
+  if( vm->rodata_sz ) {
+    effects->rodata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+    effects->rodata->size = (uint)rodata_sz;
+    fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
   } else {
-    effects->inputdata = NULL;
+    effects->rodata = NULL;
   }
 
   effects->frame_count = vm->frame_cnt;
@@ -1186,10 +1826,36 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     effects->log = NULL;
   }
 
+  /* Capture input regions */
+  effects->inputdata = NULL; /* Deprecated, using input_data_regions instead */
+  ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong input_regions_size = load_from_vm_input_regions( vm->input_mem_regions,
+                                                        vm->input_mem_regions_cnt,
+                                                        &effects->input_data_regions,
+                                                        &effects->input_data_regions_count,
+                                                        (void *)tmp_end, 
+                                                        fd_ulong_sat_sub( output_end, tmp_end ) );
+
   /* Return the effects */
-  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  _context_destroy( runner, ctx );
+  ulong actual_end = tmp_end + input_regions_size;
+  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
+
+error:
+  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  return 0;
+}
+
+/* Stubs fd_execute_instr for binaries compiled with 
+   `-Xlinker --wrap=fd_execute_instr` */
+int
+__wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+                         fd_instr_info_t *   instr_info )
+{
+    (void)(txn_ctx);
+    (void)(instr_info);
+    FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
+    return FD_EXECUTOR_INSTR_SUCCESS;
 }

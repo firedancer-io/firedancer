@@ -336,12 +336,12 @@ FD_PROTOTYPES_BEGIN
 
    For tsorig and tspub, the mux tile will recompute tspub for
    multiplexed fragments.  Assuming the original publisher of the frag
-   set tsorig of the the fragment to when it started producing the
-   message to which the frag belongs and set tspub to the timestamp to
-   when it first published the frag, and that the producer, mux and
-   consumer all have access to the same clock, a downstream consumer can
-   tell when a message started arriving, when it was first available to
-   for consumption and (by locally reading the clock) the time when it
+   set tsorig of the fragment to when it started producing the message
+   to which the frag belongs and set tspub to the timestamp to when it
+   first published the frag, and that the producer, mux and consumer
+   all have access to the same clock, a downstream consumer can tell
+   when a message started arriving, when it was first available to for
+   consumption and (by locally reading the clock) the time when it
    actually started consuming.  And the logic for doing so on the
    consumer will be the same on the consumer regardless it is consuming
    directly or through one or more rounds of multiplexing.
@@ -359,11 +359,11 @@ FD_PROTOTYPES_BEGIN
    should be halted and/or caught up before this tile is halted.
 
    There are no theoretical restrictions on the fragment stream mcache
-   depths.  Practically, it is recommend these be as large as possible,
-   especially for bursty streams and/or a large number of reliable
-   consumers.  Likewise, there is no benefit from the mux's POV to using
-   a mcache depth different from the smallest input mcache depth
-   (smaller can underutilize the input mcaches and larger cannot be
+   depths.  Practically, it is recommended that these be as large as
+   possible, especially for bursty streams and/or a large number of
+   reliable consumers.  Likewise, there is no benefit from the mux's POV
+   to using a mcache depth different from the smallest input mcache
+   depth (smaller can underutilize the input mcaches and larger cannot be
    fully utilized by the downstream outs due to the worst case scenarios
    with the smallest in mcache).  Similarly, there is no advantage from
    the mux's POV to using variable in_mcache depths.  But there can be
@@ -424,7 +424,7 @@ FD_PROTOTYPES_BEGIN
    for accumulating standard diagnostics in the standard ways.  Except
    for FD_CNC_DIAG_IN_BACKP, none of the diagnostics are cleared at (as
    such that they can be accumulated over multiple runs).  Clearing is
-   up to monitoring scripts.  It is recommend that inputs and outputs
+   up to monitoring scripts.  It is recommended that inputs and outputs
    also use their cnc and fseq application regions similarly for
    monitoring simplicity / consistency.
 
@@ -478,7 +478,7 @@ fd_mux_advance( fd_mux_context_t * ctx ) {
 }
 
 /* If the mux is operating with FD_MUX_FLAG_NO_PUBLISH, the caller can optionally
-   publish fragments to the consumers themself.  To do this, they should call
+   publish fragments to the consumers themselves.  To do this, they should call
    fd_mux_publish with the mux context provided in the  */
 static inline void
 fd_mux_publish( fd_mux_context_t * ctx,

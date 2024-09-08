@@ -65,7 +65,8 @@ typedef struct configure_stage {
 
 extern configure_stage_t hugetlbfs;
 extern configure_stage_t sysctl;
-extern configure_stage_t ethtool;
+extern configure_stage_t ethtool_channels;
+extern configure_stage_t ethtool_gro;
 extern configure_stage_t workspace;
 
 extern configure_stage_t * STAGES[];

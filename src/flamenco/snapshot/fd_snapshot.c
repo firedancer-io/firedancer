@@ -7,6 +7,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../rewards/fd_rewards.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -70,6 +71,17 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
+  if( src->type == FD_SNAPSHOT_SRC_ARCHIVE ) {
+    if( FD_UNLIKELY( fd_funk_unarchive( slot_ctx->acc_mgr->funk, src->file.path ) ) ) {
+      FD_LOG_ERR(( "Failed to load snapshot" ));
+    }
+    fd_runtime_recover_banks( slot_ctx, 0, 1 );
+    memset( name_out, 0, sizeof(fd_snapshot_name_t) );
+    name_out->type = FD_SNAPSHOT_TYPE_FULL;
+    name_out->slot = slot_ctx->slot_bank.slot;
+    return;
+  }
+
   fd_valloc_t     valloc   = slot_ctx->valloc;
   fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
@@ -112,6 +124,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_snapshot_load( const char *         snapshotfile,
                   fd_exec_slot_ctx_t * slot_ctx,
+                  fd_tpool_t *         tpool,
                   uint                 verify_hash,
                   uint                 check_hash,
                   int                  snapshot_type ) {
@@ -137,7 +150,14 @@ fd_snapshot_load( const char *         snapshotfile,
      better design. */
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 
+  fd_funk_txn_t * par_txn = slot_ctx->funk_txn;
   fd_funk_txn_t * child_txn = slot_ctx->funk_txn;
+  if( verify_hash && FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation) ) {
+    fd_funk_txn_xid_t xid;
+    memset( &xid, 0xc3, sizeof( xid ) );
+    child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, child_txn, &xid, 0 );
+    slot_ctx->funk_txn = child_txn;
+  }
 
   fd_scratch_push();
   size_t slen = strlen( snapshotfile );
@@ -159,7 +179,7 @@ fd_snapshot_load( const char *         snapshotfile,
   if( verify_hash ) {
     if (snapshot_type == FD_SNAPSHOT_TYPE_FULL) {
       fd_hash_t accounts_hash;
-      fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 0);
+      fd_snapshot_hash(slot_ctx, tpool, &accounts_hash, check_hash);
 
       if (memcmp(fhash->uc, accounts_hash.uc, 32) != 0)
         FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash->uc));
@@ -170,10 +190,10 @@ fd_snapshot_load( const char *         snapshotfile,
 
       if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
         FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
-        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 1);
+        fd_accounts_hash_inc_only(slot_ctx, &accounts_hash, child_txn, check_hash);
       } else {
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
-        fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash, 0);
+        fd_snapshot_hash(slot_ctx, tpool, &accounts_hash, check_hash);
       }
 
       if (memcmp(fhash->uc, accounts_hash.uc, 32) != 0)
@@ -185,7 +205,14 @@ fd_snapshot_load( const char *         snapshotfile,
     }
   }
 
+  if( child_txn != par_txn ) {
+    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+    slot_ctx->funk_txn = par_txn;
+  }
+
   fd_hashes_load(slot_ctx);
+
+  fd_rewards_recalculate_partitioned_rewards( slot_ctx );
 
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
   fd_funk_end_write( slot_ctx->acc_mgr->funk );

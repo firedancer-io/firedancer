@@ -7,103 +7,60 @@
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <sys/epoll.h>
-#include <microhttpd.h>
+#include <stdarg.h>
+#include <strings.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include "fd_methods.h"
 #include "fd_webserver.h"
 
 struct fd_websocket_ctx {
-  struct MHD_UpgradeResponseHandle *urh;
-  MHD_socket sock;
   fd_webserver_t * ws;
+  ulong connection_id;
 };
 
 // Parse the top level json request object
-void json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex, void* cb_arg) {
+static void
+json_parse_root(fd_webserver_t * ws, json_lex_state_t* lex) {
   struct json_values values;
   json_values_new(&values);
 
   struct json_path path;
   path.len = 0;
   if (json_values_parse(lex, &values, &path)) {
-    json_values_printout(&values);
-    fd_webserver_method_generic(replier, &values, cb_arg);
+    // json_values_printout(&values);
+    fd_webserver_method_generic(&values, ws->cb_arg);
   } else {
     ulong sz;
     const char* text = json_lex_get_text(lex, &sz);
     FD_LOG_WARNING(( "json parsing error: %s", text ));
-    fd_web_replier_simple_error(replier, text, (uint)sz);
+    fd_hcache_reset(ws->hcache);
+    ws->quick_size = 0;
+    fd_hcache_printf(ws->hcache, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error: %s\"},\"id\":null}", text);
   }
 
   json_values_delete(&values);
 }
 
-struct fd_web_replier {
-  const char* upload_data;
-  size_t upload_data_size;
-  unsigned int status_code;
-  struct MHD_Response* response;
-  fd_textstream_t textstream;
-};
-
-struct fd_web_replier* fd_web_replier_new(void) {
-  struct fd_web_replier* r = (struct fd_web_replier*)malloc(sizeof(struct fd_web_replier));
-  r->upload_data = NULL;
-  r->upload_data_size = 0;
-  r->status_code = MHD_HTTP_OK;
-  r->response = NULL;
-  fd_textstream_new(&r->textstream, fd_libc_alloc_virtual(), 1UL<<18); // 256KB chunks
-  return r;
-}
-
-void fd_web_replier_delete(struct fd_web_replier* r) {
-  if (r->response != NULL)
-    MHD_destroy_response(r->response);
-  fd_textstream_destroy(&r->textstream);
-  free(r);
-}
-
-fd_textstream_t * fd_web_replier_textstream(struct fd_web_replier* r) {
-  return &r->textstream;
-}
-
-void fd_web_replier_done(struct fd_web_replier* r) {
-  struct fd_iovec iov[100];
-  ulong numiov = fd_textstream_get_iov_count(&r->textstream);
-  if (numiov > 100 || fd_textstream_get_iov(&r->textstream, iov)) {
-    fd_web_replier_error(r, "failure in reply generator");
-    return;
-  }
-  r->status_code = MHD_HTTP_OK;
-  if (r->response != NULL)
-    MHD_destroy_response(r->response);
-#pragma GCC diagnostic ignored "-Wstrict-aliasing"
-  r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
-}
-
-void fd_web_replier_error( struct fd_web_replier* r, const char* format, ... ) {
+void fd_web_error( fd_webserver_t * ws, const char* format, ... ) {
   char text[4096];
   va_list ap;
   va_start(ap, format);
-  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
   int x = vsnprintf(text, sizeof(text), format, ap);
   va_end(ap);
-  fd_web_replier_simple_error(r, text, (uint)x);
+  fd_web_simple_error(ws, text, (uint)x);
 }
 
-void fd_web_ws_error( fd_websocket_ctx_t * ctx, const char* format, ... ) {
+void fd_web_ws_error( fd_webserver_t * ws, ulong conn_id, const char* format, ... ) {
   char text[4096];
   va_list ap;
   va_start(ap, format);
-  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
   int x = vsnprintf(text, sizeof(text), format, ap);
   va_end(ap);
-  fd_web_ws_simple_error(ctx, text, (uint)x);
+  fd_web_ws_simple_error(ws, conn_id, text, (uint)x);
 }
 
-void fd_web_replier_simple_error( struct fd_web_replier* r, const char* text, uint text_size) {
+void fd_web_simple_error( fd_webserver_t * ws, const char* text, uint text_size ) {
 #define CRLF "\r\n"
   static const char* DOC1 =
 "<html>" CRLF
@@ -120,156 +77,177 @@ void fd_web_replier_simple_error( struct fd_web_replier* r, const char* text, ui
 "</body>" CRLF
 "</html>" CRLF;
 
-  fd_textstream_t * ts = &r->textstream;
-  fd_textstream_clear(ts);
-  fd_textstream_append(ts, DOC1, strlen(DOC1));
-  fd_textstream_append(ts, text, text_size);
-  fd_textstream_append(ts, DOC2, strlen(DOC2));
-  fd_textstream_append(ts, r->upload_data, r->upload_data_size);
-  fd_textstream_append(ts, DOC3, strlen(DOC3));
+  fd_hcache_reset(ws->hcache);
+  ws->quick_size = 0;
+  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC1, strlen(DOC1));
+  fd_hcache_memcpy(ws->hcache, (const uchar*)text, text_size);
+  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC2, strlen(DOC2));
+  fd_hcache_memcpy(ws->hcache, ws->upload_data, ws->upload_data_size);
+  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC3, strlen(DOC3));
 
-  struct fd_iovec iov[100];
-  ulong numiov = fd_textstream_get_iov_count(&r->textstream);
-  if (numiov > 100 || fd_textstream_get_iov(&r->textstream, iov)) {
-    FD_LOG_ERR(("failure in error reply generator"));
-    return;
-  }
-
-  r->status_code = MHD_HTTP_BAD_REQUEST;
-  if (r->response != NULL)
-    MHD_destroy_response(r->response);
-  r->response = MHD_create_response_from_iovec((struct MHD_IoVec *)iov, (uint)numiov, NULL, NULL);
+  ws->status_code = 400; // BAD_REQUEST
 }
 
-/**
- * Signature of the callback used by MHD to notify the
- * application about completed requests.
- *
- * @param cls client-defined closure
- * @param connection connection handle
- * @param con_cls value as set by the last call to
- *        the MHD_AccessHandlerCallback
- * @param toe reason for request termination
- * @see MHD_OPTION_NOTIFY_COMPLETED
- */
-static void completed_cb(void* cls,
-                         struct MHD_Connection* connection,
-                         void** con_cls,
-                         enum MHD_RequestTerminationCode toe)
-{
-  (void) cls;         /* Unused. Silent compiler warning. */
-  (void) connection;  /* Unused. Silent compiler warning. */
-  (void) toe;         /* Unused. Silent compiler warning. */
-
-  if (*con_cls != NULL) {
-    fd_web_replier_delete((struct fd_web_replier*) (*con_cls));
-    *con_cls = NULL;
+static void
+fd_web_reply_flush( fd_webserver_t * ws ) {
+  if( ws->quick_size ) {
+    fd_hcache_memcpy(ws->hcache, (const uchar*)ws->quick_buf, ws->quick_size);
+    ws->quick_size = 0;
   }
 }
 
-/**
- * Main MHD callback for handling requests.
- *
- * @param cls argument given together with the function
- *        pointer when the handler was registered with MHD
- * @param connection handle identifying the incoming connection
- * @param url the requested url
- * @param method the HTTP method used ("GET", "PUT", etc.)
- * @param version the HTTP version string (i.e. "HTTP/1.1")
- * @param upload_data the data being uploaded (excluding HEADERS,
- *        for a POST that fits into memory and that is encoded
- *        with a supported encoding, the POST data will NOT be
- *        given in upload_data and is instead available as
- *        part of MHD_get_connection_values; very large POST
- *        data *will* be made available incrementally in
- *        upload_data)
- * @param upload_data_size set initially to the size of the
- *        upload_data provided; the method must update this
- *        value to the number of bytes NOT processed;
- * @param ptr pointer that the callback can set to some
- *        address and that will be preserved by MHD for future
- *        calls for this request; since the access handler may
- *        be called many times (i.e., for a PUT/POST operation
- *        with plenty of upload data) this allows the application
- *        to easily associate some request-specific state.
- *        If necessary, this state can be cleaned up in the
- *        global "MHD_RequestCompleted" callback (which
- *        can be set with the MHD_OPTION_NOTIFY_COMPLETED).
- *        Initially, <tt>*con_cls</tt> will be NULL.
- * @return MHS_YES if the connection was handled successfully,
- *         MHS_NO if the socket must be closed due to a serious
- *         error while handling the request
- */
-static enum MHD_Result handler(void* cls,
-                               struct MHD_Connection* connection,
-                               const char* url,
-                               const char* method,
-                               const char* version,
-                               const char* upload_data,
-                               size_t* upload_data_size,
-                               void** con_cls)
-{
-  (void) url;               /* Unused. Silent compiler warning. */
-  (void) version;           /* Unused. Silent compiler warning. */
+static fd_http_server_response_t
+request( fd_http_server_request_t const * request ) {
+  fd_webserver_t * ws = (fd_webserver_t *)request->ctx;
 
-  fd_webserver_t * ws = (fd_webserver_t *)cls;
+  if( FD_LIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
+    if( FD_LIKELY( request->headers.upgrade_websocket ) ) {
+      fd_http_server_response_t response = {
+        .status            = 200,
+        .upgrade_websocket = 1,
+        .content_type      = "application/json"
+      };
+      return response;
+    }
 
-  if (0 != strcmp (method, "POST"))
-    return MHD_NO;              /* unexpected method */
+    fd_hcache_printf( ws->hcache, "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <title>Error</title> </head> <body> <h1>GET method not supported!</h1> </body> </html>\r\n" );
+    ulong body_len     = body_len;
+    uchar const * body = fd_hcache_snap_response( ws->hcache, &body_len );
+    FD_TEST( body );
 
-  struct fd_web_replier* replier;
-  if (*con_cls == NULL)
-    *con_cls = replier = fd_web_replier_new();
-  else
-    replier = (struct fd_web_replier*) (*con_cls);
+    fd_http_server_response_t response = {
+      .status            = 400,
+      .upgrade_websocket = 0,
+      .content_type      = "text/html",
+      .body              = body,
+      .body_len          = body_len,
+    };
+    return response;
+  } else if( request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) {
+    fd_http_server_response_t response = {
+        .status                       = 204UL,
+        .upgrade_websocket            = 0,
+        .content_type                 = NULL,
+        .body                         = NULL,
+        .body_len                     = 0UL,
+        .access_control_allow_origin  = "*",
+        .access_control_allow_methods = "POST, GET, OPTIONS",
+        .access_control_allow_headers = "Solana-Client, Content-Type",
+        .access_control_max_age       = 86400,
+    };
+    return response;
+  } else {
+    ws->upload_data = request->post.body;
+    ws->upload_data_size = request->post.body_len;
+    ws->status_code = 200; // OK
+    ws->quick_size = 0;
+    fd_hcache_reset( ws->hcache );
 
-  size_t sz = *upload_data_size;
-  if (sz) {
-    replier->upload_data = upload_data;
-    replier->upload_data_size = sz;
-    json_lex_state_t lex;
-    json_lex_state_new(&lex, upload_data, sz);
-    json_parse_root(replier, &lex, ws->cb_arg);
-    json_lex_state_delete(&lex);
-    *upload_data_size = 0;
+    if( strcmp(request->path, "/") != 0 ) {
+      fd_web_error( ws, "POST path must be \"/\"" );
+
+    } else if( strncasecmp(request->headers.content_type, "application/json", 16) != 0 ) {
+      fd_web_error( ws, "content type must be \"application/json\"" );
+
+    } else {
+#ifdef FD_RPC_VERBOSE
+      fwrite("post:\n\n", 1, 6, stdout);
+      fwrite(request->post.body, 1, request->post.body_len, stdout);
+      fwrite("\n\n", 1, 2, stdout);
+      fflush(stdout);
+#endif
+      json_lex_state_t lex;
+      json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len);
+      json_parse_root(ws, &lex);
+      json_lex_state_delete(&lex);
+      fd_web_reply_flush( ws );
+    }
+
+    ulong body_len     = body_len;
+    uchar const * body = fd_hcache_snap_response( ws->hcache, &body_len );
+    FD_TEST( body );
+#ifdef FD_RPC_VERBOSE
+    fwrite("response:\n\n", 1, 10, stdout);
+    fwrite(body, 1, body_len, stdout);
+    fwrite("\n\n", 1, 2, stdout);
+    fflush(stdout);
+#endif
+    fd_http_server_response_t response = {
+        .status            = ws->status_code,
+        .upgrade_websocket = 0,
+        .content_type      = ( ws->status_code == 200 ? "application/json" : "text/html" ),
+        .body              = (const uchar *)body,
+        .body_len          = body_len,
+        .access_control_allow_origin = "*",
+    };
+    return response;
   }
-
-  // Check if we are done with the request. This is clunky as hell,
-  // but I didn't design the API.
-  if (!sz && replier->upload_data_size) {
-    if (replier->response != NULL)
-      return MHD_queue_response (connection, replier->status_code, replier->response);
-    return MHD_NO;
-  }
-  return MHD_YES;
 }
 
-int
-fd_webserver_ws_request( fd_websocket_ctx_t * ctx, char const * msg, ulong msglen ) {
+static void
+http_open( ulong connection_id, int sockfd, void * ctx ) {
+  (void)connection_id;
+  (void)ctx;
+
+  int newsize = 1<<20;
+  int rc = setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &newsize, sizeof(newsize));
+  if( FD_UNLIKELY( -1==rc ) ) FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
+}
+
+static void
+http_close( ulong connection_id, int reason, void * ctx ) {
+  (void)connection_id;
+  (void)reason;
+  (void)ctx;
+}
+
+static void
+ws_open( ulong connection_id, void * ctx ) {
+  (void)connection_id;
+  (void)ctx;
+}
+
+static void
+ws_close( ulong connection_id, int reason, void * ctx ) {
+  (void)reason;
+  fd_webserver_t * ws = (fd_webserver_t *)ctx;
+  fd_webserver_ws_closed( connection_id, ws->cb_arg );
+}
+
+static void
+ws_message( ulong conn_id, uchar const * data, ulong data_len, void * ctx ) {
+#ifdef FD_RPC_VERBOSE
+  fwrite("message:\n\n", 1, 9, stdout);
+  fwrite(data, 1, data_len, stdout);
+  fwrite("\n\n", 1, 2, stdout);
+  fflush(stdout);
+#endif
+
+  fd_webserver_t * ws = (fd_webserver_t *)ctx;
+
   json_lex_state_t lex;
-  json_lex_state_new(&lex, msg, msglen);
+  json_lex_state_new(&lex, (const char*)data, data_len);
   struct json_values values;
   json_values_new(&values);
   struct json_path path;
   path.len = 0;
   int ret = json_values_parse(&lex, &values, &path);
   if (ret) {
-    json_values_printout(&values);
-    ret = fd_webserver_ws_subscribe(&values, ctx, ctx->ws->cb_arg);
+    ws->quick_size = 0;
+    fd_hcache_reset( ws->hcache );
+    // json_values_printout(&values);
+    ret = fd_webserver_ws_subscribe(&values, conn_id, ws->cb_arg);
   } else {
     ulong sz;
     const char* text = json_lex_get_text(&lex, &sz);
     FD_LOG_WARNING(( "json parsing error: %s", text ));
-    fd_web_ws_simple_error( ctx, text, (uint)sz );
+    fd_web_ws_simple_error( ws, conn_id, text, (uint)sz );
   }
   json_values_delete(&values);
   json_lex_state_delete(&lex);
-  return ret;
 }
 
-#include "fd_websocket_support.h"
-
-void fd_web_ws_simple_error( fd_websocket_ctx_t * ctx, const char* text, uint text_size) {
+void fd_web_ws_simple_error( fd_webserver_t * ws, ulong conn_id, const char* text, uint text_size) {
 #define CRLF "\r\n"
   static const char* DOC1 =
 "<html>" CRLF
@@ -283,82 +261,217 @@ void fd_web_ws_simple_error( fd_websocket_ctx_t * ctx, const char* text, uint te
 "</body>" CRLF
 "</html>" CRLF;
 
-  fd_textstream_t ts;
-  fd_textstream_new(&ts, fd_libc_alloc_virtual(), 1UL<<12);
-  fd_textstream_append(&ts, DOC1, strlen(DOC1));
-  fd_textstream_append(&ts, text, text_size);
-  fd_textstream_append(&ts, DOC2, strlen(DOC2));
+  fd_hcache_reset(ws->hcache);
+  ws->quick_size = 0;
+  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC1, strlen(DOC1));
+  fd_hcache_memcpy(ws->hcache, (const uchar*)text, text_size);
+  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC2, strlen(DOC2));
 
-  char buf[2048];
-  ulong sz = fd_textstream_total_size(&ts);
-  if ( sz <= sizeof(buf) ) {
-    fd_textstream_get_output( &ts, buf );
-    ws_send_frame( ctx->sock, WS_OPCODE_TEXT_FRAME, buf, sz );
-  }
-
-  fd_textstream_destroy(&ts);
+  fd_hcache_snap_ws_send( ws->hcache, conn_id );
 }
 
-void fd_web_ws_reply( fd_websocket_ctx_t * ctx, fd_textstream_t * ts) {
-  char buf[2048];
-  ulong sz = fd_textstream_total_size(ts);
-  if ( sz + WS_MAX_HDR_SIZE <= sizeof(buf) ) {
-    fd_textstream_get_output( ts, buf + WS_MAX_HDR_SIZE );
-    ws_send_frame_prepend_hdr( ctx->sock, WS_OPCODE_TEXT_FRAME, buf + WS_MAX_HDR_SIZE, sz );
-  } else {
-    char * buf2 = malloc(sz + WS_MAX_HDR_SIZE);
-    fd_textstream_get_output( ts, buf2 + WS_MAX_HDR_SIZE );
-    ws_send_frame_prepend_hdr( ctx->sock, WS_OPCODE_TEXT_FRAME, buf2 + WS_MAX_HDR_SIZE, sz );
-    free( buf2 );
-  }
+void fd_web_ws_send( fd_webserver_t * ws, ulong conn_id ) {
+  fd_web_reply_flush( ws );
+  fd_hcache_snap_ws_send( ws->hcache, conn_id );
 }
 
-int fd_webserver_start(ulong num_threads, ushort portno, ushort ws_portno, fd_webserver_t * ws, void * cb_arg) {
+int fd_webserver_start( ushort portno, fd_http_server_params_t params, ulong hcache_size, fd_webserver_t * ws, void * cb_arg ) {
+  memset(ws, 0, sizeof(fd_webserver_t));
+
   ws->cb_arg = cb_arg;
 
-  ws->daemon = MHD_start_daemon(
-    MHD_USE_INTERNAL_POLLING_THREAD
-      | MHD_USE_SUPPRESS_DATE_NO_CLOCK
-      | MHD_USE_AUTO | MHD_USE_TURBO,
-    portno,
-    NULL, NULL, &handler, ws,
-    MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int) 120,
-    MHD_OPTION_THREAD_POOL_SIZE, (unsigned int) num_threads,
-    MHD_OPTION_NOTIFY_COMPLETED, &completed_cb, ws,
-    MHD_OPTION_CONNECTION_LIMIT, (unsigned int) 1000,
-    MHD_OPTION_END);
-  if (ws->daemon == NULL)
-    return -1;
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request,
+    .open       = http_open,
+    .close      = http_close,
+    .ws_open    = ws_open,
+    .ws_close   = ws_close,
+    .ws_message = ws_message,
+  };
 
-  ws->ws_daemon = MHD_start_daemon(MHD_ALLOW_UPGRADE | MHD_USE_AUTO_INTERNAL_THREAD,
-                                   ws_portno, NULL, NULL, &ahc_cb, ws,
-                                   MHD_OPTION_THREAD_POOL_SIZE, (unsigned int) 1,
-                                   MHD_OPTION_CONNECTION_LIMIT, (unsigned int) 1000,
-                                   MHD_OPTION_END);
-  if (ws->ws_daemon == NULL)
-    return -1;
+  void* server_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  ws->server = fd_http_server_join( fd_http_server_new( server_mem, params, callbacks, ws ) );
 
-  ws->ws_epoll_fd = epoll_create1(0);
-  if( ws->ws_epoll_fd == -1 )
-    return -1;
+  void * hcache_mem = aligned_alloc( fd_hcache_align(), fd_hcache_footprint( hcache_size ) );
+  ws->hcache = fd_hcache_join( fd_hcache_new( hcache_mem, ws->server, hcache_size ) );
+
+  FD_TEST( fd_http_server_listen( ws->server, portno ) != NULL );
 
   return 0;
 }
 
 int fd_webserver_stop(fd_webserver_t * ws) {
-  MHD_stop_daemon(ws->daemon);
-  MHD_stop_daemon(ws->ws_daemon);
-  close( ws->ws_epoll_fd );
+  free( fd_http_server_delete( fd_http_server_leave( ws->server ) ) );
+  free( fd_hcache_delete( fd_hcache_leave( ws->hcache ) ) );
   return 0;
 }
 
-void fd_webserver_ws_poll(fd_webserver_t * ws) {
-  struct epoll_event events[16];
-  int cnt = epoll_wait( ws->ws_epoll_fd, events, 16, 0 );
-  if( cnt < 0 ) {
-    FD_LOG_ERR(( "epoll_wait failed: %s", strerror(errno) ));
+void fd_webserver_poll(fd_webserver_t * ws) {
+  fd_http_server_poll( ws->server );
+}
+
+int
+fd_web_reply_append( fd_webserver_t * ws,
+                     const char *     text,
+                     ulong            text_sz ) {
+  if( FD_LIKELY( ws->quick_size + text_sz <= FD_WEBSERVER_QUICK_MAX ) ) {
+    memcpy( ws->quick_buf + ws->quick_size, text, text_sz );
+    ws->quick_size += text_sz;
+  } else {
+    fd_web_reply_flush( ws );
+    if( FD_LIKELY( text_sz <= FD_WEBSERVER_QUICK_MAX ) ) {
+      memcpy( ws->quick_buf, text, text_sz );
+      ws->quick_size = text_sz;
+    } else {
+      fd_hcache_memcpy( ws->hcache, (const uchar*)text, text_sz );
+    }
   }
-  for(int i = 0; i < cnt; ++i) {
-    epoll_selected(events + i);
+  return 0;
+}
+
+static const char b58digits_ordered[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+int
+fd_web_reply_encode_base58( fd_webserver_t * ws,
+                            const void *     data,
+                            ulong            data_sz ) {
+  /* Prevent explosive growth in computation */
+  if (data_sz > 400U)
+    return -1;
+
+  const uchar* bin = (const uchar*)data;
+  ulong carry;
+  ulong i, j, high, zcount = 0;
+  ulong size;
+
+  while (zcount < data_sz && !bin[zcount])
+    ++zcount;
+
+  /* Temporary buffer size */
+  size = (data_sz - zcount) * 138 / 100 + 1;
+  uchar buf[size];
+  memset(buf, 0, size);
+
+  for (i = zcount, high = size - 1; i < data_sz; ++i, high = j) {
+    for (carry = bin[i], j = size - 1; (j > high) || carry; --j) {
+      carry += 256UL * (ulong)buf[j];
+      buf[j] = (uchar)(carry % 58);
+      carry /= 58UL;
+      if (!j) {
+        // Otherwise j wraps to maxint which is > high
+        break;
+      }
+    }
   }
+
+  for (j = 0; j < size && !buf[j]; ++j) ;
+
+  ulong out_sz = zcount + size - j;
+  char b58[out_sz];
+  if (zcount)
+    fd_memset(b58, '1', zcount);
+  for (i = zcount; j < size; ++i, ++j)
+    b58[i] = b58digits_ordered[buf[j]];
+
+  return fd_web_reply_append( ws, b58, out_sz );
+}
+
+static char base64_encoding_table[] = {
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+  'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+  'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+  'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+  'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+  'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+  'w', 'x', 'y', 'z', '0', '1', '2', '3',
+  '4', '5', '6', '7', '8', '9', '+', '/'
+};
+
+int
+fd_web_reply_encode_base64( fd_webserver_t * ws,
+                            const void *     data,
+                            ulong            data_sz ) {
+  for (ulong i = 0; i < data_sz; ) {
+    if( FD_UNLIKELY( ws->quick_size + 4U > FD_WEBSERVER_QUICK_MAX ) ) {
+      fd_web_reply_flush( ws );
+    }
+    char * out_data = ws->quick_buf + ws->quick_size;
+    switch (data_sz - i) {
+    default: { /* 3 and above */
+      uint octet_a = ((uchar*)data)[i++];
+      uint octet_b = ((uchar*)data)[i++];
+      uint octet_c = ((uchar*)data)[i++];
+      uint triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
+      out_data[0] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
+      out_data[1] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
+      out_data[2] = base64_encoding_table[(triple >> 1 * 6) & 0x3F];
+      out_data[3] = base64_encoding_table[(triple >> 0 * 6) & 0x3F];
+      break;
+    }
+    case 2: {
+      uint octet_a = ((uchar*)data)[i++];
+      uint octet_b = ((uchar*)data)[i++];
+      uint triple = (octet_a << 0x10) + (octet_b << 0x08);
+      out_data[0] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
+      out_data[1] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
+      out_data[2] = base64_encoding_table[(triple >> 1 * 6) & 0x3F];
+      out_data[3] = '=';
+      break;
+    }
+    case 1: {
+      uint octet_a = ((uchar*)data)[i++];
+      uint triple = (octet_a << 0x10);
+      out_data[0] = base64_encoding_table[(triple >> 3 * 6) & 0x3F];
+      out_data[1] = base64_encoding_table[(triple >> 2 * 6) & 0x3F];
+      out_data[2] = '=';
+      out_data[3] = '=';
+      break;
+    }
+    }
+    ws->quick_size += 4U;
+  }
+  return 0;
+}
+
+static const char hex_encoding_table[] = "0123456789ABCDEF";
+
+int
+fd_web_reply_encode_hex( fd_webserver_t * ws,
+                         const void *     data,
+                         ulong            data_sz ) {
+  for (ulong i = 0; i < data_sz; ) {
+    if( FD_UNLIKELY( ws->quick_size + 2U > FD_WEBSERVER_QUICK_MAX ) ) {
+      fd_web_reply_flush( ws );
+    }
+    char * out_data = ws->quick_buf + ws->quick_size;
+    uint octet = ((uchar*)data)[i++];
+    out_data[0] = hex_encoding_table[(octet >> 4) & 0xF];
+    out_data[1] = hex_encoding_table[octet & 0xF];
+    ws->quick_size += 2U;
+  }
+  return 0;
+}
+
+int
+fd_web_reply_sprintf( fd_webserver_t * ws, const char* format, ... ) {
+  ulong remain = FD_WEBSERVER_QUICK_MAX - ws->quick_size;
+  char * buf = ws->quick_buf + ws->quick_size;
+  va_list ap;
+  va_start(ap, format);
+  int r = vsnprintf(buf, remain, format, ap);
+  va_end(ap);
+  if( FD_UNLIKELY( r < 0 ) ) return -1;
+  if( FD_LIKELY( (uint)r < remain ) ) {
+    ws->quick_size += (uint)r;
+    return 0;
+  }
+
+  fd_web_reply_flush( ws );
+  buf = ws->quick_buf;
+  va_start(ap, format);
+  r = vsnprintf(buf, FD_WEBSERVER_QUICK_MAX, format, ap);
+  va_end(ap);
+  if( r < 0 || (uint)r >= FD_WEBSERVER_QUICK_MAX ) return -1;
+  ws->quick_size = (uint)r;
+  return 0;
 }

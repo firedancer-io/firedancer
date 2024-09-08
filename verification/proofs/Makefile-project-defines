@@ -10,6 +10,9 @@
 # Makefile.common.
 ################################################################
 
+# Revert to CBMC 5 behavior to avoid perf regression, see https://github.com/diffblue/cbmc/issues/8389
+COVERFLAGS += --no-standard-checks
+
 # Flags to pass to goto-cc for compilation (typically those passed to gcc -c)
 # COMPILE_FLAGS =
 

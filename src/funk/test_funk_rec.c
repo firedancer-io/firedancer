@@ -48,7 +48,7 @@ main( int     argc,
   if( FD_UNLIKELY( !tst ) ) FD_LOG_ERR(( "Unable to create tst" ));
 
   fd_funk_start_write( tst );
-  
+
   fd_funk_txn_t * txn_map = fd_funk_txn_map( tst, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( tst, wksp );
 
@@ -466,7 +466,7 @@ main( int     argc,
 
       txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
       if( !rtxn->parent || !txn_is_only_child( rtxn ) || txn_is_frozen( rtxn ) ) continue;
-      
+
       fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->parent->xid ), txn_map );
       FD_TEST( !fd_funk_txn_merge_all_children( tst, ttxn, verbose ) );
 

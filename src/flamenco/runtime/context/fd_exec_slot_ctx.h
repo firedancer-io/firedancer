@@ -6,11 +6,10 @@
 #include "../../../util/rng/fd_rng.h"
 #include "../../../util/wksp/fd_wksp.h"
 
-#include "../../rewards/fd_rewards_types.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
-#include "../../../disco/bank/fd_txncache.h"
+#include "../fd_txncache.h"
 
 struct fd_account_compute_elem {
   fd_pubkey_t key;
@@ -26,7 +25,7 @@ fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
 
 static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) ); 
+  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
 
 static void
@@ -71,12 +70,14 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
+  ulong                    prev_lamports_per_signature;
   ulong                    parent_signature_cnt;
 
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
 
   fd_txncache_t * status_cache;
+  fd_slot_history_t slot_history[1];
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -120,7 +121,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.
-   Assumes objects in slot deltas were allocated using slot ctx valloc 
+   Assumes objects in slot deltas were allocated using slot ctx valloc
    (U.B. otherwise).
    On return, slot deltas is destroyed.  Returns ctx on success.
    On failure, logs reason for error and returns NULL. */

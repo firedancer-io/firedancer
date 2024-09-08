@@ -7,10 +7,10 @@ void *
 create_clone_stack( void );
 
 void
-solana_labs_boot( config_t * config );
+agave_boot( config_t * config );
 
 int
-solana_labs_main( void * args );
+agave_main( void * args );
 
 int
 clone_firedancer( config_t * const config,

@@ -568,25 +568,27 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
         fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
-        dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
+        if( !fd_funk_txn_xid_eq_root( dst_xid ) ) {
+          dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
 
-        ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
+          ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
 
-        ulong dst_prev_idx = *_dst_rec_tail_idx;
+          ulong dst_prev_idx = *_dst_rec_tail_idx;
 
-        dst_rec->prev_idx         = dst_prev_idx;
-        dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
-        dst_rec->tag              = 0U;
+          dst_rec->prev_idx         = dst_prev_idx;
+          dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
+          dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
+          dst_rec->tag              = 0U;
 
-        if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
-        else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
+          if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
+          else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
 
-        *_dst_rec_tail_idx = dst_rec_idx;
+          *_dst_rec_tail_idx = dst_rec_idx;
 
-        fd_funk_val_init( dst_rec );
-        fd_funk_part_init( dst_rec );
-        dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+          fd_funk_val_init( dst_rec );
+          fd_funk_part_init( dst_rec );
+          dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+        }
 
       } else {
 
@@ -600,17 +602,24 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
         fd_funk_val_flush( dst_rec, alloc, wksp );
         fd_funk_part_set_intern( partvec, rec_map, dst_rec, FD_FUNK_PART_NULL );
 
-        ulong prev_idx = dst_rec->prev_idx;
-        ulong next_idx = dst_rec->next_idx;
+        if( fd_funk_txn_xid_eq_root( dst_xid ) ) {
+          ulong prev_idx = dst_rec->prev_idx;
+          ulong next_idx = dst_rec->next_idx;
 
-        if( FD_UNLIKELY( fd_funk_rec_idx_is_null( prev_idx ) ) ) *_dst_rec_head_idx           = next_idx;
-        else                                                     rec_map[ prev_idx ].next_idx = next_idx;
+          if( FD_UNLIKELY( fd_funk_rec_idx_is_null( prev_idx ) ) ) *_dst_rec_head_idx           = next_idx;
+          else                                                     rec_map[ prev_idx ].next_idx = next_idx;
 
-        if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) *_dst_rec_tail_idx           = prev_idx;
-        else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
+          if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) *_dst_rec_tail_idx           = prev_idx;
+          else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
 
-        fd_funk_rec_map_remove( rec_map, dst_pair );
+          fd_funk_rec_map_remove( rec_map, dst_pair );
 
+        } else {
+          /* Leave a new erase record */
+          fd_funk_val_init( dst_rec );
+          fd_funk_part_init( dst_rec );
+          dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+        }
       }
 
     } else {
@@ -937,6 +946,18 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   fd_funk_rec_t const * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
   return rec_map + rec_idx;
+}
+
+fd_funk_txn_xid_t
+fd_funk_generate_xid(void) {
+  fd_funk_txn_xid_t xid;
+  static FD_TL ulong seq = 0;
+  xid.ul[0] =
+    (fd_log_cpu_id() + 1U)*3138831853UL +
+    (fd_log_thread_id() + 1U)*9180195821UL +
+    (++seq)*6208101967UL;
+  xid.ul[1] = ((ulong)fd_tickcount())*2810745731UL;
+  return xid;
 }
 
 int

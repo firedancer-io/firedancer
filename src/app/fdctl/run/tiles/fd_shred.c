@@ -6,6 +6,7 @@
 #include "../../../../disco/shred/fd_fec_resolver.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
 #include "../../../../disco/fd_disco.h"
@@ -360,7 +361,7 @@ during_frag( void * _ctx,
 
     ulong target_slot = fd_disco_poh_sig_slot( sig );
     if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
-      /* TODO: The Labs client sends a dummy entry batch with only 1
+      /* TODO: The Agave client sends a dummy entry batch with only 1
          byte and the block-complete bit set.  This helps other
          validators know that the block is dead and they should not try
          to continue building a fork on it.  We probably want a similar
@@ -440,7 +441,7 @@ during_frag( void * _ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-    FD_TEST( hdr_sz < sz ); /* Should be ensured by the net tile */
+    FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
     if( FD_UNLIKELY( !shred ) ) {
       *opt_filter = 1;
@@ -564,12 +565,17 @@ after_frag( void *             _ctx,
       /* Relay this shred */
       ulong fanout = 200UL;
       ulong max_dest_cnt[1];
-      fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
-      if( FD_UNLIKELY( !sdest ) ) return;
-      fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
-      if( FD_UNLIKELY( !dests ) ) return;
+      do {
+        /* If we've validated the shred and it COMPLETES but we can't
+           compute the destination for whatever reason, don't forward
+           the shred, but still send it to the blockstore. */
+        fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
+        if( FD_UNLIKELY( !sdest ) ) break;
+        fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
+        if( FD_UNLIKELY( !dests ) ) break;
 
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+      } while( 0 );
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
@@ -636,7 +642,7 @@ after_frag( void *             _ctx,
     *max_dest_cnt = 1UL;
     dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, _dests );
   }
-  FD_TEST( dests );
+  if( FD_UNLIKELY( !dests ) ) return;
 
   /* Send only the ones we didn't receive. */
   for( ulong i=0UL; i<k; i++ ) for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], sdest, dests[ j*out_stride+i ], ctx->tsorig );
@@ -657,11 +663,11 @@ privileged_init( fd_topo_t *      topo,
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->shred.identity_key_path, /* pubkey only: */ 1 ) );
 }
 
-void
+static void
 fd_shred_signer( void *        signer_ctx,
                  uchar         signature[ static 64 ],
                  uchar const   merkle_root[ static 32 ] ) {
-  fd_keyguard_client_sign( signer_ctx, signature, merkle_root, 32UL );
+  fd_keyguard_client_sign( signer_ctx, signature, merkle_root, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void
@@ -780,10 +786,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_fec_set_t * resolver_sets = fec_sets + (shred_store_mcache_depth+1UL)/2UL + 1UL;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client, (ushort)expected_shred_version ) ) );
-  ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver, tile->shred.fec_resolver_depth, 1UL,
-                                                                         (shred_store_mcache_depth+3UL)/2UL,
-                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
-                                                                         (ushort)expected_shred_version ) ) );
+  ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
+                                                                        fd_shred_signer, ctx->keyguard_client,
+                                                                        tile->shred.fec_resolver_depth, 1UL,
+                                                                        (shred_store_mcache_depth+3UL)/2UL,
+                                                                        128UL * tile->shred.fec_resolver_depth, resolver_sets,
+                                                                        (ushort)expected_shred_version ) ) );
 
   ctx->shred34  = shred34;
   ctx->fec_sets = fec_sets;

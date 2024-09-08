@@ -127,11 +127,9 @@ action_leaders( fd_solana_manifest_t const * manifest,
   ulong sched_cnt = slot_cnt/FD_EPOCH_SLOTS_PER_ROTATION;
 
   void * leaders_mem = fd_scratch_alloc( fd_epoch_leaders_align(), fd_epoch_leaders_footprint( weight_cnt, sched_cnt ) );
-         leaders_mem = fd_epoch_leaders_new( leaders_mem, epoch, slot0, slot_cnt, weight_cnt, weights );
+         leaders_mem = fd_epoch_leaders_new( leaders_mem, epoch, slot0, slot_cnt, weight_cnt, weights, 0UL );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_mem );
   FD_TEST( leaders );
-
-  fd_epoch_leaders_derive( leaders, weights, epoch );
 
   ulong slot = slot0;
   for( ulong i=0; i<sched_cnt; i++ ) {

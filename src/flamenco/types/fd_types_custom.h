@@ -47,11 +47,20 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode_preflight fd_hash_decode_preflight
 #define fd_pubkey_decode_unsafe    fd_hash_decode_unsafe
 #define fd_pubkey_encode           fd_hash_encode
+#define fd_pubkey_decode_archival  fd_hash_decode
+#define fd_pubkey_encode_archival  fd_hash_encode
 #define fd_pubkey_destroy          fd_hash_destroy
 #define fd_pubkey_size             fd_hash_size
 #define fd_pubkey_check_zero       fd_hash_check_zero
 #define fd_pubkey_set_zero         fd_hash_set_zero
 #define fd_pubkey_walk             fd_hash_walk
+
+#define fd_hash_decode_archival             fd_hash_decode
+#define fd_hash_decode_archival_preflight   fd_hash_decode_preflight
+#define fd_hash_decode_archival_unsafe      fd_hash_decode_unsafe
+#define fd_hash_encode_archival             fd_hash_encode
+#define fd_pubkey_decode_archival_preflight fd_hash_decode_preflight
+#define fd_pubkey_decode_archival_unsafe    fd_hash_decode_unsafe
 
 struct __attribute__((aligned(8UL))) fd_option_slot {
   uchar is_some;
@@ -103,14 +112,22 @@ fd_solana_vote_account_new( fd_solana_vote_account_t * self );
 int
 fd_solana_vote_account_decode( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
+#define fd_solana_vote_account_decode_archival fd_solana_vote_account_decode
+
 int
 fd_solana_vote_account_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+
+#define fd_solana_vote_account_decode_archival_preflight fd_solana_vote_account_decode_preflight
 
 void
 fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
+#define fd_solana_vote_account_decode_archival_unsafe fd_solana_vote_account_decode_unsafe
+
 int
 fd_solana_vote_account_encode( fd_solana_vote_account_t const * self, fd_bincode_encode_ctx_t * ctx );
+
+#define fd_solana_vote_account_encode_archival fd_solana_vote_account_encode
 
 void
 fd_solana_vote_account_destroy( fd_solana_vote_account_t * self, fd_bincode_destroy_ctx_t * ctx );
@@ -192,6 +209,179 @@ fd_flamenco_txn_walk( void *                    w,
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;
+
+#if FD_HAS_INT128
+/********************* Rewards types **************************************************/
+/* TODO: move these into fd_types, but first we need to add dlist support to fd_types */
+struct __attribute__((aligned(8UL))) fd_stake_reward {
+  /* dlist */
+  ulong prev;
+  ulong next;
+  /* pool */
+  ulong parent;
+  /* data */
+  fd_pubkey_t stake_pubkey;
+  ulong credits_observed;
+  ulong lamports;
+};
+typedef struct fd_stake_reward fd_stake_reward_t;
+#define FD_STAKE_REWARD_FOOTPRINT sizeof(fd_stake_reward_t)
+#define FD_STAKE_REWARD_ALIGN (8UL)
+
+/* Encoded Size: Fixed (42 bytes) */
+struct __attribute__((aligned(8UL))) fd_vote_reward {
+  fd_pubkey_t pubkey;
+  ulong vote_rewards;
+  uchar commission;
+  uchar needs_store;
+};
+typedef struct fd_vote_reward fd_vote_reward_t;
+#define FD_VOTE_REWARD_FOOTPRINT sizeof(fd_vote_reward_t)
+#define FD_VOTE_REWARD_ALIGN (8UL)
+
+#define DLIST_NAME fd_stake_reward_dlist
+#define DLIST_ELE_T fd_stake_reward_t
+#include "../../util/tmpl/fd_dlist.c"
+#undef DLIST_NAME
+#undef DLIST_ELE_T
+
+#define POOL_NAME fd_stake_reward_pool
+#define POOL_T fd_stake_reward_t
+#define POOL_NEXT parent
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+#undef POOL_NEXT
+
+typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
+#define REDBLK_T fd_vote_reward_t_mapnode_t
+#define REDBLK_NAME fd_vote_reward_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_vote_reward_t_mapnode {
+    fd_vote_reward_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
+  ulong partitions_len;
+  fd_stake_reward_dlist_t * partitions;
+  fd_stake_reward_t * pool;
+};
+typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
+#define FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT sizeof(fd_partitioned_stake_rewards_t)
+#define FD_PARTITIONED_STAKE_REWARDS_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L131 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_partitioned {
+  fd_partitioned_stake_rewards_t partitioned_stake_rewards;
+  ulong total_stake_rewards_lamports;
+};
+typedef struct fd_stake_reward_calculation_partitioned fd_stake_reward_calculation_partitioned_t;
+#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_FOOTPRINT sizeof(fd_stake_reward_calculation_partitioned_t)
+#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_stake_reward_calculation {
+  fd_stake_reward_dlist_t stake_rewards;
+  ulong stake_rewards_len;
+  fd_stake_reward_t * pool;
+  ulong total_stake_rewards_lamports;
+};
+typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
+#define FD_STAKE_REWARD_CALCULATION_FOOTPRINT sizeof(fd_stake_reward_calculation_t)
+#define FD_STAKE_REWARD_CALCULATION_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_calculate_stake_vote_rewards_result {
+  fd_stake_reward_calculation_t stake_reward_calculation;
+  fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
+  fd_vote_reward_t_mapnode_t * vote_reward_map_root;
+};
+typedef struct fd_calculate_stake_vote_rewards_result fd_calculate_stake_vote_rewards_result_t;
+#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_stake_vote_rewards_result_t)
+#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_calculate_validator_rewards_result {
+  fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result;
+  uint128 total_points;
+};
+typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewards_result_t;
+#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_validator_rewards_result_t)
+#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L138 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_calculate_rewards_and_distribute_vote_rewards_result {
+  ulong total_rewards;
+  ulong distributed_rewards;
+  uint128 total_points;
+  fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition;
+};
+typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
+#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_rewards_and_distribute_vote_rewards_result_t)
+#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation {
+  fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
+  fd_vote_reward_t_mapnode_t * vote_reward_map_root;
+  fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition;
+  ulong old_vote_balance_and_staked;
+  ulong validator_rewards;
+  double validator_rate;
+  double foundation_rate;
+  double prev_epoch_duration_in_years;
+  ulong capitalization;
+  uint128 total_points;
+};
+typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
+#define FD_PARTITIONED_REWARDS_CALCULATION_FOOTPRINT sizeof(fd_partitioned_rewards_calculation_t)
+#define FD_PARTITIONED_REWARDS_CALCULATION_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L60 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_start_block_height_and_rewards {
+  ulong distribution_starting_block_height;
+  fd_partitioned_stake_rewards_t partitioned_stake_rewards;
+};
+typedef struct fd_start_block_height_and_rewards fd_start_block_height_and_rewards_t;
+#define FD_START_BLOCK_HEIGHT_AND_REWARDS_FOOTPRINT sizeof(fd_start_block_height_and_rewards_t)
+#define FD_START_BLOCK_HEIGHT_AND_REWARDS_ALIGN (8UL)
+
+union fd_epoch_reward_status_inner {
+  fd_start_block_height_and_rewards_t Active;
+};
+typedef union fd_epoch_reward_status_inner fd_epoch_reward_status_inner_t;
+
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L70 */
+struct fd_epoch_reward_status {
+  uint discriminant;
+  fd_epoch_reward_status_inner_t inner;
+};
+typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
+#define FD_EPOCH_REWARD_STATUS_FOOTPRINT sizeof(fd_epoch_reward_status_t)
+#define FD_EPOCH_REWARD_STATUS_ALIGN (8UL)
+
+enum {
+fd_epoch_reward_status_enum_Active = 0,
+fd_epoch_reward_status_enum_Inactive = 1,
+}; 
+
+/*******************************************************************************************/
+#endif
 
 FD_PROTOTYPES_END
 

@@ -26,7 +26,6 @@ metric introduced.
 
 <enum name="PackTxnInsertReturn">
   <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
-  <int value="-11" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
   <int value="-10" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
   <int value="-9" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
   <int value="-8" name="DuplicateAccount" label="Transaction included an account address twice" />
@@ -124,6 +123,7 @@ metric introduced.
     <int value="35" name="ResanitizationNeeded" label="Sanitized transaction differed before/after feature activiation. Needs to be resanitized." />
     <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
+    <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
 </enum>
 
 <group name="Link" link="all" linkside="out">
@@ -214,6 +214,8 @@ metric introduced.
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
 
+    <counter name="PrecompileVerifyFailure" summary="Number of transactions that failed precompile verification and thus will not execute." />
+
     <counter name="SlotAcquire" enum="BankSlotAcquire" summary="Result of acquiring a slot." />
 
     <counter name="TransactionLoadAddressTables" enum="BankLoadAddressLookupTable" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
@@ -258,6 +260,10 @@ metric introduced.
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
 </group>
 
+<group name="Dedup" tile="dedup">
+  <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
+</group>
+
 <group name="Pack" tile="pack">
   <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of scheduling one microblock</summary>
@@ -271,7 +277,6 @@ metric introduced.
   <histogram name="VotesPerMicroblockCount" min="0" max="64">
     <summary>Count of simple vote transactions in a scheduled microblock</summary>
   </histogram>
-  <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
   <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
   <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
   <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />
@@ -279,6 +284,7 @@ metric introduced.
   <counter name="TransactionDroppedFromExtra" summary="Transactions dropped from the extra transaction storage because it was full" />
   <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
   <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
+  <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
 
   <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
   <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
@@ -288,6 +294,18 @@ metric introduced.
   <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
   <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
 
+  <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
+  <histogram name="CusScheduled" min="1000000" max="192000000">
+    <summary>The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.</summary>
+  </histogram>
+  <histogram name="CusRebated" min="1000000" max="192000000">
+    <!-- Note: The switch from cost units to compute units here is deliberate.  Of the various types of cost units, only compute units can be rebated. -->
+    <summary>The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
+  </histogram>
+  <histogram name="CusNet" min="1000000" max="48000000">
+    <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
+  </histogram>
+  <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />

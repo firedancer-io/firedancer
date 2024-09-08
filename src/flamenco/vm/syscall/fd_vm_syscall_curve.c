@@ -7,9 +7,9 @@ int
 fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
                                         /**/            ulong   curve_id,
                                         /**/            ulong   point_addr,
-                                        FD_PARAM_UNUSED ulong   r2,
                                         FD_PARAM_UNUSED ulong   r3,
                                         FD_PARAM_UNUSED ulong   r4,
+                                        FD_PARAM_UNUSED ulong   r5,
                                         /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L871 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
@@ -203,7 +203,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   }
 
   default:
-    goto soft_error; /* unknown curve op */
+    /* COV: this can never happen because of the previous switch */
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
   }
 
 soft_error:
@@ -318,10 +319,8 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1143-L1151 */
-  if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), curve25519_restrict_msm_length ) ) {
-    if( FD_UNLIKELY( points_len > 512 ) ) {
-      return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
-    }
+  if( FD_UNLIKELY( points_len > 512 ) ) {
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
   }
 
   /* Note: we don't strictly follow the Rust implementation, but instead combine
@@ -387,6 +386,10 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     }
     break;
   }
+
+  default:
+    /* COV: this can never happen because of the previous switch */
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
   }
 
 soft_error:

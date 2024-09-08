@@ -217,6 +217,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   log.level_stderr                                 );
   CFG_POP      ( cstr,   log.level_flush                                  );
 
+  CFG_POP      ( cstr,   reporting.solana_metrics_config                  );
+
   CFG_POP      ( cstr,   ledger.path                                      );
   CFG_POP      ( cstr,   ledger.accounts_path                             );
   CFG_POP      ( uint,   ledger.limit_size                                );
@@ -232,6 +234,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   consensus.identity_path                          );
   CFG_POP      ( cstr,   consensus.vote_account_path                      );
+  CFG_POP_ARRAY( cstr,   consensus.authorized_voter_paths                 );
   CFG_POP      ( bool,   consensus.snapshot_fetch                         );
   CFG_POP      ( bool,   consensus.genesis_fetch                          );
   CFG_POP      ( bool,   consensus.poh_speed_test                         );
@@ -260,6 +263,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   snapshots.path                                   );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
+  CFG_POP      ( cstr,   layout.agave_affinity                            );
   CFG_POP      ( cstr,   layout.solana_labs_affinity                      );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
@@ -284,7 +288,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.quic.stream_pool_cnt                       );
   CFG_POP      ( uint,   tiles.quic.max_concurrent_handshakes             );
   CFG_POP      ( uint,   tiles.quic.max_inflight_quic_packets             );
-  CFG_POP      ( uint,   tiles.quic.tx_buf_size                           );
   CFG_POP      ( uint,   tiles.quic.idle_timeout_millis                   );
   CFG_POP      ( bool,   tiles.quic.retry                                 );
 
@@ -302,7 +305,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
-  CFG_POP      ( bool,   development.no_solana_labs                       );
+  CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
   CFG_POP      ( cstr,   development.topology                             );
 
@@ -329,7 +332,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   development.bench.affinity                       );
   CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
-  CFG_POP      ( bool,   development.bench.rocksdb_disable_wal            );
+  CFG_POP      ( bool,   development.bench.disable_blockstore             );
 
   /* Firedancer-only configuration */
 
@@ -355,6 +358,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
+  CFG_POP      ( uint,   tiles.replay.cluster_version                     );
 
   CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
@@ -405,7 +409,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
 
   CFG_HAS_NON_EMPTY( layout.affinity );
-  CFG_HAS_NON_EMPTY( layout.solana_labs_affinity );
+  CFG_HAS_NON_EMPTY( layout.agave_affinity );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
@@ -428,7 +432,6 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.quic.txn_reassembly_count );
   CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_handshakes );
   CFG_HAS_NON_ZERO( tiles.quic.max_inflight_quic_packets );
-  CFG_HAS_NON_ZERO( tiles.quic.tx_buf_size );
   CFG_HAS_NON_ZERO( tiles.quic.idle_timeout_millis );
 
   CFG_HAS_NON_ZERO( tiles.verify.receive_buffer_size );

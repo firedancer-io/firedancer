@@ -222,12 +222,10 @@ handshake_complete( fd_quic_conn_t * conn,
 
 static void
 quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx,
-                 int                type ) {
+                 void *             _ctx ) {
   /* we don't expect the server to initiate streams */
   (void)stream;
   (void)_ctx;
-  (void)type;
 }
 
 /* quic_stream_receive is called back by the QUIC engine when any stream
@@ -298,7 +296,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->conn_id_sparsity = 4.0;
   limits->stream_sparsity = 2.0;
   limits->inflight_pkt_cnt = 1500;
-  limits->tx_buf_sz = 1<<12;
+  limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
   limits->stream_pool_cnt = 1<<16;
 }
 
@@ -308,7 +306,7 @@ populate_quic_config( fd_quic_config_t * config ) {
   config->service_interval = (ulong)1e6;
   config->ping_interval = (ulong)1e6;
   config->retry = 0;
-  config->initial_rx_max_stream_data = 1<<12;
+  config->initial_rx_max_stream_data = 0; /* we don't expect the server to initiate streams */
 
   config->net.ephem_udp_port.lo = 12000;
   config->net.ephem_udp_port.hi = 12100;
@@ -590,7 +588,7 @@ unprivileged_init( fd_topo_t *      topo,
     quic->config.net.ip_addr                = quic_ip_addr;
     quic->config.net.listen_udp_port        = 42424; /* should be unused */
     quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
-    quic->config.initial_rx_max_stream_data = 1<<15;
+    quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */
     fd_memcpy( quic->config.link.src_mac_addr, quic_src_mac_addr, 6 );
 

@@ -18,7 +18,7 @@
      legitimate (e.g. one use case for this is heartbeating a stalled
      send of a large multi-fragment message).  Note that this is large
      enough to allow a maximum size UDP payload to be published in a
-     single message fragment.  Applications might chose to impose
+     single message fragment.  Applications might choose to impose
      additional limitations on message fragmentation.
 
    - Each fragment has a 64-bit sequence number that is unique over a

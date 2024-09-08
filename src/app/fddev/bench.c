@@ -50,12 +50,12 @@ bench_cmd_args( int *    pargc,
 }
 
 static void *
-solana_labs_thread_main( void * _args ) {
+agave_thread_main( void * _args ) {
   config_t * config = _args;
-  solana_labs_boot( config );
+  agave_boot( config );
 
-  /* Solana Labs will never exit, we never set exit flag to true */
-  FD_LOG_ERR(( "solana_labs_boot() exited" ));
+  /* Agave will never exit, we never set exit flag to true */
+  FD_LOG_ERR(( "agave_boot() exited" ));
   return NULL;
 }
 
@@ -157,8 +157,8 @@ bench_cmd_fn( args_t *         args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
-  pthread_t solana;
-  pthread_create( &solana, NULL, solana_labs_thread_main, config );
+  pthread_t agave;
+  pthread_create( &agave, NULL, agave_thread_main, config );
 
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();

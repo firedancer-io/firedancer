@@ -28,7 +28,7 @@ jobs:
       - uses: ./.github/actions/deps
       - uses: ./.github/actions/hugepages
         with:
-          count_gigantic: 300
+          count_gigantic: 310
           count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
 
       - name: build
@@ -43,7 +43,7 @@ jobs:
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          make run-runtime-test
+          DUMP_DIR=../dump make run-runtime-test
 
       - name: Merge coverage reports
         if: ${{ inputs.coverage }}

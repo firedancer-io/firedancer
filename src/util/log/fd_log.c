@@ -520,7 +520,7 @@ int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private
 /* Buffer size used for vsnprintf calls (this is also one more than the
    maximum size that this can passed to fd_io_write) */
 
-#define FD_LOG_BUF_SZ (4UL*4096UL)
+#define FD_LOG_BUF_SZ (16UL*4096UL)
 
 /* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
    between different _processes_ that share the same fd. */
@@ -1221,7 +1221,6 @@ fd_log_private_boot( int  *   pargc,
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
   FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));
-  FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-stderr  %i",  fd_log_level_stderr()  ));
   FD_LOG_INFO(( "fd_log: --log-level-flush   %i",  fd_log_level_flush()   ));

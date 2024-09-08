@@ -1,5 +1,5 @@
 name: submodule
-description: 'Cache solana submodule'
+description: 'Cache agave submodule'
 inputs:
   machine:
     description: 'Machine type for this build'
@@ -29,15 +29,14 @@ runs:
   using: composite
   steps:
 
-    - id: solana-submodule-commit
+    - id: agave-submodule-commit
       shell: bash
-      run: echo "SUBMODULE_COMMIT=$(git ls-tree HEAD | grep solana | awk '{print $3}')" >> "$GITHUB_ENV"
+      run: echo "SUBMODULE_COMMIT=$(git ls-tree HEAD | grep agave | awk '{print $3}')" >> "$GITHUB_ENV"
 
-    - id: solana-submodule-cache
+    - id: agave-submodule-cache
       uses: corca-ai/local-cache@v2
       with:
         base: "${{ runner.tool_cache }}/cache"
-        path: "solana/target"
-        key: solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ env.SUBMODULE_COMMIT }}
-        clean-key: solana-submodule
-
+        path: "agave/target"
+        key: agave-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ env.SUBMODULE_COMMIT }}
+        clean-key: agave-submodule

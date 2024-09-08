@@ -27,11 +27,11 @@ LOAD_ELF( duplicate_entrypoint_entry )
     - First entry would be PC 595
     - This entry should not be registered in calldests
     - So in a call to fd_sbpf_calldests_test( prog->calldests, 595 ), we should get 0
-  
+
   * Entrypoint is not referenced in text section or relocation table
     - Yet it must be in calldests, since we register it by default
     - So in a call to fd_sbpf_calldests_test( prog->calldests, 3920 ), we should still get 1
- 
+
 */
 
 void test_duplicate_entrypoint_entry( void ) {
@@ -39,25 +39,25 @@ void test_duplicate_entrypoint_entry( void ) {
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_sbpf_elf_info_t info;
 
-  fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, true );
+  fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, /* deploy checks */ 1 );
 
   void* rodata = fd_valloc_malloc( valloc, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
   FD_TEST( rodata );
 
-  
+
 
   fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( valloc, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, *x );
-  
-  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, true);
+
+  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, /* deploy checks */ 1 );
   FD_TEST( res == 0 );
 
   // end of boilerplate
 
-  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595 ) == 0 ); 
+  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595 ) == 0 );
   FD_TEST( fd_sbpf_calldests_test( prog->calldests, 3920 ) == 1 );
 
 }

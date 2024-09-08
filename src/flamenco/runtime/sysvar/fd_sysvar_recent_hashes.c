@@ -28,7 +28,7 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
   if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
     sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
-  uchar enc[ sz ];
+  uchar * enc = fd_alloca(1, sz);
   fd_memset(enc, 0, sz);
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
@@ -36,16 +36,23 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
-void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
+// https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
+static void
+register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
   fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L114
   queue->last_hash_index++;
   if ( fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root ) >= queue->max_age ) {
     fd_hash_hash_age_pair_t_mapnode_t * nn;
     for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
       nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+      /* NOTE: Yes, this check is incorrect. It should be >= which caps the blockhash queue at max_age
+         entries, but instead max_age + 1 entries are allowed to exist in the queue at once. This mimics
+         Agave to stay conformant with their implementation.
+         https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L109 */
       if ( queue->last_hash_index - n->elem.val.hash_index > queue->max_age ) {
         fd_hash_hash_age_pair_t_map_remove( queue->ages_pool, &queue->ages_root, n );
         fd_hash_hash_age_pair_t_map_release( queue->ages_pool, n );
@@ -58,13 +65,13 @@ void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) 
     .key = *hash,
     .val = (fd_hash_age_t){ .hash_index = queue->last_hash_index, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature}, .timestamp = (ulong)fd_log_wallclock() }
   };
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
   fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L130
   fd_memcpy( queue->last_hash, hash, sizeof(fd_hash_t) );
 }
 
 void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
-  if (slot_ctx->slot_bank.slot == 0)  // we already set this... as part of boot
-    return;
 
   fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
   fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
@@ -90,7 +97,7 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL);
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 
   register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
 }

@@ -3,7 +3,7 @@
 #include "../fd_account.h"
 #include "../../../util/bits/fd_uwide.h"
 
-/* demote_program_id() in https://github.com/solana-labs/solana/blob/061bed0a8ca80afb97f4438155e8a6b47bbf7f6d/sdk/program/src/message/versions/v0/loaded.rs#L150 */
+/* https://github.com/anza-xyz/agave/blob/1ca8cb866a8a1bcb33cea23613649b82d48ed62c/sdk/program/src/message/versions/v0/loaded.rs#L162 */
 int
 fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx )
 {
@@ -72,9 +72,7 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
     instr->acct_txn_idxs[i] = acc_idx;
     instr->acct_pubkeys[i] = accounts[instr_acc_idxs[i]];
     instr->acct_flags[i] = 0;
-
-    if( fd_account_is_writable_idx( txn_descriptor, accounts, txn_instr->program_id, instr_acc_idxs[i] ) &&
-        !fd_txn_account_is_demotion( txn_ctx, instr_acc_idxs[i] ) ) {
+    if( fd_txn_account_is_writable_idx( txn_ctx, (int)instr_acc_idxs[i]) ) {
         instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
     }
     if( fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) ) {

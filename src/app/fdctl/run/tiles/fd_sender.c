@@ -1,4 +1,4 @@
-/* Sender tile signs and sends transactions to the current leader. Currently 
+/* Sender tile signs and sends transactions to the current leader. Currently
    only supports transactions which require one signature. */
 
 #define _GNU_SOURCE
@@ -28,6 +28,7 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../disco/fd_disco.h"
@@ -45,7 +46,7 @@ struct fd_sender_tile_ctx {
   fd_pubkey_t vote_acct_addr[ 1 ];
 
   fd_stake_ci_t * stake_ci;
-  ulong *         current_slot;
+  ulong *         poh_slot;
   fd_shred_dest_weighted_t * new_dest_ptr;
   ulong                      new_dest_cnt;
 
@@ -60,7 +61,7 @@ struct fd_sender_tile_ctx {
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
   ulong       stake_in_wmark;
- 
+
   ulong       contact_in_idx;
   fd_wksp_t * contact_in_mem;
   ulong       contact_in_chunk0;
@@ -87,16 +88,16 @@ struct fd_sender_tile_ctx {
   ulong       gossip_out_wmark;
   ulong       gossip_out_chunk;
 
-  ulong            pack_out_idx;
-  fd_frag_meta_t * pack_out_mcache;
-  ulong *          pack_out_sync;
-  ulong            pack_out_depth;
-  ulong            pack_out_seq;
+  ulong            dedup_out_idx;
+  fd_frag_meta_t * dedup_out_mcache;
+  ulong *          dedup_out_sync;
+  ulong            dedup_out_depth;
+  ulong            dedup_out_seq;
 
-  fd_wksp_t * pack_out_mem;
-  ulong       pack_out_chunk0;
-  ulong       pack_out_wmark;
-  ulong       pack_out_chunk;
+  fd_wksp_t * dedup_out_mem;
+  ulong       dedup_out_chunk0;
+  ulong       dedup_out_wmark;
+  ulong       dedup_out_chunk;
 
   ulong            net_out_idx;
   fd_frag_meta_t * net_out_mcache;
@@ -112,7 +113,7 @@ struct fd_sender_tile_ctx {
   ulong                sign_in_idx;
   ulong                sign_out_idx;
   fd_keyguard_client_t keyguard_client[ 1 ];
-  
+
 };
 typedef struct fd_sender_tile_ctx fd_sender_tile_ctx_t;
 
@@ -181,16 +182,16 @@ send_packet( fd_sender_tile_ctx_t * ctx,
 static int
 get_current_leader_tpu_vote_contact( fd_sender_tile_ctx_t *      ctx,
                                      fd_shred_dest_weighted_t ** out_dest ) {
-  ulong current_slot = fd_fseq_query( ctx->current_slot );
-  if( current_slot==ULONG_MAX ) { return -1; }
+  ulong poh_slot = fd_fseq_query( ctx->poh_slot );
+  if( poh_slot==ULONG_MAX ) { return -1; }
 
-  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, current_slot );
+  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, poh_slot );
   if( FD_UNLIKELY( !lsched      ) ) { return -1; }
 
-  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, current_slot );
+  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, poh_slot );
   if( FD_UNLIKELY( !slot_leader ) ) { return -1 ; } /* Count this as bad slot too */
 
-  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, current_slot );
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, poh_slot );
   fd_shred_dest_idx_t sdest_idx = fd_shred_dest_pubkey_to_idx( sdest, slot_leader );
   if( FD_UNLIKELY( sdest_idx==FD_SHRED_DEST_NO_DEST ) ) {
     return -1;
@@ -266,7 +267,7 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( chunk<ctx->contact_in_chunk0 || chunk>ctx->contact_in_wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->contact_in_chunk0, ctx->contact_in_wmark ));
     }
-    
+
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->contact_in_mem, chunk );
     handle_new_cluster_contact_info( ctx, dcache_entry, sz );
   }
@@ -305,12 +306,12 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)fd_type_pun(ctx->txn_buf);
-    
+
     /* sign the txn */
     uchar * signature = txn->payload + TXN(txn)->signature_off;
     uchar * message   = txn->payload + TXN(txn)->message_off;
     ulong message_sz  = txn->payload_sz - TXN(txn)->message_off;
-    fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz );
+    fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
     uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
     memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
@@ -329,14 +330,14 @@ after_frag( void *             _ctx,
     ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
     ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, txn->payload_sz,
                                                     ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
-    /* send to pack */
-    uchar * msg_to_pack = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
+    /* send to dedup */
+    uchar * msg_to_pack = fd_chunk_to_laddr( ctx->dedup_out_mem, ctx->dedup_out_chunk );
     memcpy( msg_to_pack, msg_to_gossip, txn->payload_sz );
-    fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, 1UL, ctx->pack_out_chunk,
+    fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, 1UL, ctx->dedup_out_chunk,
       txn->payload_sz, 0UL, 0, 0 );
-    ctx->pack_out_seq    = fd_seq_inc( ctx->pack_out_seq, 1UL );
-    ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, txn->payload_sz, ctx->pack_out_chunk0,
-        ctx->pack_out_wmark );
+    ctx->dedup_out_seq    = fd_seq_inc( ctx->dedup_out_seq, 1UL );
+    ctx->dedup_out_chunk = fd_dcache_compact_next( ctx->dedup_out_chunk, txn->payload_sz, ctx->dedup_out_chunk0,
+        ctx->dedup_out_wmark );
   }
 }
 
@@ -371,7 +372,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
-  
+
   /* scratch space attach */
   fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -380,12 +381,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tpu_serve_addr.addr = tile->sender.ip_addr;
   ctx->tpu_serve_addr.port = fd_ushort_bswap( tile->sender.tpu_listen_port );
-  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr, 
+  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr,
       ctx->tpu_serve_addr.port );
 
-  ulong current_slot_obj_id = fd_pod_query_ulong( topo->props, "current_slot", ULONG_MAX );
-  FD_TEST( current_slot_obj_id!=ULONG_MAX );
-  ctx->current_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_slot_obj_id ) );
+  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
+  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
+  ctx->poh_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   /* Set up stake input */
   ctx->stake_in_idx = fd_topo_find_tile_in_link( topo, tile, "stake_out", 0 );
@@ -424,18 +425,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_out_wmark  = fd_dcache_compact_wmark ( ctx->gossip_out_mem, gossip_out_link->dcache, gossip_out_link->mtu );
   ctx->gossip_out_chunk  = ctx->gossip_out_chunk0;
 
-  /* Set up pack output */
-  ctx->pack_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_pack", 0 );
-  FD_TEST( ctx->pack_out_idx!=ULONG_MAX );
-  fd_topo_link_t * pack_out_link = &topo->links[ tile->out_link_id[ ctx->pack_out_idx ] ];
-  ctx->pack_out_mcache = pack_out_link->mcache;
-  ctx->pack_out_sync   = fd_mcache_seq_laddr( ctx->pack_out_mcache );
-  ctx->pack_out_depth  = fd_mcache_depth( ctx->pack_out_mcache );
-  ctx->pack_out_seq    = fd_mcache_seq_query( ctx->pack_out_sync );
-  ctx->pack_out_mem    = topo->workspaces[ topo->objs[ pack_out_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_out_chunk0 = fd_dcache_compact_chunk0( ctx->pack_out_mem, pack_out_link->dcache );
-  ctx->pack_out_wmark  = fd_dcache_compact_wmark ( ctx->pack_out_mem, pack_out_link->dcache, pack_out_link->mtu );
-  ctx->pack_out_chunk  = ctx->pack_out_chunk0;
+  /* Set up dedup output */
+  ctx->dedup_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_dedup", 0 );
+  FD_TEST( ctx->dedup_out_idx!=ULONG_MAX );
+  fd_topo_link_t * dedup_out_link = &topo->links[ tile->out_link_id[ ctx->dedup_out_idx ] ];
+  ctx->dedup_out_mcache = dedup_out_link->mcache;
+  ctx->dedup_out_sync   = fd_mcache_seq_laddr( ctx->dedup_out_mcache );
+  ctx->dedup_out_depth  = fd_mcache_depth( ctx->dedup_out_mcache );
+  ctx->dedup_out_seq    = fd_mcache_seq_query( ctx->dedup_out_sync );
+  ctx->dedup_out_mem    = topo->workspaces[ topo->objs[ dedup_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->dedup_out_chunk0 = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out_link->dcache );
+  ctx->dedup_out_wmark  = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out_link->dcache, dedup_out_link->mtu );
+  ctx->dedup_out_chunk  = ctx->dedup_out_chunk0;
 
   /* Set up net output */
   ctx->net_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_net", 0 );
@@ -449,7 +450,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out_link->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out_link->dcache, net_out_link->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
-  
+
 
   /* Set up keyguard(s) */
   ctx->sign_in_idx  = fd_topo_find_tile_in_link( topo, tile, "sign_voter", 0 );

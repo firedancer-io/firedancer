@@ -9,7 +9,7 @@ include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-threads.mk
 
-CPPFLAGS+=-march=haswell -mtune=haswell
+CPPFLAGS+=-march=haswell -mtune=haswell -maes
 
 CPPFLAGS+=\
   -DFD_HAS_INT128=1 \

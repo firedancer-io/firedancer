@@ -5,7 +5,16 @@ edition = "2021"
 publish = false
 build = "build.rs"
 
+[build-dependencies]
+bindgen = "0.69"
+
 [dependencies]
-env_logger = "0.11.3"
+crossbeam-channel = "0.5"
+env_logger = "0.11"
 libc = "0.2"
-solana-client = "1.18"
+rand = "0.8.5"
+solana-connection-cache = "2.0.4"
+solana-client = "2.0.4"
+solana-sdk = "2.0.4"
+solana-streamer = "2.0.4"
+solana-quic-client = "2.0.4"

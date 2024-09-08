@@ -44,6 +44,7 @@ void
 fd_pending_slots_add( fd_pending_slots_t * pending_slots,
                       ulong slot,
                       long when );
+
 void
 fd_pending_slots_set_lo_wmark( fd_pending_slots_t * pending_slots,
                                ulong slot );
@@ -54,7 +55,11 @@ fd_pending_slots_iter_init( fd_pending_slots_t * pending_slots );
 ulong
 fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
                             long now,
-                            ulong i );                
+                            ulong i );
+
+long
+fd_pending_slots_get( fd_pending_slots_t * pending_slots,
+                      ulong                slot );       
 
 FD_PROTOTYPES_END
 

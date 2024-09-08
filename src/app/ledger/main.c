@@ -9,7 +9,6 @@
 #include <strings.h>
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
-#include "../../disco/bank/fd_txncache.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -19,6 +18,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -39,7 +39,7 @@ struct fd_ledger_args {
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
   fd_funk_t *           funk;                    /* handle to funk */
-  fd_alloc_t *          alloc;                   /* handle to alloc*/
+  fd_alloc_t *          alloc;                   /* handle to alloc */
   char const *          cmd;                     /* user passed command to fd_ledger */
   ulong                 start_slot;              /* start slot for offline replay */
   ulong                 end_slot;                /* end slot for offline replay */
@@ -74,20 +74,24 @@ struct fd_ledger_args {
   char const *          checkpt_path;            /* path to dump funk wksp checkpoints during execution*/
   ulong                 checkpt_freq;            /* how often funk wksp checkpoints will be dumped (defaults to never) */
   int                   checkpt_mismatch;        /* determine if a funk wksp checkpoint should be dumped on a mismatch*/
+
   int                   dump_insn_to_pb;         /* instruction dumping: should insns be dumped */
-  ulong                 dump_insn_start_slot;    /* instruction dumping: what slot to start dumping*/
-  char const *          dump_insn_sig_filter;    /* instruction dumping: specify txn sig to dump at */
-  char const *          dump_insn_output_dir;    /* instruction dumping: output directory for insns */
+  int                   dump_txn_to_pb;          /* txn dumping: should txns be dumped */
+  ulong                 dump_proto_start_slot;   /* instruction / txn dumping: what slot to start dumping*/
+  char const *          dump_proto_sig_filter;   /* instruction / txn dumping: specify txn sig to dump at */
+  char const *          dump_proto_output_dir;   /* instruction / txn dumping: output directory for protobuf messages */
+
   int                   verify_funk;             /* verify funk before execution starts */
   uint                  verify_acc_hash;         /* verify account hash from the snapshot */
   uint                  check_acc_hash;          /* check account hash by reconstructing with data */
-  char const *          verify_hash;             /* verify the snapshot hash*/
   ulong                 trash_hash;              /* trash hash to be used for negative cases*/
   ulong                 vote_acct_max;           /* max number of vote accounts */
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
   uint                  cluster_version;         /* What version of solana is the genesis block? */
+  char const *          one_off_features[32];    /* List of one off feature pubkeys to enable for execution agnostic of cluster version */
+  uint                  one_off_features_cnt;    /* Number of one off features */
 
   /* These values are setup before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
@@ -95,7 +99,6 @@ struct fd_ledger_args {
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
-  ulong                 max_workers;             /* max number of workers for thread pool */
   uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   #ifdef _ENABLE_LTHASH
   char const *      lthash;
@@ -105,18 +108,18 @@ struct fd_ledger_args {
 typedef struct fd_ledger_args fd_ledger_args_t;
 
 /* Runtime Replay *************************************************************/
-int
-runtime_replay( fd_ledger_args_t * ledger_args ) {
+static int
+init_tpool( fd_ledger_args_t * ledger_args ) {
   ulong tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
-  if( tcnt > 1UL ) {
+  if( tcnt>=1UL ) {
     tpool = fd_tpool_init( ledger_args->tpool_mem, tcnt );
     if( tpool == NULL ) {
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt-1UL) );
+    tpool_scr_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt) );
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
@@ -130,13 +133,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
   }
   ledger_args->tpool       = tpool;
-  ledger_args->max_workers = tcnt;
+  return 0;
+}
 
-  fd_funk_start_write( ledger_args->slot_ctx->acc_mgr->funk );
-  ulong r = fd_funk_txn_cancel_all( ledger_args->slot_ctx->acc_mgr->funk, 1 );
-  fd_funk_end_write( ledger_args->slot_ctx->acc_mgr->funk );
-  FD_LOG_INFO(( "Cancelled old transactions %lu", r ));
-
+int
+runtime_replay( fd_ledger_args_t * ledger_args ) {
   fd_features_restore( ledger_args->slot_ctx );
 
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot );
@@ -220,7 +221,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                                           val,
                                           sz,
                                           ledger_args->tpool,
-                                          ledger_args->max_workers,
                                           1,
                                           &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;
@@ -365,7 +365,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   int has_checkpt_funk     = args->checkpt_funk && args->checkpt_funk[0] != '\0';
   int has_checkpt_arch     = args->checkpt_archive && args->checkpt_archive[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
-  int has_dump_to_protobuf = args->dump_insn_to_pb;
+  int has_dump_to_protobuf = args->dump_insn_to_pb || args->dump_txn_to_pb;
 
   if( has_solcap || has_checkpt || has_checkpt_funk || has_checkpt_arch || has_prune || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
@@ -397,10 +397,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->pruned_funk = args->pruned_funk;
     }
     if( has_dump_to_protobuf ) {
-      args->capture_ctx->dump_insn_to_pb      = args->dump_insn_to_pb;
-      args->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
-      args->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
-      args->capture_ctx->dump_insn_start_slot = args->dump_insn_start_slot;
+      args->capture_ctx->dump_insn_to_pb       = args->dump_insn_to_pb;
+      args->capture_ctx->dump_txn_to_pb        = args->dump_txn_to_pb;
+      args->capture_ctx->dump_proto_sig_filter = args->dump_proto_sig_filter;
+      args->capture_ctx->dump_proto_output_dir = args->dump_proto_output_dir;
+      args->capture_ctx->dump_proto_start_slot = args->dump_proto_start_slot;
     }
   }
 
@@ -413,6 +414,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
   fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
   fd_funk_end_write( funk );
+
 }
 
 void
@@ -509,6 +511,26 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 }
 
 void
+parse_one_off_features( fd_ledger_args_t * args, char const * one_off_features ) {
+  if( !one_off_features ) {
+    FD_LOG_NOTICE(( "No one-off features passed in" ));
+    return;
+  }
+
+  char * one_off_features_str = strdup( one_off_features );
+  char * token = NULL;
+  token = strtok( one_off_features_str, "," );
+  while( token ) {
+    args->one_off_features[ args->one_off_features_cnt++ ] = token;
+    token = strtok( NULL, "," );
+  }
+
+  FD_LOG_NOTICE(( "Found %lu one off features to include", args->one_off_features_cnt ));
+
+  /* TODO: Fix the leak here and in parse_rocksdb_list */
+}
+
+void
 parse_rocksdb_list( fd_ledger_args_t * args,
                     char const *       rocksdb_list,
                     char const *       rocksdb_start_slots ) {
@@ -553,8 +575,8 @@ parse_rocksdb_list( fd_ledger_args_t * args,
 void
 init_scratch( fd_wksp_t * wksp ) {
   #define FD_SCRATCH_TAG (421UL)
-  ulong  smax   = 1UL << 31UL; /* 2 GiB */
-  ulong  sdepth = 2048UL;       /* 2048 scratch frames */
+  ulong  smax   = 1UL << 33UL; /* 8 GiB */
+  ulong  sdepth = 2048UL;      /* 2048 scratch frames */
   void * smem   = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), FD_SCRATCH_TAG );
   void * fmem   = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), FD_SCRATCH_TAG );
   #undef FD_SCRATCH_TAG
@@ -589,6 +611,10 @@ init_funk( fd_ledger_args_t * args ) {
         FD_LOG_ERR(( "verification failed" ));
       }
     }
+    /* Clean up old transactions */
+    fd_funk_start_write( funk );
+    fd_funk_txn_cancel_all( funk, 0 );
+    fd_funk_end_write( funk );
   } else {
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if( shmem == NULL ) {
@@ -635,17 +661,24 @@ init_blockstore( fd_ledger_args_t * args ) {
 }
 
 void
-checkpt( fd_ledger_args_t * args ) {
+checkpt( fd_ledger_args_t * args, fd_exec_slot_ctx_t * slot_ctx ) {
   if( !args->checkpt && !args->checkpt_funk && !args->checkpt_archive && !args->checkpt_status_cache ) {
     FD_LOG_WARNING(( "No checkpt argument specified" ));
   }
 
   if( args->checkpt_archive ) {
     FD_LOG_NOTICE(( "writing funk archive %s", args->checkpt_archive ));
-    int err = fd_funk_archive( args->funk, args->checkpt_archive );
-    if( err ) {
-      FD_LOG_ERR(( "funk archive failed: error %d", err ));
-    }
+
+    /* Switch to archival format */
+    fd_funk_start_write( args->funk );
+    int err = fd_runtime_save_slot_bank_archival( slot_ctx );
+    if( err ) FD_LOG_ERR(( "funk archive failed: error %d", err ));
+    err = fd_runtime_save_epoch_bank_archival( slot_ctx );
+    if( err ) FD_LOG_ERR(( "funk archive failed: error %d", err ));
+    fd_funk_end_write( args->funk );
+
+    err = fd_funk_archive( args->funk, args->checkpt_archive );
+    if( err ) FD_LOG_ERR(( "funk archive failed: error %d", err ));
   }
   if( args->checkpt_funk ) {
     if( args->funk_wksp == NULL ) {
@@ -780,7 +813,6 @@ ingest( fd_ledger_args_t * args ) {
     init_blockstore( args );
   }
 
-  fd_wksp_t * wksp = args->wksp;
   fd_funk_t * funk = args->funk;
 
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( fd_funk_wksp( funk ), funk->alloc_gaddr ), 0UL );
@@ -794,6 +826,7 @@ ingest( fd_ledger_args_t * args ) {
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
   fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   slot_ctx->epoch_ctx = epoch_ctx;
+  args->slot_ctx = slot_ctx;
 
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
@@ -806,18 +839,24 @@ ingest( fd_ledger_args_t * args ) {
     FD_TEST( slot_ctx->status_cache );
   }
 
+  init_tpool( args );
+
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load( args->snapshot, slot_ctx, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load( args->snapshot, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
     FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load( args->incremental, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
   if( args->genesis ) {
     fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL );
+  }
+
+  if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
+    fd_runtime_recover_banks( slot_ctx, 0, 1 );
   }
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
@@ -863,70 +902,9 @@ ingest( fd_ledger_args_t * args ) {
     }
   #endif
 
-  if( args->verify_hash ) {
-    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-    ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
-
-    FD_LOG_NOTICE(( "verifying hash for %lu accounts", num_iter_accounts ));
-
-    ulong zero_accounts = 0;
-    ulong num_pairs = 0;
-    fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) malloc( num_iter_accounts*sizeof(fd_pubkey_hash_pair_t) );
-    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-         !fd_funk_rec_map_iter_done( rec_map, iter );
-         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-      fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-      if( !fd_funk_key_is_acc( rec->pair.key ) ) {
-        continue;
-      }
-
-      if( num_pairs % 10000000 == 0 ) {
-        FD_LOG_NOTICE(( "read %lu so far", num_pairs ));
-      }
-
-      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-      if( (metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t)) ) {
-        FD_LOG_ERR(( "invalid magic on metadata" ));
-      }
-
-      if( (metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0) ) {
-        zero_accounts++;
-        continue;
-      }
-
-      fd_hash_t acc_hash;
-      if( fd_hash_account_v0( acc_hash.uc, metadata, rec->pair.key->uc, fd_account_get_data( metadata ), metadata->slot )==NULL ) {
-        FD_LOG_ERR(("error processing account hash"));
-      }
-
-      if( memcmp( acc_hash.uc, metadata->hash, 32 ) != 0 ) {
-        FD_LOG_ERR(("account hash mismatch - num_pairs: %lu, slot: %lu, acc: %32J, acc_hash: %32J, snap_hash: %32J", num_pairs, slot_ctx->slot_bank.slot, rec->pair.key->uc, acc_hash.uc, metadata->hash));
-      }
-
-      pairs[num_pairs].pubkey = (const fd_pubkey_t *)rec->pair.key->uc;
-      pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
-      num_pairs++;
-    }
-    FD_LOG_NOTICE(( "num_iter_accounts: %ld zero_accounts: %lu", num_iter_accounts, zero_accounts ));
-
-    fd_hash_t accounts_hash;
-    fd_hash_account_deltas( pairs, num_pairs, &accounts_hash, slot_ctx );
-
-    free( pairs );
-
-    char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32( (uchar const *)accounts_hash.hash, NULL, accounts_hash_58 );
-
-    FD_LOG_NOTICE(( "hash result %s", accounts_hash_58 ));
-    if( strcmp( args->verify_hash, accounts_hash_58 ) == 0 ) {
-      FD_LOG_NOTICE(( "hash verified!" ));
-    } else {
-      FD_LOG_ERR(( "hash does not match!" ));
-    }
-  }
+  checkpt( args, slot_ctx );
 
   cleanup_scratch();
-  checkpt( args );
 }
 
 int
@@ -980,14 +958,19 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
   args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
-  fd_features_enable_hardcoded( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
+  fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
+  fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
   args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
   args->slot_ctx->valloc = valloc;
   args->slot_ctx->acc_mgr = fd_acc_mgr_new( args->acc_mgr, funk );
   args->slot_ctx->blockstore = args->blockstore;
-  args->slot_ctx->status_cache = NULL;
+  void * status_cache_mem = fd_wksp_alloc_laddr( args->wksp, FD_TXNCACHE_ALIGN, fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
+  args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+  FD_TEST( args->slot_ctx->status_cache );
+
+  init_tpool( args );
 
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
@@ -995,11 +978,11 @@ replay( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load( args->snapshot, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load( args->incremental, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
@@ -1056,11 +1039,11 @@ prune( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load( args->snapshot, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load( args->incremental, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
   }
@@ -1126,6 +1109,7 @@ prune( fd_ledger_args_t * args ) {
 
   /* Replay through the desired slot range ************************************/
 
+  init_tpool( args );
   fd_ledger_main_setup( args );
   runtime_replay( args );
 
@@ -1164,11 +1148,11 @@ prune( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load( args->snapshot, args->slot_ctx, 0, 0, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_FULL );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, args->slot_ctx, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
@@ -1271,7 +1255,6 @@ prune( fd_ledger_args_t * args ) {
   /* Verify that the pruned records are in the funk */
   FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp )));
 
-  cleanup_scratch();
   fd_funk_leave( unpruned_funk );
 
   if( fd_funk_verify( pruned_funk ) ) {
@@ -1283,7 +1266,9 @@ prune( fd_ledger_args_t * args ) {
   fd_funk_end_write( unpruned_funk );
   args->funk = pruned_funk;
   args->wksp = pruned_wksp;
-  checkpt( args );
+  checkpt( args, slot_ctx_pruned );
+
+  cleanup_scratch();
 }
 
 /* Parse user arguments and setup shared data structures used across commands */
@@ -1313,7 +1298,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        shred_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--shred-max",               NULL, 1UL << 17 );
   ulong        start_slot              = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot",              NULL, 0UL       );
   ulong        end_slot                = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",                NULL, ULONG_MAX );
-  char const * verify_hash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verify-hash",             NULL, NULL      );
   uint         verify_acc_hash         = fd_env_strip_cmdline_uint ( &argc, &argv, "--verify-acc-hash",         NULL, 0         );
   uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 0         );
   char const * restore                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore",                 NULL, NULL      );
@@ -1333,21 +1317,22 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt_path            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-path",            NULL, NULL      );
   ulong        checkpt_freq            = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq",            NULL, ULONG_MAX );
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
-  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "libc"    );
+  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
   int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
-  ulong        dump_insn_start_slot    = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-insn-start-slot",    NULL, 0         );
-  char const * dump_insn_sig_filter    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-sig-filter",    NULL, NULL      );
-  char const * dump_insn_output_dir    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-output-dir",    NULL, NULL      );
+  int          dump_txn_to_pb          = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-txn-to-pb",          NULL, 0         );
+  ulong        dump_proto_start_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-proto-start-slot",   NULL, 0         );
+  char const * dump_proto_sig_filter   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-proto-sig-filter",   NULL, NULL      );
+  char const * dump_proto_output_dir   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-proto-output-dir",   NULL, NULL      );
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
   uint         cluster_version         = fd_env_strip_cmdline_uint ( &argc, &argv, "--cluster-version",         NULL, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
-
+  char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
 
   #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -1444,7 +1429,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->check_acc_hash          = check_acc_hash;
   args->verify_acc_hash         = verify_acc_hash;
   args->trash_hash              = trash_hash;
-  args->verify_hash             = verify_hash;
   args->index_max_pruned        = index_max_pruned;
   args->pages_pruned            = pages_pruned;
   args->capture_fpath           = capture_fpath;
@@ -1458,12 +1442,15 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->on_demand_block_ingest  = on_demand_block_ingest;
   args->on_demand_block_history = on_demand_block_history;
   args->dump_insn_to_pb         = dump_insn_to_pb;
-  args->dump_insn_start_slot    = dump_insn_start_slot;
-  args->dump_insn_sig_filter    = dump_insn_sig_filter;
-  args->dump_insn_output_dir    = dump_insn_output_dir;
+  args->dump_txn_to_pb          = dump_txn_to_pb;
+  args->dump_proto_start_slot   = dump_proto_start_slot;
+  args->dump_proto_sig_filter   = dump_proto_sig_filter;
+  args->dump_proto_output_dir   = dump_proto_output_dir;
   args->vote_acct_max           = vote_acct_max;
   args->rocksdb_list_cnt        = 0UL;
   args->checkpt_status_cache    = checkpt_status_cache;
+  args->one_off_features_cnt    = 0UL;
+  parse_one_off_features( args, one_off_features );
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
   if( args->rocksdb_list_cnt==1UL ) {

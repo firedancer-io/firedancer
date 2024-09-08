@@ -38,16 +38,6 @@
 #define FD_QUIC_INITIAL_PAYLOAD_SZ_MIN (1200)
 #define FD_QUIC_INITIAL_PAYLOAD_SZ_MAX (FD_QUIC_INITIAL_PAYLOAD_SZ_MIN)
 
-/* Tokens (both RETRY and NEW_TOKEN) are specified by varints. We bound it to
-   77 bytes. Both our and quinn's RETRY tokens are 77 bytes, but our client
-   needs to be able to handle other server impl's of RETRY too.
-
-   FIXME change this bound (requires variable-length encoding). */
-#define FD_QUIC_TOKEN_SZ_MAX (77)
-/* Retry packets don't carry a token length field, so we infer it from the
-   footprint of a packet with a zero-length token and zero-length conn ids. */
-#define FD_QUIC_EMPTY_RETRY_PKT_SZ (23)
-
 /* FD_QUIC_MAX_PAYLOAD_SZ is the max byte size of the UDP payload of any
    QUIC packets.  Derived from FD_QUIC_MTU by subtracting the typical
    IPv4 header (no options) and UDP header sizes. */
@@ -91,6 +81,20 @@
 #define FD_QUIC_PKT_TYPE_ZERO_RTT  2
 #define FD_QUIC_PKT_TYPE_ONE_RTT   3
 
+/* FD_QUIC_PKT_COALESCE_LIMIT controls how many QUIC long packets are
+   handled in the same datagram. */
+#define FD_QUIC_PKT_COALESCE_LIMIT (4)
+
+/* FD_QUIC_RETRY_MAX_TOKEN_SZ is the max permitted Retry Token size that
+   fd_quic clients will accept.  This is unfortunately not specified by
+   RFC 9000. */
+#define FD_QUIC_RETRY_MAX_TOKEN_SZ (256UL)
+/* RETRY secret size in bytes */
+#define FD_QUIC_RETRY_SECRET_SZ 16
+/* RETRY iv size in bytes */
+#define FD_QUIC_RETRY_IV_SZ 12
+/* Retry token lifetime in seconds */
+#define FD_QUIC_RETRY_TOKEN_LIFETIME (3)
 
 #endif
 

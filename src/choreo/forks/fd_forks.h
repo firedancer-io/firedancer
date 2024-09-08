@@ -7,7 +7,7 @@
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
 
-/* fd_forks_USE_HANDHOLDING:  Define this to non-zero at compile time
+/* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
 
 #ifndef FD_FORKS_USE_HANDHOLDING
@@ -15,11 +15,15 @@
 #endif
 
 struct fd_fork {
-  ulong slot;   /* the fork head and frontier key */
-  ulong next;   /* reserved for use by fd_pool and fd_map_chain */
-  ulong prev;   /* reserved for use by fd_forks_publish */
-  int   frozen; /* a frozen fork cannot be removed from the frontier. it
-                   indicates it may be actively executing. */
+  ulong slot; /* the fork head and frontier key */
+  ulong next; /* reserved for use by fd_pool and fd_map_chain */
+  ulong prev; /* reserved for use by fd_forks_publish */
+  int   lock; /* IMPORTANT SAFETY TIP! lock is a boolean indicating
+                 whether a fork's most recent block is still being
+                 actively replayed (executed) and should generally not
+                 be read or written to by downstream consumers (eg.
+                 consensus, publishing) and should definitely not be
+                 removed. */
   fd_exec_slot_ctx_t slot_ctx;
 };
 
@@ -94,17 +98,18 @@ fd_forks_leave( fd_forks_t const * forks );
 void *
 fd_forks_delete( void * forks );
 
-/* fd_forks_init initializes a forks.  Assumes forks is a valid local
-   join and no one else is joined, and non-NULL slot_ctx.  slot_ctx is
-   the first fork that will be inserted into the frontier.  This should
-   be the slot_ctx after loading a snapshot, genesis slot_ctx otherwise.
-   The slot_ctx will be copied into an element acquired from the memory
-   pool owned by forks.
+/* fd_forks_init initializes forks.  Assumes forks is a valid local join
+   and no one else is joined, and non-NULL slot_ctx.  Inserts the first
+   fork into the frontier containing slot_ctx.  This should be the
+   slot_ctx from loading a snapshot, restoring a bank from Funk, or the
+   genesis slot_ctx.  The slot_ctx will be copied into an element
+   acquired from the memory pool owned by forks.  Returns fork on
+   success, NULL on failure.
 
    In general, this should be called by the same process that formatted
    forks' memory, ie. the caller of fd_forks_new. */
 
-void
+fd_fork_t *
 fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx );
 
 /* fd_forks_query queries for the fork corresponding to slot in the
@@ -159,5 +164,19 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
 void
 fd_forks_publish( fd_forks_t * fork, ulong root, fd_ghost_t const * ghost );
+
+/* fd_forks_print prints a forks as a list of the frontiers and number
+   of forks (pool eles acquired). */
+
+static inline void
+fd_forks_print( fd_forks_t const * forks ) {
+  FD_LOG_NOTICE( ( "\n\n[Frontier]" ) );
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
+       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
+       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
+    printf( "%lu\n", fd_fork_frontier_iter_ele_const( iter, forks->frontier, forks->pool )->slot );
+  }
+  printf( "\n" );
+}
 
 #endif /* HEADER_fd_src_choreo_forks_fd_forks_h */

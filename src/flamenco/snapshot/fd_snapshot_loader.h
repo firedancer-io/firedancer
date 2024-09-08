@@ -23,8 +23,9 @@ typedef struct fd_snapshot_loader fd_snapshot_loader_t;
 
 /* FD_SNAPSHOT_SRC_{...} specifies the type of snapshot source. */
 
-#define FD_SNAPSHOT_SRC_FILE (1)
-#define FD_SNAPSHOT_SRC_HTTP (2)
+#define FD_SNAPSHOT_SRC_FILE    (1)
+#define FD_SNAPSHOT_SRC_HTTP    (2)
+#define FD_SNAPSHOT_SRC_ARCHIVE (3)
 
 /* fd_snapshot_src_t specifies the snapshot source. */
 

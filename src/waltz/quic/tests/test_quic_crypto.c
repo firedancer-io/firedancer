@@ -123,6 +123,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   /*   initial_secret = HKDF-Extract(initial_salt, */
   /*                                 client_dst_connection_id) */
 
@@ -193,35 +195,28 @@ main( int     argc,
 
   /* compare output of fd_quic_gen_secrets to expected */
   FD_TEST( 0==memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) );
-  FD_LOG_NOTICE(( "fd_quic_gen_secrets: initial_secret PASSED" ));
+  FD_LOG_INFO(( "fd_quic_gen_secrets: initial_secret PASSED" ));
 
   FD_LOG_DEBUG(( "client initial secret: "
                  FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][0]    ),
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][0]+16 ) ));
   FD_TEST( 0==memcmp( secrets.secret[0][0], expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) );
-  FD_LOG_NOTICE(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
+  FD_LOG_INFO(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
 
   FD_LOG_DEBUG(( "server initial secret: "
                  FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][1]    ),
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][1]+16 ) ));
   FD_TEST( 0==memcmp( secrets.secret[0][1], expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) );
-  FD_LOG_NOTICE(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
+  FD_LOG_INFO(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
 
   fd_quic_crypto_keys_t client_keys = {0};
-  if( fd_quic_gen_keys(
-        &client_keys,
-        suite,
-        expected_client_initial_secret,
-        expected_client_initial_secret_sz )
-          != FD_QUIC_SUCCESS ) {
-    FD_LOG_ERR(( "fd_quic_gen_keys failed" ));
-  }
+  FD_TEST( fd_quic_gen_keys( &client_keys, suite, expected_client_initial_secret, expected_client_initial_secret_sz )==FD_QUIC_SUCCESS );
 
-  FD_TEST( 0==memcmp( client_keys.pkt_key, expected_client_key,          sizeof( expected_client_key )         ) );
-  FD_TEST( 0==memcmp( client_keys.iv,      expected_client_quic_iv,      sizeof( expected_client_quic_iv )     ) );
-  FD_TEST( 0==memcmp( client_keys.hp_key,   expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) );
+  FD_TEST( 0==memcmp( client_keys.pkt_key, expected_client_key,         sizeof( expected_client_key )         ) );
+  FD_TEST( 0==memcmp( client_keys.iv,      expected_client_quic_iv,     sizeof( expected_client_quic_iv )     ) );
+  FD_TEST( 0==memcmp( client_keys.hp_key,  expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) );
 
   /* TODO compare server keys to expectation */
 
@@ -234,26 +229,33 @@ main( int     argc,
   uchar const * hdr    = packet_header;
   ulong         hdr_sz = sizeof( packet_header );
 
+  ulong pkt_number = 2UL;
+
   FD_TEST( fd_quic_crypto_encrypt( cipher_text_,
                                    &cipher_text_sz,
                                    hdr,
                                    hdr_sz,
                                    pkt,
                                    pkt_sz,
-                                   suite,
                                    &client_keys,
-                                   &client_keys  )==FD_QUIC_SUCCESS );
+                                   &client_keys,
+                                   pkt_number )==FD_QUIC_SUCCESS );
 
   uchar const * cipher_text = cipher_text_;
 
-  FD_LOG_NOTICE(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
+  FD_LOG_INFO(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
 
   FD_LOG_HEXDUMP_INFO(( "plain_text",  test_client_initial, test_client_initial_sz ));
   FD_LOG_HEXDUMP_INFO(( "cipher_text", cipher_text,         cipher_text_sz         ));
 
+  ulong j; for( j=0UL; j<test_client_encrypted_sz && cipher_text[j]==test_client_encrypted[j]; j++ );
+  if( FD_UNLIKELY( !fd_memeq( cipher_text, test_client_encrypted, test_client_encrypted_sz ) ) ) {
+    FD_LOG_ERR(( "test_client_encrypted mismatch at %#lx", j ));
+  }
+
   uchar revert[4096];
 
-  FD_LOG_NOTICE(( "revert cipher_text_sz: %lu", cipher_text_sz ));
+  FD_LOG_INFO(( "revert cipher_text_sz: %lu", cipher_text_sz ));
 
   ulong const pn_offset = 18; /* from example in rfc */
 
@@ -261,7 +263,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, cipher_text_sz,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_SUCCESS );
 
   uchar revert_partial[4096];  /* only header decrypted */
@@ -271,7 +272,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         pn_offset, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_SUCCESS );
 
   ulong revert_sz = cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ;
@@ -284,14 +284,13 @@ main( int     argc,
   FD_TEST( 0==memcmp( revert, hdr, hdr_sz ) );
   FD_TEST( 0==memcmp( revert + hdr_sz, test_client_initial, test_client_initial_sz ) );
 
-  FD_LOG_NOTICE(( "decrypted packet matches original packet" ));
+  FD_LOG_INFO(( "decrypted packet matches original packet" ));
 
   /* Undersz header */
   fd_memcpy( revert, cipher_text, cipher_text_sz );
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, FD_QUIC_CRYPTO_TAG_SZ-1UL,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Overflowing packet number offset */
@@ -299,7 +298,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, cipher_text_sz,
         ULONG_MAX,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Packet number cut off */
@@ -307,7 +305,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, pn_offset + 3,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Sample out of bounds */
@@ -315,7 +312,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, pn_offset + 19,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Corrupt the ciphertext */
@@ -324,7 +320,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         pn_offset, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Output buffer size exactly as large as output */
@@ -333,7 +328,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         pn_offset, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_SUCCESS );
 
   /* Overflowing packet number offset */
@@ -342,11 +336,67 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         ULONG_MAX, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   fd_quic_crypto_ctx_fini( &crypto_ctx );
 
+  /* do a quick benchmark of QUIC header + payload protection on small
+     and large packets from UDP/IP4/VLAN/Ethernet */
+
+  static ulong const bench_sz[2] = { 64UL, 1472UL };
+
+  uchar buf1[ 1472 ] __attribute__((aligned(128)));
+  uchar buf2[ 1472 ] __attribute__((aligned(128)));
+  for( ulong b=0UL; b<1472UL; b++ ) buf1[b] = fd_rng_uchar( rng );
+  for( ulong b=0UL; b<1472UL; b++ ) buf2[b] = fd_rng_uchar( rng );
+
+  FD_LOG_NOTICE(( "Benchmarking header+payload decrypt" ));
+  for( ulong idx=0U; idx<2UL; idx++ ) {
+    ulong sz = bench_sz[ idx ];
+
+    /* warmup */
+    for( ulong rem=10UL; rem; rem-- ) {
+      fd_quic_crypto_decrypt_hdr( buf2, sz, 0,       &client_keys );
+      fd_quic_crypto_decrypt    ( buf2, sz, 0, 1234, &client_keys );
+    }
+
+    /* for real */
+    ulong iter = 1000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_quic_crypto_decrypt_hdr( buf2, sz, 0,       &client_keys );
+      fd_quic_crypto_decrypt    ( buf2, sz, 0, 1234, &client_keys );
+    }
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+  } while(0);
+
+  FD_LOG_NOTICE(( "Benchmarking header+payload encrypt" ));
+  for( ulong idx=0U; idx<2UL; idx++ ) {
+    ulong const out_sz = bench_sz[ idx ];
+    ulong const hdr_sz = 22UL;
+    ulong const sz     = out_sz - FD_QUIC_CRYPTO_TAG_SZ - hdr_sz;
+
+    /* warmup */
+    for( ulong rem=10UL; rem; rem-- ) {
+      ulong out_sz_ = out_sz;
+      fd_quic_crypto_encrypt( buf2, &out_sz_, hdr, hdr_sz, buf1, sz, &client_keys, &client_keys, 1234 );
+    }
+
+    /* for real */
+    ulong iter = 1000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      ulong out_sz_ = out_sz;
+      fd_quic_crypto_encrypt( buf2, &out_sz_, hdr, hdr_sz, buf1, sz, &client_keys, &client_keys, 1234 );
+    }
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*(70UL+out_sz)*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, out_sz ));
+  } while(0);
+
+  fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

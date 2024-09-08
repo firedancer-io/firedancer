@@ -87,7 +87,7 @@ set_default_slots() {
 get_closest_hourly() {
     local slot=$1
     local network=$2
-    
+
     local closest_hourly_url=""
     local closest_hourly_slot=-1
 
@@ -99,19 +99,21 @@ get_closest_hourly() {
         echo "[-] error: unknown network $network"
         exit 1
     fi
-  
+
     local directories=$(gsutil ls $bucket | sort -n -t / -k 4 | tail -n 3)
 
     for dir in $directories; do
         local dir_number=$(basename $dir)
 
-        if (( dir_number < slot )); then
+        if (( dir_number <= slot )); then
             local snapshots=$(gsutil ls "${dir}hourly" | sort -n -t - -k 3)
+            local base_snapshot=$(gsutil ls "${dir}snapshot*.tar.zst")
+            snapshots="${base_snapshot} ${snapshots}"
 
             for snapshot in $snapshots; do
                 local snapshot_number=$(basename $snapshot | cut -d '-' -f 2)
 
-                if (( snapshot_number < slot && snapshot_number > closest_hourly_slot )); then
+                if (( snapshot_number <= slot && snapshot_number > closest_hourly_slot )); then
                     closest_hourly_slot=$snapshot_number
                     closest_hourly_url=$snapshot
                 fi
@@ -122,4 +124,23 @@ get_closest_hourly() {
     echo $closest_hourly_url
 }
 
-export -f set_default_slots find_rooted_slot is_rooted_slot get_closest_hourly
+slot_to_epoch() {
+    local slot=$1
+    local network=$2
+
+    if [[ $network == "mainnet" ]]; then
+        bench_slot=0
+        bench_epoch=0
+    elif [[ $network == "testnet" ]]; then
+        bench_slot=213932256
+        bench_epoch=508
+    else
+        echo "[-] error: unknown network $network"
+        exit 1
+    fi
+
+    local epoch=$(( (slot - bench_slot) / 432000 + bench_epoch ))
+    echo $epoch
+}
+
+export -f set_default_slots find_rooted_slot is_rooted_slot get_closest_hourly slot_to_epoch

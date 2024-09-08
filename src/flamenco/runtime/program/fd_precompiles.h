@@ -10,13 +10,15 @@ FD_PROTOTYPES_BEGIN
    for the Ed25519 precompile. */
 
 int
-fd_precompile_ed25519_verify( fd_exec_instr_ctx_t ctx );
+fd_precompile_ed25519_verify( fd_exec_txn_ctx_t *     txn_ctx,
+                              fd_txn_instr_t const *  instr );
 
 /* fd_precompile_secp256k1_verify is the instruction processing entrypoint
    for the Secp256k1 precompile. */
 
 int
-fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t ctx );
+fd_precompile_secp256k1_verify( fd_exec_txn_ctx_t *     txn_ctx,
+                                fd_txn_instr_t const *  instr );
 
 FD_PROTOTYPES_END
 

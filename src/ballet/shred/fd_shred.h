@@ -174,10 +174,10 @@ struct __attribute__((packed)) fd_shred {
 
      For legacy type shreds, the low four bits are set to static patterns.
      For merkle type shreds, the low four bits are set to the number of non-root nodes in the inclusion proof.
-     For chained merkle code type shreds, the 3rd highest bit represents if the merkle tree is chained.
-     For chained merkle data type shreds, the 4th highest bit represents if the merkle tree is chained.
-     For resigned chained merkle code type shreds, the 4th highest bit represents if the shred is signed
-     For resigned chained merkle data type shreds, the 3th highest bit represents if the shred is signed
+     For merkle code type shreds, the 3rd highest bit represents if the merkle tree is chained.
+     For merkle data type shreds, the 4th highest bit represents if the merkle tree is chained.
+     For merkle code type shreds, the 4th highest bit represents if the shred is resigned.
+     For merkle data type shreds, the 3th highest bit represents if the shred is resigned.
 */
   /* 0x40 */ uchar  variant;
 
@@ -299,9 +299,9 @@ fd_shred_merkle_sz( uchar variant ) {
 }
 
 
-/* fd_is_chained_shred: Returns true if the shred is a chained merkle data or code shred. */
+/* fd_shred_is_chained: Returns true if the shred is a chained merkle data or code shred. */
 FD_FN_CONST static inline uchar
-fd_is_chained_shred( ulong type ) {
+fd_shred_is_chained( ulong type ) {
   return (uchar)(
          ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED )
        | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED )
@@ -309,11 +309,30 @@ fd_is_chained_shred( ulong type ) {
        | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED ) );
 }
 
-/* fd_is_resigned_shred: Returns true if the shred is resigned by the retransmitter */
+/* fd_shred_is_resigned: Returns true if the shred is resigned by the retransmitter */
 FD_FN_CONST static inline uchar
-fd_is_resigned_shred( ulong type ) {
+fd_shred_is_resigned( ulong type ) {
   return ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )
        | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );
+}
+
+/* fd_shred_is_{data,code} return 1 if the provided shred type is one of
+   the data (or code, respectively) types, and 0 if not.  The value
+   provided for type must be a valid shred type (one of the
+   FD_SHRED_TYPE_* values).  For the purposes of these functions,
+   properties beyond data/code are ignored; e.g. a chained resigned
+   Merkle data shred is considered a data shred. */
+FD_FN_CONST static inline uchar fd_shred_is_data( ulong type ) { return (type & 0xC0UL)==0x80UL; }
+FD_FN_CONST static inline uchar fd_shred_is_code( ulong type ) { return (type & 0xC0UL)==0x40UL; }
+
+/* fd_shred_swap_type: changes data into code or vice versa without
+   affecting leagacy, merkle, chained, or resigned status.  For example,
+   fd_shred_swap_type( chained resigned data ) == chained resigned code.
+   fd_shred_swap_type( merkle code ) == merkle data. */
+FD_FN_CONST static inline uchar
+fd_shred_swap_type( ulong type ) {
+  /* Swap bits 4 and 5. Swap bits 6 and 7. */
+  return (uchar)(((type & 0x50UL)<<1) | ((type&0xA0UL)>>1));
 }
 
 /* fd_shred_payload_sz: Returns the payload size of a shred.
@@ -326,8 +345,8 @@ fd_shred_payload_sz( fd_shred_t const * shred ) {
   } else {
     return fd_shred_sz( shred ) - FD_SHRED_CODE_HEADER_SZ
       - fd_shred_merkle_sz( shred->variant )
-      - fd_ulong_if( fd_is_chained_shred( type ), FD_SHRED_MERKLE_ROOT_SZ, 0 )
-      - fd_ulong_if( fd_is_resigned_shred( type ), FD_SHRED_SIGNATURE_SZ, 0 );
+      - fd_ulong_if( fd_shred_is_chained( type ), FD_SHRED_MERKLE_ROOT_SZ, 0 )
+      - fd_ulong_if( fd_shred_is_resigned( type ), FD_SHRED_SIGNATURE_SZ, 0 );
   }
 }
 
@@ -339,7 +358,7 @@ fd_shred_merkle_off( fd_shred_t const * shred ) {
   ulong type = fd_shred_type( shred->variant );
   return fd_shred_sz( shred )
     - fd_shred_merkle_sz( shred->variant )
-    - fd_ulong_if( fd_is_resigned_shred( type ), FD_SHRED_SIGNATURE_SZ, 0 );
+    - fd_ulong_if( fd_shred_is_resigned( type ), FD_SHRED_SIGNATURE_SZ, 0 );
 }
 
 /* fd_shred_merkle_nodes: Returns a pointer to the shred's merkle proof data.
@@ -370,6 +389,28 @@ fd_shred_data_payload( fd_shred_t const * shred ) {
 FD_FN_CONST static inline uchar const *
 fd_shred_code_payload( fd_shred_t const * shred ) {
   return (uchar const *)shred + FD_SHRED_CODE_HEADER_SZ;
+}
+
+/* fd_shred_chain_offset: Assuming that `shred` is a chained Merkle
+   variant, compute the offset from the start of the shred to the start
+   of the chained Merkle root.  U.B. if the shred is not a chained
+   variant. */
+FD_FN_CONST static inline ulong
+fd_shred_chain_offset( uchar variant ) {
+  ulong type = fd_shred_type( variant );
+  return fd_ulong_if( type & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ, FD_SHRED_MIN_SZ )
+    - FD_SHRED_MERKLE_ROOT_SZ
+    - fd_shred_merkle_sz( variant )
+    - fd_ulong_if( fd_shred_is_resigned( type ), FD_SHRED_SIGNATURE_SZ, 0 );
+}
+
+/* fd_shred_retrasmitter_sig_off: Assuming that `shred` is a resigned
+   variant, compute the offset from the start of the shred to the start
+   of the retransmitter signature.  U.B if the shred is not a resigned
+   chained type. */
+FD_FN_PURE static inline ulong
+fd_shred_retransmitter_sig_off( fd_shred_t const * shred ) {
+  return fd_shred_sz( shred )-FD_SHRED_SIGNATURE_SZ;
 }
 
 FD_PROTOTYPES_END

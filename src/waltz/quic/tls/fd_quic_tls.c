@@ -100,7 +100,7 @@ fd_quic_tls_footprint( ulong handshake_cnt ) {
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
-                  uchar const   cert_private_key[ static 32 ] );
+                  uchar const   cert_public_key[ static 32 ] );
 
 fd_quic_tls_t *
 fd_quic_tls_new( void *              mem,
@@ -231,8 +231,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     void *          context,
                     int             is_server,
                     char const *    hostname,
-                    uchar const *   transport_params_raw,
-                    ulong           transport_params_raw_sz ) {
+                    fd_quic_transport_params_t const * self_transport_params ) {
   // find a free handshake
   ulong hs_idx = 0;
   ulong hs_sz  = (ulong)quic_tls->max_concur_handshakes;
@@ -296,14 +295,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   (void)hostname;
 
   /* Set QUIC transport params */
-  if( transport_params_raw_sz > sizeof(self->self_transport_params) ) {
-    /* unreachable with well-behaved caller */
-    FD_LOG_WARNING(( "transport_params_raw_sz too large (got %lu, max %lu)",
-                     transport_params_raw_sz, sizeof(self->self_transport_params) ));
-    return NULL;
-  }
-  self->self_transport_params_sz = (uchar)transport_params_raw_sz;
-  fd_memcpy( self->self_transport_params, transport_params_raw, transport_params_raw_sz );
+  self->self_transport_params = *self_transport_params;
 
   /* Mark handshake as used */
   hs_used[hs_idx] = 1;
@@ -610,12 +602,13 @@ fd_quic_tls_tp_self( void *  const handshake,
                      ulong   const quic_tp_bufsz ) {
   fd_quic_tls_hs_t * hs = (fd_quic_tls_hs_t *)handshake;
 
-  /* Copy fd_quic_tls's transport params to fd_tls buffer */
-  ulong sz = fd_ulong_min( quic_tp_bufsz, hs->self_transport_params_sz );
-  fd_memcpy( quic_tp, hs->self_transport_params, sz );
+  ulong encoded_sz = fd_quic_encode_transport_params( quic_tp, quic_tp_bufsz, &hs->self_transport_params );
+  if( FD_UNLIKELY( encoded_sz==FD_QUIC_ENCODE_FAIL ) ) {
+    FD_LOG_WARNING(( "fd_quic_encode_transport_params failed" ));
+    return 0UL;
+  }
 
-  /* fd_tls will gracefully fail handshake if return value exceeds bufsz */
-  return hs->self_transport_params_sz;
+  return encoded_sz;
 }
 
 void

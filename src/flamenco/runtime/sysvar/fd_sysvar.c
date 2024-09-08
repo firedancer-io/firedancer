@@ -10,8 +10,7 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
                fd_pubkey_t const *  pubkey,
                void const *         data,
                ulong                sz,
-               ulong                slot,
-               ulong                lamports ) {
+               ulong                slot ) {
 
   fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
@@ -27,7 +26,10 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
   /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1825 */
   fd_acc_lamports_t lamports_before = rec->meta->info.lamports;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_acc_lamports_t lamports_after = fd_ulong_max( lamports, fd_rent_exempt_minimum_balance2( &epoch_bank->rent, sz ) );
+  /* https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/runtime/src/bank.rs#L6184
+     The account passed in via the updater is always the current sysvar account, so we take the max of the
+     current account lamports and the minimum rent exempt balance needed. */
+  fd_acc_lamports_t lamports_after = fd_ulong_max( lamports_before, fd_rent_exempt_minimum_balance2( &epoch_bank->rent, sz ) );
   rec->meta->info.lamports = lamports_after;
 
   /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1826 */

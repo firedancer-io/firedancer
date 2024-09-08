@@ -1,0 +1,5 @@
+{
+  "expected-missing-functions": [],
+  "proof-name": "fd_quic_handle_v1_one_rtt_harness",
+  "proof-root": "verification/proofs"
+}

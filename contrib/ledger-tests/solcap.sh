@@ -12,7 +12,7 @@ solcap_fd_solcap_diff="build/native/gcc/bin/fd_solcap_diff"
 
 solcap_snap_root_path=$(find dump -maxdepth 2 -name "snapshot-*" -type f -print0 | xargs -0 ls -t | head -n 1)
 solcap_rocksdb_path=$(echo "$solcap_snap_root_path" | sed 's|/snapshot-.*|/rocksdb|')
-solcap_bank_hash_details_path=$(echo "$solcap_snap_root_path" | sed 's|/snapshot-.*|/ledger_tool/bank_hash_details|')
+solcap_bank_hash_details_path=$(echo "$solcap_snap_root_path" | sed 's|/snapshot-.*|/ledger_tool/bank_hash_details/|')
 solcap_dump_path=$(echo "$solcap_snap_root_path" | sed 's|/snapshot-.*|/|')
 solcap_mismatch_slot=$(echo "$solcap_snap_root_path" | awk -F'/' '{print $2}' | awk -F'-' '{print $2}')
 solcap_end_slot=$((solcap_mismatch_slot + 1))
@@ -25,6 +25,7 @@ build/native/gcc/bin/fd_ledger --cmd replay \
                                --rocksdb $solcap_rocksdb_path \
                                --index-max $INDEX_MAX \
                                --end-slot $solcap_end_slot \
+                               --cluster-version $FIREDANCER_CLUSTER_VERSION \
                                --funk-only 1 \
                                --txn-max 100 \
                                --page-cnt $PAGES \
@@ -37,11 +38,12 @@ build/native/gcc/bin/fd_ledger --cmd replay \
                                --tile-cpus 5-21 \
                                --capture-txns 1 \
                                --copy-txn-status 1 \
-                               --capture-solcap solcap.solcap
+                               --capture-solcap fd.solcap
 
 # produce solana solcap 
-$SOLANA_LEDGER_TOOL verify --ledger $solcap_dump_path --halt-at-slot $solcap_end_slot
-$solcap_fd_solcap_import $solcap_bank_hash_details_path solana.solcap
+cd $solcap_dump_path
+$SOLANA_LEDGER_TOOL verify --ledger . --halt-at-slot $solcap_end_slot
+cd $solcap_firedancer_repo || exit
 $solcap_fd_solcap_import $solcap_bank_hash_details_path solana.solcap
 
 ## Get the solcap Diff

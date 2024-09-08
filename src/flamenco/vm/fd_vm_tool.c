@@ -45,7 +45,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   /* Extract ELF info */
 
   fd_sbpf_elf_info_t elf_info;
-  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, false ) );
+  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, /* deploy checks */ 0 ) );
 
   /* Allocate rodata segment */
 
@@ -180,6 +180,15 @@ cmd_trace( char const * bin_path,
   ulong   input_sz = 0UL;
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
+  /* Turn input into a single memory region */
+  fd_vm_input_region_t input_region = {
+    .vaddr_offset = 0UL,
+    .haddr        = (ulong)input,
+    .region_sz    = (uint)input_sz,
+    .is_writable  = 1U
+  };
+
+
   ulong event_max      = 1UL<<30; /* 1 GiB default storage */
   ulong event_data_max = 2048UL;  /* 2 KiB memory range captures by default */
   fd_vm_trace_t * trace = fd_vm_trace_join( fd_vm_trace_new( aligned_alloc(
@@ -194,21 +203,21 @@ cmd_trace( char const * bin_path,
 
   /* FIXME: Gross init */
   fd_vm_t vm = {
-    .instr_ctx = NULL, /* FIXME */
-    .heap_max  = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
-    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT, /* FIXME: CONFIGURE */
-    .rodata    = tool_prog.prog->rodata,
-    .rodata_sz = tool_prog.prog->rodata_sz,
-    .text      = tool_prog.prog->text,
-    .text_cnt  = tool_prog.prog->text_cnt,
-    .text_off  = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
-    .entry_pc  = tool_prog.prog->entry_pc,
-    .calldests = tool_prog.prog->calldests,
-    .syscalls  = tool_prog.syscalls,
-    .input     = input,
-    .input_sz  = input_sz,
-    .trace     = trace,
-    .sha       = sha,
+    .instr_ctx             = NULL, /* FIXME */
+    .heap_max              = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
+    .entry_cu              = FD_VM_COMPUTE_UNIT_LIMIT, /* FIXME: CONFIGURE */
+    .rodata                = tool_prog.prog->rodata,
+    .rodata_sz             = tool_prog.prog->rodata_sz,
+    .text                  = tool_prog.prog->text,
+    .text_cnt              = tool_prog.prog->text_cnt,
+    .text_off              = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
+    .entry_pc              = tool_prog.prog->entry_pc,
+    .calldests             = tool_prog.prog->calldests,
+    .syscalls              = tool_prog.syscalls,
+    .input_mem_regions     = &input_region,
+    .input_mem_regions_cnt = 1U,
+    .trace                 = trace,
+    .sha                   = sha,
   };
 
   /* FIXME: MOVE TO EXEC */
@@ -243,25 +252,33 @@ cmd_run( char const * bin_path,
   ulong   input_sz = 0UL;
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
+  /* Turn input into a single memory region */
+  fd_vm_input_region_t input_region = {
+    .vaddr_offset = 0UL,
+    .haddr        = (ulong)input,
+    .region_sz    = (uint)input_sz,
+    .is_writable  = 1U
+  };
+
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
   fd_vm_t vm = {
-    .instr_ctx = NULL, /* FIXME */
-    .heap_max  = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
-    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT, /* FIXME: CONFIGURE */
-    .rodata    = tool_prog.prog->rodata,
-    .rodata_sz = tool_prog.prog->rodata_sz,
-    .text      = tool_prog.prog->text,
-    .text_cnt  = tool_prog.prog->text_cnt,
-    .text_off  = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
-    .entry_pc  = tool_prog.prog->entry_pc,
-    .calldests = tool_prog.prog->calldests,
-    .syscalls  = tool_prog.syscalls,
-    .input     = input,
-    .input_sz  = input_sz,
-    .trace     = NULL,
-    .sha       = sha,
+    .instr_ctx             = NULL, /* FIXME */
+    .heap_max              = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
+    .entry_cu              = FD_VM_COMPUTE_UNIT_LIMIT, /* FIXME: CONFIGURE */
+    .rodata                = tool_prog.prog->rodata,
+    .rodata_sz             = tool_prog.prog->rodata_sz,
+    .text                  = tool_prog.prog->text,
+    .text_cnt              = tool_prog.prog->text_cnt,
+    .text_off              = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
+    .entry_pc              = tool_prog.prog->entry_pc,
+    .calldests             = tool_prog.prog->calldests,
+    .syscalls              = tool_prog.syscalls,
+    .input_mem_regions     = &input_region,
+    .input_mem_regions_cnt = 1U,
+    .trace                 = NULL,
+    .sha                   = sha,
   };
 
   /* FIXME: MOVE TO EXEC */

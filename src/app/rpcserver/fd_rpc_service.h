@@ -5,18 +5,21 @@
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../tango/mcache/fd_mcache.h"
-#include "../../util/textstream/fd_textstream.h"
 #include "../fdctl/run/tiles/fd_replay_notif.h"
+#include "../../ballet/http/fd_http_server.h"
 #include "fd_block_to_json.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 struct fd_rpcserver_args {
   fd_funk_t *       funk;
   fd_blockstore_t * blockstore;
   fd_wksp_t *       rep_notify_wksp;
   fd_frag_meta_t *  rep_notify;
-  ulong             num_threads;
   ushort            port;
-  ushort            ws_port;
+  fd_http_server_params_t params;
+  ulong             hcache_size;
+  struct sockaddr_in tpu_addr;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 

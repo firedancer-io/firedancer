@@ -530,7 +530,7 @@ fd_txn_account_cnt( fd_txn_t const * txn,
    iteration variable.  Advances the iteration variable such that
    fd_txn_acct_iter_idx( i ) is the index of the next account meeting
    the initially specified criteria, or i==fd_txn_acct_iter_end() if
-   there aren't any more account addresss meeting the criteria.  It is
+   there aren't any more account addresses meeting the criteria.  It is
    undefined behavior to call fd_acct_iter_next with a value of cur not
    returned by a call to either fd_acct_iter_init or fd_acct_iter_next.
    It's also U.B. to call fd_acct_iter_next after fd_acct_iter_end has
@@ -644,33 +644,27 @@ static inline ulong              FD_FN_CONST fd_txn_acct_iter_idx( fd_txn_acct_i
    0 on failure.  On failure, the contents of out_buf are undefined,
    although nothing will be written beyond FD_TXN_MAX_SZ bytes.
 
-   If counters_opt is non-NULL, some some counters about the result of
-   the parsing process will be accumulated into the struct pointed to by
-   counters_opt. Note: The returned txn object is not self-contained
+   If counters_opt is non-NULL, some counters about the result of the
+   parsing process will be accumulated into the struct pointed to by
+   counters_opt.  Note: The returned txn object is not self-contained
    since it refers to byte ranges inside the payload.
 
    payload_sz_opt, if supplied, gets filled with the total bytes this txn
    uses (allowing for walking of an entry/microblock). If it is not supplied, the
-   parse will return an error if the payload_sz does not exactly match.
-
-   allow_zero_signatures tells the parser we are ok with txn that have zero signatures.
-   This is only used by the test engine to pass invalid transactions into the
-   native programs.
-*/
+   parse will return an error if the payload_sz does not exactly match. */
 
 ulong
 fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt,
-                   int                       allow_zero_signatures );
+                   ulong *                   payload_sz_opt );
 
 
 /* fd_txn_parse: Convenient wrapper around fd_txn_parse_core that eliminates some optional arguments */
 static inline ulong
 fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
-  return fd_txn_parse_core(payload, payload_sz, out_buf, counters_opt, NULL, 0);
+  return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL );
 }
 
 /* fd_txn_is_writable: Is the account at the supplied index writable

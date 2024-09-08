@@ -88,13 +88,17 @@ int
 fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
                                   fd_borrowed_account_t * *  account ) {
-  if( idx >= ctx->accounts_cnt ) {
+  if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  // TODO: check if readable???
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
   *account = txn_account;
+
+  if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -108,8 +112,9 @@ fd_txn_borrowed_account_view( fd_exec_txn_ctx_t * ctx,
       fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[i];
       *account = txn_account;
 
-      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) )
+      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
         return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      }
 
       return FD_ACC_MGR_SUCCESS;
     }
@@ -148,7 +153,7 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
   }
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
-  if( min_data_sz > txn_account->meta->dlen ) {
+  if( min_data_sz > txn_account->const_meta->dlen ) {
     void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, min_data_sz );
     void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );
     if( old_txn_account_data != NULL ) {
@@ -217,12 +222,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->instr_err_idx   = INT_MAX;
   txn_ctx->capture_ctx     = NULL;
 
-  txn_ctx->instr_info_pool = fd_instr_info_pool_join( fd_instr_info_pool_new( 
-    fd_valloc_malloc( txn_ctx->valloc, fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
-    FD_MAX_INSTRUCTION_TRACE_LENGTH
-  ) );
-
-  txn_ctx->instr_trace_length      = 0;
+  txn_ctx->instr_info_cnt     = 0;
+  txn_ctx->instr_trace_length = 0;
 }
 
 void

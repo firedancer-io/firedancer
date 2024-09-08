@@ -21,14 +21,8 @@ $(call add-objs,fd_precompiles,fd_flamenco)
 $(call add-hdrs,fd_address_lookup_table_program.h)
 $(call add-objs,fd_address_lookup_table_program,fd_flamenco)
 
-$(call add-hdrs,fd_bpf_loader_v1_program.h)
-$(call add-objs,fd_bpf_loader_v1_program,fd_flamenco)
-
-$(call add-hdrs,fd_bpf_loader_v2_program.h)
-$(call add-objs,fd_bpf_loader_v2_program,fd_flamenco)
-
-$(call add-hdrs,fd_bpf_loader_v3_program.h)
-$(call add-objs,fd_bpf_loader_v3_program,fd_flamenco)
+$(call add-hdrs,fd_bpf_loader_program.h)
+$(call add-objs,fd_bpf_loader_program,fd_flamenco)
 
 $(call add-hdrs,fd_config_program.h)
 $(call add-objs,fd_config_program,fd_flamenco)
@@ -44,6 +38,9 @@ $(call add-objs,fd_system_program fd_system_program_nonce,fd_flamenco)
 
 $(call add-hdrs,fd_vote_program.h)
 $(call add-objs,fd_vote_program,fd_flamenco)
+
+$(call add-hdrs,fd_zk_elgamal_proof_program.h)
+$(call add-objs,fd_zk_elgamal_proof_program,fd_flamenco)
 
 $(call add-hdrs,fd_native_cpi.h)
 $(call add-objs,fd_native_cpi,fd_flamenco)

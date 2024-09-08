@@ -335,7 +335,7 @@ fd_shmem_numa_validate( void const * mem,
    APIs may not work particularly well in this case though).
 
    fd_shmem_create is a simple wrapper around fd_shmem_create_multi for
-   applications that just want to a create a shared memory region that
+   applications that just want to create a shared memory region that
    contains only 1 subregion. */
 
 int                                                /* 0 on success, strerror compatible error code on failure */

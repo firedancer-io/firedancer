@@ -46,8 +46,8 @@ To fetch the latest mainnet ledger and find all bank hash mismatches:
         --ledger-min $PATH_TO_LEDGER_MIN \
         --solana-build-dir $PATH_TO_SOLANA_TARGET_RELEASE_DIR \
         --firedancer-root-dir $PATH_TO_FIREDANCER_ROOT_DIR \
-        --gigantic-pages 450 \
-        --index-max 550000000 \
+        --gigantic-pages 750 \
+        --index-max 600000000 \
         --upload $UPLOAD_URL
 ```
 

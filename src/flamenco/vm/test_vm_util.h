@@ -10,7 +10,7 @@
 fd_exec_instr_ctx_t *
 test_vm_minimal_exec_instr_ctx(
    fd_valloc_t valloc,
-   bool reject_callx_r10
+   int reject_callx_r10
 );
 
 void
