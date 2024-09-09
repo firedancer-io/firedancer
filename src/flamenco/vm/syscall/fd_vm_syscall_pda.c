@@ -33,6 +33,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
   if ( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
     return FD_VM_ERR_INVAL;
   }
 
@@ -40,13 +41,18 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   for ( ulong i=0UL; i<seeds_cnt; i++ ) {
     ulong seed_sz = seeds_haddr[i].len;
 
-    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) return FD_VM_ERR_INVAL;
+    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+      return FD_VM_ERR_INVAL;
+    }
 
     /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
        returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. */
-    if ( FD_UNLIKELY( seed_sz==0 ) ) continue;
+    if ( FD_UNLIKELY( seed_sz==0 ) ) {
+      continue;
+    }
 
-    void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_haddr[i].addr, alignof(uchar), seed_sz );
+    void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_haddr[i].addr, FD_VM_ALIGN_RUST_U8, seed_sz );
     fd_sha256_append( vm->sha, seed_haddr, seed_sz );
   }
 
@@ -69,7 +75,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
 }
 
 /* fd_vm_syscall_sol_create_program_address is the entrypoint for the sol_create_program_address syscall:
-https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L689
+https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L729
 
 The main semantic difference between Firedancer's implementation and Solana's is that Solana
 translates all the seed pointers before doing any computation, while Firedancer translates 
@@ -105,20 +111,20 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
-  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, alignof(uchar), sizeof(fd_pubkey_t) );
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L723
+     TODO: program_id is mapped *after* seeds. */
+  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
 
   fd_pubkey_t derived[1];
   int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
   if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
     /* Place 1 in r0 if we failed to derive a PDA
-       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L712 */
+       https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
     *_ret = 1UL;
     return FD_VM_SUCCESS;
-  } else if ( FD_UNLIKELY( err ) ) {
-    return err;
   }
 
-  fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
+  fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
   memcpy( out_haddr, derived->uc, sizeof(fd_pubkey_t) );
 
   /* Success */
@@ -156,26 +162,31 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
      two blocks (1 data, 0 or 1 padding). PROBABLY NEED TO ADD CHECKPT / RESTORE
      CALLS TO SHA TO SUPPORT THIS)*/
 
-  ulong r0 = 1UL; /* No PDA found */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L723
+     TODO: program_id is mapped *after* seeds. */
+  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
 
   uchar bump_seed[1];
   for ( ulong i=0UL; i<255UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
-    fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
-
     fd_pubkey_t derived[1];
     int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
     if ( FD_LIKELY( err == FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
-      r0 = 0UL;
-      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
-      uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST( vm, out_bump_seed_vaddr, alignof(uchar), 1UL );
+      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
+      uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL );
+
+      /* Do the overlap check, which is only included for this syscall */
+      FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, out_vaddr, 32UL, out_bump_seed_vaddr, 1UL );
+
       memcpy( out_haddr, derived, sizeof(fd_pubkey_t) );
       *out_bump_seed_haddr = (uchar)*bump_seed;
 
-      break;
-    } else if ( FD_UNLIKELY( err && (err != FD_VM_ERR_INVALID_PDA) ) ) {
+      *_ret = 0UL;
+      return FD_VM_SUCCESS;
+    } else if ( FD_UNLIKELY( err != FD_VM_ERR_INVALID_PDA ) ) {
+      /* FD_VM_ERR_INVALID_PDA continue the loop, any other error return */
       return err;
     }
 
@@ -183,15 +194,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
 
   }
 
-  /* Do the overlap check, which is only included for this syscall */
-  /* FIXME: USE IS_NONOVERLAPPING FROM {GET,SET}RETURN? (NOTE THAT
-         THIS ASSUMES XLAT REJECTS WRAPPING ADDRESS RANGES). */
-  if( (ulong)out_vaddr > (ulong)out_bump_seed_vaddr ) {
-    if( !(((ulong)out_vaddr       - (ulong)out_bump_seed_vaddr)>= 1UL) ) return FD_VM_ERR_PERM;
-  } else {
-    if( !(((ulong)out_bump_seed_vaddr - (ulong)out_vaddr      )>=32UL) ) return FD_VM_ERR_PERM;
-  }
-
-  *_ret = r0;
+  *_ret = 1UL;
   return FD_VM_SUCCESS;
 }
