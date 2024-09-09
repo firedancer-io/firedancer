@@ -165,7 +165,19 @@ request( fd_http_server_request_t const * request ) {
 
     ulong body_len     = body_len;
     uchar const * body = fd_hcache_snap_response( ws->hcache, &body_len );
-    FD_TEST( body );
+    if( !body ) {
+      FD_LOG_WARNING(( "fd_hcache_snap_response failed" ));
+      static uchar nullbody[1] = {0};
+      fd_http_server_response_t response = {
+        .status            = 400,
+        .upgrade_websocket = 0,
+        .content_type      = "text/html",
+        .body              = nullbody,
+        .body_len          = 0,
+        .access_control_allow_origin = "*",
+      };
+      return response;
+    }
 #ifdef FD_RPC_VERBOSE
     fwrite("response:\n\n", 1, 10, stdout);
     fwrite(body, 1, body_len, stdout);
