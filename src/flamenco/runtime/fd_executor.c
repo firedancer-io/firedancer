@@ -20,7 +20,7 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "sysvar/fd_sysvar_slot_history.h"
-
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
 
 #include "../../ballet/base58/fd_base58.h"
@@ -458,6 +458,39 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L101-L126 */
+static int
+fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
+                                     fd_borrowed_account_t *     rec ) {
+  /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L109-L125 */
+  if( FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
+    if( FD_LIKELY( rec->const_meta->info.rent_epoch!=ULONG_MAX 
+                && rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) ) {
+      return 1;
+    }
+    return 0;
+  }
+
+  ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, NULL );
+
+  /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/sdk/src/rent_collector.rs#L158-L162 */
+  if( rec->const_meta->info.rent_epoch==ULONG_MAX || rec->const_meta->info.rent_epoch>epoch ) {
+    return 0;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/sdk/src/rent_collector.rs#L163-L166 */
+  if( rec->const_meta->info.executable || !memcmp( rec->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) ) {
+    return 1;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/sdk/src/rent_collector.rs#L167-L183 */
+  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) {
+    return 0;
+  }
+
+  return 1;
+}
+
 int
 fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
@@ -506,7 +539,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
   rec->starting_lamports    = rec->meta->info.lamports;
 
   /* Update the fee payer's rent epoch to ULONG_MAX if it is rent exempt. */
-  if( FD_LIKELY( rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance2( &epoch_bank->rent, rec->const_meta->dlen ) ) ) {
+  if( fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, rec ) ) {
     rec->meta->info.rent_epoch = ULONG_MAX;
   }
 
@@ -626,21 +659,6 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     txn_ctx->accounts_cnt += readonly_lut_accs_cnt;
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
-static int
-fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
-                                     fd_borrowed_account_t * rec ) {
-  /* If an account does not exist, that means that the rent epoch should be
-     set because all new accounts must be rent-exempt. */
-  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance2( rent, rec->const_meta->dlen ) ) {
-    return 0;
-  }
-  if( rec->const_meta->info.rent_epoch==ULONG_MAX ) {
-    return 0;
-  }
-
-  return 1;
 }
 
 int
@@ -1087,10 +1105,11 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
       fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
 
+
       /* All new accounts should have their rent epoch set to ULONG_MAX. 
-         https://github.com/firedancer-io/agave/blob/1e460f466da60a63c7308e267c053eec41dc1b1c/svm/src/account_loader.rs#L484-L494 */
+         https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
       if( is_unknown_account 
-          || ( i>0UL && fd_should_set_exempt_rent_epoch_max( &txn_ctx->epoch_ctx->epoch_bank.rent, borrowed_account ) ) ) {
+          || ( i>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, borrowed_account ) ) ) {
         borrowed_account->meta->info.rent_epoch = ULONG_MAX;
       }
     }
