@@ -1,17 +1,22 @@
 /* fd_vm_jitproto is a first draft of a sBPF JIT compiler for
-   Firedancer.  Nothing to see here, it's broken and work-in-progress. */
+   Firedancer.  Nothing to see here, it's broken and work-in-progress.
+
+   This version of the JIT compiler supports a linear memory mapping
+   only. */
 
 #define _GNU_SOURCE
 #include "../../fd_flamenco_base.h"
 
+/* Include dynasm headers.  These fail to compile when some strict
+   checks are enabled. */
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
-
-#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #include "dasm_proto.h"
 #include "dasm_x86.h"
 #pragma GCC diagnostic pop
+| .arch x64
 
 #include "../../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
@@ -28,6 +33,104 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+/* FD_DASM_R{...} specify the dynasm register index of x86_64 registers. */
+
+#define FD_DASM_RAX  (0)
+#define FD_DASM_RCX  (1)
+#define FD_DASM_RDX  (2)
+#define FD_DASM_RBX  (3)
+#define FD_DASM_RSP  (4)
+#define FD_DASM_RBP  (5)
+#define FD_DASM_RSI  (6)
+#define FD_DASM_RDI  (7)
+#define FD_DASM_R8   (8)
+#define FD_DASM_R9   (9)
+#define FD_DASM_R10 (10)
+#define FD_DASM_R11 (11)
+#define FD_DASM_R12 (12)
+#define FD_DASM_R13 (13)
+#define FD_DASM_R14 (14)
+#define FD_DASM_R15 (15)
+
+/* FD_VM_JIT_SEGMENT_MAX is the max number of segments. */
+
+#define FD_VM_JIT_SEGMENT_MAX (64)
+
+/* Define thread-local storage slots.
+
+   Depending on compile flags, these are either
+   - FS-relative (technically absolute addressed in the FS segment)
+     if host is Linux x86_64 with threads
+   - rip-relative if host is Linux x86_64 without threads
+   Other host environments are unsupported. */
+
+//static FD_TL fd_vm_t * fd_jit_vm  = NULL;  /* current VM being executed */
+//static FD_TL ulong     ic_correct = 0UL;   /* number of lddw instructions executed */
+
+FD_TL uint  fd_jit_segment_cnt;
+FD_TL uint  fd_jit_mem_ro_sz[ FD_VM_JIT_SEGMENT_MAX ];
+FD_TL uint  fd_jit_mem_rw_sz[ FD_VM_JIT_SEGMENT_MAX ];
+FD_TL ulong fd_jit_mem_base [ FD_VM_JIT_SEGMENT_MAX ];
+
+/* Import fd_vm_jit_helpers.S symbols */
+
+/* The fd_jit_vm_translate_{ro,rw} subroutines translate a virtual
+   address (in rdi) to a host address (in rdx on success). Clobbers rsi.
+   Jumps to the segfault handler on failure.  Reasons for failure
+   include:  OOB segment index, OOB offset within segment, access
+   overlaps multiple segments, attempted to write to read-only memory. */
+
+extern uchar fd_jit_vm_translate_ro;
+extern uchar fd_jit_vm_translate_rw;
+| .define translate_in,  rdi
+| .define translate_out, rdx
+
+/* Define mapping between sBPF registers and x86_64 registers.
+
+   This mapping is valid just before a translated sBPF instruction is
+   about to be executed.  (At the `=>next_label` token in the code gen
+   loop)
+
+   BPF | r0  | r1  | r2  | r3  | r4  | r5  | r6  | r7  | r8  | r9  | r10
+   X86 | rsi | r11 | r12 | r13 | r14 | r15 | rbx | rcx | r8  | r9  | r10
+
+   x86_64 GPRs rax, rdi, rbp, rdx do not map to sBPF registers.  Those
+   can be used as scratch registers for complex opcodes.
+
+   Note that this mapping cannot be trivially changed.  Certain x86
+   instructions (like div) have hardcoded register accesses which the
+   JIT code works around.
+
+   dynasm macros bpf_r{...} resolve to 64-bit register names.
+
+   reg_bpf2x86 is indexed by sBPF register numbers and resolves to the
+   x86_64 dynasm register index. */
+
+static uchar const reg_bpf2x86[11] = {
+  [ 0] =     FD_DASM_RSI,
+  | .define bpf_r0,  rsi
+  [ 1] =     FD_DASM_R11,
+  | .define bpf_r1,  r11
+  [ 2] =     FD_DASM_R12,
+  | .define bpf_r2,  r12
+  [ 3] =     FD_DASM_R13,
+  | .define bpf_r3,  r13
+  [ 4] =     FD_DASM_R14,
+  | .define bpf_r4,  r14
+  [ 5] =     FD_DASM_R15,
+  | .define bpf_r5,  r15
+  [ 6] =     FD_DASM_RBX,
+  | .define bpf_r6,  rbx
+  [ 7] =     FD_DASM_RBP,
+  | .define bpf_r7,  rbp
+  [ 8] =     FD_DASM_R8,
+  | .define bpf_r8,  r8
+  [ 9] =     FD_DASM_R9,
+  | .define bpf_r9,  r9
+  [10] =     FD_DASM_R10
+  | .define bpf_r10, r10
+};
 
 int
 main( int     argc,
@@ -156,17 +259,23 @@ main( int     argc,
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
-  ulong   input_data_sz = 1000UL;
-  uchar * input_data = fd_scratch_alloc( 16UL, input_data_sz );
+  uint    input_data_sz = 1000U;
+  uchar * input_data    = fd_scratch_alloc( 16UL, input_data_sz );
 
-  fd_vm_input_region_t input_region = {
-    .vaddr_offset = 0UL,
-    .haddr        = (ulong)input_data,
-    .region_sz    = (uint)input_data_sz,
-    .is_writable  = 1U
-  };
-  fd_vm_input_region_t * mem_regions    = &input_region;
-  ulong                  mem_region_cnt = 1UL;
+  fd_jit_segment_cnt  = 1U;
+  fd_jit_mem_ro_sz[0] = input_data_sz;
+  fd_jit_mem_rw_sz[0] = input_data_sz;
+  fd_jit_mem_base[0]  = (ulong)input_data;
+
+  fd_vm_input_region_t mem_regions[1];
+  for( uint j=0U; j<fd_jit_segment_cnt; j++ ) {
+    mem_regions[j] = (fd_vm_input_region_t) {
+      .vaddr_offset = ((ulong)j)<<32,
+      .haddr        = fd_jit_mem_base[j],
+      .region_sz    = fd_jit_mem_ro_sz[j],
+      .is_writable  = fd_jit_mem_rw_sz[j] != 0
+    };
+  }
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_scratch_alloc( fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
@@ -187,7 +296,7 @@ main( int     argc,
     NULL, /* trace */
     sha,
     mem_regions,
-    mem_region_cnt,
+    fd_jit_segment_cnt,
     NULL, /* acc_region_metas */
     0 /* is_deprecated */ ) );
 
@@ -200,7 +309,6 @@ main( int     argc,
 
   dasm_State * d;
 
-  | .arch x64
   | .section code
   dasm_init( &d, DASM_MAXSECTION );
 
@@ -208,63 +316,13 @@ main( int     argc,
   void * labels[ lbl__MAX ];
   dasm_setupglobal( &d, labels, lbl__MAX );
 
-  dasm_growpc( &d, prog->text_cnt );
+  dasm_growpc( &d, (uint)prog->text_cnt );
   int next_label = 0;
 
   | .actionlist actions
   dasm_setup( &d, actions );
 
   dasm_State ** Dst = &d;
-
-  /* Define the BPF->x86 mapping (static) */
-
-  | .define bpf_r0,  rsi
-  | .define bpf_r1,  r11
-  | .define bpf_r2,  r12
-  | .define bpf_r3,  r13
-  | .define bpf_r4,  r14
-  | .define bpf_r5,  r15
-  | .define bpf_r6,  rbx
-  | .define bpf_r7,  rbp
-  | .define bpf_r8,  r8
-  | .define bpf_r9,  r9
-  | .define bpf_r10, r10
-
-  /* Leaves the following registers unoccupied:
-     rax, rdi, rcx, rdx */
-
-  /* Define the BPF->x86 mapping (dynamic) */
-
-#define FD_DASM_RAX  (0)
-#define FD_DASM_RCX  (1)
-#define FD_DASM_RDX  (2)
-#define FD_DASM_RBX  (3)
-#define FD_DASM_RSP  (4)
-#define FD_DASM_RBP  (5)
-#define FD_DASM_RSI  (6)
-#define FD_DASM_RDI  (7)
-#define FD_DASM_R8   (8)
-#define FD_DASM_R9   (9)
-#define FD_DASM_R10 (10)
-#define FD_DASM_R11 (11)
-#define FD_DASM_R12 (12)
-#define FD_DASM_R13 (13)
-#define FD_DASM_R14 (14)
-#define FD_DASM_R15 (15)
-
-  uchar reg_bpf2x86[11] = {
-    [ 0] = FD_DASM_RSI,
-    [ 1] = FD_DASM_R11,
-    [ 2] = FD_DASM_R12,
-    [ 3] = FD_DASM_R13,
-    [ 4] = FD_DASM_R14,
-    [ 5] = FD_DASM_R15,
-    [ 6] = FD_DASM_RBX,
-    [ 7] = FD_DASM_RBP,
-    [ 8] = FD_DASM_R8,
-    [ 9] = FD_DASM_R9,
-    [10] = FD_DASM_R10
-  };
 
   /* Start emitting code */
 
@@ -276,6 +334,65 @@ main( int     argc,
   |->sigfpe:
   | mov rax, 999
   | jmp ->leave
+
+  |->sigsegv:
+  | mov rax, 999
+  | jmp ->leave
+
+  /* Address translation macros
+
+     The translate_{rw,ro}_{1,2,4,8} macros perform address translation
+     and access permission checks for {read-write,read-only} accesses of
+     {1,2,4,8} bytes.  The compiler may inline this macro for each
+     translated sBPF instruction, so these should be optimized for small
+     size.
+
+     Prior to the macro, rdi holds an address in the virtual address
+     space (untrusted in [0,2^64)).  If translation and permission
+     checks succeed, rdx holds the translated address in the host
+     address space.  On failure jumps to sigsegv.  Reasons for failure
+     include access to out-of-bounds memory, unaligned address, access
+     permission error. */
+
+  |.macro translate_rw_1
+  | mov esi, 0
+  | call &fd_jit_vm_translate_rw
+  |.endmacro
+
+  |.macro translate_rw_2
+  | mov esi, 1
+  | call &fd_jit_vm_translate_rw
+  |.endmacro
+
+  |.macro translate_rw_4
+  | mov esi, 3
+  | call &fd_jit_vm_translate_rw
+  |.endmacro
+
+  |.macro translate_rw_8
+  | mov esi, 7
+  | call &fd_jit_vm_translate_rw
+  |.endmacro
+
+  |.macro translate_ro_1
+  | mov esi, 0
+  | call &fd_jit_vm_translate_ro
+  |.endmacro
+
+  |.macro translate_ro_2
+  | mov esi, 1
+  | call &fd_jit_vm_translate_ro
+  |.endmacro
+
+  |.macro translate_ro_4
+  | mov esi, 3
+  | call &fd_jit_vm_translate_ro
+  |.endmacro
+
+  |.macro translate_ro_8
+  | mov esi, 7
+  | call &fd_jit_vm_translate_ro
+  |.endmacro
 
   /* Start translating user code */
 
@@ -384,6 +501,7 @@ main( int     argc,
 
     case 0x15:  /* FD_SBPF_OP_JEQ_IMM */
       | cmp dst64, imm
+      /* pre branch check here ... branchless cu update? */
       | je =>jmp_dst_lbl
       break;
 
@@ -392,10 +510,11 @@ main( int     argc,
       break;
 
     case 0x18:  /* FD_SBPF_OP_LDQ */
-      cur++;
-      imm |= ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
-      | mov dst64, imm
+      cur++; {
+      ulong imm64 = ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
+      | mov dst64, imm64
       break;
+    }
 
     case 0x1c:  /* FD_SBPF_OP_SUB_REG */
       | sub dst32, src32
@@ -561,24 +680,21 @@ main( int     argc,
     /* 0x60 - 0x6f ******************************************************/
 
     case 0x61:  /* FD_SBPF_OP_LDXW */
-      | lea rdi, [src64+offset]
-      // TODO translate
-      // TODO check align
-      | mov dst32, [rdi]
+      | lea translate_in, [src64+offset]
+      | translate_ro_4
+      | mov dst32, [translate_out]
       break;
 
     case 0x62:  /* FD_SBPF_OP_STW */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
-      | mov dword [rdi], imm
+      | lea translate_in, [dst64+offset]
+      | translate_rw_4
+      | mov dword [translate_out], imm
       break;
 
     case 0x63:  /* FD_SBPF_OP_STXW */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
-      | mov [rdi], src32
+      | lea translate_in, [dst64+offset]
+      | translate_rw_4
+      | mov [translate_out], src32
       break;
 
     case 0x64:  /* FD_SBPF_OP_LSH_IMM */
@@ -595,23 +711,22 @@ main( int     argc,
       break;
 
     case 0x69:  /* FD_SBPF_OP_LDXH */
-      | lea rdi, [src64+offset]
-      // TODO translate
-      // TODO check align
+      | lea translate_in, [src64+offset]
+      | translate_ro_2
+      | xor dst32, dst32
+      | mov Rw(x86_dst), [translate_out]
       break;
 
     case 0x6a:  /* FD_SBPF_OP_STH */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
-      | mov word [rdi], imm
+      | lea translate_in, [dst64+offset]
+      | translate_rw_2
+      | mov word [translate_out], imm
       break;
 
     case 0x6b:  /* FD_SBPF_OP_STXH */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
-      | mov [rdi], src32
+      | lea translate_in, [dst64+offset]
+      | translate_rw_2
+      | mov [translate_out], src32
       break;
 
     case 0x6c:  /* FD_SBPF_OP_LSH_REG */
@@ -632,26 +747,23 @@ main( int     argc,
     /* 0x70 - 0x7f ******************************************************/
 
     case 0x71:  /* FD_SBPF_OP_LDXB */
-      | lea rdi, [src64+offset]
-      // TODO translate
-      // TODO check align
+      | lea translate_in, [src64+offset]
+      | translate_ro_1
       /* TODO is there a better way to zero upper and mov byte? */
       | xor dst32, dst32
-      | mov Rb(x86_dst), [rdi]
+      | mov Rb(x86_dst), [translate_out]
       break;
 
     case 0x72:  /* FD_SBPF_OP_STB */
-      | lea rdi, [src64+offset]
-      // TODO translate
-      // TODO check align
-      | mov byte [rdi], imm
+      | lea translate_in, [src64+offset]
+      | translate_rw_1
+      | mov byte [translate_out], imm
       break;
 
     case 0x73:  /* FD_SBPF_OP_STXB */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
-      | mov byte [rdi], Rb(x86_src)
+      | lea translate_in, [dst64+offset]
+      | translate_rw_1
+      | mov byte [translate_out], Rb(x86_src)
       break;
 
     case 0x74:  /* FD_SBPF_OP_RSH_IMM */
@@ -668,26 +780,22 @@ main( int     argc,
       break;
 
     case 0x79:  /* FD_SBPF_OP_LDXQ */
-      | lea rdi, [src64+offset]
-      // TODO translate
-      // TODO check align
-      | mov dst64, [rdi]
-      /* TODO need to skip ahead another instruction */
+      | lea translate_in, [src64+offset]
+      | translate_ro_8
+      | mov dst64, [translate_out]
       break;
 
     case 0x7a:  /* FD_SBPF_OP_STQ */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
+      | lea translate_in, [dst64+offset]
+      | translate_rw_8
       | mov rax, imm
-      | mov [rdi], rax
+      | mov [translate_out], rax
       break;
 
     case 0x7b:  /* FD_SBPF_OP_STXQ */
-      | lea rdi, [dst64+offset]
-      // TODO translate
-      // TODO check align
-      | mov [rdi], src64
+      | lea translate_in, [dst64+offset]
+      | translate_rw_8
+      | mov [translate_out], src64
       break;
 
     case 0x7c:  /* FD_SBPF_OP_RSH_REG */
@@ -924,7 +1032,7 @@ main( int     argc,
   | leave
   | ret
 
-  /* Finish genearting code */
+  /* Finish generating code */
 
   ulong sz;
   dasm_link( &d, &sz );
