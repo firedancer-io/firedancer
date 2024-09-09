@@ -37,7 +37,9 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
   } while(0);
 
   if( FD_UNLIKELY( 0!=memcmp( actual->uc, expected->uc, sizeof(fd_pubkey_t) ) ) ) {
-    /* TODO Log: "Create: address {} does not match derived address {}" */
+    /* Log msg_sz can be more or less than 127 bytes */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Create: address %32J does not match derived address %32J", expected, actual );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -46,6 +48,7 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L183
+   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L182
 
    Matches Solana Labs system_processor::transfer_verified */
 
@@ -79,6 +82,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   do {
     int err = fd_account_checked_sub_lamports( ctx, from_acct_idx, transfer_amount );
+    /* Note: this err can never happen because of the check above */
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -102,7 +106,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   return 0;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L215
+/* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L214
 
    Matches system_processor::transfer */
 
@@ -112,28 +116,22 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
                             ulong                 from_acct_idx,
                             ulong                 to_acct_idx ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L223-L229 */
-
-  if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, system_transfer_zero_check )
-      && transfer_amount == 0UL ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L231-L241 */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L222-L232 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx ) ) ) {
-    /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
-    char from_b58[ 45 ]; fd_base58_encode_32( ctx->instr->acct_pubkeys[ from_acct_idx ].uc, NULL, from_b58 );
-    fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: `from` account %s must sign", from_b58 );
+    /* Max msg_sz: 39 - 4 + 45 = 80 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Transfer: `from` account %32J must sign", &ctx->instr->acct_pubkeys[ from_acct_idx ] );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L243-L250 */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L234-L241 */
 
   return fd_system_program_transfer_verified( ctx, transfer_amount, from_acct_idx, to_acct_idx );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L71-L111
+   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L70
 
    Based on Solana Labs system_processor::allocate() */
 
@@ -150,7 +148,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
-    /* TODO Log: "Allocate 'to' account {:?} must sign" */
+    /* Max msg_sz: 37 - 4 + 45 = 78 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Allocate: 'to' account %32J must sign", authority );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -158,7 +158,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( ( account->const_meta->dlen != 0UL ) |
                    ( 0!=memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, 32UL ) ) ) ) {
-    /* TODO Log: "Allocate: account {:?} already in use" */
+    /* Max msg_sz: 37 - 4 + 45 = 78 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Allocate: account %32J already in use", account->pubkey );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -166,7 +168,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L98-L106 */
 
   if( FD_UNLIKELY( space > FD_ACC_SZ_MAX ) ) {
-    /* TODO Log: "Allocate: requested {}, max allowed {}" */
+    /* Max msg_sz: 48 - 6 + 2*20 = 82 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Allocate: requested %lu, max allowed %lu", space, FD_ACC_SZ_MAX );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -184,6 +188,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L113-L131
+   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L112
 
    Based on Solana Labs system_processor::assign() */
 
@@ -205,7 +210,9 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
-    /* TODO Log: "Assign: account {:?} must sign" */
+    /* Max msg_sz: 30 - 4 + 45 = 71 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Assign: account %32J must sign", authority );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -238,6 +245,7 @@ fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t * ctx,
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L146-L181
+   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L145
 
    Matches Solana Labs system_processor::create_account() */
 
@@ -257,7 +265,9 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
 
   if( FD_UNLIKELY( to->const_meta->info.lamports ) ) {
-    /* TODO Log: "Create Account: account {:?} already in use" */
+    /* Max msg_sz: 43 - 4 + 45 = 84 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Create Account: account %32J already in use", to->pubkey );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -560,7 +570,9 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L272-L282 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx ) ) ) {
-    /* TODO Log: "Transfer 'from' account {:?} must sign" */
+    /* Max msg_sz: 39 - 4 + 45 = 80 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Transfer: 'from' account %32J must sign", &ctx->instr->acct_pubkeys[ from_base_idx ] );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -583,7 +595,9 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   if( FD_UNLIKELY( 0!=memcmp( address_from_seed->uc,
                               ctx->instr->acct_pubkeys[ from_idx ].uc,
                               sizeof(fd_pubkey_t) ) ) ) {
-    /* TODO Log: "Transfer 'from' address {} does not match derived address {}" */
+    /* Log msg_sz can be more or less than 127 bytes */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Transfer: 'from' address %32J does not match derived address %32J", &ctx->instr->acct_pubkeys[ from_idx ], address_from_seed );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }

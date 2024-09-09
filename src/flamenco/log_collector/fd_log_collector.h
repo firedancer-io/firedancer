@@ -321,6 +321,29 @@ fd_log_collector_printf_dangerous_128_to_2k( fd_exec_instr_ctx_t * ctx,
   }
 }
 
+/* fd_log_collector_printf_inefficient_max_512() logs a message
+   supplied as a formatting string with params.
+
+   This is inefficient because it uses an external buffer and
+   essentially does 2 memcpy instead of 1, however it reduces
+   the complexity when msg_sz can be below or above 127, for
+   example in many error messages where we have to print 2
+   pubkeys. */
+static inline void
+fd_log_collector_printf_inefficient_max_512( fd_exec_instr_ctx_t * ctx,
+                                             char const * fmt, ... ) {
+  char msg[ 512 ];
+
+  va_list ap;
+  va_start( ap, fmt );
+  int msg_sz = vsnprintf( msg, sizeof(msg), fmt, ap );
+  va_end( ap );
+
+  FD_TEST_CUSTOM( msg_sz>=0 && (ulong)msg_sz<sizeof(msg),
+    "A transaction log was truncated unexpectedly. Please report to developers." );
+
+  fd_log_collector_msg( ctx, msg, (ulong)msg_sz );
+}
 
 /* STABLE LOG
 
