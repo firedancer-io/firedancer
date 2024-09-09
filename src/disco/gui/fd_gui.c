@@ -1022,8 +1022,9 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     ulong parent_slot = msg[2UL+i];
     fd_gui_slot_t * slot = gui->slots[ parent_slot % FD_GUI_SLOTS_CNT ];
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
-      FD_TEST( i!=parent_cnt-1 );
-      fd_gui_clear_slot( gui, parent_slot, msg[ 3UL+i ] );
+      ulong parent_parent_slot = ULONG_MAX;
+      if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = msg[ 3UL+i ];
+      fd_gui_clear_slot( gui, parent_slot, parent_parent_slot );
     }
   }
 
