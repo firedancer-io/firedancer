@@ -1097,7 +1097,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
     if( meta==NULL ) {
-      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
+      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC, .info = { .rent_epoch = ULONG_MAX } };
       borrowed_account->const_meta        = &sentinel;
       borrowed_account->starting_lamports = 0UL;
       borrowed_account->starting_dlen     = 0UL;
