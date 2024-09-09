@@ -26,6 +26,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/pack/fd_pack_cost.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #define SORT_NAME        sort_uint64_t
 #define SORT_KEY_T       uint64_t
@@ -428,11 +429,23 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
           ulong acc_size = programdata_account->const_meta->dlen;
           // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L164
-          if( acc_size <= PROGRAMDATA_METADATA_SIZE  ) {
+          if( acc_size<=PROGRAMDATA_METADATA_SIZE ) {
             // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L601
             hit_max_limit = 1;
           }
+
+          // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L167
+          ulong programdata_data_offset = PROGRAMDATA_METADATA_SIZE;
+          ulong programdata_data_len    = fd_ulong_sat_sub( programdata_account->const_meta->dlen, programdata_data_offset );
+          const uchar * programdata_data = programdata_account->const_data + programdata_data_offset;
+
+          fd_sbpf_elf_info_t  _elf_info[ 1UL ];
+          fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, programdata_data, programdata_data_len, 0 );
+          if( FD_UNLIKELY( !elf_info ) ) {
+            hit_max_limit = 1;
+          }
         }
+
       }
     }
 
