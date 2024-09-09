@@ -381,7 +381,7 @@ a new slot is confirmed on the currently active fork.
 #### `summary.tps_history`
 | frequency | type         | example |
 |-----------|--------------|---------|
-| *Once*    | `number[][]` | `[[1430.2, 124.8, 479.4], [2484.4, 944.4, 194]]` |
+| *Once*    | `number[][]` | `[[5492,4578,914,0],[6134,5149,985,0]]` |
 
 A list of the last 150 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
@@ -410,7 +410,16 @@ tranasactions per second.
 ::: details Example
 
 ```json
-
+{
+    "topic": "summary",
+    "key": "estimated_tps",
+    "value": {
+        "total": 8348,
+        "vote": 6875,
+        "nonvote_success": 1473,
+        "nonvote_failed": 0
+    }
+}
 ```
 
 #### `summary.live_txn_waterfall`
