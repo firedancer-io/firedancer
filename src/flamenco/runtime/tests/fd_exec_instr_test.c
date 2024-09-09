@@ -925,11 +925,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_runtime_pre_execute_check( task_info );
 
   if( !task_info->exec_res ) {
-    int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-    if( FD_UNLIKELY( res ) ) {
-      FD_LOG_ERR(("could not prepare txn"));
-    }
-
     task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
   }

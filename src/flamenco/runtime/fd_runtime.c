@@ -733,10 +733,6 @@ fd_runtime_execute_txn_task(void *tpool,
     return;
   }
 
-  int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-  if( res != 0 ) {
-    FD_LOG_ERR(("could not prepare txn"));
-  }
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
@@ -957,11 +953,6 @@ fd_runtime_execute_txn( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-  if( FD_UNLIKELY( res ) ) {
-    FD_LOG_ERR(("could not prepare txn"));
-  }
-
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
   fd_txn_reclaim_accounts( task_info->txn_ctx );
@@ -1031,10 +1022,6 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
 
   /* execute */
-  res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-  if( FD_UNLIKELY( res!=0 ) ) {
-    FD_LOG_ERR(("could not prepare txn"));
-  }
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
 
@@ -1377,11 +1364,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_store_stake_delegation( slot_ctx, acc_rec );
       }
 
-      if( txn_ctx->unknown_accounts[i] ) {
-        memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-        fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
-      }
-
       fd_funk_start_write( slot_ctx->acc_mgr->funk );
       fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
       fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -1709,11 +1691,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
           if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
             // TODO: does this correctly handle stake account close?
             fd_store_stake_delegation( slot_ctx, acc_rec );
-          }
-
-          if( txn_ctx->unknown_accounts[i] ) {
-            memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-            fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
           }
 
           accounts_to_save[acc_idx++] = acc_rec;
