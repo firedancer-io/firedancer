@@ -99,23 +99,12 @@ fd_store_slot_prepare( fd_store_t *   store,
   *repair_slot_out = 0;
   int rc = FD_STORE_SLOT_PREPARE_CONTINUE;
 
-  fd_block_t * block = fd_blockstore_block_query( store->blockstore, slot );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
-
-  /* We already executed this block */
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
-    rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
-    goto end;
-  }
-
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
-    rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
-    goto end;
-  }
-
   if( FD_UNLIKELY( !block_map_entry ) ) {
+  
     /* I know nothing about this block yet */
+  
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -123,12 +112,30 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
+  if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
+
+    /* We're already replaying this block. */
+
+    rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
+    goto end;
+  }
+
+  if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+
+    /* We already processed (replayed) this block. */
+
+    rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
+    goto end;
+  }
+
   ulong            parent_slot  = block_map_entry->parent_slot;
   fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( store->blockstore, parent_slot );
 
-  /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
-   * repaired before we can replay it. */
   if( FD_UNLIKELY( !parent_block_map_entry ) ) {
+
+    /* If the parent slot meta is missing, this block is an orphan and
+       the ancestry needs to be repaired before we can replay it. */
+
     rc = FD_STORE_SLOT_PREPARE_NEED_ORPHAN;
     *repair_slot_out = slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -139,12 +146,13 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
-  fd_block_t * parent_block = fd_blockstore_block_query( store->blockstore, parent_slot );
+  if( FD_UNLIKELY( !fd_blockstore_shred_complete( store->blockstore, parent_slot ) ) ) {
 
-  /* We have a parent slot meta, and therefore have at least one shred of the parent block, so we
-     have the ancestry and need to repair that block directly (as opposed to calling repair orphan).
-  */
-  if( FD_UNLIKELY( !parent_block ) ) {
+    /* We have a parent slot meta, and therefore have at least one shred
+       of the parent block, so we have the ancestry and need to repair
+       the remaining parent block's shreds directly (as opposed to
+       calling repair orphan). */
+
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = parent_slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -155,22 +163,21 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
-  /* See if the parent is executed yet */
   if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+
+    /* The parent is not yet processed (replayed). */
+
     rc = FD_STORE_SLOT_PREPARE_NEED_PARENT_EXEC;
-    // FD_LOG_WARNING(("NEED PARENT EXEC %lu %lu", slot, parent_slot));
-    if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
-      /* ... but it is not prepared */
-      re_add_delays[re_adds_cnt] = (long)5e6;
-      re_adds[re_adds_cnt++] = slot;
-    }
     re_add_delays[re_adds_cnt] = (long)5e6;
     re_adds[re_adds_cnt++] = parent_slot;
     goto end;
   }
 
-  /* The parent is executed, but the block is still incomplete. Ask for more shreds. */
-  if( FD_UNLIKELY( !block ) ) {
+  if( FD_UNLIKELY( !fd_blockstore_shred_complete( store->blockstore, slot ) ) ) {
+
+    /* The parent is executed, but the block is still incomplete. Repair
+       remaining shreds. */
+
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -179,19 +186,20 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   /* Prepare the replay_slot struct. */
-  *block_out    = fd_blockstore_block_data_laddr( store->blockstore, block );
-  *block_sz_out = block->data_sz;
 
-  /* Mark the block as prepared, and thus unsafe to remove. */
+  *block_out    = fd_wksp_laddr_fast( fd_blockstore_wksp( store->blockstore ),
+                                   block_map_entry->data_gaddr );
+  *block_sz_out = block_map_entry->data_sz;
+
+  /* Mark the block as replaying, and thus unsafe to remove. */
+
   block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
 
 end:
-  /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
   fd_blockstore_end_read( store->blockstore );
-
-  for (uint i = 0; i < re_adds_cnt; ++i)
+  for( uint i = 0; i < re_adds_cnt; ++i ) {
     fd_store_add_pending( store, re_adds[i], re_add_delays[i], 0, 0 );
-
+  }
   return rc;
 }
 
@@ -229,7 +237,7 @@ fd_store_shred_insert( fd_store_t * store,
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;
   }
-  int rc = fd_buf_shred_insert( blockstore, shred );
+  int rc = fd_blockstore_shred_insert( blockstore, shred );
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
@@ -401,7 +409,7 @@ fd_store_slot_repair( fd_store_t * store,
 
     /* Fill in what's missing */
     for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
-      if( fd_buf_shred_query( store->blockstore, slot, i ) != NULL ) continue;
+      if( fd_blockstore_shred_query( store->blockstore, slot, i ) != NULL ) continue;
 
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
