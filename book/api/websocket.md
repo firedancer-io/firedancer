@@ -167,6 +167,16 @@ vote status of the validator. The validator considers itself delinquent
 if the last vote it has landed on its own currently chosen fork is 150
 or more slots behind that fork.
 
+#### `summary.vote_distance`
+| frequency       | type     | example |
+|-----------------|----------|---------|
+| *Once* + *Live* | `number` | `2`     |
+
+A number showing the distance between the highest slot the validator has
+landed a vote for, and the current highest replayed slot on the
+validators fork choice. A distance of more than 150 means the validator
+is considered delinquent.
+
 #### `summary.uptime_nanos`
 | frequency | type     | example           |
 |-----------|----------|-------------------|

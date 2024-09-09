@@ -237,6 +237,14 @@ fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_vote_distance( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "vote_distance" );
+    jsonp_ulong( gui, "value", gui->summary.vote_distance );
+  jsonp_close_envelope( gui );
+}
+
+
+void
 fd_gui_printf_vote_state( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "vote_state" );
     switch( gui->summary.vote_state ) {

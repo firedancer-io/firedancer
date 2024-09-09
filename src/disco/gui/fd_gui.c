@@ -70,6 +70,7 @@ fd_gui_new( void *        shmem,
   gui->summary.balance                       = 0UL;
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
+  gui->summary.vote_distance = 0UL;
   gui->summary.vote_state = is_voting ? FD_GUI_VOTE_STATE_VOTING : FD_GUI_VOTE_STATE_NON_VOTING;
 
   gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
@@ -126,6 +127,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_identity_key,
     fd_gui_printf_uptime_nanos,
     fd_gui_printf_vote_state,
+    fd_gui_printf_vote_distance,
     fd_gui_printf_skipped_history,
     fd_gui_printf_tps_history,
     fd_gui_printf_tiles,
@@ -136,7 +138,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_completed_slot,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
-    fd_gui_printf_peers_all,
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -151,6 +152,11 @@ fd_gui_ws_open( fd_gui_t * gui,
       FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
     }
   }
+
+  /* Print peers last because it's the largest message and would
+     block other information. */
+  fd_gui_printf_peers_all( gui );
+  FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
 }
 
 static void
@@ -1027,6 +1033,12 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
       if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = msg[ 3UL+i ];
       fd_gui_clear_slot( gui, parent_slot, parent_parent_slot );
     }
+  }
+
+  if( FD_UNLIKELY( gui->summary.vote_distance!=_slot-last_landed_vote ) ) {
+    gui->summary.vote_distance = _slot-last_landed_vote;
+    fd_gui_printf_vote_distance( gui );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
   }
 
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {

@@ -195,6 +195,7 @@ struct fd_gui {
     char const * version;        
     char const * cluster;
 
+    ulong vote_distance;
     int vote_state;
 
     long  startup_time_nanos;
