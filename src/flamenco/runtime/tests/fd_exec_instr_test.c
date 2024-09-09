@@ -14,7 +14,9 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
@@ -699,6 +701,16 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     memset( &slot_hashes[0], 0, sizeof(fd_slot_hash_t) );
     fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };
     fd_sysvar_slot_hashes_init( slot_ctx, &default_slot_hashes );
+  }
+
+  /* Provide default stake history if not provided */
+  if( !slot_ctx->sysvar_cache->has_stake_history ) {
+    fd_sysvar_stake_history_init( slot_ctx );
+  }
+
+  /* Provide default last restart slot sysvar if not provided */
+  if( !slot_ctx->sysvar_cache->has_last_restart_slot ) {
+    fd_sysvar_last_restart_slot_init( slot_ctx );
   }
 
   /* Provide a default clock if not present */
