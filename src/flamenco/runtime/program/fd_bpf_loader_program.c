@@ -537,7 +537,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   fd_bpf_upgradeable_loader_program_instruction_t instruction = {0};
   fd_bincode_decode_ctx_t decode_ctx = {0};
   decode_ctx.data    = data;
-  decode_ctx.dataend = &data[ instr_ctx->instr->data_sz ];
+  decode_ctx.dataend = &data[ instr_ctx->instr->data_sz > 1232UL ? 1232UL : instr_ctx->instr->data_sz ];
   decode_ctx.valloc  = instr_ctx->valloc;
 
   int err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx );
