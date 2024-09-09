@@ -259,12 +259,11 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
     return 0;
   }
 
-  /* AcctState -> rent_epoch 
-     TODO: Add this check back in once rent epoch is more stable */
-  // if( expected->rent_epoch != actual->rent_epoch ) {
-  //   FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
-  //   return 0;
-  // }
+  /* AcctState -> rent_epoch */
+  if( expected->rent_epoch != actual->rent_epoch ) {
+    FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
+    return 0;
+  }
 
   /* AcctState -> owner */
   if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
