@@ -701,7 +701,7 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    makes sense ... may change between Firedancer versions without
    warning).  FIXME: probably better to pass the features for a slot
    than pass the whole slot_ctx.
-   
+
    is_deploy should be 1 if the set of syscalls registered should be that
    used to verify programs before they are deployed, and 0 if it
    should be the set used to execute programs. */
@@ -709,13 +709,13 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
                              fd_exec_slot_ctx_t const * slot_ctx,
-                             uchar is_deploy );
+                             int                        is_deploy );
 
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */
 
 static inline int
-fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls, uchar is_deploy ) {
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls, int is_deploy ) {
   return fd_vm_syscall_register_slot( syscalls, NULL, is_deploy );
 }
 

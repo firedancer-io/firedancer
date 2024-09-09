@@ -18,7 +18,7 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
                              fd_exec_slot_ctx_t const * slot_ctx,
-                             uchar is_deploy ) {
+                             int                        is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
   int enable_secp256k1_recover_syscall     = 0;
