@@ -83,9 +83,9 @@ fd_gui_new( void *        shmem,
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
 
-  gui->summary.estimated_tps        = 0UL;
-  gui->summary.estimated_vote_tps   = 0UL;
-  gui->summary.estimated_failed_tps = 0UL;
+  gui->summary.estimated_tps                = 0UL;
+  gui->summary.estimated_vote_tps           = 0UL;
+  gui->summary.estimated_nonvote_failed_tps = 0UL;
 
   gui->summary.last_leader_slot = ULONG_MAX;
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
@@ -894,19 +894,20 @@ fd_gui_clear_slot( fd_gui_t * gui,
     }
   }
 
-  slot->slot              = _slot;
-  slot->parent_slot       = _parent_slot;
-  slot->mine              = mine;
-  slot->skipped           = 1;
-  slot->level             = FD_GUI_SLOT_LEVEL_INCOMPLETE;
-  slot->total_txn_cnt     = ULONG_MAX;
-  slot->vote_txn_cnt      = ULONG_MAX;
-  slot->failed_txn_cnt    = ULONG_MAX;
-  slot->compute_units     = ULONG_MAX;
-  slot->fees              = ULONG_MAX;
-  slot->prior_leader_slot = ULONG_MAX;
-  slot->leader_state      = FD_GUI_SLOT_LEADER_UNSTARTED;
-  slot->completed_time    = LONG_MAX;
+  slot->slot                   = _slot;
+  slot->parent_slot            = _parent_slot;
+  slot->mine                   = mine;
+  slot->skipped                = 1;
+  slot->level                  = FD_GUI_SLOT_LEVEL_INCOMPLETE;
+  slot->total_txn_cnt          = ULONG_MAX;
+  slot->vote_txn_cnt           = ULONG_MAX;
+  slot->failed_txn_cnt         = ULONG_MAX;
+  slot->nonvote_failed_txn_cnt = ULONG_MAX;
+  slot->compute_units          = ULONG_MAX;
+  slot->fees                   = ULONG_MAX;
+  slot->prior_leader_slot      = ULONG_MAX;
+  slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
+  slot->completed_time         = LONG_MAX;
 
   if( FD_UNLIKELY( !_slot ) ) {
     /* Slot 0 is always rooted */
@@ -1092,16 +1093,16 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     if( FD_UNLIKELY( parent_slot_idx>=parent_cnt ) ) break;
   }
 
-  ulong total_txn_cnt  = 0UL;
-  ulong vote_txn_cnt   = 0UL;
-  ulong failed_txn_cnt = 0UL;
+  ulong total_txn_cnt          = 0UL;
+  ulong vote_txn_cnt           = 0UL;
+  ulong nonvote_failed_txn_cnt = 0UL;
 
-  ulong last_total_txn_cnt  = 0UL;
-  ulong last_vote_txn_cnt   = 0UL;
-  ulong last_failed_txn_cnt = 0UL;
-  long  last_time_nanos     = 0L;
+  ulong last_total_txn_cnt          = 0UL;
+  ulong last_vote_txn_cnt           = 0UL;
+  ulong last_nonvote_failed_txn_cnt = 0UL;
+  long  last_time_nanos             = 0L;
 
-  for( ulong i=0UL; i<=fd_ulong_min( _slot+1, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
+  for( ulong i=0UL; i<=fd_ulong_min( _slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1113,33 +1114,27 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     }
 
     if( FD_LIKELY( !slot->skipped ) ) {
-      total_txn_cnt  += slot->total_txn_cnt;
-      vote_txn_cnt   += slot->vote_txn_cnt;
-      failed_txn_cnt += slot->failed_txn_cnt;
+      total_txn_cnt          += slot->total_txn_cnt;
+      vote_txn_cnt           += slot->vote_txn_cnt;
+      nonvote_failed_txn_cnt += slot->nonvote_failed_txn_cnt;
 
-      last_total_txn_cnt  = slot->total_txn_cnt;
-      last_vote_txn_cnt   = slot->vote_txn_cnt;
-      last_failed_txn_cnt = slot->failed_txn_cnt;
-      last_time_nanos     = slot->completed_time;
+      last_total_txn_cnt          = slot->total_txn_cnt;
+      last_vote_txn_cnt           = slot->vote_txn_cnt;
+      last_nonvote_failed_txn_cnt = slot->nonvote_failed_txn_cnt;
+      last_time_nanos             = slot->completed_time;
     }
   }
 
-  total_txn_cnt  -= last_total_txn_cnt;
-  vote_txn_cnt   -= last_vote_txn_cnt;
-  failed_txn_cnt -= last_failed_txn_cnt;
+  total_txn_cnt          -= last_total_txn_cnt;
+  vote_txn_cnt           -= last_vote_txn_cnt;
+  nonvote_failed_txn_cnt -= last_nonvote_failed_txn_cnt;
 
   long now = fd_log_wallclock();
-  gui->summary.estimated_tps        = (total_txn_cnt *1000000000UL)/(ulong)(now-last_time_nanos);
-  gui->summary.estimated_vote_tps   = (vote_txn_cnt  *1000000000UL)/(ulong)(now-last_time_nanos);
-  gui->summary.estimated_failed_tps = (failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
+  gui->summary.estimated_tps                = (total_txn_cnt         *1000000000UL)/(ulong)(now-last_time_nanos);
+  gui->summary.estimated_vote_tps           = (vote_txn_cnt          *1000000000UL)/(ulong)(now-last_time_nanos);
+  gui->summary.estimated_nonvote_failed_tps = (nonvote_failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
 
   fd_gui_printf_estimated_tps( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
-  fd_gui_printf_estimated_vote_tps( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
-  fd_gui_printf_estimated_nonvote_tps( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
-  fd_gui_printf_estimated_failed_tps( gui );
   fd_hcache_snap_ws_broadcast( gui->hcache );
 
   ulong last_slot = _slot;
@@ -1182,8 +1177,9 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   ulong total_txn_count = msg[ 1 ];
   ulong nonvote_txn_count = msg[ 2 ];
   ulong failed_txn_count = msg[ 3 ];
-  ulong compute_units = msg[ 4 ];
-  ulong fees = msg[ 5 ];
+  ulong nonvote_failed_txn_count = msg[ 4 ];
+  ulong compute_units = msg[ 5 ];
+  ulong fees = msg[ 6 ];
 
   // FD_LOG_WARNING(( "Got completed slot %lu", _slot ));
 
@@ -1199,11 +1195,12 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
        then later we replay this one anyway to track the bank fork. */
     slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
   }
-  slot->total_txn_cnt  = total_txn_count;
-  slot->vote_txn_cnt   = total_txn_count - nonvote_txn_count;
-  slot->failed_txn_cnt = failed_txn_count;
-  slot->compute_units  = compute_units;
-  slot->fees           = fees;
+  slot->total_txn_cnt          = total_txn_count;
+  slot->vote_txn_cnt           = total_txn_count - nonvote_txn_count;
+  slot->failed_txn_cnt         = failed_txn_count;
+  slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
+  slot->compute_units          = compute_units;
+  slot->fees                   = fees;
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;

@@ -376,56 +376,32 @@ a new slot is confirmed on the currently active fork.
 A list of the last 150 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
 per slot. Each element in the outer array represents a sample, and the
-outer array will have up to 150 samples. Each sample will have 3
-elements, which are `total_tps`, `vote_tps`, and `failed_tps` as defined
-below. Samples are listed from oldest first.
+outer array will have up to 150 samples. Each sample will have 4
+elements, which are `total_tps`, `vote_tps`, `nonvote_success_tps`, and
+`nonvote_failed_tps` as defined below. Samples are listed from oldest
+first.
 
 #### `summary.estimated_tps`
 | frequency       | type     | example     |
 |-----------------|----------|-------------|
-| *Once* + *Live* | `number` | `6048` |
+| *Once* + *Live* | `number` | below |
 
 The estimated number of transactions per second the network is running
-at. This includes vote, non-vote, and failed transactions. This is a
-moving average from the prior 150 slots, or around one minute. For a
-more precise view of transactions per second, the client can calculate
-it from the stream of new slot data.
+at. This includes total, vote, non-vote successful, and non-vote failed
+transactions. This is a moving average from the prior 150 slots, or
+around one minute. For a more precise view of transactions per second,
+the client can calculate it from the stream of new slot data.
 
-#### `summary.estimated_nonvote_tps`
-| frequency       | type     | example     |
-|-----------------|----------|-------------|
-| *Once* + *Live* | `number` | `2145` |
+The sum of the non-vote successful and the non-vote failed transactions
+represent the number of non-vote transactions. The sum of the estimated
+vote and non-vote transactions will be equal to the estimated total
+tranasactions per second.
 
-The estimated number of non-vote transactions per second the network is
-running at. The sum of the estimated vote and non-vote transactions will
-be equal to the estimated total tranasactions per second. This includes
-failed transactions. It is a moving average from the prior 150 slots, or
-around one minute. For a more precise view of non-vote transactions per
-second, the client can calculate it from the stream of new slot data.
+::: details Example
 
-#### `summary.estimated_vote_tps`
-| frequency       | type     | example     |
-|-----------------|----------|-------------|
-| *Once* + *Live* | `number` | `3903`      |
+```json
 
-The estimated number of vote transactions per second the network is
-running at. The sum of the estimated vote and non-vote transactions will
-be equal to the estimated total tranasactions per second. This includes
-failed vote transactions. It is a moving average from the prior 150
-slots, or around one minute. For a more precise view of non-vote
-transactions per second, the client can calculate it from the stream of
-new slot data.
-
-#### `summary.estimated_failed_tps`
-| frequency       | type     | example |
-|-----------------|----------|---------|
-| *Once* + *Live* | `number` | `2145`  |
-
-The estimated number of failed vote and non-vote transactions per second
-the network is running at. This is a moving average from the prior 150
-slots, or around one minute. For a more precise view of non-vote
-transactions per second, the client can calculate it from the stream of
-new slot data.
+```
 
 #### `summary.live_txn_waterfall`
 | frequency        | type               | example |

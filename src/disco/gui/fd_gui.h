@@ -152,6 +152,7 @@ struct fd_gui_slot {
   ulong total_txn_cnt;
   ulong vote_txn_cnt;
   ulong failed_txn_cnt;
+  ulong nonvote_failed_txn_cnt;
   ulong compute_units;
   ulong fees;
 
@@ -241,7 +242,7 @@ struct fd_gui {
 
     ulong estimated_tps;
     ulong estimated_vote_tps;
-    ulong estimated_failed_tps;
+    ulong estimated_nonvote_failed_tps;
 
     ulong last_leader_slot;
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];

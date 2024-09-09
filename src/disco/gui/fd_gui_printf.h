@@ -16,9 +16,6 @@ void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
-void fd_gui_printf_estimated_vote_tps( fd_gui_t * gui );
-void fd_gui_printf_estimated_nonvote_tps( fd_gui_t * gui );
-void fd_gui_printf_estimated_failed_tps( fd_gui_t * gui );
 
 void
 fd_gui_printf_null_query_response( fd_gui_t *   gui,

@@ -276,20 +276,18 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
     jsonp_open_array( gui, "value" );
 
     for( ulong i=0UL; i<150UL; i++ ) {
-      ulong total_txn_cnt  = 0UL;
-      ulong vote_txn_cnt   = 0UL;
-      ulong failed_txn_cnt = 0UL;
+      ulong total_txn_cnt          = 0UL;
+      ulong vote_txn_cnt           = 0UL;
+      ulong nonvote_failed_txn_cnt = 0UL;
 
-      ulong last_total_txn_cnt  = 0UL;
-      ulong last_vote_txn_cnt   = 0UL;
-      ulong last_failed_txn_cnt = 0UL;
-      long  last_time_nanos     = 0L;
-
-      ;
+      ulong last_total_txn_cnt          = 0UL;
+      ulong last_vote_txn_cnt           = 0UL;
+      ulong last_nonvote_failed_txn_cnt = 0UL;
+      long  last_time_nanos             = 0L;
 
       ulong start_slot = fd_ulong_if( gui->summary.slot_completed+i<=149, 0UL, gui->summary.slot_completed+i-149 );
 
-      for( ulong i=0UL; i<fd_ulong_min( start_slot+1, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
+      for( ulong i=0UL; i<=fd_ulong_min( start_slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
         ulong parent_idx = (start_slot-i) % FD_GUI_SLOTS_CNT;
 
         fd_gui_slot_t * slot = gui->slots[ parent_idx ];
@@ -300,30 +298,31 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
         }
 
         if( FD_LIKELY( !slot->skipped ) ) {
-          total_txn_cnt  += slot->total_txn_cnt;
-          vote_txn_cnt   += slot->vote_txn_cnt;
-          failed_txn_cnt += slot->failed_txn_cnt;
+          total_txn_cnt          += slot->total_txn_cnt;
+          vote_txn_cnt           += slot->vote_txn_cnt;
+          nonvote_failed_txn_cnt += slot->nonvote_failed_txn_cnt;
 
-          last_total_txn_cnt  = slot->total_txn_cnt;
-          last_vote_txn_cnt   = slot->vote_txn_cnt;
-          last_failed_txn_cnt = slot->failed_txn_cnt;
-          last_time_nanos     = slot->completed_time;
+          last_total_txn_cnt          = slot->total_txn_cnt;
+          last_vote_txn_cnt           = slot->vote_txn_cnt;
+          last_nonvote_failed_txn_cnt = slot->nonvote_failed_txn_cnt;
+          last_time_nanos             = slot->completed_time;
         }
       }
 
-      total_txn_cnt  -= last_total_txn_cnt;
-      vote_txn_cnt   -= last_vote_txn_cnt;
-      failed_txn_cnt -= last_failed_txn_cnt;
+      total_txn_cnt          -= last_total_txn_cnt;
+      vote_txn_cnt           -= last_vote_txn_cnt;
+      nonvote_failed_txn_cnt -= last_nonvote_failed_txn_cnt;
 
       long now = fd_log_wallclock();
-      gui->summary.estimated_tps        = (total_txn_cnt *1000000000UL)/(ulong)(now-last_time_nanos);
-      gui->summary.estimated_vote_tps   = (vote_txn_cnt  *1000000000UL)/(ulong)(now-last_time_nanos);
-      gui->summary.estimated_failed_tps = (failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
+      gui->summary.estimated_tps                = (total_txn_cnt         *1000000000UL)/(ulong)(now-last_time_nanos);
+      gui->summary.estimated_vote_tps           = (vote_txn_cnt          *1000000000UL)/(ulong)(now-last_time_nanos);
+      gui->summary.estimated_nonvote_failed_tps = (nonvote_failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
 
       jsonp_open_array( gui, NULL );
         jsonp_ulong( gui, NULL, gui->summary.estimated_tps );
         jsonp_ulong( gui, NULL, gui->summary.estimated_vote_tps );
-        jsonp_ulong( gui, NULL, gui->summary.estimated_failed_tps );
+        jsonp_ulong( gui, NULL, gui->summary.estimated_tps - gui->summary.estimated_vote_tps - gui->summary.estimated_nonvote_failed_tps );
+        jsonp_ulong( gui, NULL, gui->summary.estimated_nonvote_failed_tps );
       jsonp_close_array( gui );
     }
 
@@ -688,28 +687,12 @@ fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
 void
 fd_gui_printf_estimated_tps( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "estimated_tps" );
-    jsonp_ulong( gui, "value", gui->summary.estimated_tps );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_estimated_vote_tps( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "estimated_vote_tps" );
-    jsonp_ulong( gui, "value", gui->summary.estimated_vote_tps );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_estimated_nonvote_tps( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "estimated_nonvote_tps" );
-    jsonp_ulong( gui, "value", gui->summary.estimated_tps - gui->summary.estimated_vote_tps );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_estimated_failed_tps( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "estimated_failed_tps" );
-    jsonp_ulong( gui, "value", gui->summary.estimated_failed_tps );
+    jsonp_open_object( gui, "value" );
+      jsonp_ulong( gui, "total", gui->summary.estimated_tps );
+      jsonp_ulong( gui, "vote", gui->summary.estimated_vote_tps );
+      jsonp_ulong( gui, "nonvote_success", gui->summary.estimated_tps - gui->summary.estimated_vote_tps - gui->summary.estimated_nonvote_failed_tps );
+      jsonp_ulong( gui, "nonvote_failed", gui->summary.estimated_nonvote_failed_tps );
+    jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
 
