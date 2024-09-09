@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 
 async def measure_bandwidth(uri):
-    async with websockets.connect(uri) as websocket:
+    async with websockets.connect(uri, max_size=1_000_000_000) as websocket:
         start_time = time.time()
         total_bytes_by_group = defaultdict(int)
         overall_total_bytes = 0

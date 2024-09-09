@@ -881,7 +881,8 @@ fd_gui_ws_message( fd_gui_t *    gui,
 
 static void
 fd_gui_clear_slot( fd_gui_t * gui,
-                   ulong      _slot ) {
+                   ulong      _slot,
+                   ulong      _parent_slot ) {
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   int mine = 0;
@@ -894,6 +895,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   }
 
   slot->slot              = _slot;
+  slot->parent_slot       = _parent_slot;
   slot->mine              = mine;
   slot->skipped           = 1;
   slot->level             = FD_GUI_SLOT_LEVEL_INCOMPLETE;
@@ -903,7 +905,8 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->compute_units     = ULONG_MAX;
   slot->fees              = ULONG_MAX;
   slot->prior_leader_slot = ULONG_MAX;
-  slot->leader_state = FD_GUI_SLOT_LEADER_UNSTARTED;
+  slot->leader_state      = FD_GUI_SLOT_LEADER_UNSTARTED;
+  slot->completed_time    = LONG_MAX;
 
   if( FD_UNLIKELY( !_slot ) ) {
     /* Slot 0 is always rooted */
@@ -962,12 +965,13 @@ static void
 fd_gui_handle_slot_start( fd_gui_t * gui,
                           ulong *    msg ) {
   ulong _slot = msg[ 0 ];
+  ulong _parent_slot = msg[ 1 ];
   FD_TEST( gui->debug_in_leader_slot==ULONG_MAX );
   gui->debug_in_leader_slot = _slot;
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
+  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
   slot->leader_state = FD_GUI_SLOT_LEADER_STARTED;
 
   fd_gui_tile_timers_snap( gui, slot->tile_timers_begin );
@@ -987,8 +991,8 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   gui->debug_in_leader_slot = ULONG_MAX;
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  FD_TEST( slot->slot==_slot );
 
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
   slot->leader_state = FD_GUI_SLOT_LEADER_ENDED;
 
   fd_gui_tile_timers_snap( gui, slot->tile_timers_end );
@@ -1013,6 +1017,15 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong parent_cnt = msg[ 1 ];
 
   ulong _slot = msg[ 2 ];
+
+  for( ulong i=0UL; i<parent_cnt; i++ ) {
+    ulong parent_slot = msg[2UL+i];
+    fd_gui_slot_t * slot = gui->slots[ parent_slot % FD_GUI_SLOTS_CNT ];
+    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
+      FD_TEST( i!=parent_cnt-1 );
+      fd_gui_clear_slot( gui, parent_slot, msg[ 3UL+i ] );
+    }
+  }
 
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
     if( FD_UNLIKELY( last_landed_vote==ULONG_MAX || (last_landed_vote+150UL)<_slot ) ) {
@@ -1040,7 +1053,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 
     int should_republish = 0;
     if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=parent_slot ) ) {
-      fd_gui_clear_slot( gui, parent_slot );
+      fd_gui_clear_slot( gui, parent_slot, ULONG_MAX );
       should_republish = 1;
     }
 
@@ -1141,8 +1154,10 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
       FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
     }
 
-    last_slot      = parent_slot;
-    last_published = slot->completed_time;
+    if( FD_LIKELY( !slot->skipped ) ) {
+      last_slot = parent_slot;
+      last_published = slot->completed_time;
+    }
   }
 
   if( FD_LIKELY( _slot!=last_slot )) {
@@ -1162,6 +1177,7 @@ static void
 fd_gui_handle_completed_slot( fd_gui_t * gui,
                               ulong *    msg ) {
   ulong _slot = msg[ 0 ];
+  ulong _parent_slot = msg[ 6 ];
   ulong total_txn_count = msg[ 1 ];
   ulong nonvote_txn_count = msg[ 2 ];
   ulong failed_txn_count = msg[ 3 ];
@@ -1171,9 +1187,10 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   // FD_LOG_WARNING(( "Got completed slot %lu", _slot ));
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
+  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
 
   slot->completed_time = fd_log_wallclock();
+  slot->parent_slot = _parent_slot;
   if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
        happen that it starts higher.  One such case is when we

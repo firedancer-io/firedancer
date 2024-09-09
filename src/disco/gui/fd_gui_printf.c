@@ -54,6 +54,14 @@ jsonp_ulong( fd_gui_t *   gui,
   else                   fd_hcache_printf( gui->hcache, "%lu,", value );
 }
 
+static void
+jsonp_long( fd_gui_t *   gui,
+            char const * key,
+            long         value ) {
+  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%lu,", key, value );
+  else                   fd_hcache_printf( gui->hcache, "%ld,", value );
+}
+
 static void 
 jsonp_double( fd_gui_t *   gui,
               char const * key,
@@ -1048,12 +1056,24 @@ fd_gui_printf_slot( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
+  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % slots_sz ];
+  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+
+  long duration_nanos = LONG_MAX;
+  if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
+    duration_nanos = slot->completed_time - parent_slot->completed_time;
+  }
+
   jsonp_open_envelope( gui, "slot", "update" );
     jsonp_open_object( gui, "value" );
       jsonp_open_object( gui, "publish" );
         jsonp_ulong( gui, "slot", _slot );
         jsonp_bool( gui, "mine", slot->mine );
         jsonp_bool( gui, "skipped", slot->skipped );
+        if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui, "duration_nanos" );
+        else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
+        if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
+        else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
         jsonp_string( gui, "level", level );
         if( FD_UNLIKELY( slot->total_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "transactions" );
         else                                                jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
@@ -1110,6 +1130,13 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
+  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % slots_sz ];
+  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+
+  long duration_nanos = LONG_MAX;
+  if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
+    duration_nanos = slot->completed_time - parent_slot->completed_time;
+  }
 
   jsonp_open_envelope( gui, "slot", "query" );
     jsonp_ulong( gui, "id", id );
@@ -1119,6 +1146,11 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         jsonp_ulong( gui, "slot", _slot );
         jsonp_bool( gui, "mine", slot->mine );
         jsonp_bool( gui, "skipped", slot->skipped );
+        jsonp_string( gui, "level", level );
+        if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui, "duration_nanos" );
+        else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
+        if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
+        else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
         jsonp_string( gui, "level", level );
         if( FD_UNLIKELY( slot->total_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "transactions" );
         else                                                jsonp_ulong( gui, "transactions", slot->total_txn_cnt );

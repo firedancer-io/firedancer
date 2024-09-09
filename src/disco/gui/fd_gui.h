@@ -144,6 +144,7 @@ typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
 
 struct fd_gui_slot {
   ulong slot;
+  ulong parent_slot;
   long  completed_time;
   int   mine;
   int   skipped;

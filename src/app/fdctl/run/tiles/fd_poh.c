@@ -1081,7 +1081,10 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
       if( FD_LIKELY( leader_before_reset ) ) {
         poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&slot_before_reset, 8UL );
       } else {
-        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+        uchar data[ 16 ];
+        FD_STORE( ulong, data, ctx->next_leader_slot );
+        FD_STORE( ulong, data+8UL, ctx->reset_slot );
+        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, data, 16UL );
       }
     }
   } else {
@@ -1424,7 +1427,10 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( !is_leader && ctx->slot>=ctx->next_leader_slot ) ) {
     /* We ticked while not leader and are now leader... transition
        the state machine. */
-    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+    uchar data[ 16 ];
+    FD_STORE( ulong, data, ctx->next_leader_slot );
+    FD_STORE( ulong, data+8UL, ctx->reset_slot );
+    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, data, 16UL );
   }
 
   if( FD_UNLIKELY( is_leader && ctx->slot>ctx->next_leader_slot ) ) {
@@ -1443,7 +1449,10 @@ after_credit( void *             _ctx,
     if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
       /* We finished a leader slot, and are immediately leader for the
          following slot... transition. */
-      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+      uchar data[ 16 ];
+      FD_STORE( ulong, data, ctx->next_leader_slot );
+      FD_STORE( ulong, data+8UL, ctx->next_leader_slot-1UL );
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, data, 16UL );
     }
   }
 }
@@ -1654,7 +1663,10 @@ after_frag( void *             _ctx,
     /* Nothing to do if we transition into being leader, since it
        will just get picked up by the regular tick loop. */
     if( FD_UNLIKELY( !currently_leader && leader_after_frag ) ) {
-      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&next_leader_slot_after_frag, 8UL );
+      uchar data[ 16 ];
+      FD_STORE( ulong, data, next_leader_slot_after_frag );
+      FD_STORE( ulong, data+8UL, ctx->reset_slot );
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, data, 16UL );
     }
 
     return;
@@ -1722,7 +1734,10 @@ after_frag( void *             _ctx,
       if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
         /* We finished a leader slot, and are immediately leader for the
            following slot... transition. */
-        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+        uchar data[ 16 ];
+        FD_STORE( ulong, data, ctx->next_leader_slot );
+        FD_STORE( ulong, data+8UL, ctx->next_leader_slot-1UL );
+        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, data, 16UL );
       }
     }
   }

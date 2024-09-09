@@ -1,3 +1,6 @@
+[ledger]
+    path = "/data/fd1"
+
 [gossip]
     entrypoints = [
         "entrypoint.testnet.solana.com:8001",
@@ -6,6 +9,7 @@
     ]
 
 [consensus]
+    vote_account_path = "/home/{user}/vote-account.json"
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
     known_validators = [
         "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on",
