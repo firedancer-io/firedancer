@@ -39,6 +39,7 @@
           println!("&[u8]: {}", std::mem::align_of::<&[u8]>());
           println!("AccountMeta: {}", std::mem::align_of::<AccountMeta>());
           println!("PodScalar: {}", std::mem::align_of::<PodScalar>());
+          println!("Pubkey: {}", std::mem::align_of::<Pubkey>());
       }
     ``` */
 
@@ -49,6 +50,7 @@
 #define FD_VM_ALIGN_RUST_SLICE_U8_REF (8UL)
 #define FD_VM_ALIGN_RUST_ACCOUNT_META (8UL)
 #define FD_VM_ALIGN_RUST_POD_U8_ARRAY (1UL)
+#define FD_VM_ALIGN_RUST_PUBKEY       (1UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
    Equal in layout to the Rust slice header &[_] and various vector
@@ -566,6 +568,15 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     }                                                                                                           \
     haddr;                                                                                                      \
 }))
+
+
+#define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, vaddr0, sz0, vaddr1, sz1 ) do {                                    \
+  if( FD_UNLIKELY( ((vaddr0> vaddr1) & ((vaddr0-vaddr1)<sz1)) |                                                 \
+                   ((vaddr1>=vaddr0) & ((vaddr1-vaddr0)<sz0)) ) ) {                                             \
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_COPY_OVERLAPPING );                                        \
+    return FD_VM_ERR_MEM_OVERLAP;                                                                               \
+  }                                                                                                             \
+} while(0)
 
 FD_PROTOTYPES_END
 

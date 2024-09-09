@@ -183,20 +183,12 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r4,
                                     FD_PARAM_UNUSED ulong   r5,
                                     /**/            ulong * _ret ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1547 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: The original version didn't have the same crashing FD_TEST
-     all the others had to tell if the vm was attached to an instruction
-     context.  If the VM is being run outside the Solana runtime, it
-     should never invoke this syscall in the first place.  So we treat
-     this as a SIGCALL in a non-crashing way for the time being. */
-
-  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  *_ret = instr_ctx->txn_ctx->instr_stack_sz;
+  *_ret = vm->instr_ctx->txn_ctx->instr_stack_sz;
   return FD_VM_SUCCESS;
 }
 
