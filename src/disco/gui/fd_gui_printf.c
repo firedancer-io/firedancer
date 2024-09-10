@@ -322,11 +322,18 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
         }
       }
 
+      if( FD_UNLIKELY( first_time_nanos<last_time_nanos ) ) {
+        FD_LOG_ERR(( "first_time_nanos=%ld should be > last_time_nanos=%ld", first_time_nanos, last_time_nanos ));
+      }
+      if( FD_UNLIKELY( first_time_nanos==last_time_nanos ) ) {
+        FD_LOG_NOTICE(( "first_time_nanos=%ld == last_time_nanos=%ld", first_time_nanos, last_time_nanos ));
+        first_time_nanos = LONG_MAX;
+      }
+
       total_txn_cnt          -= last_total_txn_cnt;
       vote_txn_cnt           -= last_vote_txn_cnt;
       nonvote_failed_txn_cnt -= last_nonvote_failed_txn_cnt;
 
-      long now = fd_log_wallclock();
       gui->summary.estimated_tps                = (total_txn_cnt         *1000000000UL)/(ulong)(first_time_nanos-last_time_nanos);
       gui->summary.estimated_vote_tps           = (vote_txn_cnt          *1000000000UL)/(ulong)(first_time_nanos-last_time_nanos);
       gui->summary.estimated_nonvote_failed_tps = (nonvote_failed_txn_cnt*1000000000UL)/(ulong)(first_time_nanos-last_time_nanos);
