@@ -355,7 +355,7 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
 
     fd_shred_t * shred = (fd_shred_t*)rbuf;
     if ( FD_UNLIKELY( blockstore != NULL ) ) {
-      fd_buf_shred_insert( blockstore, shred );
+      fd_blockstore_shred_insert( blockstore, shred );
     }
     if ( FD_UNLIKELY( slot != shred->slot ) ) {
       FD_LOG_ERR(( "slot header's slot=%lu doesn't match shred's slot=%lu", slot, shred->slot ));
@@ -1046,7 +1046,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
         }
 
         fd_shred_t * shred = (fd_shred_t*)capture_buf;
-        fd_buf_shred_insert( blockstore, shred );
+        fd_blockstore_shred_insert( blockstore, shred );
       }
 
       offset = lseek( capture_fd, (long)FD_SHREDCAP_SLOT_FTR_FOOTPRINT, SEEK_CUR );

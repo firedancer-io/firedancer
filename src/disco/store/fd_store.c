@@ -200,7 +200,7 @@ fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
 
   if( FD_UNLIKELY( store->expected_shred_version && shred->version != store->expected_shred_version ) ) {
-    FD_LOG_DEBUG(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
+    FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
     return FD_BLOCKSTORE_OK;
   }
 
@@ -224,12 +224,25 @@ fd_store_shred_insert( fd_store_t * store,
   }
 
   fd_blockstore_start_write( blockstore );
-  /* TODO remove this check when we can handle duplicate shreds and blocks */
-  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
-    fd_blockstore_end_write( blockstore );
+
+  fd_shred_t const * shred_ = fd_blockstore_shred_query( blockstore, shred->slot, shred->idx );
+  if( FD_UNLIKELY( shred ) ) {
+
+    if( FD_UNLIKELY( fd_eqvoc_test( shred_, shred ) ) ) {
+      FD_LOG_WARNING( ( "equivocating shred detected %lu %u.", shred->slot, shred->idx ) );
+
+      fd_block_t const * block = fd_blockstore_block_query( blockstore, shred->slot );
+    }
+
+    /* Short-circuit if we already have the shred. */
+
     return FD_BLOCKSTORE_OK;
   }
-  int rc = fd_buf_shred_insert( blockstore, shred );
+
+  if( FD_UNLIKELY( block ) ) {
+    FD_LOG_WARNING(( "equivocating shred detected %lu %u. keeping original version.", shred->slot, shred->idx ));
+  }
+  int rc = fd_blockstore_shred_insert( blockstore, shred );
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
@@ -401,7 +414,7 @@ fd_store_slot_repair( fd_store_t * store,
 
     /* Fill in what's missing */
     for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
-      if( fd_buf_shred_query( store->blockstore, slot, i ) != NULL ) continue;
+      if( fd_blockstore_shred_query( store->blockstore, slot, i ) != NULL ) continue;
 
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
