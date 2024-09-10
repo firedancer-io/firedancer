@@ -169,7 +169,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L63-L70 */
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
       && lut_acct->const_meta->dlen != 0UL ) {
-    FD_LOG_WARNING(( "Table account must not be allocated" ));
+    fd_log_collector_msg_literal( ctx, "Table account must not be allocated" );
     return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
   }
 
@@ -188,7 +188,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L76-L83 */
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
       && !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) {
-    FD_LOG_WARNING(( "Authority account must be a signer" ));
+    fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -205,7 +205,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L89-L92 */
   if( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_PAYER ) ) {
-    /* TODO Log: "Payer account must be a signer" */
+    fd_log_collector_msg_literal( ctx, "Payer account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -233,7 +233,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     if( FD_UNLIKELY( !is_recent_slot ) ) {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
-      FD_LOG_WARNING(("%lu is not a recent slot", create->recent_slot));
+      /* Max msg_sz: 24 - 3 + 20 = 41 < 127 => we can use printf */
+      fd_log_collector_printf_dangerous_max_127( ctx, "%lu is not a recent slot", create->recent_slot );
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     } else {
       derivation_slot = create->recent_slot;
@@ -254,7 +255,9 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L120-L127 */
   if( FD_UNLIKELY( 0!=memcmp( lut_key->key, derived_tbl_key->key, sizeof(fd_pubkey_t) ) ) ) {
-    FD_LOG_WARNING(( "Table address must match derived address" ));
+    /* Max msg_sz: 46 - 4 + 45 = 87 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Table address must match derived address: %32J", derived_tbl_key );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -407,7 +410,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L186-L189 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
-    FD_LOG_WARNING(( "Authority account must be a signer" ));
+    fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -432,25 +435,24 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L197-L200 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    FD_LOG_WARNING(("Lookup table is already frozen"));
+    fd_log_collector_msg_literal( ctx, "Lookup table is already frozen");
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L201-L203 */
   if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
-    FD_LOG_WARNING(("Incorrect Authority"));
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L204-L207 */
   if( FD_UNLIKELY( state->meta.deactivation_slot!=ULONG_MAX ) ) {
-    FD_LOG_WARNING(("Deactivated tables can't be frozen"));
+    fd_log_collector_msg_literal( ctx, "Deactivated tables cannot be frozen" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L208-L211 */
   if( FD_UNLIKELY( !lut->addr_cnt ) ) {
-    FD_LOG_WARNING(("Empty lookup tables can't be frozen"));
+    fd_log_collector_msg_literal( ctx, "Empty lookup tables cannot be frozen" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -512,7 +514,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L241-L244 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
-    FD_LOG_WARNING(( "Authority account must be a signer" ));
+    fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -553,19 +555,19 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L259-L262 */
   if( FD_UNLIKELY( state->meta.deactivation_slot != ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "Deactivated tables cannot be extended" ));
+    fd_log_collector_msg_literal( ctx, "Deactivated tables cannot be extended" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L263-L269 */
   if( FD_UNLIKELY( lut->addr_cnt >= FD_ADDRLUT_MAX_ADDR_CNT ) ) {
-    FD_LOG_WARNING(( "Lookup table is full and cannot contain more addresses" ));
+    fd_log_collector_msg_literal( ctx, "Lookup table is full and cannot contain more addresses" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L271-L274 */
   if( FD_UNLIKELY( !extend->new_addrs_len ) ) {
-    FD_LOG_WARNING(( "Must extend with at least one address" ));
+    fd_log_collector_msg_literal( ctx, "Must extend with at least one address" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -573,7 +575,9 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong old_addr_cnt = lut->addr_cnt;
   ulong new_addr_cnt = lut->addr_cnt + extend->new_addrs_len;
   if( FD_UNLIKELY( new_addr_cnt > FD_ADDRLUT_MAX_ADDR_CNT ) ) {
-    FD_LOG_WARNING(( "Extended lookup table length %lu would exceed max capacity of %lu", new_addr_cnt, FD_ADDRLUT_MAX_ADDR_CNT ));
+    /* Max msg_sz: 65 - 6 + 20*2 = 99 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "Extended lookup table length %lu would exceed max capacity of %lu", new_addr_cnt, FD_ADDRLUT_MAX_ADDR_CNT );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -633,7 +637,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     payer_key = payer_acct->pubkey;
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L327-L330 */
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_PAYER ) ) ) {
-      FD_LOG_WARNING(( "Payer account must be a signer" ));
+      fd_log_collector_msg_literal( ctx, "Payer account must be a signer" );
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
@@ -705,7 +709,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L356-L359 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
-    FD_LOG_WARNING(( "Authority account must be a signer" ));
+    fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -730,7 +734,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L367-L370 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    FD_LOG_WARNING(( "Lookup table is already frozen" ));
+    fd_log_collector_msg_literal( ctx, "Lookup table is already frozen" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
@@ -741,7 +745,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L374-L377 */
   if( FD_UNLIKELY( state->meta.deactivation_slot != ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "Lookup table is already deactivated" ));
+    fd_log_collector_msg_literal( ctx, "Lookup table is already deactivated" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -805,7 +809,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L405-L408 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
-    FD_LOG_WARNING(( "Authority account must be a signer" ));
+    fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -820,7 +824,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L412-L420 */
   if( FD_UNLIKELY( ctx->instr->borrowed_accounts[0]==ctx->instr->borrowed_accounts[2] ) ) {
-    FD_LOG_WARNING(( "Lookup table cannot be recipient of reclaimed lamports" ));
+    fd_log_collector_msg_literal( ctx, "Lookup table cannot be the recipient of reclaimed lamports" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -845,7 +849,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L428-L431 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    FD_LOG_WARNING(( "Lookup table is frozen" ));
+    fd_log_collector_msg_literal( ctx,  "Lookup table is frozen" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
@@ -872,10 +876,12 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
-      FD_LOG_WARNING(( "Lookup table is not deactivated" ));
+      fd_log_collector_msg_literal( ctx, "Lookup table is not deactivated" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     case FD_ADDRLUT_STATUS_DEACTIVATING:
-      FD_LOG_WARNING(( "Table cannot be closed until it's fully deactivated" ));
+      /* Max msg_sz: 65 - 3 + 20 = 82 < 127 => we can use printf */
+      fd_log_collector_printf_dangerous_max_127( ctx,
+        "Table cannot be closed until it's fully deactivated in %lu blocks", remaining_blocks );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     case FD_ADDRLUT_STATUS_DEACTIVATED:
       break;
@@ -945,7 +951,6 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
     if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) ||
                      (ulong)instr_data + 1232UL < (ulong)decode.data ) ) {
-      FD_LOG_WARNING(("Failed to decode instruction"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
