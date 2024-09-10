@@ -506,13 +506,11 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( txn_ctx->slot_ctx->epoch_ctx );
-  ulong             total_fee  = 0UL;
+  ulong             total_fee  = fd_ulong_sat_add( execution_fee, priority_fee );
 
   // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L54
-  if ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_rounding_in_fee_calculation ) ) {
-    total_fee  = fd_ulong_sat_add( execution_fee, priority_fee );
-  } else {
-    total_fee  = (ulong)round((double)fd_ulong_sat_add( execution_fee, priority_fee ));
+  if ( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_rounding_in_fee_calculation ) ) {
+    total_fee = fd_rust_cast_double_to_ulong( round( (double)total_fee ) );
   }
 
   err = fd_validate_fee_payer( rec, &epoch_bank->rent, total_fee );
