@@ -997,6 +997,9 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                                          fd_capture_ctx_t *           capture_ctx,
                                          fd_txn_p_t *                 txn,
                                          fd_execute_txn_task_info_t * task_info ) {
+
+  FD_SCRATCH_SCOPE_BEGIN {
+
   int res = 0;
 
   task_info->txn_ctx              = fd_valloc_malloc( fd_scratch_virtual(), FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
@@ -1035,6 +1038,8 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
   return res;
+
+  } FD_SCRATCH_SCOPE_END;
 }
 
 
