@@ -534,4 +534,7 @@ FD_PROTOTYPES_END
 #define FD_DEBUG(...)
 #endif
 
+#define FD_ACK_DEBUG(...)
+//#define FD_ACK_DEBUG(...) __VA_ARGS__
+
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_h */

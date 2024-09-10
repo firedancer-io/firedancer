@@ -38,10 +38,10 @@ typedef struct fd_quic_ack fd_quic_ack_t;
 /* fd_quic_ack_gen_t records processed packet numbers and builds ACK
    frames.
 
-   (ack_elicited>>bit)==1 if at least one ACK-eliciting frame was
-   received.  No ACK frames will be generated unless this is the case.
+   ack_elicited==1 if at least one ACK-eliciting frame was received.
+   No ACK frames will be generated unless this is the case.
 
-   (ack_instant>>bit)==1 if an ACK for a packet must not be delayed.
+   ack_instant==1 if an ACK for a packet must not be delayed.
    This is currently the case for initial and handshake-level packets.
    Note that ack_elicited==1 takes priority.
 

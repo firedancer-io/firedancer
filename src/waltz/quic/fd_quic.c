@@ -550,7 +550,7 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             reason,
                     uint             error_line ) {
   if( FD_UNLIKELY( !conn || conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
-  FD_DEBUG( FD_LOG_ERR(( "Terminating conn=%p (reason=%u) at fd_quic.c(%u)", (void *)conn, reason, error_line )); )
+  FD_DEBUG( FD_LOG_DEBUG(( "Terminating conn=%p (reason=%u) at fd_quic.c(%u)", (void *)conn, reason, error_line )); )
 
   conn->state  = FD_QUIC_CONN_STATE_ABORT;
   conn->reason = reason;
