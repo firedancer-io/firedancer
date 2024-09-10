@@ -291,7 +291,6 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   /* fd_quic_t conn IDs are always 8 bytes */
   ulong             our_conn_id_u64 = fd_rng_ulong( rng );
-  fd_quic_conn_id_t our_conn_id     = fd_quic_conn_id_new( &our_conn_id_u64, 8UL );
 
   /* the peer may choose a conn ID size 1 to 16 bytes
      For now, pick 8 bytes too */
@@ -300,7 +299,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       /* quic         */ quic,
-      /* our_conn_id  */ &our_conn_id,
+      /* our_conn_id  */ our_conn_id_u64,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,

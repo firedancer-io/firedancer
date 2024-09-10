@@ -144,17 +144,17 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( fd_quic_init( quic ) );
 
   /* Create dummy connection */
-  fd_quic_conn_id_t our_conn_id  = { .sz=8 };
+  ulong             our_conn_id  = 0UL;
   fd_quic_conn_id_t peer_conn_id = { .sz=8 };
   uint              dst_ip_addr  = 0U;
   ushort            dst_udp_port = (ushort)0;
 
   fd_quic_conn_t * conn =
     fd_quic_conn_create( quic,
-                        &our_conn_id, &peer_conn_id,
-                        dst_ip_addr,  (ushort)dst_udp_port,
-                        1,  /* we are the server */
-                        1   /* QUIC version 1 */ );
+                         our_conn_id, &peer_conn_id,
+                         dst_ip_addr,  (ushort)dst_udp_port,
+                         1,  /* we are the server */
+                         1   /* QUIC version 1 */ );
   assert( conn );
 
   conn->tx_max_data                            =       512UL;
