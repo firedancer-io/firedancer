@@ -1,20 +1,15 @@
 #ifndef HEADER_fd_src_flamenco_harness_fd_harness_dump_h
 #define HEADER_fd_src_flamenco_harness_fd_harness_dump_h
 
-#include "../../funk/fd_funk.h"
-#include "../fd_flamenco_base.h"
+#include "../fd_flamenco.h"
 
-#include "../runtime/fd_account.h"
-
-#include "../runtime/context/fd_exec_txn_ctx.h"
-#include "../runtime/context/fd_exec_instr_ctx.h"
-
-#include "../runtime/fd_system_ids.h"
-
+#include "../nanopb/pb_firedancer.h"
 #include "../nanopb/pb_encode.h"
 #include "../nanopb/pb_decode.h"
-#include "../runtime/sysvar/fd_sysvar_recent_hashes.h"
 
+#include "../runtime/fd_executor.h"
+#include "../runtime/fd_account.h"
+#include "../runtime/sysvar/fd_sysvar_recent_hashes.h"
 #include "../runtime/tests/generated/exec_v2.pb.h"
 
 FD_PROTOTYPES_BEGIN
@@ -33,7 +28,9 @@ typedef struct fd_harness_ctx fd_harness_ctx_t;
    environment. */
 
 int
-fd_harness_dump_instr( fd_exec_instr_ctx_t * instr_ctx );
+fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx, 
+                       fd_instr_info_t   const * instr_info, 
+                       ushort                    instr_idx );
 
 int
 fd_harness_dump_txn( fd_exec_txn_ctx_t * txn_ctx );
@@ -48,7 +45,7 @@ fd_harness_dump_runtime( fd_exec_epoch_ctx_t * epoch_ctx );
    that captures the execution environment effects. */
 
 int
-fd_harness_exec_instr( uchar const * filename, ulong file_sz );
+fd_harness_exec_instr( uchar const * file_buf, ulong file_sz );
 
 int
 fd_harness_exec_txn( uchar const * filename, ulong file_sz );

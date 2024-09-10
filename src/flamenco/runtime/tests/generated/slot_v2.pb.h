@@ -36,8 +36,8 @@ typedef struct fd_v2_slot_env {
 
 typedef struct fd_v2_slot_effects {
     /* The resulting state after each transaction in the slot */
-    pb_size_t txn_envs_count;
-    struct fd_v2_txn_effects *txn_envs;
+    pb_size_t txn_effects_count;
+    struct fd_v2_txn_effects *txn_effects;
     /* Capitalization for the end of the slot */
     uint64_t capitalization;
 } fd_v2_slot_effects_t;
@@ -64,7 +64,7 @@ extern "C" {
 #define FD_V2_SLOT_ENV_LAST_RESTART_SLOT_TAG     8
 #define FD_V2_SLOT_ENV_VOTE_ACCOUNTS_TAG         9
 #define FD_V2_SLOT_ENV_STAKE_ACCOUNTS_TAG        10
-#define FD_V2_SLOT_EFFECTS_TXN_ENVS_TAG          1
+#define FD_V2_SLOT_EFFECTS_TXN_EFFECTS_TAG       1
 #define FD_V2_SLOT_EFFECTS_CAPITALIZATION_TAG    2
 
 /* Struct field encoding specification for nanopb */
@@ -84,11 +84,11 @@ X(a, POINTER,  SINGULAR, BYTES,    stake_accounts,   10)
 #define fd_v2_slot_env_t_txns_MSGTYPE fd_v2_txn_env_t
 
 #define FD_V2_SLOT_EFFECTS_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, MESSAGE,  txn_envs,          1) \
+X(a, POINTER,  REPEATED, MESSAGE,  txn_effects,       1) \
 X(a, STATIC,   SINGULAR, UINT64,   capitalization,    2)
 #define FD_V2_SLOT_EFFECTS_CALLBACK NULL
 #define FD_V2_SLOT_EFFECTS_DEFAULT NULL
-#define fd_v2_slot_effects_t_txn_envs_MSGTYPE fd_v2_txn_effects_t
+#define fd_v2_slot_effects_t_txn_effects_MSGTYPE fd_v2_txn_effects_t
 
 extern const pb_msgdesc_t fd_v2_slot_env_t_msg;
 extern const pb_msgdesc_t fd_v2_slot_effects_t_msg;

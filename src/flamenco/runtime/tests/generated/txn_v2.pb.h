@@ -39,7 +39,8 @@ typedef struct fd_v2_txn_env {
     bool is_legacy;
     /* Account keys in order that they are passed into the transaction. The
 account data actually comes from higher level fuzzers. */
-    pb_bytes_array_t *account_keys;
+    pb_size_t account_keys_count;
+    pb_bytes_array_t **account_keys;
     /* Instruction(s) that the transaction executes. */
     pb_size_t instructions_count;
     struct fd_v2_instr_env *instructions;
@@ -60,6 +61,7 @@ account data actually comes from higher level fuzzers. */
 typedef struct fd_v2_txn_effects {
     /* Transaction level error code. */
     bool txn_error;
+    int32_t txn_error_code;
     /* Resulting account states from each instruction execution. */
     pb_size_t instr_effects_count;
     struct fd_v2_instr_effects *instr_effects;
@@ -81,12 +83,12 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_V2_TXN_HEADER_INIT_DEFAULT            {0, 0, 0}
 #define FD_V2_LUT_ENTRY_INIT_DEFAULT             {{0}, 0, NULL, 0, NULL}
-#define FD_V2_TXN_ENV_INIT_DEFAULT               {false, FD_V2_TXN_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL, 0}
-#define FD_V2_TXN_EFFECTS_INIT_DEFAULT           {0, 0, NULL, NULL, 0, 0, 0}
+#define FD_V2_TXN_ENV_INIT_DEFAULT               {false, FD_V2_TXN_HEADER_INIT_DEFAULT, 0, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL, 0}
+#define FD_V2_TXN_EFFECTS_INIT_DEFAULT           {0, 0, 0, NULL, NULL, 0, 0, 0}
 #define FD_V2_TXN_HEADER_INIT_ZERO               {0, 0, 0}
 #define FD_V2_LUT_ENTRY_INIT_ZERO                {{0}, 0, NULL, 0, NULL}
-#define FD_V2_TXN_ENV_INIT_ZERO                  {false, FD_V2_TXN_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL, 0}
-#define FD_V2_TXN_EFFECTS_INIT_ZERO              {0, 0, NULL, NULL, 0, 0, 0}
+#define FD_V2_TXN_ENV_INIT_ZERO                  {false, FD_V2_TXN_HEADER_INIT_ZERO, 0, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL, 0}
+#define FD_V2_TXN_EFFECTS_INIT_ZERO              {0, 0, 0, NULL, NULL, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_V2_TXN_HEADER_NUM_REQUIRED_SIGNATURES_TAG 1
@@ -105,11 +107,12 @@ extern "C" {
 #define FD_V2_TXN_ENV_SIGNATURES_TAG             8
 #define FD_V2_TXN_ENV_CU_AVAIL_TAG               9
 #define FD_V2_TXN_EFFECTS_TXN_ERROR_TAG          1
-#define FD_V2_TXN_EFFECTS_INSTR_EFFECTS_TAG      2
-#define FD_V2_TXN_EFFECTS_RETURN_DATA_TAG        3
-#define FD_V2_TXN_EFFECTS_CUS_REMAIN_TAG         4
-#define FD_V2_TXN_EFFECTS_TRANSACTION_FEE_TAG    5
-#define FD_V2_TXN_EFFECTS_PRIORITIZATION_FEE_TAG 6
+#define FD_V2_TXN_EFFECTS_TXN_ERROR_CODE_TAG     2
+#define FD_V2_TXN_EFFECTS_INSTR_EFFECTS_TAG      3
+#define FD_V2_TXN_EFFECTS_RETURN_DATA_TAG        4
+#define FD_V2_TXN_EFFECTS_CUS_REMAIN_TAG         5
+#define FD_V2_TXN_EFFECTS_TRANSACTION_FEE_TAG    6
+#define FD_V2_TXN_EFFECTS_PRIORITIZATION_FEE_TAG 7
 
 /* Struct field encoding specification for nanopb */
 #define FD_V2_TXN_HEADER_FIELDLIST(X, a) \
@@ -129,7 +132,7 @@ X(a, POINTER,  REPEATED, UINT32,   readonly_indexes,   3)
 #define FD_V2_TXN_ENV_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            1) \
 X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         2) \
-X(a, POINTER,  SINGULAR, BYTES,    account_keys,      3) \
+X(a, POINTER,  REPEATED, BYTES,    account_keys,      3) \
 X(a, POINTER,  REPEATED, MESSAGE,  instructions,      4) \
 X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
 X(a, POINTER,  REPEATED, MESSAGE,  alut_entries,      6) \
@@ -144,11 +147,12 @@ X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          9)
 
 #define FD_V2_TXN_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     txn_error,         1) \
-X(a, POINTER,  REPEATED, MESSAGE,  instr_effects,     2) \
-X(a, POINTER,  SINGULAR, BYTES,    return_data,       3) \
-X(a, STATIC,   SINGULAR, UINT64,   cus_remain,        4) \
-X(a, STATIC,   SINGULAR, UINT64,   transaction_fee,   5) \
-X(a, STATIC,   SINGULAR, UINT64,   prioritization_fee,   6)
+X(a, STATIC,   SINGULAR, INT32,    txn_error_code,    2) \
+X(a, POINTER,  REPEATED, MESSAGE,  instr_effects,     3) \
+X(a, POINTER,  SINGULAR, BYTES,    return_data,       4) \
+X(a, STATIC,   SINGULAR, UINT64,   cus_remain,        5) \
+X(a, STATIC,   SINGULAR, UINT64,   transaction_fee,   6) \
+X(a, STATIC,   SINGULAR, UINT64,   prioritization_fee,   7)
 #define FD_V2_TXN_EFFECTS_CALLBACK NULL
 #define FD_V2_TXN_EFFECTS_DEFAULT NULL
 #define fd_v2_txn_effects_t_instr_effects_MSGTYPE fd_v2_instr_effects_t

@@ -33,7 +33,7 @@ typedef struct fd_v2_instr_effects {
     /* Result of the instruction execution */
     int32_t result;
     /* Custom error code if applicable */
-    int32_t custom_err;
+    uint32_t custom_err;
 } fd_v2_instr_effects_t;
 
 
@@ -76,7 +76,7 @@ X(a, POINTER,  SINGULAR, BYTES,    data,              3)
 
 #define FD_V2_INSTR_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, INT32,    result,            1) \
-X(a, STATIC,   SINGULAR, INT32,    custom_err,        2)
+X(a, STATIC,   SINGULAR, UINT32,   custom_err,        2)
 #define FD_V2_INSTR_EFFECTS_CALLBACK NULL
 #define FD_V2_INSTR_EFFECTS_DEFAULT NULL
 
@@ -92,7 +92,7 @@ extern const pb_msgdesc_t fd_v2_instr_effects_t_msg;
 /* Maximum encoded size of messages (where known) */
 /* fd_v2_InstrEnv_size depends on runtime parameters */
 #define FD_V2_INSTR_ACCT_SIZE                    10
-#define FD_V2_INSTR_EFFECTS_SIZE                 22
+#define FD_V2_INSTR_EFFECTS_SIZE                 17
 #define FD_V2_INSTR_V2_PB_H_MAX_SIZE             FD_V2_INSTR_EFFECTS_SIZE
 
 #ifdef __cplusplus
