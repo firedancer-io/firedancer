@@ -751,25 +751,25 @@ fd_tower_fork_update( fd_tower_t const * tower,
         /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
 
         fd_blockstore_start_write( blockstore );
-        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote_slot );
+        fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( blockstore, vote_slot );
 
-        int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+        int eqvocsafe = fd_uchar_extract_bit( block_meta->flags, FD_BLOCK_FLAG_EQVOCSAFE );
         if( FD_UNLIKELY( !eqvocsafe ) ) {
           double pct = (double)node->stake / (double)ghost->total_stake;
           if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-            FD_LOG_NOTICE( ( "equivocation safe %lu", block_map_entry->slot ) );
-            block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-            blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+            FD_LOG_NOTICE( ( "equivocation safe %lu", vote_slot ) );
+            block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+            blockstore->hcs = fd_ulong_max( blockstore->hcs, vote_slot );
           }
         }
 
-        int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+        int confirmed = fd_uchar_extract_bit( block_meta->flags, FD_BLOCK_FLAG_CONFIRMED );
         if( FD_UNLIKELY( !confirmed ) ) {
           double pct = (double)node->stake / (double)ghost->total_stake;
           if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
-            FD_LOG_NOTICE( ( "confirming %lu", block_map_entry->slot ) );
-            block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-            blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+            FD_LOG_NOTICE( ( "confirming %lu", vote_slot ) );
+            block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_CONFIRMED );
+            blockstore->hcs = fd_ulong_max( blockstore->hcs, vote_slot );
           }
         }
 
@@ -785,17 +785,17 @@ fd_tower_fork_update( fd_tower_t const * tower,
         /* Check if it has crossed finalized threshold. */
 
         fd_blockstore_start_write( blockstore );
-        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote_state->root_slot );
-        int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+        fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( blockstore, vote_state->root_slot );
+        int finalized = fd_uchar_extract_bit( block_meta->flags, FD_BLOCK_FLAG_FINALIZED );
         if( FD_UNLIKELY( !finalized ) ) {
           double pct = (double)node->rooted_stake / (double)ghost->total_stake;
           if( FD_UNLIKELY( pct > FD_SMR_PCT ) ) {
-            ulong smr = block_map_entry->slot;
-            FD_LOG_NOTICE(( "finalizing %lu", block_map_entry->slot ));
-            fd_block_map_t * ancestor = block_map_entry;
+            ulong smr = vote_state->root_slot;
+            FD_LOG_NOTICE(( "finalizing %lu", vote_state->root_slot ));
+            fd_block_meta_t * ancestor = block_meta;
             while( ancestor ) {
               ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
-              ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+              ancestor        = fd_blockstore_block_meta_query( blockstore, ancestor->parent_slot );
             }
 #if FD_TOWER_USE_HANDHOLDING
             if( FD_UNLIKELY( smr <= fd_fseq_query( tower->smr ) ) ) {

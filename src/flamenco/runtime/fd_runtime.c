@@ -1510,12 +1510,12 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   uchar * const end_laddr = cur_laddr + tot_meta_sz;
 
   fd_blockstore_start_write( blockstore );
-  fd_block_t * blk = fd_blockstore_block_query( blockstore, slot_ctx->slot_bank.slot );
+  fd_block_data_t * blk = fd_blockstore_block_data_query( blockstore, slot_ctx->slot_bank.slot );
   /* Link to previous allocation */
-  ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr;
-  ((ulong*)cur_laddr)[1] = blk->txns_meta_sz;
-  blk->txns_meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr );
-  blk->txns_meta_sz    = tot_meta_sz;
+  ((ulong*)cur_laddr)[0] = blk->txn_meta_gaddr;
+  ((ulong*)cur_laddr)[1] = blk->txn_meta_sz;
+  blk->txn_meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr );
+  blk->txn_meta_sz    = tot_meta_sz;
   cur_laddr += 2*sizeof(ulong);
 
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
@@ -2033,12 +2033,18 @@ fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
+
   /* Update block height */
+
   slot_ctx->slot_bank.block_height += 1UL;
-  fd_blockstore_block_height_update(
-        slot_ctx->blockstore,
-        slot_ctx->slot_bank.slot,
-        slot_ctx->slot_bank.block_height );
+  fd_blockstore_start_write( slot_ctx->blockstore );
+  fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot );
+  if (FD_UNLIKELY( !block_meta )) {
+    FD_LOG_WARNING(( "[%s] unable to find block map entry for slot_ctx %lu", __func__, slot_ctx->slot_bank.slot ));
+    return -1;
+  }
+  block_meta->block_height = slot_ctx->slot_bank.block_height;
+  fd_blockstore_end_write( slot_ctx->blockstore );
 
   // TODO: this is not part of block execution, move it.
   if( slot_ctx->slot_bank.slot != 0 ) {

@@ -392,7 +392,7 @@ fd_block_to_json( fd_webserver_t * ws,
                   const char * call_id,
                   const uchar * blk_data,
                   ulong blk_sz,
-                  fd_block_map_t * meta,
+                  fd_block_meta_t * meta,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
@@ -402,7 +402,7 @@ fd_block_to_json( fd_webserver_t * ws,
   char hash[50];
   fd_base58_encode_32(meta->block_hash.uc, 0, hash);
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\"",
-                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash);
+                       meta->block_height, meta->ts/(long)1e9, meta->parent_slot, hash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_web_reply_sprintf(ws, "},\"id\":%s}", call_id);

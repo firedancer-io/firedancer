@@ -355,7 +355,7 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
 
     fd_shred_t * shred = (fd_shred_t*)rbuf;
     if ( FD_UNLIKELY( blockstore != NULL ) ) {
-      fd_buf_shred_insert( blockstore, shred );
+      fd_blockstore_shred_insert( blockstore, shred );
     }
     if ( FD_UNLIKELY( slot != shred->slot ) ) {
       FD_LOG_ERR(( "slot header's slot=%lu doesn't match shred's slot=%lu", slot, shred->slot ));
@@ -363,8 +363,7 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
   }
 
   /* Ensure that a block exists for the given slot */
-  fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
-  if ( FD_UNLIKELY( block == NULL) ) {
+  if ( FD_UNLIKELY( !fd_blockstore_block_data_query( blockstore, slot ) ) ) {
     FD_LOG_ERR(( "block doesn't exist for slot=%lu", slot ));
   }
 
@@ -1046,7 +1045,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
         }
 
         fd_shred_t * shred = (fd_shred_t*)capture_buf;
-        fd_buf_shred_insert( blockstore, shred );
+        fd_blockstore_shred_insert( blockstore, shred );
       }
 
       offset = lseek( capture_fd, (long)FD_SHREDCAP_SLOT_FTR_FOOTPRINT, SEEK_CUR );
@@ -1072,7 +1071,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       }
 
       fd_shredcap_bank_hash_entry_t * entry = (fd_shredcap_bank_hash_entry_t*)bank_hash_buf;
-      fd_block_map_t * block = fd_blockstore_block_map_query( blockstore, cur_slot );
+      fd_block_meta_t * block = fd_blockstore_block_meta_query( blockstore, cur_slot );
       if ( FD_LIKELY( block ) ) {
         fd_memcpy( block->bank_hash.hash, &entry->bank_hash.hash, 32UL );
       }

@@ -382,32 +382,26 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
-    fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
-    if( block == NULL ) {
-      FD_LOG_ERR(( "could not find block" ));
-    }
-
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
-    if( block_map_entry == NULL ) {
+    fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( ctx->blockstore, slot );
+    if( block_meta == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
-
     fd_hash_t const * block_hash = fd_blockstore_block_hash_query( ctx->blockstore, slot );
     if( block_hash == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
 
-    FD_STORE( ulong, out_buf, block_map_entry->parent_slot );
+    FD_STORE( ulong, out_buf, block_meta->parent_slot );
     out_buf += sizeof(ulong);
 
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
     out_buf += sizeof(fd_hash_t);
 
-    uchar * block_data = fd_blockstore_block_data_laddr( ctx->blockstore, block );
+    fd_block_data_t * block_data = fd_blockstore_block_data_query( ctx->blockstore, slot );
 
     FD_SCRATCH_SCOPE_BEGIN {
       fd_block_info_t block_info;
-      fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
+      fd_runtime_block_prepare( block_data, block_data->data_sz, fd_scratch_virtual(), &block_info );
 
       ulong caught_up = slot > ctx->store->first_turbine_slot;
       ulong behind = ctx->store->curr_turbine_slot - slot;
@@ -710,8 +704,8 @@ unprivileged_init( fd_topo_t *      topo,
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
-      block_map_entry->flags       = 0;
+      fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( ctx->blockstore, slot );
+      block_meta->flags       = 0;
       fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }
     fd_blockstore_end_write( ctx->blockstore );

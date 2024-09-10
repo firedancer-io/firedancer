@@ -1,9 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_blockstore_h
 #define HEADER_fd_src_flamenco_runtime_fd_blockstore_h
 
-/* Blockstore is a high-performance database for storing, building, and tracking blocks.
-
-   `fd_blockstore` defines a number of useful types e.g. `fd_block_t`, `fd_block_shred`, etc. */
+/* Blockstore is a high-performance database that stores shreds and
+   blocks, and indexes microblocks (entries) and transactions. */
 
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/shred/fd_deshredder.h"
@@ -12,6 +11,13 @@
 #include "../types/fd_types.h"
 #include "fd_readwrite_lock.h"
 #include "stdbool.h"
+
+/* FD_BLOCKSTORE_USE_HANDHOLDING:  Define this to non-zero at compile
+   time to turn on additional runtime checks and logging. */
+
+#ifndef FD_BLOCKSTORE_USE_HANDHOLDING
+#define FD_BLOCKSTORE_USE_HANDHOLDING 1
+#endif
 
 /* FD_BLOCKSTORE_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a blockstore.  ALIGN should be a positive integer power of 2.
@@ -50,7 +56,6 @@
 #define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
 #define FD_BLOCKSTORE_ERR_UNKNOWN         -99
-
 /* clang-format on */
 
 struct fd_shred_key {
@@ -116,23 +121,26 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #define DEQUE_T    ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-/* A shred that has been deshredded and is part of a block (beginning at off) */
+/* fd_block_shred_t saves the shred header and offset for a data shred
+   that is already part of a block.  Note the payload is in the
+   allocated region. */
+
 struct fd_block_shred {
   fd_shred_t hdr; /* ptr to the data shred header */
-  uchar      merkle[FD_SHRED_MERKLE_ROOT_SZ + FD_SHRED_MERKLE_NODE_SZ*9U /* FD_FEC_SET_MAX_BMTREE_DEPTH */];
-  ulong      merkle_sz;
-  ulong      off; /* offset to the payload relative to the start of the block's data region */
+  ulong      off; /* offset to the payload relative to the start of the allocated region */
 };
 typedef struct fd_block_shred fd_block_shred_t;
 
 /* A microblock (otherwise known as an "entry" in Solana parlance) that has been parsed and is part
    of a block (beginning at off) */
+
 struct fd_block_micro {
   ulong off; /* offset into block data */
 };
 typedef struct fd_block_micro fd_block_micro_t;
 
 /* A transaction that has been parsed and is part of a block (beginning at txn_off) */
+
 struct fd_block_txn_ref {
   ulong txn_off; /* offset into block data of transaction */
   ulong id_off;  /* offset into block data of transaction identifiers */
@@ -140,59 +148,71 @@ struct fd_block_txn_ref {
 };
 typedef struct fd_block_txn_ref fd_block_txn_ref_t;
 
-/* If the 0th bit is set, this indicates the block is preparing, which
-   means it might be partially executed e.g. a subset of the microblocks
-   have been executed.  It is not safe to remove, relocate, or modify
-   the block in any way at this time.
+/* If the 2nd bit (FD_BLOCK_FLAG_REPLAYING) is set, this indicates the
+   block is actively replaying, which means it might be partially
+   executed eg. a subset of the microblocks have been executed.  It is
+   not safe to modify or remove the `fd_block_map_t` at this time.
 
    Callers holding a pointer to a block should always make sure to
-   inspect this flag.
+   inspect this flag.  Other flags mainly provide useful metadata for
+   read-only callers, eg. RPC.
 
-   Other flags mainly provide useful metadata for read-only callers, eg.
-   RPC. */
+   IMPORTANT!  To avoid confusion, please use `fd_bits.h` API when
+   reading and writing flags eg.
 
-#define FD_BLOCK_FLAG_SHREDDING 0 /* xxxxxxx1 still receiving shreds */
-#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received all shreds (DATA_COMPLETE) */
-#define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
-#define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
-#define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
-#define FD_BLOCK_FLAG_CONFIRMED 5 /* xxx1xxxx 2/3 of cluster has voted on this (slot, bank hash) */
-#define FD_BLOCK_FLAG_FINALIZED 6 /* xx1xxxxx 2/3 of cluster has rooted this slot */
-#define FD_BLOCK_FLAG_DEADBLOCK 7 /* x1xxxxxx failed to replay the block */
+   fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
 
-/* Remaining bits [4, 8) are reserved.
+   int c = fd_uchar_extract_bit( block_meta->flags,
+                                 FD_BLOCK_FLAG_REPLAYING ); */
 
-   To avoid confusion, please use `fd_bits.h` API
-   ie. `fd_uchar_set_bit`, `fd_uchar_extract_bit`. */
+#define FD_BLOCK_FLAG_REPLAYING 0 /* xxxxxxx1 replay in progress (DO NOT REMOVE) */
+#define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x successfully replayed the block */
+#define FD_BLOCK_FLAG_DEADBLOCK 2 /* xxxxx1xx failed to replay the block */
+#define FD_BLOCK_FLAG_EQVOCSAFE 3 /* xxxx1xxx 52% of cluster has voted for this slot */
+#define FD_BLOCK_FLAG_CONFIRMED 4 /* xxx1xxxx 2/3 of cluster has voted for this slot */
+#define FD_BLOCK_FLAG_FINALIZED 5 /* xx1xxxxx 2/3 of cluster has rooted this slot */
 
-struct fd_block {
+/* fd_block_data_t
 
-  /* data region
+ ┌───────────┬─────────────────────┬─────────────────────┐
+ │ block     │ fd_block_shred_t(s) │ fd_block_micro_t(s) │
+ └───────────┴─────────────────────┴─────────────────────┘
+ ▲           ▲                     ▲
+ data_gaddr  shred_gaddr           micro_gaddr
 
-  A block's data region is indexed to support iterating by shred, microblock, or
-  transaction. This is done by iterating the headers for each, stored in allocated memory. To
-  iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
-  (offsetting by the bytes indicated in the shred header).
+ data_gaddr points to the beginning of an allocated memory region of
+ data_sz that contains a concatenation of the block data itself, shred
+ headers and payload offsets into mem (fd_block_shred_t), and
+ microblock offsets into mem (fd_block_micro_t).
 
-  Note random access of individual shred indices is not performant, due to the variable-length
-  nature of shreds. */
+ shred_gaddr, shred_cnt, micro_gaddr, micro_cnt are additional fields
+ to support iterating by shred or microblock.
+ 
+ Additionally, there are two separately allocated memory regions,
+ txn_gaddr and txn_meta_gaddr that contain the transaction offsets into
+ mem and transaction meta within a block, respectively.
 
-  ulong data_gaddr;   /* ptr to the beginning of the block's allocated data region */
-  ulong data_sz;      /* block size */
-  ulong shreds_gaddr; /* ptr to the first fd_block_shred_t */
-  ulong shreds_cnt;
-  ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
-  ulong micros_cnt;
-  ulong txns_gaddr;   /* ptr to the list of fd_blockstore_txn_ref_t */
-  ulong txns_cnt;
-  ulong txns_meta_gaddr; /* ptr to the allocation for txn meta data */
-  ulong txns_meta_sz;
+ IMPORTANT!  Random access of fd_block_shred_t or fd_block_micro_t is
+ not performant, as it requires scanning from index 0. */
+
+struct fd_block_data {
+  ulong data_gaddr;  /* ptr to the beginning of the block data's allocated memory region */
+  ulong data_sz;
+  ulong shred_gaddr; /* ptr to the first fd_block_shred_t */
+  ulong shred_cnt;
+  ulong micro_gaddr; /* ptr to the first fd_blockstore_micro_t */
+  ulong micro_cnt;
+  ulong txn_gaddr;
+  ulong txn_cnt;
+  ulong txn_meta_gaddr;
+  ulong txn_meta_sz;
 };
-typedef struct fd_block fd_block_t;
+typedef struct fd_block_data fd_block_data_t;
 
-struct fd_block_map {
-  ulong slot; /* map key */
-  ulong next; /* reserved for use by fd_map_giant.c */
+/* fd_block_meta_t stores useful metadata about the block eg. ancestry,
+   shred windowing. */
+
+struct fd_block_meta {
 
   /* Ancestry */
 
@@ -202,10 +222,11 @@ struct fd_block_map {
 
   /* Metadata */
 
-  ulong     height;
-  fd_hash_t block_hash;
-  fd_hash_t bank_hash;
-  uchar     flags;
+  ulong     block_height;   /* the # blocks since genesis (<= # slots due to skips) */
+  fd_hash_t block_hash;     /* last microblock ("entry") hash */
+  fd_hash_t bank_hash;      /* hash of the relevant state _after_ executing this block */
+  fd_hash_t merkle_hash;    /* last FEC set's merkle root */
+  uchar     flags;          /* block state transitions, see FD_BLOCK_FLAG_* above */
   uchar     reference_tick; /* the tick when the leader prepared the block. */
   long      ts;             /* the wallclock time when we finished receiving the block. */
 
@@ -213,17 +234,22 @@ struct fd_block_map {
 
   uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0 (inclusive). */
   uint received_idx; /* the highest shred idx we've received (exclusive). */
-  uint complete_idx; /* the shred idx with the FD_SHRED_DATA_FLAG_SLOT_COMPLETE flag set. */
-
-  /* Block */
-
-  ulong block_gaddr; /* global address to the start of the allocated fd_block_t */
+  uint complete_idx; /* the shred idx with FD_SHRED_DATA_FLAG_SLOT_COMPLETE. */
 };
-typedef struct fd_block_map fd_block_map_t;
+typedef struct fd_block_meta fd_block_meta_t;
+
+struct fd_block {
+  ulong slot; /* map key */
+  ulong next; /* reserved for use by fd_map_giant.c */
+
+  fd_block_meta_t meta;
+  fd_block_data_t data;
+};
+typedef struct fd_block fd_block_t;
 
 /* clang-format off */
 #define MAP_NAME         fd_block_map
-#define MAP_T            fd_block_map_t
+#define MAP_T            fd_block_t
 #define MAP_KEY          slot
 #include "../../util/tmpl/fd_map_giant.c"
 /* clang-format on */
@@ -284,16 +310,18 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  ulong slot_max;           /* maximum # of blocks */
-  ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
+  ulong block_max;          /* maximum # of blocks */
+  ulong block_map_gaddr;    /* map of slot->fd_block_t */
   ulong slot_deque_gaddr;   /* deque of slots (ulongs) used to traverse blockstore ancestry */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
 
-  /* The blockstore alloc is used for allocating wksp resources for shred headers, microblock
-     headers, and blocks.  This is an fd_alloc. Allocations from this allocator will be tagged with
-     wksp_tag and operations on this allocator will use concurrency group 0. */
+  /* The blockstore alloc is used for allocating wksp resources for
+     shred headers, microblock headers, and blocks.  This is an
+     fd_alloc.  Allocations from this allocator will be tagged with
+     wksp_tag and operations on this allocator will use concurrency
+     group 0. */
 
   ulong alloc_gaddr;
 };
@@ -306,13 +334,19 @@ FD_PROTOTYPES_BEGIN
 
 /* Construction API */
 
-/* TODO document lifecycle methods */
+/* fd_blockstore_{align,footprint} return the required alignment and
+   footprint of a memory region suitable for use as blockstore with up
+   to shred_max shreds, slot_max blocks and lg_txn_max transactions. */
 
 FD_FN_CONST ulong
 fd_blockstore_align( void );
 
 FD_FN_CONST ulong
 fd_blockstore_footprint( void );
+
+/* fd_blockstore_new formats an unused memory region for use as a
+   blockstore.  shmem is a non-NULL pointer to this region in the local
+   address space with the required footprint and alignment. */
 
 void *
 fd_blockstore_new( void * shmem,
@@ -322,31 +356,49 @@ fd_blockstore_new( void * shmem,
                    ulong  slot_max,
                    int    lg_txn_max );
 
+/* fd_blockstore_join joins the caller to the blockstore.  shblockstore
+   points to the first byte of the memory region backing the blockstore
+   in the caller's address space.
+
+   Returns a pointer in the local address space to blockstore on
+   success. */
+
 fd_blockstore_t *
 fd_blockstore_join( void * shblockstore );
+
+/* fd_blockstore_leave leaves a current local join.  Returns a pointer
+   to the underlying shared memory region on success and NULL on failure
+   (logs details).  Reasons for failure include blockstore is NULL. */
 
 void *
 fd_blockstore_leave( fd_blockstore_t * blockstore );
 
+/* fd_blockstore_delete unformats a memory region used as a blockstore.
+   Assumes only the nobody is joined to the region.  Returns a pointer
+   to the underlying shared memory region or NULL if used obviously in
+   error (e.g. blockstore is obviously not a blockstore ... logs
+   details).  The ownership of the memory region is transferred to the
+   caller. */
+
 void *
 fd_blockstore_delete( void * shblockstore );
 
-/* fd_blockstore_init initializes a blockstore with slot_bank. slot_bank
+/* fd_blockstore_init initializes a blockstore with slot_bank.  slot_bank
    should be the bank upon finishing a snapshot load if booting from a
    snapshot, genesis bank otherwise.  Blockstore then initializes fields
    and creates a mock block using this slot bank.  This metadata for
    this block's slot will be populated (fd_block_map_t) but the actual
-   block data (fd_block_t) won't exist.  This is needed to bootstrap the
+   block data (fd_block_map_t) won't exist.  This is needed to bootstrap the
    various componenets for live replay (turbine, repair, etc.) */
 
-fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank );
+void
+fd_blockstore_init( fd_blockstore_t * blockstore, ulong slot );
 
 /* Accessor API */
 
 /* fd_blockstore_wksp returns the local join to the wksp backing the
-   blockstore. The lifetime of the returned pointer is at least as long
-   as the lifetime of the local join.  Assumes blockstore is a current
+   blockstore.  The lifetime of return pointer is at least as long as
+   the lifetime of the local join.  Assumes blockstore is a current
    local join. */
 
 FD_FN_PURE static inline fd_wksp_t *
@@ -363,9 +415,10 @@ fd_blockstore_wksp_tag( fd_blockstore_t * blockstore ) {
   return blockstore->wksp_tag;
 }
 
-/* fd_blockstore_seed returns the hash seed used by the blockstore for various hash
-   functions.  Arbitrary value.  Assumes blockstore is a current local join.
-   TODO: consider renaming hash_seed? */
+/* fd_blockstore_seed returns the hash seed used by the blockstore for
+   various hash functions.  Arbitrary value.  Assumes blockstore is a
+   current local join. */
+
 FD_FN_PURE static inline ulong
 fd_blockstore_seed( fd_blockstore_t * blockstore ) {
   return blockstore->seed;
@@ -373,8 +426,8 @@ fd_blockstore_seed( fd_blockstore_t * blockstore ) {
 
 /* fd_blockstore_buf_shred_pool returns a pointer in the caller's
    address space to the pool pointer fd_buf_shred_t * in the blockstore
-   wksp.  Assumes blockstore is local join.  Lifetime of the returned
-   pointer is that of the local join. */
+   wksp.  Assumes blockstore is local join.  Lifetime of returned
+   pointer is duration of blockstore join. */
 
 FD_FN_PURE static inline fd_buf_shred_t *
 fd_blockstore_buf_shred_pool( fd_blockstore_t * blockstore ) {
@@ -384,8 +437,8 @@ fd_blockstore_buf_shred_pool( fd_blockstore_t * blockstore ) {
 
 /* fd_blockstore_buf_shred_map returns a pointer in the caller's address
    space to the fd_buf_shred_map_t * in the blockstore wksp.  Assumes
-   blockstore is local join.  Lifetime of the returned pointer is that
-   of the local join. */
+   blockstore is local join.  Lifetime of return pointer is that of the
+   local join. */
 
 FD_FN_PURE static inline fd_buf_shred_map_t *
 fd_blockstore_buf_shred_map( fd_blockstore_t * blockstore ) {
@@ -395,16 +448,16 @@ fd_blockstore_buf_shred_map( fd_blockstore_t * blockstore ) {
 
 /* fd_block_map returns a pointer in the caller's address space to the
    fd_block_map_t in the blockstore wksp.  Assumes blockstore is local
-   join.  Lifetime of the returned pointer is that of the local join. */
-FD_FN_PURE static inline fd_block_map_t *
+   join.  Lifetime of return pointer is duration of blockstore join. */
+FD_FN_PURE static inline fd_block_t *
 fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
-  return (fd_block_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
-                                               blockstore->slot_map_gaddr );
+  return (fd_block_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
+                                               blockstore->block_map_gaddr );
 }
 
-/* fd_blockstore_txn_map returns a pointer in the caller's address space to the blockstore's
-   block map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
-   local join. */
+/* fd_blockstore_txn_map returns a pointer in the caller's address space
+   to the blockstore's block map.  Assumes blockstore is local join.
+   Lifetime of return pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_blockstore_txn_map_t *
 fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
@@ -421,14 +474,6 @@ fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
                                            blockstore->alloc_gaddr );
 }
 
-/* fd_blockstore_block_data_laddr returns a local pointer to the block's data. The returned pointer
- * lifetime is until the block is removed. Check return value for error info. */
-
-FD_FN_PURE static inline uchar *
-fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-}
-
 FD_FN_PURE static inline ulong
 fd_blockstore_block_cnt( fd_blockstore_t * blockstore ) {
   return blockstore->max - blockstore->min + 1;
@@ -436,58 +481,135 @@ fd_blockstore_block_cnt( fd_blockstore_t * blockstore ) {
 
 /* Operations */
 
-/* Insert shred into the blockstore, fast O(1).  Fail if this shred is already in the blockstore or
- * the blockstore is full. Returns an error code indicating success or failure.
- *
- * TODO eventually this will need to support "upsert" duplicate shred handling.
- */
+/* fd_blockstore_shred_insert inserts shred keyed by slot and shred
+   index into blockstore, fast O(1).
+
+   If there is an equivocating shred (ie. shred with the same key but
+   different payload) that is already in the blockstore, it will keep
+   the existing shred (if handholding is enabled, explicitly checks and
+   logs a warning).
+
+   It is caller's, not blockstore's, responsibility to incorporate
+   additional equivocation logic. */
 int
-fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
+fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
 
-/* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
- * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
- * error info. This API only works for shreds from incomplete blocks.
- *
- * Callers should hold the read lock during the entirety of its read to ensure the pointer remains
- * valid.
- */
-fd_shred_t *
-fd_buf_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
+/* fd_blockstore_shred_query queries for shred keyed by slot and idx in
+   blockstore, O(1) but see below caveat.  Returns a pointer to the
+   shred or NULL if not found.  The return pointer is const because
+   shreds should never be modified in-place after insertion into the
+   blockstore ... callers should remove and re-insert if performing
+   modifications.
 
-/* Query blockstore for shred at slot, shred_idx. Copies the shred
- * data to the given buffer and returns the data size. Returns -1 on failure.
- *
- * Callers should hold the read lock during the entirety of this call.
- */
+   Caveat: implementation is O(1) but with a large constant refactor if
+   the block is completed (received all shreds).  This is because the
+   shred is copied into the block data region which only indexes the
+   first shred, and requires idx iterations to query the shred at idx
+   (but idx is bounded to 1 << 15, the max # of shreds in a block).
+
+   IMPORTANT SAFETY TIP!  Callers must hold the read lock when calling
+   this function _and must the pointer_. */
+
+fd_shred_t const *
+fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
+
+/* fd_blockstore_shred_query_volatile implements the same as above, but
+   does not require the caller to hold the read lock.  The shred is
+   copied into buf, which must be at least FD_SHRED_MAX_SZ big (U.B.
+   otherwise). */
+
 long
-fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore,
-                              ulong             slot,
-                              uint              shred_idx,
-                              void *            buf,
-                              ulong             buf_max );
+fd_blockstore_shred_query_volatile( fd_blockstore_t * blockstore,
+                                    ulong             slot,
+                                    uint              shred_idx,
+                                    uchar             buf[static FD_SHRED_MAX_SZ] );
 
-/* Query blockstore for block at slot. Returns a pointer to the block or NULL if not in
- * blockstore. The returned pointer lifetime is until the block is removed. Check return value for
- * error info. */
-fd_block_t *
-fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
+/* fd_blockstore_block_query queries for the block (both meta and data)
+   keyed by slot. Returns a pointer in the local address space to the
+   block or NULL if not in blockstore.  The return pointer lifetime is
+   until the block is removed. */
 
-/* Query blockstore for the block hash at slot. This is the final poh
-hash for a slot. */
-fd_hash_t const *
-fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot );
+FD_FN_PURE static inline fd_block_t *
+fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
+  return fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+}
 
-/* Query blockstore for the bank hash for a given slot. */
-fd_hash_t const *
-fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
+/* fd_blockstore_block_meta_query queries for the block meta keyed by
+   slot.  Returns a pointer to the block meta or NULL if not in
+   blockstore.  The return pointer lifetime is until slot is removed. */
 
-/* Query blockstore for the block map entry at slot. Returns a pointer
-   to the slot meta or NULL if not in blockstore. The returned pointer
-   lifetime is until the slot meta is removed. */
-fd_block_map_t *
-fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
+FD_FN_PURE static inline fd_block_meta_t *
+fd_blockstore_block_meta_query( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+  if( FD_UNLIKELY( !block ) ) return NULL;
+  return &block->meta;
+}
 
-/* Query the parent slot of slot. */
+/* fd_blockstore_block_data_query queries for the block data keyed by
+   slot.  Returns a pointer to the block data entry or NULL if not in
+   blockstore.  The return pointer lifetime is until slot is removed. */
+
+FD_FN_PURE static inline fd_block_data_t *
+fd_blockstore_block_data_query( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+  if( FD_UNLIKELY( !block || !block->data.data_gaddr ) ) return NULL;
+  return &block->data;
+}
+
+/* fd_blockstore_block_data_query_volatile queries the block map entry
+   (metadata and block data) in a lock-free thread-safe manner that does
+   not block writes.
+
+   Returns FD_BLOCKSTORE_SLOT_MISSING if slot is missing: caller MUST
+   ignore out pointers in this case. Otherwise this call cannot fail and
+   returns FD_BLOCKSTORE_OK. 
+
+   Copies the metadata (fd_block_map_t) into block_meta_out.
+   Allocates a new block data (uchar *) using alloc, copies the block
+   data into it, and sets the block_data_out pointer.  Caller provides
+   the allocator via alloc for the copied block data (an allocator is
+   needed because the block data sz is not known apriori).  */
+
+int
+fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore,
+                                         ulong             slot,
+                                         fd_block_meta_t *      block_meta_out,
+                                         fd_valloc_t       alloc,
+                                         uchar **          block_data_out,
+                                         ulong *           block_data_out_sz );
+
+/* fd_blockstore_block_meta_query_volatile is the same as above except it
+   only copies out the metadata (fd_block_map_t).  Returns
+   FD_BLOCKSTORE_SLOT_MISSING if slot is missing, otherwise
+   FD_BLOCKSTORE_OK. */
+
+int
+fd_blockstore_block_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_meta_t * block_meta_out );
+
+/* fd_blockstore_block_hash_query queries for slot's block hash. Returns
+   a pointer in the local address space to the block or NULL if not in
+   blockstore.  The return pointer lifetime is until the block is
+   removed. */
+
+FD_FN_PURE static inline fd_hash_t const *
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+  if( FD_UNLIKELY( !block || block->data.data_gaddr == 0 ) ) return NULL;
+  return &block->meta.block_hash;
+}
+
+/* fd_blockstore_bank_hash_query queries for the bank hash for slot. */
+
+FD_FN_PURE static inline fd_hash_t const *
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( blockstore, slot );
+  if( FD_UNLIKELY( !block_meta ) ) return NULL;
+  return &block_meta->bank_hash;
+}
+
+/* fd_blockstore_parent_slot_query queries and returns slot's parent
+   slot.  Always a valid slot (not FD_SLOT_NULL). */
+
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
@@ -501,93 +623,85 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 int
 fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt );
 
-/* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
-   slot children of the current frontier that are shred complete. */
-fd_block_t *
-fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
-                                    ulong *           parents,
-                                    ulong             parents_sz );
 
-/* fd_blockstore_block_data_query_volatile queries the block map entry
-   (metadata and block data) in a lock-free thread-safe manner that does
-   not block writes.  Copies the metadata (fd_block_map_t) into
-   block_map_entry_out.  Allocates a new block data (uchar *) using
-   alloc, copies the block data into it, and sets the block_data_out
-   pointer.  Caller provides the allocator via alloc for the copied
-   block data (an allocator is needed because the block data sz is not
-   known apriori).  Returns FD_BLOCKSTORE_SLOT_MISSING if slot is
-   missing: caller MUST ignore out pointers in this case. Otherwise this
-   call cannot fail and returns FD_BLOCKSTORE_OK. */
+/* fd_blockstore_txn_query queries the transaction data for sig */
 
-int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz );
-
-/* fd_blockstore_block_map_query_volatile is the same as above except it
-   only copies out the metadata (fd_block_map_t).  Returns
-   FD_BLOCKSTORE_SLOT_MISSING if slot is missing, otherwise
-   FD_BLOCKSTORE_OK. */
-
-int
-fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out );
-
-/* Query the transaction data for the given signature */
 fd_blockstore_txn_map_t *
 fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ] );
 
-/* Query the transaction data for the given signature in a thread
-   safe manner. The transaction data is copied out. txn_data_out can
-   be NULL if you are only interested in the transaction metadata. */
+/* fd_blockstore_txn_query_volatile queries the transaction data for sig
+   in a thread-safe manner. The transaction data is copied out.
+   txn_data_out can be NULL if you are only interested in the
+   transaction metadata. */
+
 int
 fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] );
 
-/* Remove slot from blockstore, including all relevant internal structures. */
+/* fd_blockstore_slot_remove removes all elements (blocks, shreds, etc.)
+   keyed by slot from the blockstore. */
+
 void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
-
-/* Remove all the unassembled shreds for a slot */
-int
-fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
-
-/* Set the block height. */
-void
-fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
 /* fd_blockstore_publish publishes root to the blockstore, pruning any
    paths that are not in root's subtree.  Removes all blocks in the
    pruned paths.  Returns FD_BLOCKSTORE_OK on success,
    FD_BLOCKSTORE_ERR_X otherwise.  Caller MUST hold the write lock. */
+
 int
 fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root_slot );
 
-/* Acquire a read lock */
+/* fd_blockstore_start_read acquires the blockstore rw lock for read.
+   Blocks until the lock is acquired.
+
+   IMPORTANT SAFETY TIP!  Caller must pair every call to start_read with
+   end_read, and never attempt to acquire the rw lock while holding the
+   lock (otherwise deadlock).  Blockstore can be an invalid state if a
+   caller crashes while holding the lock. */
+
 static inline void
 fd_blockstore_start_read( fd_blockstore_t * blockstore ) {
   fd_readwrite_start_read( &blockstore->lock );
 }
 
-/* Release a read lock */
+/* fd_blockstore_end_read releases the blockstore rw lock for read. */
+
 static inline void
 fd_blockstore_end_read( fd_blockstore_t * blockstore ) {
   fd_readwrite_end_read( &blockstore->lock );
 }
 
-/* Acquire a write lock */
+/* fd_blockstore_start_read acquires the blockstore rw lock for write.
+   Blocks until the lock is acquired.
+
+   IMPORTANT SAFETY TIP!  Caller must pair every call to start_write
+   with end_write, and never attempt to acquire the rw lock while
+   holding the lock (otherwise deadlock).  Blockstore can be an invalid
+   state if a caller crashes while holding the lock. */
+
 static inline void
 fd_blockstore_start_write( fd_blockstore_t * blockstore ) {
   fd_readwrite_start_write( &blockstore->lock );
 }
 
-/* Release a write lock */
+/* fd_blockstore_end_write releases the blockstore rw lock for write. */
+
 static inline void
 fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
   fd_readwrite_end_write( &blockstore->lock );
 }
 
+/* fd_blockstore_log_mem_usage logs the block status of around_slot in a
+   human-readable format.  Caller MUST hold the read lock before
+   calling this function. */
+
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot );
 
 /* fd_blockstore_log_mem_usage logs the memory usage of blockstore in a
-human-readable format.  Caller MUST hold the read lock. */
+   human-readable format.  Caller MUST hold the read lock before
+   calling this function. */
+
 void
 fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
 

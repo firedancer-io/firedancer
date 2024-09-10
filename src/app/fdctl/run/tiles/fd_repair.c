@@ -442,14 +442,22 @@ repair_get_shred( ulong  slot,
   fd_blockstore_start_read( blockstore );
 
   if( shred_idx == UINT_MAX ) {
-    fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
+    fd_block_meta_t * meta = fd_blockstore_block_meta_query( blockstore, slot );
     if( meta == NULL ) {
+      FD_LOG_WARNING(( "failed to get block map entry for slot %lu", slot ));
       fd_blockstore_end_read( blockstore );
       return -1L;
     }
     shred_idx = (uint)meta->complete_idx;
   }
-  long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
+
+  if (FD_UNLIKELY(buf_max < FD_SHRED_MAX_SZ) ) {
+    FD_LOG_WARNING(( "[%s] buf_max %lu < FD_SHRED_MAX_SZ %lu", __func__, buf_max, FD_SHRED_MAX_SZ ));
+    fd_blockstore_end_read( blockstore );
+    return -1L;
+  }
+
+  long sz = fd_blockstore_shred_query_volatile( blockstore, slot, shred_idx, buf );
 
   fd_blockstore_end_read( blockstore );
   return sz;
@@ -465,7 +473,7 @@ repair_get_parent( ulong  slot,
   }
   fd_blockstore_start_read( blockstore );
 
-  fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
+  fd_block_meta_t * meta = fd_blockstore_block_meta_query( blockstore, slot );
   if( meta == NULL ) {
     fd_blockstore_end_read( blockstore );
     return FD_SLOT_NULL;

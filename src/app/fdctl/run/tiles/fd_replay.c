@@ -391,13 +391,13 @@ during_frag( void * _ctx,
   // }
 
   fd_blockstore_start_read( ctx->blockstore );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-  if( FD_LIKELY( block_map_entry ) ) {
-    if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+  fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( ctx->blockstore, ctx->curr_slot );
+  if( FD_LIKELY( block_meta ) ) {
+    if( FD_UNLIKELY( fd_uchar_extract_bit( block_meta->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
       FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
       *opt_filter = 1;
     }
-    if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
+    if( FD_UNLIKELY( fd_uchar_extract_bit( block_meta->flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
       FD_LOG_WARNING(( "block already dead - slot: %lu", ctx->curr_slot ));
       *opt_filter = 1;
     }
@@ -725,16 +725,16 @@ after_frag( void *             _ctx,
     if( res != 0 && !( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
       FD_LOG_WARNING(( "block invalid - slot: %lu", curr_slot ));
 
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+      fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( ctx->blockstore, curr_slot );
+      fd_block_meta_t * block_ = fd_blockstore_block_meta_query( ctx->blockstore, curr_slot );
 
       fd_blockstore_start_write( ctx->blockstore );
 
       if( FD_LIKELY( block_ ) ) {
-        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
+        block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_DEADBLOCK );
         FD_COMPILER_MFENCE();
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
+        block_meta->flags = fd_uchar_clear_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
+        memcpy( &block_meta->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
       }
 
       fd_blockstore_end_write( ctx->blockstore );
@@ -760,8 +760,8 @@ after_frag( void *             _ctx,
         FD_LOG_ERR(("block finalize failed"));
       }
 
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+      fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( ctx->blockstore, curr_slot );
+      fd_block_meta_t * block_ = fd_blockstore_block_meta_query( ctx->blockstore, curr_slot );
 
       // Notify for all the updated accounts
       long notify_time_ns = -fd_log_wallclock();
@@ -801,7 +801,7 @@ after_frag( void *             _ctx,
         msg->slot_exec.slot = curr_slot;
         msg->slot_exec.parent = ctx->parent_slot;
         msg->slot_exec.root = ctx->blockstore->smr;
-        msg->slot_exec.height = ( block_map_entry ? block_map_entry->height : 0UL );
+        msg->slot_exec.height = ( block_meta ? block_meta->block_height : 0UL );
         msg->slot_exec.transaction_count = fork->slot_ctx.slot_bank.transaction_count;
         memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
         memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
@@ -817,10 +817,10 @@ after_frag( void *             _ctx,
       fd_blockstore_start_write( ctx->blockstore );
 
       if( FD_LIKELY( block_ ) ) {
-        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-        ctx->blockstore->lps   = block_map_entry->slot;
-        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
+        block_meta->flags    = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_PROCESSED );
+        block_meta->flags    = fd_uchar_clear_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
+        ctx->blockstore->lps = curr_slot;
+        memcpy( &block_meta->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
       }
 
       fd_blockstore_end_write( ctx->blockstore );
@@ -1093,7 +1093,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-  fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->slot_ctx->slot_bank.slot );
   fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 
@@ -1129,7 +1129,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-    fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+    fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->slot_ctx->slot_bank.slot );
     fd_blockstore_end_write( ctx->slot_ctx->blockstore );
   }
   fd_fseq_update( ctx->smr, snapshot_slot );

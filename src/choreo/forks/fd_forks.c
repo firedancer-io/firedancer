@@ -282,8 +282,8 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   /* Check the parent block is present in the blockstore and executed. */
 
-  fd_block_t * block = fd_blockstore_block_query( blockstore, parent_slot );
-  if( FD_UNLIKELY( !block ) ) {
+  fd_block_meta_t * block_meta = fd_blockstore_block_meta_query( blockstore, parent_slot );
+  if( FD_UNLIKELY( !block_meta || !fd_uchar_extract_bit( block_meta->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     FD_LOG_WARNING(( "fd_forks_prepare missing parent_slot %lu", parent_slot ));
   }
 
