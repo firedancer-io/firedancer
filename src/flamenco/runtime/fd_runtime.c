@@ -2038,12 +2038,18 @@ fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
+
   /* Update block height */
+
   slot_ctx->slot_bank.block_height += 1UL;
-  fd_blockstore_block_height_update(
-        slot_ctx->blockstore,
-        slot_ctx->slot_bank.slot,
-        slot_ctx->slot_bank.block_height );
+  fd_blockstore_start_write( slot_ctx->blockstore );
+  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot );
+  if (FD_UNLIKELY( !block_map_entry )) {
+    FD_LOG_WARNING(( "[%s] unable to find block map entry for slot_ctx %lu", __func__, slot_ctx->slot_bank.slot ));
+    return -1;
+  }
+  block_map_entry->block_height = slot_ctx->slot_bank.block_height;
+  fd_blockstore_end_write( slot_ctx->blockstore );
 
   // TODO: this is not part of block execution, move it.
   if( slot_ctx->slot_bank.slot != 0 ) {

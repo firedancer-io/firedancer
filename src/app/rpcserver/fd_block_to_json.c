@@ -402,7 +402,7 @@ fd_block_to_json( fd_webserver_t * ws,
   char hash[50];
   fd_base58_encode_32(meta->block_hash.uc, 0, hash);
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\"",
-                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash);
+                       meta->block_height, meta->ts/(long)1e9, meta->parent_slot, hash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_web_reply_sprintf(ws, "},\"id\":%s}", call_id);

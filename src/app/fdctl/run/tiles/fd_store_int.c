@@ -382,15 +382,12 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
-    fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
-    if( block == NULL ) {
-      FD_LOG_ERR(( "could not find block" ));
-    }
-
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
     if( block_map_entry == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
+    uchar * block_data = fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->blockstore ),
+                                             block_map_entry->data_gaddr );
 
     fd_hash_t const * block_hash = fd_blockstore_block_hash_query( ctx->blockstore, slot );
     if( block_hash == NULL ) {
@@ -403,11 +400,9 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
     out_buf += sizeof(fd_hash_t);
 
-    uchar * block_data = fd_blockstore_block_data_laddr( ctx->blockstore, block );
-
     FD_SCRATCH_SCOPE_BEGIN {
       fd_block_info_t block_info;
-      fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
+      fd_runtime_block_prepare( block_data, block_map_entry->data_sz, fd_scratch_virtual(), &block_info );
 
       ulong caught_up = slot > ctx->store->first_turbine_slot;
       ulong behind = ctx->store->curr_turbine_slot - slot;

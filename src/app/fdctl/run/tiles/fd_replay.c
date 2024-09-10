@@ -801,7 +801,7 @@ after_frag( void *             _ctx,
         msg->slot_exec.slot = curr_slot;
         msg->slot_exec.parent = ctx->parent_slot;
         msg->slot_exec.root = ctx->blockstore->smr;
-        msg->slot_exec.height = ( block_map_entry ? block_map_entry->height : 0UL );
+        msg->slot_exec.height = ( block_map_entry ? block_map_entry->block_height : 0UL );
         msg->slot_exec.transaction_count = fork->slot_ctx.slot_bank.transaction_count;
         memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
         memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
@@ -1093,7 +1093,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-  fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->slot_ctx->slot_bank.slot );
   fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 
@@ -1129,7 +1129,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-    fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+    fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->slot_ctx->slot_bank.slot );
     fd_blockstore_end_write( ctx->slot_ctx->blockstore );
   }
   fd_fseq_update( ctx->smr, snapshot_slot );
