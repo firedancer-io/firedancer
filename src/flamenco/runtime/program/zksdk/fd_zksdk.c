@@ -185,6 +185,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L78-L82
        Note: instr_id is guaranteed to be valid, to access values in the arrays. */
     if (ctx->instr->data_sz != 1 + proof_data_sz) {
+      fd_log_collector_msg_literal( ctx, "invalid proof data" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
     context = instr_data + 1;
@@ -195,6 +196,8 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   void const * proof = context + fd_zksdk_context_sz[instr_id];
   int err = (*fd_zksdk_instr_verify_proof)( context, proof );
   if( FD_UNLIKELY( err ) ) {
+    //TODO: full log, including err
+    fd_log_collector_msg_literal( ctx, "proof_verification failed" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
