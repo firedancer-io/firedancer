@@ -183,6 +183,13 @@ quic_conn_new( fd_quic_conn_t * conn,
   (void)_ctx;
 }
 
+static void
+quic_conn_final( fd_quic_conn_t * conn,
+                 void *           quic_ctx ) {
+  (void)conn;
+  (void)quic_ctx;
+  FD_LOG_ERR(( "connection closed" ));
+}
 
 void
 handshake_complete( fd_quic_conn_t * conn,
@@ -322,9 +329,6 @@ during_frag( void * _ctx,
       fd_quic_service( ctx->quic );
       return;
     }
-    //if( send_err!=FD_QUIC_SUCCESS ) {
-    //  FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", send_err ));
-    //}
 
     ctx->packet_cnt++;
   }
@@ -471,6 +475,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
+    quic->cb.conn_final       = quic_conn_final;
     quic->cb.now              = quic_now;
     quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;
