@@ -9,12 +9,11 @@ typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
+  ulong       mtu;
 } fd_plugin_in_ctx_t;
 
 typedef struct {
   fd_plugin_in_ctx_t in[ 64UL ];
-
-  uchar buf[ 8UL+40200UL*(58UL+12UL*34UL) ] __attribute__((aligned(8)));
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -60,6 +59,10 @@ during_frag( void * _ctx,
   ulong _sz = sz;
   if( FD_UNLIKELY( in_idx==1UL ) ) _sz = 8UL + 40200UL*(58UL+12UL*34UL);
   else if( FD_UNLIKELY( in_idx==2UL ) ) _sz = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
+
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || _sz>ctx->in[ in_idx ].mtu ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
   fd_memcpy( dst, src, _sz );
 }
 
@@ -98,7 +101,7 @@ after_frag( void *             _ctx,
       break;
     }
     /* stake_out */
-    case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; FD_LOG_NOTICE(( "sending leader schedule" )); break;
+    case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; break;
     /* poh_plugin */
     case 3UL: {
       FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_START || *opt_sig==FD_PLUGIN_MSG_SLOT_END );
@@ -124,7 +127,7 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( in_idx==1UL ) ) _sz = 8UL + 40200UL*(58UL+12UL*34UL);
   else if( FD_UNLIKELY( in_idx==2UL ) ) _sz = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
 
-  fd_mux_publish( mux, sig, ctx->out_chunk, *opt_sz, 0UL, 0UL, 0UL );
+  fd_mux_publish( mux, sig, ctx->out_chunk, *opt_sz, 0UL, 0UL, 0UL ); /* Not _sz which might not fit */
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, _sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -143,6 +146,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    ctx->in[ i ].mtu    = link->mtu;
+
+    FD_TEST( link->mtu<=topo->links[ tile->out_link_id_primary ].mtu );
   }
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;

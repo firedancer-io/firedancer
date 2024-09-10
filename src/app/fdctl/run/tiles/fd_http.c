@@ -128,6 +128,9 @@ during_frag( void * _ctx,
   if( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) sz = 8UL + 40200UL*(58UL+12UL*34UL);
   else if( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) sz = 40UL + 40200UL*40UL;
 
+  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz>sizeof( ctx->buf ) ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+
   fd_memcpy( ctx->buf, src, sz );
 }
 
