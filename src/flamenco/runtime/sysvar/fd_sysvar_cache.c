@@ -120,6 +120,8 @@ fd_sysvar_cache_restore_##name(                                           \
         .dataend = account->const_data + account->const_meta->dlen,       \
         .valloc  = cache->valloc };                                       \
     int err = type##_decode( cache->val_##name, &decode );                \
+    FD_LOG_WARNING(("DATA BRU %32J %lx", account->pubkey, account->const_data));                   \
+    FD_LOG_HEXDUMP_WARNING(("asdf", account->const_data, account->const_meta->dlen)); \
     cache->has_##name = (err==FD_BINCODE_SUCCESS);                        \
   } while(0);                                                             \
 }

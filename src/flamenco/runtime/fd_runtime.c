@@ -1162,7 +1162,7 @@ fd_runtime_copy_accounts_to_pruned_funk( fd_funk_t * pruned_funk,
   fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
   for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
     fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-    fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
+    fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i], NULL );
     fd_pubkey_t program_pubkey = instrs[i].program_id_pubkey;
     fd_funk_rec_key_t program_rec_key = fd_acc_funk_key( &program_pubkey );
     fd_funk_rec_t * new_rec;

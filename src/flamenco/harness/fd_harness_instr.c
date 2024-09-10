@@ -1,19 +1,5 @@
 #include "fd_harness.h"
-
-static int
-fd_double_is_normal( double dbl ) {
-  ulong x = fd_dblbits( dbl );
-  int is_denorm =
-    ( fd_dblbits_bexp( x ) == 0 ) &
-    ( fd_dblbits_mant( x ) != 0 );
-  int is_inf =
-    ( fd_dblbits_bexp( x ) == 2047 ) &
-    ( fd_dblbits_mant( x ) ==    0 );
-  int is_nan =
-    ( fd_dblbits_bexp( x ) == 2047 ) &
-    ( fd_dblbits_mant( x ) !=    0 );
-  return !( is_denorm | is_inf | is_nan );
-}
+#include "../runtime/sysvar/fd_sysvar_clock.h"
 
 static void
 fd_harness_dump_file( fd_v2_exec_env_t  const * exec_env,
@@ -22,12 +8,11 @@ fd_harness_dump_file( fd_v2_exec_env_t  const * exec_env,
 
   /* Create a filename. TODO: This should be moved to a utils file. */
 
-  char filename[256] = {0};  
-  char txn_sig[65]   = {0};
+  char filename[256] = {0};
+  char txn_sig[128];
   uchar * sig        = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+  FD_LOG_WARNING(("sig %64J", sig));
   fd_base58_encode_64( sig, NULL, txn_sig );
-  txn_sig[64] = '\0';
-
 
   /* TODO: Replace this with the capture_ctx directory*/
   char proto_output_dir[64] = "/data/ibhatt/";
@@ -35,7 +20,7 @@ fd_harness_dump_file( fd_v2_exec_env_t  const * exec_env,
   char * position = fd_cstr_init( filename );
   position        = fd_cstr_append_cstr( position, proto_output_dir );
   position        = fd_cstr_append_cstr( position, "/instr-" );
-  position        = fd_cstr_append_cstr( position, txn_sig );
+  position        = fd_cstr_append_cstr_safe( position, txn_sig, 88UL ); /* Length of decoded tx signature */
   position        = fd_cstr_append_cstr( position, "-" );
   position        = fd_cstr_append_ushort_as_text( position, '0', 0, instr_idx, 2UL );
   position        = fd_cstr_append_cstr(position, ".pb.bin" );
@@ -78,6 +63,7 @@ fd_harness_dump_acct_state( fd_borrowed_account_t const * borrowed_account,
   output_account->data       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( borrowed_account->const_meta->dlen ) );
   output_account->data->size = (uint)borrowed_account->const_meta->dlen;
   fd_memcpy( output_account->data->bytes, borrowed_account->const_data, borrowed_account->const_meta->dlen );
+  //FD_LOG_HEXDUMP_WARNING(("ACCOUNT DATA", output_account->data->bytes, output_account->data->size));
 
   /* Executable */
   output_account->executable = borrowed_account->const_meta->info.executable;
@@ -92,7 +78,7 @@ fd_harness_dump_acct_state( fd_borrowed_account_t const * borrowed_account,
   output_account->has_seed_addr = false;
 }
 
-static void FD_FN_UNUSED
+static void
 fd_harness_dump_features( fd_features_t const * features, fd_v2_feature_t * output_features ) {
   uint idx = 0U;
   for( fd_feature_id_t const *id = fd_feature_iter_init(); 
@@ -122,6 +108,10 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
      3. Sysvar accounts
    */
 
+  fd_sol_sysvar_clock_t clock = {0};
+  fd_sysvar_clock_read( &clock, txn_ctx->slot_ctx );
+  FD_LOG_NOTICE(("CLOCK EPOCH %lu", clock.epoch ));
+
   /* Make this static */
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
     fd_sysvar_clock_id,
@@ -136,8 +126,9 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
     fd_sysvar_instructions_id,
   };
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
+  FD_LOG_NOTICE(("NUM SYSVAR ENTREIS %lu", num_sysvar_entries));
 
-  ulong max_accs_to_save = txn_ctx->accounts_cnt + num_sysvar_entries + txn_ctx->executable_cnt;
+  ulong max_accs_to_save = txn_ctx->accounts_cnt + num_sysvar_entries;
 
   fd_v2_acct_state_t * acct_states = fd_scratch_alloc( alignof(fd_v2_acct_state_t), 
                                                        sizeof(fd_v2_acct_state_t) * max_accs_to_save );
@@ -158,6 +149,7 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
     FD_BORROWED_ACCOUNT_DECL( borrowed_account );
     int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, 
                                &fd_relevant_sysvar_ids[i], borrowed_account );
+    //FD_LOG_NOTICE(("ACC MGR VIEW ret %d pubkey %32J", ret, &fd_relevant_sysvar_ids[i]));
     if( FD_UNLIKELY( ret!=FD_ACC_MGR_SUCCESS ) ) {
       continue;
     }
@@ -167,6 +159,7 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
     for( uint j=0U; j<txn_ctx->accounts_cnt; j++ ) {
       if( !memcmp( acct_states[j].address, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
+        FD_LOG_NOTICE(("ACCOUNT EXISTS"));
         break;
       }
     }
@@ -221,11 +214,11 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
   txn_env.instructions_count  = 1UL;
   txn_env.instructions        = &instr_env;
 
-  instr_env.program_id_idx     = instr->program_id;
-  instr_env.accounts_count     = instr->acct_cnt;
-  instr_env.accounts           = fd_scratch_alloc( alignof(fd_v2_instr_acct_t), sizeof(fd_v2_instr_acct_t) * instr->acct_cnt );
-  for( uint i=0U; i<instr_env.accounts_count; i++ ) {
-    instr_env.accounts[i] = instr->acct_txn_idxs[i];
+  instr_env.program_id_idx = instr->program_id;
+  instr_env.accounts       = fd_scratch_alloc( alignof(pb_byte_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(pb_byte_t) * instr->acct_cnt ) );
+  instr_env.accounts->size = instr->acct_cnt;
+  for( uint i=0U; i<instr->acct_cnt; i++ ) {
+    instr_env.accounts->bytes[i] = instr->acct_txn_idxs[i];
   }
 
   instr_env.data       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr->data_sz ) );
@@ -248,65 +241,14 @@ static void
 fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
   fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
 
+  fd_sol_sysvar_clock_t clock = {0};
+  fd_sysvar_clock_read( &clock, ctx->txn_ctx->slot_ctx );
+  FD_LOG_NOTICE(("CLOCK EPOCH %lu", clock.epoch ));
+
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
 
-  /* Clock */
-  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  if( !slot_ctx->sysvar_cache->has_clock ) {
-    slot_ctx->sysvar_cache->has_clock = 1;
-    fd_sol_sysvar_clock_t sysvar_clock = {
-                                          .slot = 10,
-                                          .epoch_start_timestamp = 0,
-                                          .epoch = 0,
-                                          .leader_schedule_epoch = 0,
-                                          .unix_timestamp = 0
-                                        };
-    memcpy( slot_ctx->sysvar_cache->val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
-  }
-
-  /* Epoch schedule */
-  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  if ( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    slot_ctx->sysvar_cache->has_epoch_schedule = 1;
-    fd_epoch_schedule_t sysvar_epoch_schedule = {
-                                                  .slots_per_epoch = 432000,
-                                                  .leader_schedule_slot_offset = 432000,
-                                                  .warmup = 1,
-                                                  .first_normal_epoch = 14,
-                                                  .first_normal_slot = 524256
-                                                };
-    memcpy( slot_ctx->sysvar_cache->val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  }
-
-  /* Rent */
-  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  if ( !slot_ctx->sysvar_cache->has_rent ) {
-    slot_ctx->sysvar_cache->has_rent = 1;
-    fd_rent_t sysvar_rent = {
-                              .lamports_per_uint8_year = 3480,
-                              .exemption_threshold = 2.0,
-                              .burn_percent = 50
-                            };
-    memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
-  }
-
-  /* Handle undefined behavior if sysvars are malicious (!!!) */
-
-  /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
-  if( rent ) {
-    if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
-        ( rent->exemption_threshold     <      0.0 ) |
-        ( rent->exemption_threshold     >    999.0 ) |
-        ( rent->lamports_per_uint8_year > UINT_MAX ) |
-        ( rent->burn_percent            >      100 ) ) {
-      return;
-    }
-
-    /* Override epoch bank settings */
-
-    slot_ctx->epoch_ctx->epoch_bank.rent = *rent;
-  }
+  fd_sysvar_clock_read( &clock, ctx->txn_ctx->slot_ctx );
+  FD_LOG_NOTICE(("CLOCK EPOCH 2 %lu", clock.epoch ));
 
   /* TODO: FIX THIS PLEASE THIS IS A MEGA MEGA HACK */
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
@@ -330,8 +272,8 @@ fd_harness_exec_restore_features( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exe
   fd_exec_epoch_ctx_t * epoch_ctx = ctx->epoch_ctx;
   fd_features_disable_all( &epoch_ctx->features );
   for( uint i=0U; i<exec_env->features_count; i++ ) {
-    const char * feature = (const char *)exec_env->features[i].feature_id;
-    fd_features_enable_one_offs( &epoch_ctx->features, &feature, 1U, exec_env->features[i].slot );
+    fd_pubkey_t * feature = (fd_pubkey_t*)exec_env->features[i].feature_id;
+    fd_features_enable_decoded_one_off( &epoch_ctx->features, feature, exec_env->features[i].slot );
   }
 }
 
@@ -384,7 +326,7 @@ fd_harness_exec_setup( fd_harness_ctx_t * ctx ) {
   ctx->slot_ctx->funk_txn  = fd_funk_txn_prepare( ctx->funk, NULL, &xid, 1 );
   ctx->slot_ctx->epoch_ctx = ctx->epoch_ctx;
 
-  fd_slot_bank_new( &ctx->slot_ctx->slot_bank );
+  fd_slot_bank_new( &ctx->slot_ctx->slot_bank ); 
 
   /* Populate relevant txn context fields */
 
@@ -405,7 +347,6 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
   fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
   fd_pubkey_t *   pubkey   = (fd_pubkey_t*)acc->address;
-  FD_LOG_NOTICE(("Loading account %32J", pubkey));
 
   if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) ) {
     /* Don't need to load in the accounts if it already exists. TODO: consider
@@ -427,8 +368,13 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
   }
 
   if( acc->data->size ) {
-    fd_memcpy( borrowed_account->data, borrowed_account, acc->data->size );
+    fd_memcpy( borrowed_account->data, acc->data->bytes, acc->data->size );
+    borrowed_account->const_data = borrowed_account->data;
   }
+
+  FD_LOG_NOTICE(("ACCOUNT DATA FOR PUBKEY %32J %lx", pubkey, borrowed_account->const_data));
+  FD_LOG_HEXDUMP_NOTICE(("ACCOUNT DATA", borrowed_account->const_data, acc->data->size));
+
   borrowed_account->starting_lamports     = acc->lamports;
   borrowed_account->starting_dlen         = acc->data->size;
   borrowed_account->meta->info.lamports   = acc->lamports;
@@ -437,55 +383,51 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
   borrowed_account->meta->dlen            = acc->data->size;
   fd_memcpy( borrowed_account->meta->info.owner, acc->owner, sizeof(fd_pubkey_t) );
 
-  /* Make account read-only */
-  borrowed_account->meta = NULL;
-  borrowed_account->data = NULL;
-  borrowed_account->rec  = NULL;
 }
 
-static void
-fd_harness_exec_populate_instr( fd_harness_ctx_t * ctx,
-                                fd_v2_exec_env_t * exec_env,
-                                fd_instr_info_t *  instr ) {
+// static void
+// fd_harness_exec_populate_instr( fd_harness_ctx_t * ctx,
+//                                 fd_v2_exec_env_t * exec_env,
+//                                 fd_instr_info_t *  instr ) {
     
-  fd_v2_txn_env_t   * txn_env   = &exec_env->slots[0].txns[0];
-  fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
-  fd_exec_txn_ctx_t * txn_ctx   = ctx->txn_ctx;
+//   fd_v2_txn_env_t   * txn_env   = &exec_env->slots[0].txns[0];
+//   fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
+//   fd_exec_txn_ctx_t * txn_ctx   = ctx->txn_ctx;
 
-  instr->program_id = (uchar)instr_env->program_id_idx;
-  instr->data_sz    = (ushort)instr_env->data->size;
-  instr->acct_cnt   = (ushort)instr_env->accounts_count;
-  instr->data       = fd_scratch_alloc( 1, instr->data_sz );
+//   instr->program_id = (uchar)instr_env->program_id_idx;
+//   instr->data_sz    = (ushort)instr_env->data->size;
+//   instr->acct_cnt   = (ushort)instr_env->accounts->size;
+//   instr->data       = fd_scratch_alloc( 1, instr->data_sz );
 
-  fd_memcpy( instr->data, instr_env->data->bytes, instr->data_sz );
-  fd_memcpy( &instr->program_id_pubkey, &txn_ctx->accounts[instr->program_id], sizeof(fd_pubkey_t) );
+//   fd_memcpy( instr->data, instr_env->data->bytes, instr->data_sz );
+//   fd_memcpy( &instr->program_id_pubkey, &txn_ctx->accounts[instr->program_id], sizeof(fd_pubkey_t) );
 
-  FD_LOG_NOTICE(("INSTRUCTION PROGRAM ID PUBKEY %32J", &instr->program_id_pubkey));
+//   FD_LOG_NOTICE(("INSTRUCTION PROGRAM ID PUBKEY %32J", &instr->program_id_pubkey));
 
-  /* For each instruction account update accesses to transaction accounts. */
-  for( uint i=0U; i<instr->acct_cnt; i++ ) {
-    instr->acct_txn_idxs[i]     = (uchar)instr_env->accounts[i];
-    instr->acct_flags[i]        = 0;/* TODO: SET FLAGS */
-    fd_memcpy( &instr->acct_pubkeys[i], &txn_ctx->accounts[i], sizeof(fd_pubkey_t) );
-    instr->borrowed_accounts[i] = &txn_ctx->borrowed_accounts[instr_env->accounts[i]];
+//   /* For each instruction account update accesses to transaction accounts. */
+//   for( uint i=0U; i<instr->acct_cnt; i++ ) {
+//     instr->acct_txn_idxs[i]     = (uchar)instr_env->accounts[i];
+//     instr->acct_flags[i]        = 0;/* TODO: SET FLAGS */
+//     fd_memcpy( &instr->acct_pubkeys[i], &txn_ctx->accounts[i], sizeof(fd_pubkey_t) );
+//     instr->borrowed_accounts[i] = &txn_ctx->borrowed_accounts[instr_env->accounts[i]];
 
-    if( fd_txn_account_is_writable_idx( txn_ctx, (uchar)instr_env->accounts[i] ) ) {
-      instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
+//     if( fd_txn_account_is_writable_idx( txn_ctx, (uchar)instr_env->accounts[i] ) ) {
+//       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
 
-      /* Need to update the borrowed accounts to reflect that they are writable. */
-      instr->borrowed_accounts[i]->meta = (void *)instr->borrowed_accounts[i]->const_meta;
-      instr->borrowed_accounts[i]->data = (void *)instr->borrowed_accounts[i]->const_data;
-      instr->borrowed_accounts[i]->rec  = (void *)instr->borrowed_accounts[i]->const_rec;
-    }
+//       /* Need to update the borrowed accounts to reflect that they are writable. */
+//       instr->borrowed_accounts[i]->meta = (void *)instr->borrowed_accounts[i]->const_meta;
+//       instr->borrowed_accounts[i]->data = (void *)instr->borrowed_accounts[i]->const_data;
+//       instr->borrowed_accounts[i]->rec  = (void *)instr->borrowed_accounts[i]->const_rec;
+//     }
 
-    /* This is the equivalent of fd_txn_is_signer() but instead doesn't involve
-       constructing a txn_descriptor.  */
-    if( instr->acct_txn_idxs[i]<txn_env->header.num_required_signatures ) {
-      instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-    }
-  }
+//     /* This is the equivalent of fd_txn_is_signer() but instead doesn't involve
+//        constructing a txn_descriptor.  */
+//     if( instr->acct_txn_idxs[i]<txn_env->header.num_required_signatures ) {
+//       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+//     }
+//   }
 
-}
+// }
 
 int
 fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
@@ -498,12 +440,18 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
     FD_LOG_ERR(( "Failed to decode exec env pb" ));
   }
 
-  fd_v2_txn_env_t * txn_env = &exec_env.slots[0].txns[0];
+  fd_v2_txn_env_t *   txn_env   = &exec_env.slots[0].txns[0];
+  fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
 
   /* Setup the basic execution environment: allocate contexts and important
      data structures (funk, wksp, acc_mgr, etc. ) */
   fd_harness_ctx_t ctx = {0};
   fd_harness_exec_setup( &ctx );
+  ctx.slot_ctx->slot_bank.slot = exec_env.slots[0].slot_number;
+  ctx.exec_env  = &exec_env; /* TODO: get rid of these */
+  ctx.slot_env  = &exec_env.slots[0];
+  ctx.txn_env   = txn_env;
+  ctx.instr_env = instr_env;
 
   /* Load in all account states into the borrowed accounts/acc_mgr.
      Need to load in the transaction accounts, the corresponding programdata
@@ -514,6 +462,9 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
     fd_v2_acct_state_t * acc = &exec_env.acct_states[i];
     fd_harness_exec_load_acc( &ctx, &ctx.txn_ctx->borrowed_accounts[i], acc );
   } 
+
+  /* TODO: all of the cache stuff should go here */
+  fd_harness_exec_restore_sysvars( &ctx );
 
   fd_exec_txn_ctx_setup( ctx.txn_ctx, NULL, NULL );
   ctx.txn_ctx->compute_unit_limit = txn_env->cu_avail;
@@ -526,19 +477,46 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
     fd_memcpy( &ctx.txn_ctx->accounts[i], pubkey, sizeof(fd_pubkey_t) );
   }
 
+  /* Mock up txn descriptor fields */
+  fd_txn_t * txn_descriptor             = fd_scratch_alloc( alignof(fd_txn_t), sizeof(fd_txn_t) );
+  txn_descriptor->signature_cnt         = (uchar)txn_env->header.num_required_signatures;
+  txn_descriptor->readonly_signed_cnt   = (uchar)txn_env->header.num_readonly_signed_accounts;
+  txn_descriptor->readonly_unsigned_cnt = (uchar)txn_env->header.num_readonly_unsigned_accounts;
+  txn_descriptor->transaction_version   = txn_env->is_legacy ? FD_TXN_VLEGACY : FD_TXN_V0;
+  txn_descriptor->acct_addr_cnt         = (ushort)txn_env->account_keys_count;
+  txn_descriptor->instr_cnt             = 1;
+
+  fd_txn_instr_t * txn_instr = fd_scratch_alloc( alignof(fd_txn_instr_t), sizeof(fd_txn_instr_t) );
+  txn_instr->program_id      = (uchar)instr_env->program_id_idx;
+  txn_instr->acct_cnt        = (ushort)instr_env->accounts->size;
+  txn_instr->data_sz         = (ushort)instr_env->data->size;
+
+  ctx.txn_ctx->txn_descriptor = txn_descriptor;
+
   /* Load in all features */
   fd_harness_exec_restore_features( &ctx, &exec_env );
 
-  /* TODO: all of the cache stuff should go here */
-  fd_harness_exec_restore_sysvars( &ctx );
+  /* Capture ctx */
+  fd_capture_ctx_t * capture_ctx = fd_scratch_alloc( alignof(fd_capture_ctx_t), sizeof(fd_capture_ctx_t) );
+  capture_ctx->exec_env  = ctx.exec_env;
+  capture_ctx->slot_env  = ctx.slot_env;
+  capture_ctx->txn_env   = ctx.txn_env;
+  capture_ctx->instr_env = ctx.instr_env;
 
+
+  /* Populate the instruction */
   fd_instr_info_t instr = {0};
-  fd_harness_exec_populate_instr( &ctx, &exec_env, &instr );
+  fd_convert_txn_instr_to_instr( ctx.txn_ctx,
+                                 txn_instr,
+                                 ctx.txn_ctx->borrowed_accounts,
+                                 &instr,
+                                 capture_ctx );
 
   fd_funk_end_write( ctx.funk );
 
   int res = fd_execute_instr( ctx.txn_ctx, &instr );
   FD_LOG_NOTICE(("res %d", res));
+  FD_LOG_NOTICE(("instr data %lx data sz %lu", instr.data, instr.data_sz));
 
 
   /* Use updated transaction context to dump the updated account states */

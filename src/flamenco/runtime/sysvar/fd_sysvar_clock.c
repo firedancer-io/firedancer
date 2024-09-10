@@ -49,7 +49,7 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
 
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
-                      fd_exec_slot_ctx_t *    slot_ctx  ) {
+                      fd_exec_slot_ctx_t *    slot_ctx ) {
   fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( slot_ctx->sysvar_cache );
   if( NULL != ret ) {
     fd_memcpy(result, ret, sizeof(fd_sol_sysvar_clock_t));
@@ -61,6 +61,8 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
+  FD_LOG_HEXDUMP_NOTICE(("clock account data", acc->const_data, acc->const_meta->dlen));
+
   fd_bincode_decode_ctx_t ctx =
     { .data    = acc->const_data,
       .dataend = acc->const_data + acc->const_meta->dlen,
@@ -68,6 +70,7 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
 
   if( FD_UNLIKELY( fd_sol_sysvar_clock_decode( result, &ctx )!=FD_BINCODE_SUCCESS ) )
     return NULL;
+  FD_LOG_NOTICE(("YEPOCH %lu", result->epoch));
   return result;
 }
 

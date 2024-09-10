@@ -156,8 +156,9 @@ get_state( fd_borrowed_account_t const * self,
   decode_ctx.valloc  = valloc;
 
   rc = fd_vote_state_versioned_decode( versioned, &decode_ctx );
-  if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) )
+  if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -313,15 +314,17 @@ authorized_voters_get_or_calculate_authorized_voter_for_epoch( fd_vote_authorize
 static fd_vote_authorized_voter_t *
 authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_voters_t * self,
                                                             ulong                         epoch ) {
-  int                          existed = 0;
+  int existed = 0;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L29
   fd_vote_authorized_voter_t * res =
       authorized_voters_get_or_calculate_authorized_voter_for_epoch( self, epoch, &existed );
-  if( !res ) return NULL;
+  if( FD_UNLIKELY( !res ) ) {
+    return NULL;
+  }
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L32
   if( !existed ) {
     /* insert cannot fail because !existed */
-    if( 0 == fd_vote_authorized_voters_pool_free( self->pool) ) {
+    if( 0 == fd_vote_authorized_voters_pool_free( self->pool ) ) {
       FD_LOG_ERR(( "Authorized_voter pool is empty" ));
     }
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
@@ -677,7 +680,9 @@ get_and_update_authorized_voter( fd_vote_state_t *           self,
       authorized_voters_get_and_cache_authorized_voter_for_epoch( &self->authorized_voters,
                                                                   current_epoch );
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L835
-  if( FD_UNLIKELY( !authorized_voter ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  if( FD_UNLIKELY( !authorized_voter ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
   *pubkey = &authorized_voter->pubkey;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L837
   authorized_voters_purge_authorized_voters( &self->authorized_voters, current_epoch );
@@ -714,7 +719,9 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
   fd_vote_authorized_voter_t * latest_authorized =
       authorized_voters_last( &self->authorized_voters );
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L794
-  if( FD_UNLIKELY( ( !latest_authorized ) ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  if( FD_UNLIKELY( ( !latest_authorized ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
   ulong         latest_epoch             = latest_authorized->epoch;
   fd_pubkey_t * latest_authorized_pubkey = &latest_authorized->pubkey;
 
@@ -729,8 +736,9 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L810
-    if( target_epoch <= latest_epoch )
+    if( target_epoch <= latest_epoch ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L815
     prior_voters->idx += 1UL;
@@ -1825,8 +1833,9 @@ verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1093
-  if( FD_UNLIKELY( is_uninitialized( &versioned ) ) )
+  if( FD_UNLIKELY( is_uninitialized( &versioned ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+  }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1097
   convert_to_current( &versioned, scratch_valloc );
@@ -2375,8 +2384,9 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   };
   int decode_result = fd_vote_instruction_decode( &instruction, &decode );
   if( decode_result != FD_BINCODE_SUCCESS ||
-      (ulong)ctx->instr->data + 1232UL < (ulong)decode.data )
+      (ulong)ctx->instr->data + 1232UL < (ulong)decode.data ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   /* PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR LABS IMPL:
    */
@@ -2692,19 +2702,22 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     fd_vote_state_update_t vote_update;
     fd_vote_state_update_new( &vote_update );
-    if( FD_UNLIKELY( !fd_vote_decode_compact_update( vote_state_update, &vote_update ) ) )
+    if( FD_UNLIKELY( !fd_vote_decode_compact_update( vote_state_update, &vote_update ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
 
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_votes_to_directly_update_vote_state ) &&
                    FD_FEATURE_ACTIVE( ctx->slot_ctx, compact_vote_state_updates ) ) ) {
       // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L185
       fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
-      if( FD_UNLIKELY( !slot_hashes ) )
+      if( FD_UNLIKELY( !slot_hashes ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      }
 
       fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->slot_ctx->sysvar_cache );
-      if( FD_UNLIKELY( !clock ) )
+      if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      }
 
       // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L187
       rc = process_vote_state_update( 0, me, slot_hashes, clock, &vote_update, signers, ctx );

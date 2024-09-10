@@ -15,10 +15,12 @@ main( int argc, char ** argv ) {
 
   FD_LOG_WARNING(("HELLO"));
 
-  int file = open( "/data/ibhatt/instrexec_env.pb", O_RDONLY );
+  char path[312] = "/data/ibhatt/instr-3M6ubN9DGkdiXsEavgLCjYQUmY5ee1adTByiQteeSbDxJL9nUuUqJWMiUwiL59oCJ6uSz1Fr6SQSsJUSK4fc3MKh-00.pb.bin";
+
+  int file = open( path, O_RDONLY );
   struct stat st;
   if( FD_UNLIKELY( 0!=fstat( file, &st ) ) ) {
-    FD_LOG_WARNING(( "fstat(%s): %s", "/data/ibhatt/instrexec_env.pb", fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "fstat(%s): %s", path, fd_io_strerror( errno ) ));
     return 0;
   }
   ulong file_sz = (ulong)st.st_size;

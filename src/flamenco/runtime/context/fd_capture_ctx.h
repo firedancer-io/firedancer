@@ -3,7 +3,10 @@
 
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../funk/fd_funk_base.h"
+#include "../tests/generated/exec_v2.pb.h"
 
+/* TODO: this has been considerably bloated and can likely be split out into 
+   multiple different structs */
 /* Context needed to do solcap capture during execution of transactions */
 #define FD_CAPTURE_CTX_ALIGN (8UL)
 struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
@@ -33,6 +36,12 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
 
   /* Transaction Capture */
   int                      dump_txn_to_pb;
+
+  /* Runtime Fuzz v2 */
+  fd_v2_exec_env_t *       exec_env;
+  fd_v2_slot_env_t *       slot_env;
+  fd_v2_txn_env_t *        txn_env;
+  fd_v2_instr_env_t *      instr_env;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )

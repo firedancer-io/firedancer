@@ -80,6 +80,13 @@ fd_features_enable_one_offs( fd_features_t * features,
                              uint            one_offs_cnt,
                              ulong           slot );
 
+/* fd_features_enable_decoded_one_off enables a given feature at a given slot. */
+
+void
+fd_features_enable_decoded_one_off( fd_features_t * f,
+                                    fd_pubkey_t *   pubkey,
+                                    ulong           slot );
+
 /* fd_feature_iter_{...} is an iterator-style API over all supported
    features in this version of Firedancer.  Usage:
 

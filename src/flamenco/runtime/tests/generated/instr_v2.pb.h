@@ -23,8 +23,7 @@ typedef struct fd_v2_instr_env {
     /* Index into the set of txn accounts defined by the TxnEnv. */
     uint32_t program_id_idx;
     /* Indexes into the set of txn accounts defined by the TxnEnv. */
-    pb_size_t accounts_count;
-    uint32_t *accounts;
+    pb_bytes_array_t *accounts;
     /* The instruction data */
     pb_bytes_array_t *data;
 } fd_v2_instr_env_t;
@@ -43,10 +42,10 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_V2_INSTR_ACCT_INIT_DEFAULT            {0, 0, 0}
-#define FD_V2_INSTR_ENV_INIT_DEFAULT             {0, 0, NULL, NULL}
+#define FD_V2_INSTR_ENV_INIT_DEFAULT             {0, NULL, NULL}
 #define FD_V2_INSTR_EFFECTS_INIT_DEFAULT         {0, 0}
 #define FD_V2_INSTR_ACCT_INIT_ZERO               {0, 0, 0}
-#define FD_V2_INSTR_ENV_INIT_ZERO                {0, 0, NULL, NULL}
+#define FD_V2_INSTR_ENV_INIT_ZERO                {0, NULL, NULL}
 #define FD_V2_INSTR_EFFECTS_INIT_ZERO            {0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -69,7 +68,7 @@ X(a, STATIC,   SINGULAR, BOOL,     is_signer,         3)
 
 #define FD_V2_INSTR_ENV_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   program_id_idx,    1) \
-X(a, POINTER,  REPEATED, UINT32,   accounts,          2) \
+X(a, POINTER,  SINGULAR, BYTES,    accounts,          2) \
 X(a, POINTER,  SINGULAR, BYTES,    data,              3)
 #define FD_V2_INSTR_ENV_CALLBACK NULL
 #define FD_V2_INSTR_ENV_DEFAULT NULL
