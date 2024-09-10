@@ -15,6 +15,7 @@
 
 /* forward decls */
 typedef struct fd_quic               fd_quic_t;
+typedef struct fd_quic_config        fd_quic_config_t;
 typedef struct fd_quic_tls_cfg       fd_quic_tls_cfg_t;
 typedef struct fd_quic_tls           fd_quic_tls_t;
 typedef struct fd_quic_tls_hs        fd_quic_tls_hs_t;
@@ -33,6 +34,25 @@ struct __attribute__((aligned(16))) fd_quic_range {
 };
 
 typedef struct fd_quic_range fd_quic_range_t;
+
+FD_PROTOTYPES_BEGIN
+
+static inline int
+fd_quic_range_can_insert( fd_quic_range_t const * range,
+                          ulong                   idx ) {
+  return idx+1UL >= range->offset_lo && idx <= range->offset_hi;
+}
+
+static inline int
+fd_quic_range_insert( fd_quic_range_t * range,
+                      ulong             idx ) {
+  int hi_increased = idx >= range->offset_hi;
+  range->offset_lo = fd_ulong_min( range->offset_lo, idx );
+  range->offset_hi = fd_ulong_max( range->offset_hi, idx+1UL );
+  return hi_increased;
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_common_h */
 

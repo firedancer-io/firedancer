@@ -138,8 +138,16 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      Also sent to peer via max_idle_timeout transport param */
   ulong idle_timeout;
 
-   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
   int retry;
+
+  /* ack_delay_mask: bit mask for ACK delays in nanoseconds. in 2^k-1
+     (A value of 0xfffffff means outgoing ACKs are delayed up to 268 ms) */
+  ulong ack_delay_mask;
+
+  /* ack_threshold: immediately send an ACK when the number of
+     unconfirmed stream bytes exceeds this value. */
+  ulong ack_threshold;
 
   /* TLS config ********************************************/
 
@@ -190,7 +198,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
     uchar dscp;
   } net;
 };
-typedef struct fd_quic_config fd_quic_config_t;
 
 /* Callback API *******************************************************/
 

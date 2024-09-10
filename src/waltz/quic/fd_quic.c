@@ -1,4 +1,5 @@
 #include "fd_quic.h"
+#include "fd_quic_ack_tx.h"
 #include "fd_quic_common.h"
 #include "fd_quic_conn_id.h"
 #include "fd_quic_enum.h"
@@ -319,8 +320,14 @@ fd_quic_init( fd_quic_t * quic ) {
   fd_quic_limits_t const * limits = &quic->limits;
   fd_quic_config_t       * config = &quic->config;
 
-  if( FD_UNLIKELY( !config->role          ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
-  if( FD_UNLIKELY( !config->idle_timeout  ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
+  if( FD_UNLIKELY( !config->role           ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
+  if( FD_UNLIKELY( !config->idle_timeout   ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
+  if( FD_UNLIKELY( !config->ack_delay_mask ) ) { config->ack_delay_mask = 0xfffffff; /* 268ms */ }
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( config->ack_delay_mask+1UL ) ) ) { FD_LOG_WARNING(( "invalid cfg.ack_delay_mask" )); return NULL; }
+  if( FD_UNLIKELY( !config->ack_threshold  ) ) { config->ack_threshold = 0x10000; /* 64KB */ }
+  while( config->ack_delay_mask > config->idle_timeout/2 ) {
+    config->ack_delay_mask >>= 1;
+  }
 
   do {
     ulong x = 0U;
@@ -543,6 +550,7 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             reason,
                     uint             error_line ) {
   if( FD_UNLIKELY( !conn || conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
+  FD_DEBUG( FD_LOG_ERR(( "Terminating conn=%p (reason=%u) at fd_quic.c(%u)", (void *)conn, reason, error_line )); )
 
   conn->state  = FD_QUIC_CONN_STATE_ABORT;
   conn->reason = reason;
@@ -610,9 +618,10 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn,
   }
 
   /* pick enc_level of oldest ACK not yet sent */
-  fd_quic_ack_t const * oldest_ack = fd_quic_get_queued_ack( conn, conn->ack_queue_tail );
+  fd_quic_ack_gen_t *   ack_gen    = conn->ack_gen;
+  fd_quic_ack_t const * oldest_ack = fd_quic_ack_queue_ele( ack_gen, ack_gen->tail );
   uint ack_enc_level = oldest_ack->enc_level; /* speculative load (might be invalid) */
-  if( conn->ack_queue_head != conn->ack_queue_tail && acks ) {
+  if( ack_gen->head != ack_gen->tail && acks ) {
     return ack_enc_level;
   }
 
@@ -833,6 +842,9 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
                            uint             enc_level ) {
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
   if( FD_LIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) return;
+  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p abandoning enc_level=%u", (void *)conn, enc_level )); )
+
+  fd_quic_ack_gen_abandon_enc_level( conn->ack_gen, enc_level );
 
   fd_quic_pkt_meta_t *      pool = state->pkt_meta_pool;
   fd_quic_pkt_meta_list_t * list = &conn->sent_pkt_meta[enc_level];
@@ -1771,6 +1783,11 @@ fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
   conn->sched_service_time = timeout;
   conn->next_service_time  = timeout;
   conn->in_schedule        = 1;
+
+  FD_DEBUG(
+    ulong now = fd_quic_get_state( conn->quic )->now;
+    FD_LOG_DEBUG(( "conn=%p scheduled in %g ns", (void *)conn, (double)fd_ulong_if( timeout>now, timeout-now, 0 ) ));
+  )
 }
 
 /* get the service interval, while ensuring the value
@@ -1810,75 +1827,6 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
     /* if we're not in the schedule, fd_quic_conn_service will */
     /* insert us */
   }
-}
-
-static int
-fd_quic_range_can_insert( fd_quic_range_t const * range,
-                          ulong                   idx ) {
-  return idx+1UL >= range->offset_lo && idx <= range->offset_hi;
-}
-
-static void
-fd_quic_range_insert( fd_quic_range_t * range,
-                      ulong             idx ) {
-  range->offset_lo = fd_ulong_min( range->offset_lo, idx );
-  range->offset_hi = fd_ulong_max( range->offset_hi, idx+1UL );
-}
-
-void
-fd_quic_ack_pkt( fd_quic_t *      quic,
-                 fd_quic_conn_t * conn,
-                 fd_quic_pkt_t *  pkt ) {
-
-  uint  ack_flag   = pkt->ack_flag;
-  uint  enc_level  = pkt->enc_level;
-  ulong pkt_number = pkt->pkt_number;
-  if( pkt_number == FD_QUIC_PKT_NUM_UNUSED ) return;
-  if( ack_flag & ACK_FLAG_CANCEL           ) return;
-  int ack_required = ack_flag & ACK_FLAG_RQD;
-
-  /* Can we merge pkt_number into the most recent ACK? */
-  uint            cached_seq = conn->ack_queue_head - 1U;
-  fd_quic_ack_t * cached_ack = fd_quic_get_queued_ack( conn, cached_seq );
-  if( fd_quic_range_can_insert( &cached_ack->pkt_number, pkt_number ) ) {
-
-    /* add packet number to existing range */
-    if( deadline < cached_ack->deadline ) {
-      cached_ack->deadline = deadline;
-      fd_quic_reschedule_conn( conn, deadline );
-    }
-    cached_ack->pkt_rcvd = state->now;
-    fd_quic_range_insert( &cached_ack->pkt_number, pkt_number );
-
-    /* re-enqueue most recent ACK (might have been sent already) */
-    if( !ack_required ) return;
-    if( conn->ack_queue_head==conn->ack_queue_tail ) {
-      conn->ack_queue_tail = cached_seq;
-    }
-    FD_DEBUG( FD_LOG_DEBUG(( "conn=%p queue ACK for enc=%u pkt_num=%lu deadline=%ld range=[%lu,%lu) (merged)",
-        (void *)conn, enc_level, pkt_number, (long)cached_ack->deadline, cached_ack->pkt_number.offset_lo, cached_ack->pkt_number.offset_hi )); )
-    return;
-
-  }
-
-  /* Attempt to allocate another ACK queue entry */
-  if( conn->ack_queue_head - conn->ack_queue_tail >= FD_QUIC_ACK_QUEUE_CNT ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "ACK queue overflow! (excessive reordering)" )); )
-    /* FIXME count to metrics */
-    return;
-  }
-
-  /* Start new pending ACK */
-  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p queue ACK for enc=%u pkt_num=%lu", (void *)conn, enc_level, pkt_number )); )
-  fd_quic_ack_t * next_ack = fd_quic_get_queued_ack( conn, conn->ack_queue_head );
-  *next_ack = (fd_quic_ack_t) {
-    .deadline   = deadline,
-    .pkt_number = { .offset_lo = pkt_number, .offset_hi = pkt_number+1UL },
-    .enc_level  = (uchar)enc_level,
-    .pkt_rcvd   = pkt->rcv_time
-  };
-  conn->ack_queue_head += 1U;
-  fd_quic_reschedule_conn( conn, deadline );
 }
 
 /* process v1 quic packets
@@ -1987,7 +1935,10 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   }
 
   /* if we get here we parsed all the frames, so ack the packet */
-  fd_quic_ack_pkt( quic, conn, pkt );
+  fd_quic_ack_pkt( conn->ack_gen, &quic->config, pkt, state->now, state->_rng );
+  ulong ack_schedule = fd_quic_ack_gen_next_wakeup( conn->ack_gen, &quic->config, state->now );
+  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p scheduled in %g ns (ACK)", (void *)conn, (double)fd_ulong_if( ack_schedule>state->now, ack_schedule-state->now, 0 ) )) );
+  fd_quic_reschedule_conn( conn, ack_schedule );
 
   cur_ptr += rc;
 
@@ -2391,18 +2342,6 @@ fd_quic_tls_cb_peer_params( void *        context,
       }
     }
   }
-
-  /* max_ack_delay */
-  /* rfc9000 specifies values of max_ack_delay >= 2^14 are invalid */
-  ulong max_peer_max_ack_delay = (ulong)1e6 * ((1UL<<14UL)-1UL);
-
-  /* if we don't wait some period, we end up sending packets with only
-    * acks in them */
-  ulong min_peer_max_ack_delay = (ulong)1e6;
-  conn->peer_max_ack_delay = fd_ulong_max(
-                                fd_ulong_min( peer_tp->max_ack_delay * (ulong)1e6,
-                                              max_peer_max_ack_delay ),
-                                min_peer_max_ack_delay );
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
   conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
@@ -2948,43 +2887,6 @@ fd_quic_pkt_hdr_pkt_number_len( fd_quic_pkt_hdr_t * pkt_hdr,
   }
 }
 
-static uchar *
-fd_quic_gen_ack_frames( fd_quic_conn_t *     conn,
-                        uchar *              payload_ptr,
-                        uchar *              payload_end,
-                        uint                 enc_level,
-                        ulong                now ) {
-  for( ; conn->ack_queue_tail != conn->ack_queue_head; conn->ack_queue_tail++ ) {
-    fd_quic_ack_t * ack = fd_quic_get_queued_ack( conn, conn->ack_queue_tail );
-    if( ack->enc_level != enc_level ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "need encryption level %u for ACKs but have %u", ack->enc_level, enc_level )); )
-      break;
-    }
-    if( now < ack->deadline ) break;
-
-    /* Remove any ACK deadline in case we recycle this ACK object in
-        a future iteration */
-    ack->deadline = ULONG_MAX;
-
-    if( FD_UNLIKELY( ack->pkt_number.offset_lo == ack->pkt_number.offset_hi ) ) continue;
-    FD_DEBUG( FD_LOG_DEBUG(( "conn=%p sending ACK enc=%u range=[%lu,%lu)", (void *)conn, enc_level, ack->pkt_number.offset_lo, ack->pkt_number.offset_hi )); )
-    fd_quic_ack_frame_t ack_frame = {
-      .type            = 0x02, /* type 0x02 is the base ack, 0x03 indicates ECN */
-      .largest_ack     = ack->pkt_number.offset_hi - 1U,
-      .ack_delay       = ( now - ack->pkt_rcvd ) / 1000,
-      .ack_range_count = 0, /* no fragments */
-      .first_ack_range = ack->pkt_number.offset_hi - ack->pkt_number.offset_lo - 1U,
-    };
-    ulong frame_sz = fd_quic_encode_ack_frame( payload_ptr, (ulong)( payload_end - payload_ptr ), &ack_frame );
-    if( FD_UNLIKELY( frame_sz==FD_QUIC_ENCODE_FAIL ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "insufficient buffer space to send ACK" )); )
-      break;
-    }
-    payload_ptr += frame_sz;
-  }
-  return payload_ptr;
-}
-
 static ulong
 fd_quic_gen_close_frame( fd_quic_conn_t * conn,
                          uchar *          payload_ptr,
@@ -3291,7 +3193,7 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
     closing = 1u;
   }
 
-  payload_ptr = fd_quic_gen_ack_frames( conn, payload_ptr, payload_end, enc_level, now );
+  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, &conn->quic->config, payload_ptr, payload_end, enc_level, now );
   if( FD_UNLIKELY( closing ) ) {
     payload_ptr += fd_quic_gen_close_frame( conn, payload_ptr, payload_end );
   } else {
@@ -3632,6 +3534,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 void
 fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn ) {
+  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p service", (void *)conn )); )
 
   /* handle expiry on pkt_meta */
   fd_quic_pkt_meta_retry( quic, conn, 0 /* don't force */, ~0u /* enc_level */ );
@@ -4530,7 +4433,6 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
   /* inclusive range */
   ulong hi = largest_ack;
   ulong lo = largest_ack - ack_range;
-  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p recv ACK for enc=%u range=[%lu,%lu)", (void *)conn, enc_level, lo, hi+1 )) );
 
   /* start at oldest sent */
   fd_quic_state_t *            state = fd_quic_get_state( conn->quic );
@@ -4547,6 +4449,7 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
   }
 
   /* reclaim all packets in range */
+  ulong reclaim_cnt = 0UL;
   while( !fd_quic_pkt_meta_list_iter_done( iter, sent, pool ) ) {
     ulong pkt_meta_idx = fd_quic_pkt_meta_list_iter_idx( iter, sent, pool );
     if( pool[pkt_meta_idx].pkt_number > hi ) break;
@@ -4556,7 +4459,12 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
     fd_quic_pkt_meta_list_idx_push_head( state->pkt_meta_free, pkt_meta_idx, pool );
     iter = prior!=UINT_MAX ? fd_quic_pkt_meta_list_iter_fwd_next( prior, sent, pool )
                            : fd_quic_pkt_meta_list_iter_fwd_init( sent, pool );
+    reclaim_cnt++;
   }
+
+  (void)reclaim_cnt;
+  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p recv ACK for enc=%u range=[%lu,%lu) reclaim_cnt=%lu",
+      (void *)conn, enc_level, lo, hi+1, reclaim_cnt )) );
 }
 
 static ulong
@@ -4795,6 +4703,8 @@ fd_quic_frame_handle_stream_frame(
     fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
+
+  conn->ack_gen->pending_bytes += data_sz;
 
   /* already completed this frame ID */
   if( fd_rollset_query( &conn->fin_streams, stream_id>>2 ) ) {

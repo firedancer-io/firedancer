@@ -3,7 +3,7 @@
 
 #include "fd_quic_common.h"
 #include "crypto/fd_quic_crypto_suites.h"
-#include "fd_quic_ack.h"
+#include "fd_quic_ack_tx.h"
 #include "fd_quic_conn_id.h"
 #include "fd_quic_pkt_meta.h"
 #include "fd_rollset.h"
@@ -145,21 +145,7 @@ struct fd_quic_conn {
 
   fd_quic_pkt_meta_list_t sent_pkt_meta[ FD_QUIC_NUM_ENC_LEVELS ];
 
-  /* ACK generation
-
-     FD_QUIC_ACK_QUEUE_CNT controls the number of disjoint ACK ranges
-     that can be acknowledged between two calls to fd_quic_service.
-     Higher values decrease retransmission rates in case of reordering.
-     Must be a power of 2.
-
-     Seq ack_queue_head-1 is always assumed to be valid. */
-
-# define FD_QUIC_ACK_QUEUE_CNT 8
-  fd_quic_ack_t        ack_queue[FD_QUIC_ACK_QUEUE_CNT];
-  uint                 ack_queue_head;     /* Next unused ACK queue seq */
-  uint                 ack_queue_tail;     /* Next not-yet-sent ACK queue sent */
-  ulong                peer_max_ack_delay; /* limit on the delay we intentionally impose on acks
-                                              in nanoseconds */
+  fd_quic_ack_gen_t ack_gen[1];
 
   uint                 flags;
 # define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
@@ -252,12 +238,6 @@ typedef struct fd_quic_conn fd_quic_conn_t;
 #include "../../util/tmpl/fd_pool.c"
 
 FD_PROTOTYPES_BEGIN
-
-FD_FN_PURE static inline fd_quic_ack_t *
-fd_quic_get_queued_ack( fd_quic_conn_t * conn,
-                        uint             idx ) {
-  return conn->ack_queue + (idx & (FD_QUIC_ACK_QUEUE_CNT-1));
-}
 
 /* fd_quic_conn_rx_window_cnt returns the number of new streams the
    peer may deliver. */

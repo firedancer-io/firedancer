@@ -97,6 +97,8 @@ main( int     argc,
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
+  server_quic->config.idle_timeout = client_quic->config.idle_timeout = (ulong)3e9;
+
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
@@ -121,6 +123,8 @@ main( int     argc,
       server_quic->config.net.ip_addr,
       server_quic->config.net.listen_udp_port,
       server_quic->config.sni );
+  FD_TEST( client_conn );
+  FD_LOG_DEBUG(( "client_conn=%p", (void *)client_conn ));
 
   FD_TEST( conn_final_cnt==0 );
 
@@ -176,23 +180,33 @@ main( int     argc,
 
   long start_ts = fd_log_wallclock();
   long end_ts   = start_ts + (long)(duration * 1e9f);
+
+  ulong last_time = (ulong)fd_log_wallclock();
+  ulong busy_time = 0UL;
   while(1) {
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
-
-    fd_quic_stream_uni_send( client_conn, buf, sizeof(buf) );
-
     long t = fd_log_wallclock();
+    if( fd_quic_get_next_wakeup( client_quic )<(ulong)t ||
+        fd_quic_get_next_wakeup( server_quic )<(ulong)t ) {
+      fd_quic_service( client_quic );
+      fd_quic_service( server_quic );
+    }
+
+    int send_ok = 0==fd_quic_stream_uni_send( client_conn, buf, sizeof(buf) );
+    busy_time += fd_ulong_if( send_ok, (ulong)t - last_time, 0UL );
+    last_time  = (ulong)t;
+
     if( t >= rprt_ts ) {
       long dt = t - last_ts;
-      FD_LOG_NOTICE(( "rate=%6.3f Gbps (%6.2f MB/s) dt=%.2f s",
+      FD_LOG_NOTICE(( "rate=%6.3f Gbps (%6.2f MB/s) dt=%.2f stall=%3u%%",
                       (double)(rx_tot_sz) * 8.0 / (double)dt,
                       (double)(rx_tot_sz)       / (double)dt * 1000.0,
-                      (double)dt / 1e9 ));
+                      (double)dt / 1e9,
+                      (uint)(((ulong)dt - busy_time) / (ulong)1e7) ));
 
       rx_tot_sz = 0;
       last_ts   = t;
       rprt_ts   = t + (long)1e9;
+      busy_time = 0;
 
       if( t > end_ts ) break;
     }
