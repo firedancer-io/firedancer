@@ -318,7 +318,9 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
           last_total_txn_cnt          = slot->total_txn_cnt;
           last_vote_txn_cnt           = slot->vote_txn_cnt;
           last_nonvote_failed_txn_cnt = slot->nonvote_failed_txn_cnt;
-          last_time_nanos             = slot->completed_time;
+          if( FD_LIKELY( slot->completed_time!=LONG_MAX ) ) {
+            last_time_nanos           = slot->completed_time;
+          }
         }
       }
 
