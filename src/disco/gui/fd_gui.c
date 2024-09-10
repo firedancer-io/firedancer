@@ -1187,13 +1187,13 @@ static void
 fd_gui_handle_completed_slot( fd_gui_t * gui,
                               ulong *    msg ) {
   ulong _slot = msg[ 0 ];
-  ulong _parent_slot = msg[ 6 ];
   ulong total_txn_count = msg[ 1 ];
   ulong nonvote_txn_count = msg[ 2 ];
   ulong failed_txn_count = msg[ 3 ];
   ulong nonvote_failed_txn_count = msg[ 4 ];
   ulong compute_units = msg[ 5 ];
   ulong fees = msg[ 6 ];
+  ulong _parent_slot = msg[ 7 ];
 
   // FD_LOG_WARNING(( "Got completed slot %lu", _slot ));
 
