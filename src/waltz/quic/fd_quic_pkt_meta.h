@@ -21,7 +21,6 @@ struct fd_quic_range {
  * max_streams
  *
  * type:      FD_QUIC_PKT_META_TYPE_STREAM_DATA
- *            FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA
  *            FD_QUIC_PKT_META_TYPE_OTHER
  * flags:     FD_QUIC_PKT_META_FLAGS_*
  * value:     max_data          number of bytes
@@ -37,7 +36,6 @@ union fd_quic_pkt_meta_key {
       ulong type:2;
 #define FD_QUIC_PKT_META_TYPE_OTHER           0UL
 #define FD_QUIC_PKT_META_TYPE_STREAM_DATA     1UL
-#define FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA 2UL
     };
 #define FD_QUIC_PKT_META_KEY( TYPE, FLAGS, STREAM_ID ) \
     ((fd_quic_pkt_meta_key_t)                          \
@@ -91,7 +89,6 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_STREAM              stream data
        FD_QUIC_PKT_META_FLAGS_HS_DONE             handshake-done frame
        FD_QUIC_PKT_META_FLAGS_MAX_DATA            max_data frame
-       FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA     max_stream_data frame
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
        FD_QUIC_PKT_META_FLAGS_ACK                 acknowledgement
        FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
@@ -105,9 +102,7 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
 # define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA    (1u<<4u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR  (1u<<6u)
 # define          FD_QUIC_PKT_META_FLAGS_ACK                (1u<<7u)
 # define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_UPDATE         (1u<<9u)
