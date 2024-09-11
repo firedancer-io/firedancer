@@ -30,11 +30,14 @@
 #define FD_FLAMENCO_TYPE_CSTR      (0x10)
 #define FD_FLAMENCO_TYPE_HASH1024  (0x11)
 #define FD_FLAMENCO_TYPE_HASH16384 (0x12)
+#define FD_FLAMENCO_TYPE_ENUM_DISC (0x13)
 
 #define FD_FLAMENCO_TYPE_ARR       (0x20)
 #define FD_FLAMENCO_TYPE_ARR_END   (0x21)
 #define FD_FLAMENCO_TYPE_MAP       (0x22)
 #define FD_FLAMENCO_TYPE_MAP_END   (0x23)
+#define FD_FLAMENCO_TYPE_ENUM      (0x24)
+#define FD_FLAMENCO_TYPE_ENUM_END  (0x25)
 
 /* TODO: This should be called fd_types_vtable_t. */
 
