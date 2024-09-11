@@ -17,6 +17,7 @@ typedef struct {
   uchar * txn_sidecar_mem;
 
   void const * _bank;
+  ulong        _cus_used;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -126,7 +127,8 @@ during_frag( void * _ctx,
 
   fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
-  ctx->_bank = trailer->bank;
+  ctx->_bank     = trailer->bank;
+  ctx->_cus_used = trailer->cus_used;
 }
 
 static void
@@ -249,6 +251,7 @@ after_frag( void *             _ctx,
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->bank_idx      = ctx->kind_id;
   trailer->bank_busy_seq = seq;
+  trailer->cus_used      = ctx->_cus_used;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */

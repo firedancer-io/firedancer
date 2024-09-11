@@ -114,7 +114,7 @@ after_frag( void *             _ctx,
       sig = *opt_sig;
       break;
     }
-    /* votel_plugin*/
+    /* votel_plugin */
     case 5UL: {
       FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED );
       sig = *opt_sig;

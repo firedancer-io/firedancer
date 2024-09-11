@@ -1007,6 +1007,7 @@ fd_gui_handle_slot_start( fd_gui_t * gui,
                           ulong *    msg ) {
   ulong _slot = msg[ 0 ];
   ulong _parent_slot = msg[ 1 ];
+  // FD_LOG_WARNING(( "Got start slot %lu parent_slot %lu", _slot, _parent_slot ));
   FD_TEST( gui->debug_in_leader_slot==ULONG_MAX );
   gui->debug_in_leader_slot = _slot;
 
@@ -1025,7 +1026,8 @@ fd_gui_handle_slot_start( fd_gui_t * gui,
 static void
 fd_gui_handle_slot_end( fd_gui_t * gui,
                         ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
+  ulong _slot     = msg[ 0 ];
+  ulong _cus_used = msg[ 1 ];
   if( FD_UNLIKELY( gui->debug_in_leader_slot!=_slot ) ) {
     FD_LOG_ERR(( "gui->debug_in_leader_slot %lu _slot %lu", gui->debug_in_leader_slot, _slot ));
   }
@@ -1034,7 +1036,8 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   FD_TEST( slot->slot==_slot );
 
-  slot->leader_state = FD_GUI_SLOT_LEADER_ENDED;
+  slot->leader_state  = FD_GUI_SLOT_LEADER_ENDED;
+  slot->compute_units = _cus_used;
 
   fd_gui_tile_timers_snap( gui, slot->tile_timers_end );
   slot->tile_timers_end_snap_idx = gui->summary.tile_timers_snap_idx;
@@ -1068,6 +1071,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
       fd_gui_clear_slot( gui, parent_slot, parent_parent_slot );
     }
   }
+  // FD_LOG_WARNING(( "Got reset slot last_landed_vote=%lu parent_cnt=%lu _slot=%lu", last_landed_vote, parent_cnt, _slot ));
 
   if( FD_UNLIKELY( gui->summary.vote_distance!=_slot-last_landed_vote ) ) {
     gui->summary.vote_distance = _slot-last_landed_vote;
@@ -1201,7 +1205,9 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->vote_txn_cnt           = total_txn_count - nonvote_txn_count;
   slot->failed_txn_cnt         = failed_txn_count;
   slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
-  slot->compute_units          = compute_units;
+  if( FD_LIKELY( slot->compute_units==ULONG_MAX ) ) {
+    slot->compute_units        = compute_units;
+  }
   slot->fees                   = fees;
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
@@ -1263,6 +1269,7 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED ) ) break;
 
+    // FD_LOG_NOTICE(( "Setting slot %lu to optimistically confirmed", _slot-i ));
     slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
     fd_gui_printf_slot( gui, parent_slot );
     fd_hcache_snap_ws_broadcast( gui->hcache );
@@ -1275,7 +1282,6 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
       fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
       if( FD_UNLIKELY( slot->slot==ULONG_MAX ) ) break;
       FD_TEST( slot->slot==i );
-
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
       fd_gui_printf_slot( gui, i );
       fd_hcache_snap_ws_broadcast( gui->hcache );
@@ -1294,8 +1300,6 @@ fd_gui_handle_balance_update( fd_gui_t * gui,
   fd_gui_printf_balance( gui );
   fd_hcache_snap_ws_broadcast( gui->hcache );
 }
-
-
 
 static void
 fd_gui_handle_start_progress( fd_gui_t *    gui,

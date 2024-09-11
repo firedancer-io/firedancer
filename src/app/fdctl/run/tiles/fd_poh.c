@@ -383,6 +383,7 @@ typedef struct {
      while waiting for our next leader slot. */
   ulong slot;
   ulong hashcnt;
+  ulong cus_used;
 
   /* When we send a microblock on to the shred tile, we need to tell
      it how many hashes there have been since the last microblock, so
@@ -712,6 +713,7 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
 
   ctx->slot                = tick_height/ticks_per_slot;
   ctx->hashcnt             = 0UL;
+  ctx->cus_used            = 0UL;
   ctx->last_slot           = ctx->slot;
   ctx->last_hashcnt        = 0UL;
   ctx->reset_slot          = ctx->slot;
@@ -1079,7 +1081,10 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
             before, we should first end that slot, then begin the new
             one if we are newly leader now. */
       if( FD_LIKELY( leader_before_reset ) ) {
-        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&slot_before_reset, 8UL );
+        uchar data[ 16 ];
+        FD_STORE( ulong, data, slot_before_reset );
+        FD_STORE( ulong, data+8UL, ctx->cus_used );
+        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, data, 16UL );
       } else {
         uchar data[ 16 ];
         FD_STORE( ulong, data, ctx->next_leader_slot );
@@ -1089,7 +1094,10 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     }
   } else {
     if( FD_UNLIKELY( leader_before_reset ) ) {
-      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&slot_before_reset, 8UL );
+      uchar data[ 16 ];
+      FD_STORE( ulong, data, slot_before_reset );
+      FD_STORE( ulong, data+8UL, ctx->cus_used );
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, data, 16UL );
     }
   }
 
@@ -1437,7 +1445,10 @@ after_credit( void *             _ctx,
     /* We ticked while leader and are no longer leader... transition
        the state machine. */
     FD_TEST( !max_remaining_microblocks );
-    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
+    uchar data[ 16 ];
+    FD_STORE( ulong, data, ctx->next_leader_slot );
+    FD_STORE( ulong, data+8UL, ctx->cus_used );
+    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, data, 16UL );
 
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
@@ -1534,11 +1545,13 @@ during_frag( void * _ctx,
 
       FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
       fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->pack_in.mem, chunk );
-      FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
+      FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu,cus=%lu)",
                     ctx->slot,
                     ctx->microblocks_lower_bound,
-                    done_packing->microblocks_in_slot ));
+                    done_packing->microblocks_in_slot,
+                    done_packing->cus_used ));
       ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
+      ctx->cus_used = done_packing->cus_used;
     }
     return;
   } else {
@@ -1722,12 +1735,17 @@ after_frag( void *             _ctx,
   ctx->last_slot    = ctx->slot;
   ctx->last_hashcnt = ctx->hashcnt;
 
+  ctx->cus_used = ctx->_microblock_trailer->cus_used;
+
   if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
     if( FD_UNLIKELY( ctx->slot>ctx->next_leader_slot ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
-      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
+      uchar data[ 16 ];
+      FD_STORE( ulong, data, ctx->next_leader_slot );
+      FD_STORE( ulong, data+8UL, ctx->cus_used );
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, data, 16UL );
 
       no_longer_leader( ctx );
 

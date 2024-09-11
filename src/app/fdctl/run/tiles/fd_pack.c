@@ -322,7 +322,6 @@ after_credit( void *             _ctx,
     ctx->poll_cursor = poll_cursor;
   }
 
-
   /* If we time out on our slot, then stop being leader.  This can only
      happen in the first after_credit after a housekeeping. */
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
@@ -334,8 +333,9 @@ after_credit( void *             _ctx,
          the next slot.  If we did send one it would just get dropped. */
       fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
+      done_packing->cus_used = fd_pack_current_block_cost( ctx->pack );
 
-      fd_mux_publish( mux, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
+      fd_mux_publish( mux, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, 0UL );
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
 
@@ -399,7 +399,8 @@ after_credit( void *             _ctx,
       ulong chunk  = ctx->out_chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
-      trailer->bank = ctx->leader_bank;
+      trailer->bank     = ctx->leader_bank;
+      trailer->cus_used = fd_pack_current_block_cost( ctx->pack );
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
