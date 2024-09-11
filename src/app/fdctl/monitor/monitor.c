@@ -223,7 +223,7 @@ static void write_stdout( char * buf, ulong buf_sz ) {
 
 static int stop1 = 0;
 
-#define FD_MONITOR_TEXT_BUF_SZ 65536
+#define FD_MONITOR_TEXT_BUF_SZ 131072
 char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
 char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
 
