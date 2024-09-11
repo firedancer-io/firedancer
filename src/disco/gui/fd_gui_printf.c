@@ -1035,6 +1035,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
         else                                                 jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
         if( FD_UNLIKELY( slot->compute_units==ULONG_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                                jsonp_ulong( gui, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->fees==ULONG_MAX ) ) jsonp_null( gui, "fees" );
+        else                                       jsonp_ulong( gui, "fees", slot->fees );
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
@@ -1112,6 +1114,8 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         else                                                 jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
         if( FD_UNLIKELY( slot->compute_units==ULONG_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                                jsonp_ulong( gui, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->fees==ULONG_MAX ) ) jsonp_null( gui, "fees" );
+        else                                       jsonp_ulong( gui, "fees", slot->fees );
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {

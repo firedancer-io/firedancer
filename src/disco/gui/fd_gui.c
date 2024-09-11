@@ -1205,10 +1205,13 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->vote_txn_cnt           = total_txn_count - nonvote_txn_count;
   slot->failed_txn_cnt         = failed_txn_count;
   slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
-  if( FD_LIKELY( slot->compute_units==ULONG_MAX ) ) {
-    slot->compute_units        = compute_units;
+  if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_UNSTARTED ) ) {
+    /* If we were already leader for this slot, then the poh component
+       calculated the CUs used and sent them there, rather than the
+       replay component which is sending this completed slot. */
+    slot->compute_units = compute_units;
+    slot->fees          = fees;
   }
-  slot->fees                   = fees;
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
