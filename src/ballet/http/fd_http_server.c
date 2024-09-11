@@ -778,41 +778,43 @@ write_conn_http( fd_http_server_t * http,
             fd_sha1_hash( sec_websocket_key, 60, sec_websocket_accept );
             char sec_websocket_accept_base64[ FD_BASE64_ENC_SZ( 20 ) ];
             ulong encoded_len = fd_base64_encode( sec_websocket_accept_base64, sec_websocket_accept, 20 );
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n", conn->response.body_len ) );
-            if( FD_LIKELY( conn->response.content_type ) ) {
-              ulong content_type_len;
-              FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_type_len, "Content-Type: %s\r\n", conn->response.content_type ) );
-              response_len += content_type_len;
-            }
-            if( FD_LIKELY( conn->response.cache_control ) ) {
-              ulong cache_control_len;
-              FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &cache_control_len, "Cache-Control: %s\r\n", conn->response.cache_control ) );
-              response_len += cache_control_len;
-            }
-            if( FD_LIKELY( conn->response.content_encoding ) ) {
-              ulong content_encoding_len;
-              FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_encoding_len, "Content-Encoding: %s\r\n", conn->response.content_encoding ) );
-              response_len += content_encoding_len;
-            }
-            FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, NULL, "\r\n" ) );
-            response_len += 2UL;
           }
           break;
         case 400:
-          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", conn->response.body_len ) );
           break;
         case 404:
-          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" ) );
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
         case 500:
-          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n" ) );
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
           break;
         default:
-          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n" ) );
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
           break;
       }
+
+      if( FD_LIKELY( conn->response.content_type ) ) {
+        ulong content_type_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_type_len, "Content-Type: %s\r\n", conn->response.content_type ) );
+        response_len += content_type_len;
+      }
+      if( FD_LIKELY( conn->response.cache_control ) ) {
+        ulong cache_control_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &cache_control_len, "Cache-Control: %s\r\n", conn->response.cache_control ) );
+        response_len += cache_control_len;
+      }
+      if( FD_LIKELY( conn->response.content_encoding ) ) {
+        ulong content_encoding_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_encoding_len, "Content-Encoding: %s\r\n", conn->response.content_encoding ) );
+        response_len += content_encoding_len;
+      }
+      FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, NULL, "\r\n" ) );
+      response_len += 2UL;
+
       response = (uchar const *)header_buf;
       break;
     case FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY:
