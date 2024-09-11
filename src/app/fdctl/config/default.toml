@@ -1217,14 +1217,24 @@ dynamic_port_range = "8900-9000"
         # Frankendancer currently depends on the Agave blockstore
         # component for storing block data to disk.  This component can
         # frequently be a bottleneck when testing the throughput of the
-        # leader pipeline, so this option is provided to disable it.
+        # leader pipeline, so this option is provided to disable it
+        # starting from a certain slot.
         #
         # This option should not be used in a production network; it
         # causes the validator to not be able to serve repair requests,
         # snapshots, or participate in other consensus critical
         # operations.  It is only useful for benchmarking the leader
         # TPU performance in a single node cluster case.
-        disable_blockstore = false
+        #
+        # A value of 0 means this option will not be used.  A value of 1
+        # disables the blockstore entirely.  A common use case for any
+        # other positive value is to create a snapshot before disabling
+        # the blockstore.  This is useful in cases when benchmarking an
+        # entire cluster.  The leader needs to create a first snapshot
+        # that the followers need to fetch in order to join the cluster.
+        # In such a case, it is useful to set this value to the same
+        # number as [snapshots.full_snapshot_interval_slots].
+        disable_blockstore_from_slot = 0
 
         # Frankendancer currently depends on the Agave status cache to
         # prevent double-spend attacks.  The data structure that backs

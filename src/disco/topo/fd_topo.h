@@ -193,7 +193,7 @@ typedef struct {
     } shred;
 
     struct {
-      int disable_blockstore;
+      ulong disable_blockstore_from_slot;
     } store;
 
     struct {

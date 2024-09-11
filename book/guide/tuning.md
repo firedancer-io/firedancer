@@ -228,7 +228,7 @@ as part of Frankendancer.
 
 ```toml [bench-zen3-32core.toml]
 [development.bench]
-  disable_blockstore = true // [!code ++]
+  disable_blockstore_from_slot = 1 // [!code ++]
 ```
 
 :::
