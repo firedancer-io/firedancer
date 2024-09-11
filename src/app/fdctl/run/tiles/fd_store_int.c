@@ -252,18 +252,7 @@ after_frag( void *             _ctx,
     fd_trusted_slots_add( ctx->trusted_slots, ctx->s34_buffer->pkts[ 0 ].shred.slot );
   }
   for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
-    fd_shred_t * shred = &ctx->s34_buffer->pkts[i].shred;
-    // TODO: these checks are not great as they assume a lot about the distance of shreds.
-    if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)1024 ) ) {
-      FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
-      continue;
-    }
-
-    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)1024 ) ) {
-      FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
-      continue;
-    }
-    // TODO: improve return value of api to not use < OK
+   // TODO: improve return value of api to not use < OK
 
     if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
@@ -508,8 +497,10 @@ after_credit( void *             _ctx,
 
   ctx->store->now = fd_log_wallclock();
 
-  if( FD_UNLIKELY( ctx->sim &&
-                   ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
+  fd_pending_slots_t * pending_slots      = ctx->store->pending_slots;
+  fd_pending_slots_treap_fwd_iter_t first = fd_pending_slots_treap_fwd_iter_init( pending_slots->treap, pending_slots->pool );
+
+  if( FD_UNLIKELY( ctx->sim && fd_pending_slots_treap_fwd_iter_done( first ) ) ) {
     FD_LOG_ERR( ( "Sim is complete." ) );
   }
 
@@ -519,16 +510,26 @@ after_credit( void *             _ctx,
     }
   }
 
-  for( ulong i = fd_pending_slots_iter_init( ctx->store->pending_slots );
-         (i = fd_pending_slots_iter_next( ctx->store->pending_slots, ctx->store->now, i )) != ULONG_MAX; ) {
-    uchar const * block = NULL;
-    ulong         block_sz = 0;
-    ulong repair_slot = FD_SLOT_NULL;
-    int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, i, &repair_slot, &block, &block_sz );
+  for( fd_pending_slots_treap_fwd_iter_t iter=first;
+       !fd_pending_slots_treap_fwd_iter_done( iter ); ) {
+    fd_pending_slots_treap_ele_t * ele = fd_pending_slots_treap_fwd_iter_ele( iter, pending_slots->pool );
+    if( FD_LIKELY( ele->time>ctx->store->now ) ) {
+      iter = fd_pending_slots_treap_fwd_iter_next( iter, pending_slots->pool );
+      continue;
+    }
 
-    ulong slot = repair_slot == 0 ? i : repair_slot;
-    FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
+    uchar const * block         = NULL;
+    ulong         block_sz      = 0;
+    ulong         repair_slot   = FD_SLOT_NULL;
+    int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, ele->slot, &repair_slot, &block, &block_sz );
+
+    ulong slot = repair_slot == 0 ? ele->slot : repair_slot;
+    FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, ele->slot, repair_slot ));
     fd_store_tile_slot_prepare( ctx, store_slot_prepare_mode, slot );
+
+    iter = fd_pending_slots_treap_fwd_iter_next( iter, pending_slots->pool );
+    fd_pending_slots_treap_ele_remove( pending_slots->treap, ele, pending_slots->pool );
+    fd_pending_slots_pool_ele_release( pending_slots->pool, ele );
   }
 }
 
@@ -558,7 +559,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
   // TODO: set the lo_mark_slot to the actual snapshot slot!
-  ctx->store = fd_store_join( fd_store_new( FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(), fd_store_footprint() ), 1 ) );
+  ctx->store = fd_store_join( fd_store_new( FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(), fd_store_footprint() ), 1U ) );
   ctx->repair_req_buffer = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_request_t), MAX_REPAIR_REQS * sizeof(fd_repair_request_t) );
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_SMAX ) );

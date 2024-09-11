@@ -1,7 +1,7 @@
 #include "fd_store.h"
 
 void *
-fd_store_new( void * mem, ulong lo_wmark_slot ) {
+fd_store_new( void * mem, uint seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING( ( "NULL mem" ) );
     return NULL;
@@ -19,8 +19,8 @@ fd_store_new( void * mem, ulong lo_wmark_slot ) {
   store->curr_turbine_slot = FD_SLOT_NULL;
   store->root = FD_SLOT_NULL;
   fd_repair_backoff_map_new( store->repair_backoff_map );
-  store->pending_slots = fd_pending_slots_new( (uchar *)mem + fd_store_footprint(), lo_wmark_slot );
-  if( FD_UNLIKELY( !store->pending_slots ) ) {
+  store->pending_slots = fd_pending_slots_new( (uchar *)mem + fd_store_footprint(), seed );
+  if( FD_UNLIKELY( !store->pending_slots ) ) {    
     return NULL;
   }
 
