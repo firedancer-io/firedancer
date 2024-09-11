@@ -979,22 +979,20 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
 static ulong
 find_slot_hash( fd_slot_hash_t const * hashes, ulong slot ) {
+  /* Logic is copied from slice::binary_search_by() in Rust */
   ulong start = 0UL;
   ulong end = deq_fd_slot_hash_t_cnt( hashes );
 
-  while( start <= end ) {
-    ulong mid = start + (end - start) / 2UL;
-    fd_slot_hash_t const * ele = deq_fd_slot_hash_t_peek_index_const( hashes, mid );
+  while( start < end ) {
+    ulong mid      = start + (end - start) / 2UL;
+    ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
 
-    if( ele->slot == slot ) {
+    if( mid_slot == slot ) {
       return slot;
-    } else if( ele->slot > slot ) {
+    } else if( mid_slot > slot ) {
       start = mid + 1UL;
     } else {
-      if( mid == 0UL ) {
-        break;
-      }
-      end = mid - 1UL;
+      end = mid;
     }
   }
 

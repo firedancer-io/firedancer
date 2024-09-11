@@ -849,29 +849,21 @@ last_voted_slot( fd_vote_state_t * self ) {
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L573
-static int
+static uchar
 contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
-  // Prevent underflowing of end boundary
-  ulong size = deq_fd_landed_vote_t_cnt( vote_state->votes );
-  if( FD_UNLIKELY( size == 0 ) ) {
-    return 0;
-  }
-
+  /* Logic is copied from slice::binary_search_by() in Rust */
   ulong start = 0UL;
-  ulong end   = size - 1;
+  ulong end   = deq_fd_landed_vote_t_cnt( vote_state->votes );
 
-  while( start <= end ) {
-    ulong mid      = start + ( end - start ) / 2;
+  while( start < end ) {
+    ulong mid      = start + ( end - start ) / 2UL;
     ulong mid_slot = deq_fd_landed_vote_t_peek_index_const( vote_state->votes, mid )->lockout.slot;
     if( mid_slot == slot ) {
       return 1;
     } else if( mid_slot < slot ) {
-      start = mid + 1;
+      start = mid + 1UL;
     } else {
-      if( mid == 0 ) {
-        break;
-      }
-      end = mid - 1;
+      end = mid;
     }
   }
   return 0;
@@ -879,13 +871,13 @@ contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L201
 static int
-check_and_filter_proposed_vote_state   ( fd_vote_state_t *           vote_state,
-                                         fd_vote_lockout_t *         proposed_lockouts,
-                                         uchar *                     proposed_has_root,
-                                         ulong *                     proposed_root,
-                                         fd_hash_t const *           proposed_hash,
-                                         fd_slot_hashes_t const *    slot_hashes,
-                                         fd_exec_instr_ctx_t const * ctx ) {
+check_and_filter_proposed_vote_state( fd_vote_state_t *           vote_state,
+                                      fd_vote_lockout_t *         proposed_lockouts,
+                                      uchar *                     proposed_has_root,
+                                      ulong *                     proposed_root,
+                                      fd_hash_t const *           proposed_hash,
+                                      fd_slot_hashes_t const *    slot_hashes,
+                                      fd_exec_instr_ctx_t const * ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L208
   if( FD_UNLIKELY( deq_fd_vote_lockout_t_empty( proposed_lockouts ) ) ) {
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_EMPTY_SLOTS;
