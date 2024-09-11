@@ -526,7 +526,7 @@ parse_one_off_features( fd_ledger_args_t * args, char const * one_off_features )
     token = strtok( NULL, "," );
   }
 
-  FD_LOG_NOTICE(( "Found %lu one off features to include", args->one_off_features_cnt ));
+  FD_LOG_NOTICE(( "Found %u one off features to include", args->one_off_features_cnt ));
 
   /* TODO: Fix the leak here and in parse_rocksdb_list */
 }

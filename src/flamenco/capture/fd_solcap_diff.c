@@ -172,11 +172,11 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff, ulong start_slot, ulong end_sl
     /* Handle cases where slot is skipped in one or the other */
     if ( FD_UNLIKELY( prev_slot0 < slot1 && slot0 > slot1 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n",
-                      diff->file_paths[0], prev_slot0, slot0));
+                      prev_slot0, slot0, diff->file_paths[0]));
     }
     else if ( FD_UNLIKELY( prev_slot1 < slot0 && slot1 > slot0 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n",
-                      diff->file_paths[1], prev_slot1, slot1));
+                      prev_slot1, slot1, diff->file_paths[1]));
     }
 
     if( slot0 == slot1 ) {

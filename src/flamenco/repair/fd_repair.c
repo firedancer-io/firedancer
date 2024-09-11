@@ -839,7 +839,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     repair->actives_sticky_cnt = tot_cnt;
 
     FD_LOG_NOTICE(
-        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu) (nonce_diff: %lu)",
+        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu) (nonce_diff: %u)",
           tot_cnt,
           prev_sticky_cnt,
           best_cnt,

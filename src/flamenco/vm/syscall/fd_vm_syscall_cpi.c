@@ -36,7 +36,7 @@ dump_vm_cpi_state(fd_vm_t *vm,
                   ulong   signers_seeds_cnt ) {
   char filename[100];
   fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%hu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
 
   // Check if file exists
   if( access (filename, F_OK) != -1 ) {

@@ -1465,7 +1465,7 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_web_reply_sprintf( ws,
-                          "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                          "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                           slot_bank->transaction_count,
                           ctx->call_id );
     fd_readwrite_end_read( &glob->lock );
