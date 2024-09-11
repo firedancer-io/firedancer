@@ -193,7 +193,7 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
     ulong _slot = gui->summary.slot_completed-i;
     fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=_slot ) ) break; /* Slot no longer exists, no TPS. */
-    if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) break; /* Slot is on this fork but was never completed, must have been in root path on boot. */
+    if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) continue; /* Slot is on this fork but was never completed, must have been in root path on boot. */
     if( FD_UNLIKELY( slot->completed_time+FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS*1000L*1000L*1000L<gui->next_sample_400millis ) ) break; /* Slot too old. */
     if( FD_UNLIKELY( slot->skipped ) ) continue; /* Skipped slots don't count to TPS. */
 
