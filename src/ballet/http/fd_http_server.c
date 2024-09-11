@@ -441,11 +441,13 @@ read_conn_http( fd_http_server_t * http,
   }
 
   ulong content_len = 0UL;
+  ulong content_length_len = 0UL;
   if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST ) ) {
     char const * content_length = NULL;
     for( ulong i=0UL; i<num_headers; i++ ) {
-      if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
+      if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) && headers[ i ].value_len>0UL ) ) {
         content_length = headers[ i ].value;
+        content_length_len = headers[ i ].value_len;
         break;
       }
     }
@@ -455,11 +457,19 @@ read_conn_http( fd_http_server_t * http,
       return;
     }
 
-    errno = 0;
-    content_len = strtoul( content_length, NULL, 10 );
-    if( FD_UNLIKELY( content_len==ULONG_MAX && errno==ERANGE) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER );
-      return;
+    for( ulong i=0UL; i<content_length_len; i++ ) {
+      if( FD_UNLIKELY( content_length[ i ]<'0' || content_length[ i ]>'9' ) ) {
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
+
+      ulong next = content_len*10UL + (ulong)(content_length[ i ]-'0');
+      if( FD_UNLIKELY( next<content_len ) ) { /* Overflow */
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+        return;
+      }
+
+      content_len = next;
     }
 
     ulong total_len = (ulong)result+content_len;
