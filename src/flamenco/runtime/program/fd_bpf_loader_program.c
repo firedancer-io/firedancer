@@ -502,7 +502,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
 
   if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return exec_err;
   }
 
   instr_ctx->txn_ctx->compute_meter = vm->cu;
