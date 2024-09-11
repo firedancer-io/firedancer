@@ -172,13 +172,13 @@ typedef struct {
     } genesis;
 
     struct {
-      uint benchg_tile_count;
-      uint benchs_tile_count;
-      char affinity[ AFFINITY_SZ ];
-      int  larger_max_cost_per_block;
-      int  larger_shred_limits_per_block;
-      int  disable_blockstore;
-      int  disable_status_cache;
+      uint  benchg_tile_count;
+      uint  benchs_tile_count;
+      char  affinity[ AFFINITY_SZ ];
+      int   larger_max_cost_per_block;
+      int   larger_shred_limits_per_block;
+      ulong disable_blockstore_from_slot;
+      int   disable_status_cache;
     } bench;
   } development;
 

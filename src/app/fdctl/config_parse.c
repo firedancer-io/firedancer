@@ -333,7 +333,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   development.bench.affinity                       );
   CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
-  CFG_POP      ( bool,   development.bench.disable_blockstore             );
+  CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
   CFG_POP      ( bool,   development.bench.disable_status_cache           );
 
   /* Firedancer-only configuration */
