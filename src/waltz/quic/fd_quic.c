@@ -777,8 +777,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_pkt_t *   pkt,
                          uint              pkt_type,
                          uchar const *     buf,
-                         ulong             buf_sz,
-                         fd_quic_frame_u * frame_union ) {
+                         ulong             buf_sz ) {
   if( conn->state == FD_QUIC_CONN_STATE_DEAD ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
@@ -1604,8 +1603,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                   pkt,
                                   FD_QUIC_PKT_TYPE_INITIAL,
                                   frame_ptr,
-                                  frame_sz,
-                                  &conn->frame_union );
+                                  frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -1765,8 +1763,7 @@ fd_quic_handle_v1_handshake(
                                   pkt,
                                   FD_QUIC_PKT_TYPE_HANDSHAKE,
                                   frame_ptr,
-                                  frame_sz,
-                                  &conn->frame_union );
+                                  frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2004,8 +2001,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
                                   pkt,
                                   FD_QUIC_PKT_TYPE_ONE_RTT,
                                   frame_ptr,
-                                  frame_sz,
-                                  &conn->frame_union );
+                                  frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "frame failed to parse" )) );
       return FD_QUIC_PARSE_FAIL;
@@ -3576,21 +3572,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     return;
   }
 
-  /* temporary usage
-     data is populated, then encoded into a buffer
-     so only one member in use */
-  union {
-    fd_quic_crypto_frame_t       crypto;
-    fd_quic_ack_frame_t          ack;
-    fd_quic_stream_frame_t       stream;
-    fd_quic_max_stream_data_t    max_stream_data;
-    fd_quic_max_data_frame_t     max_data;
-    fd_quic_conn_close_0_frame_t conn_close_0;
-    fd_quic_conn_close_1_frame_t conn_close_1;
-    fd_quic_max_streams_frame_t  max_streams;
-    fd_quic_ping_frame_t         ping;
-  } frame;
-
   /* choose enc_level to tx at */
   /* this function accepts an argument "acks"
    * We want to minimize the number of packets that carry only acks.
@@ -3818,19 +3799,21 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             || !(ack_head->flags & FD_QUIC_ACK_FLAGS_SENT )
             || ack_head->tx_pkt_number == FD_QUIC_PKT_NUM_UNUSED ) {
           /* put ack frame */
-          frame.ack.type            = 0x02u; /* type 0x02 is the base ack, 0x03 indicates ECN */
-          frame.ack.largest_ack     = ack_head->pkt_number.offset_hi - 1u;
-          frame.ack.ack_delay       = fd_quic_get_state( quic )->now - ack_head->pkt_rcvd;
-          frame.ack.ack_range_count = 0; /* no fragments */
-          frame.ack.first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u;
+          fd_quic_ack_frame_t ack_frame = {
+            .type            = 0x02u, /* type 0x02 is the base ack, 0x03 indicates ECN */
+            .largest_ack     = ack_head->pkt_number.offset_hi - 1u,
+            .ack_delay       = fd_quic_get_state( quic )->now - ack_head->pkt_rcvd,
+            .ack_range_count = 0, /* no fragments */
+            .first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u
+          };
 
           /* calc size of ack frame */
-          frame_sz  = fd_quic_encode_footprint_ack_frame( &frame.ack );
+          frame_sz  = fd_quic_encode_footprint_ack_frame( &ack_frame );
 
           if( payload_ptr + frame_sz < payload_end ) {
             frame_sz = fd_quic_encode_ack_frame( payload_ptr,
                 (ulong)( payload_end - payload_ptr ),
-                &frame.ack );
+                &ack_frame );
             if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
               /* shouldn't happen */
               FD_LOG_WARNING(( "failed to encode ack" ));
@@ -3863,22 +3846,26 @@ fd_quic_conn_tx( fd_quic_t *      quic,
         conn->flags |= FD_QUIC_CONN_FLAGS_CLOSE_SENT;
 
         if( conn->reason != 0u || peer_close ) {
-          frame.conn_close_0.error_code           = conn->reason;
-          frame.conn_close_0.frame_type           = 0u; /* we do not know the frame in question */
-          frame.conn_close_0.reason_phrase_length = 0u; /* no reason phrase */
+          fd_quic_conn_close_0_frame_t frame = {
+            .error_code           = conn->reason,
+            .frame_type           = 0u, /* we do not know the frame in question */
+            .reason_phrase_length = 0u  /* no reason phrase */
+          };
 
           /* output */
           frame_sz = fd_quic_encode_conn_close_0_frame( payload_ptr,
                                                         (ulong)( payload_end - payload_ptr ),
-                                                        &frame.conn_close_0 );
+                                                        &frame );
         } else {
-          frame.conn_close_1.error_code           = conn->app_reason;
-          frame.conn_close_1.reason_phrase_length = 0u; /* no reason phrase */
+          fd_quic_conn_close_1_frame_t frame = {
+            .error_code           = conn->app_reason,
+            .reason_phrase_length = 0u /* no reason phrase */
+          };
 
           /* output */
           frame_sz = fd_quic_encode_conn_close_1_frame( payload_ptr,
                                                         (ulong)( payload_end - payload_ptr ),
-                                                        &frame.conn_close_1 );
+                                                        &frame );
         }
 
         if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
@@ -3932,12 +3919,14 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             ulong         cur_data_sz = hs_data->data_sz - hs_offset;
 
             /* build crypto frame */
-            frame.crypto.offset      = offset;
-            frame.crypto.length      = cur_data_sz;
-            frame.crypto.crypto_data = cur_data;
+            fd_quic_crypto_frame_t frame = {
+              .offset      = offset,
+              .length      = cur_data_sz,
+              .crypto_data = cur_data
+            };
 
             /* calc size of crypto frame, including */
-            frame_sz = fd_quic_encode_footprint_crypto_frame( &frame.crypto );
+            frame_sz = fd_quic_encode_footprint_crypto_frame( &frame );
 
             /* not enough space? */
             ulong over = 0;
@@ -3950,12 +3939,12 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             }
 
             cur_data_sz -= over;
-            frame.crypto.length = cur_data_sz;
+            frame.length = cur_data_sz;
 
             /* output */
             frame_sz = fd_quic_encode_crypto_frame( payload_ptr,
                                                     (ulong)( payload_end - payload_ptr ),
-                                                    &frame.crypto );
+                                                    &frame );
 
             if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
               FD_LOG_WARNING(( "%s - fd_quic_encode_crypto_frame failed, but space "
@@ -4010,12 +3999,12 @@ fd_quic_conn_tx( fd_quic_t *      quic,
           if( ( conn->flags & FD_QUIC_CONN_FLAGS_MAX_DATA ) &&
               ( conn->rx_max_data > conn->rx_max_data_ackd ) ) {
             /* send max_data frame */
-            frame.max_data.max_data = conn->rx_max_data;
+            fd_quic_max_data_frame_t frame = { .max_data = conn->rx_max_data };
 
             /* attempt to write into buffer */
             frame_sz = fd_quic_encode_max_data_frame( payload_ptr,
                                                       (ulong)( payload_end - payload_ptr ),
-                                                      &frame.max_data );
+                                                      &frame );
             if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
               /* successful? then update payload_ptr and tot_frame_sz */
               payload_ptr  += frame_sz;
@@ -4055,13 +4044,15 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
             if( FD_LIKELY( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) ) {
 
-              frame.max_streams.stream_type = 1;
-              frame.max_streams.max_streams = max_streams_unidir;
+              fd_quic_max_streams_frame_t frame = {
+                .stream_type = 1,
+                .max_streams = max_streams_unidir
+              };
 
               /* attempt to write into buffer */
               frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
                                                            (ulong)( payload_end - payload_ptr ),
-                                                           &frame.max_streams );
+                                                           &frame );
               if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
                 /* successful? then update payload_ptr and tot_frame_sz */
                 payload_ptr  += frame_sz;
@@ -4078,7 +4069,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                                                         .type      = FD_QUIC_PKT_META_TYPE_OTHER,
                                                         .flags     = FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
                                                       };
-                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams.max_streams;
+                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams;
                 pkt_meta_var_idx++;
                 pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
               }
@@ -4092,9 +4083,10 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             /* send ping frame */
 
             /* attempt to write into buffer */
+            fd_quic_ping_frame_t ping = {0};
             frame_sz = fd_quic_encode_ping_frame( payload_ptr,
                                                   (ulong)( payload_end - payload_ptr ),
-                                                  &frame.ping );
+                                                  &ping );
             if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
               /* successful? then update payload_ptr and tot_frame_sz */
               payload_ptr  += frame_sz;
@@ -4138,21 +4130,22 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                 ulong stream_off = cur_stream->tx_sent;
 
                 /* do we still have data we can send? */
-                if( stream_data_sz > 0u || last_byte ) {
-                  /* populate frame.stream */
-                  frame.stream.stream_id = cur_stream->stream_id;
+                if( stream_data_sz > 0u || last_byte ) {\
+                  fd_quic_stream_frame_t frame = {
+                    .stream_id = cur_stream->stream_id,
 
-                  /* optional fields */
-                  frame.stream.offset_opt = ( stream_off != 0 );
-                  frame.stream.offset     = stream_off;
+                    /* optional fields */
+                    .offset_opt = ( stream_off != 0 ),
+                    .offset     = stream_off,
 
-                  frame.stream.length_opt = 1; /* always include length */
-                  frame.stream.length     = stream_data_sz;
+                    .length_opt = 1, /* always include length */
+                    .length     = stream_data_sz,
 
-                  frame.stream.fin_opt    = (uchar)last_byte;
+                    .fin_opt    = (uchar)last_byte
+                  };
 
                   /* calc size of stream frame */
-                  frame_sz = stream_data_sz + fd_quic_encode_footprint_stream_frame( &frame.stream );
+                  frame_sz = stream_data_sz + fd_quic_encode_footprint_stream_frame( &frame );
 
                   /* over? */
                   ulong over = 0;
@@ -4161,7 +4154,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
                     /* since we are not sending the last byte of the stream
                        reset these values */
-                    frame.stream.fin_opt = (uchar)0;
+                    frame.fin_opt = (uchar)0;
                     last_byte            = 0;
                   }
 
@@ -4173,15 +4166,15 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                   }
 
                   /* adjust to fit */
-                  stream_data_sz     -= over;
-                  frame.stream.length = stream_data_sz;
+                  stream_data_sz -= over;
+                  frame.length    = stream_data_sz;
 
                   /* do we still have data we can send? */
                   if( stream_data_sz > 0u || last_byte ) {
                     /* output */
                     frame_sz = fd_quic_encode_stream_frame( payload_ptr,
                         (ulong)( payload_end - payload_ptr ),
-                        &frame.stream );
+                        &frame );
 
                     if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
                       FD_LOG_WARNING(( "%s - fd_quic_encode_stream_frame failed, but space "
