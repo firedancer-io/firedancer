@@ -381,7 +381,7 @@ a new slot is confirmed on the currently active fork.
 #### `summary.tps_history`
 | frequency | type         | example |
 |-----------|--------------|---------|
-| *Once*    | `number[][]` | `[[5492,4578,914,0],[6134,5149,985,0]]` |
+| *Once*    | `number[][]` | `[[5492.2,4578.841,914.24,0],[6134.44419,5149.23,985,0]]` |
 
 A list of the last 150 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample

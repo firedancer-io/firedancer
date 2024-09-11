@@ -11,7 +11,7 @@
 #include "../topo/fd_topo.h"
 
 #define FD_GUI_SLOTS_CNT (864000UL)
-#define FD_GUI_TPS_HISTORY_WINDOW_SZ (10UL)
+#define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L) /* 10 second moving average */
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -183,6 +183,7 @@ struct fd_gui {
 
   fd_topo_t * topo;
 
+  long next_sample_400millis;
   long next_sample_100millis;
   long next_sample_10millis;
 
@@ -241,9 +242,8 @@ struct fd_gui {
     ulong slot_completed;
     ulong slot_estimated;
 
-    ulong estimated_tps;
-    ulong estimated_vote_tps;
-    ulong estimated_nonvote_failed_tps;
+    ulong estimated_tps_history_idx;
+    ulong estimated_tps_history[ 150UL ][ 3UL ];
 
     ulong last_leader_slot;
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];

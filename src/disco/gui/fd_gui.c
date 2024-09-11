@@ -50,6 +50,7 @@ fd_gui_new( void *        shmem,
 
   gui->debug_in_leader_slot = ULONG_MAX;
 
+  gui->next_sample_400millis = fd_log_wallclock();
   gui->next_sample_100millis = fd_log_wallclock();
   gui->next_sample_10millis  = fd_log_wallclock();
 
@@ -84,9 +85,8 @@ fd_gui_new( void *        shmem,
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
 
-  gui->summary.estimated_tps                = 0UL;
-  gui->summary.estimated_vote_tps           = 0UL;
-  gui->summary.estimated_nonvote_failed_tps = 0UL;
+  gui->summary.estimated_tps_history_idx = 0UL;
+  memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
 
   gui->summary.last_leader_slot = ULONG_MAX;
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
@@ -181,6 +181,31 @@ fd_gui_tile_timers_snap( fd_gui_t *             gui,
     cur[ i ].filter_after_frag_ticks  = tile_metrics[ FD_HISTF_BUCKET_CNT + MIDX( HISTOGRAM, STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS ) ];
     cur[ i ].finish_ticks             = tile_metrics[ FD_HISTF_BUCKET_CNT + MIDX( HISTOGRAM, STEM, LOOP_FINISH_DURATION_SECONDS ) ];
   }
+}
+
+static void
+fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
+  ulong total_txn_cnt          = 0UL;
+  ulong vote_txn_cnt           = 0UL;
+  ulong nonvote_failed_txn_cnt = 0UL;
+
+  for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+    ulong _slot = gui->summary.slot_completed-i;
+    fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+    if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=_slot ) ) break; /* Slot no longer exists, no TPS. */
+    if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) break; /* Slot is on this fork but was never completed, must have been in root path on boot. */
+    if( FD_UNLIKELY( slot->completed_time+FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS*1000L*1000L*1000L<gui->next_sample_400millis ) ) break; /* Slot too old. */
+    if( FD_UNLIKELY( slot->skipped ) ) continue; /* Skipped slots don't count to TPS. */
+
+    total_txn_cnt          += slot->total_txn_cnt;
+    vote_txn_cnt           += slot->vote_txn_cnt;
+    nonvote_failed_txn_cnt += slot->nonvote_failed_txn_cnt;
+  }
+
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 0 ] = total_txn_cnt;
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 1 ] = vote_txn_cnt;
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 2 ] = nonvote_failed_txn_cnt;
+  gui->summary.estimated_tps_history_idx = (gui->summary.estimated_tps_history_idx+1UL) % 150;
 }
 
 /* Snapshot all of the data from metrics to construct a view of the
@@ -483,6 +508,14 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
 void
 fd_gui_poll( fd_gui_t * gui ) {
   long now = fd_log_wallclock();
+
+  if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
+    fd_gui_estimated_tps_snap( gui );
+    fd_gui_printf_estimated_tps( gui );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
+
+    gui->next_sample_400millis += 400L*1000L*1000L;
+  }
 
   if( FD_LIKELY( now>gui->next_sample_100millis ) ) {
     fd_gui_txn_waterfall_snap( gui, gui->summary.txn_waterfall_current );
@@ -1105,52 +1138,6 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     if( FD_UNLIKELY( parent_slot_idx>=parent_cnt ) ) break;
   }
 
-  ulong total_txn_cnt          = 0UL;
-  ulong vote_txn_cnt           = 0UL;
-  ulong nonvote_failed_txn_cnt = 0UL;
-
-  ulong last_total_txn_cnt          = 0UL;
-  ulong last_vote_txn_cnt           = 0UL;
-  ulong last_nonvote_failed_txn_cnt = 0UL;
-  long  last_time_nanos             = 0L;
-
-  for( ulong i=0UL; i<=fd_ulong_min( _slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
-    ulong parent_slot = _slot - i;
-    ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
-
-    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
-    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
-
-    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
-      FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
-    }
-
-    if( FD_LIKELY( !slot->skipped ) ) {
-      total_txn_cnt          += slot->total_txn_cnt;
-      vote_txn_cnt           += slot->vote_txn_cnt;
-      nonvote_failed_txn_cnt += slot->nonvote_failed_txn_cnt;
-
-      last_total_txn_cnt          = slot->total_txn_cnt;
-      last_vote_txn_cnt           = slot->vote_txn_cnt;
-      last_nonvote_failed_txn_cnt = slot->nonvote_failed_txn_cnt;
-      if( FD_LIKELY( slot->completed_time!=LONG_MAX ) ) {
-        last_time_nanos           = slot->completed_time;
-      }
-    }
-  }
-
-  total_txn_cnt          -= last_total_txn_cnt;
-  vote_txn_cnt           -= last_vote_txn_cnt;
-  nonvote_failed_txn_cnt -= last_nonvote_failed_txn_cnt;
-
-  long now = fd_log_wallclock();
-  gui->summary.estimated_tps                = (total_txn_cnt         *1000000000UL)/(ulong)(now-last_time_nanos);
-  gui->summary.estimated_vote_tps           = (vote_txn_cnt          *1000000000UL)/(ulong)(now-last_time_nanos);
-  gui->summary.estimated_nonvote_failed_tps = (nonvote_failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
-
-  fd_gui_printf_estimated_tps( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
-
   ulong last_slot = _slot;
   long last_published = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->completed_time;
 
@@ -1171,12 +1158,12 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   }
 
   if( FD_LIKELY( _slot!=last_slot )) {
-    gui->summary.estimated_slot_duration_nanos = (ulong)(now-last_published)/(_slot-last_slot);
+    gui->summary.estimated_slot_duration_nanos = (ulong)(fd_log_wallclock()-last_published)/(_slot-last_slot);
     fd_gui_printf_estimated_slot_duration_nanos( gui );
     fd_hcache_snap_ws_broadcast( gui->hcache );
   }
 
-  if( FD_LIKELY( _slot>gui->summary.slot_completed ) ) {
+  if( FD_LIKELY( _slot!=gui->summary.slot_completed ) ) {
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
