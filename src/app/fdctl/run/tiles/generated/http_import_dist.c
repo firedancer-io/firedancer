@@ -3,16 +3,16 @@
 
 FD_IMPORT_BINARY( file0_zstd, "src/app/fdctl/dist/assets/firedancer_logo-CrgwxzPk.svg.zstd" );
 FD_IMPORT_BINARY( file0, "src/app/fdctl/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file1, "src/app/fdctl/dist/assets/inter-latin-400-normal-gitzw0hO.woff" );
-FD_IMPORT_BINARY( file2_zstd, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg.zstd" );
-FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg" );
-FD_IMPORT_BINARY( file3_zstd, "src/app/fdctl/dist/assets/index-DxnZQB7I.css.zstd" );
-FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/index-DxnZQB7I.css" );
-FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/inter-latin-400-normal-BOOGhInR.woff2" );
-FD_IMPORT_BINARY( file5_zstd, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg.zstd" );
-FD_IMPORT_BINARY( file5, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg" );
-FD_IMPORT_BINARY( file6_zstd, "src/app/fdctl/dist/assets/index-Cjv14UtT.js.zstd" );
-FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/index-Cjv14UtT.js" );
+FD_IMPORT_BINARY( file1_zstd, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg.zstd" );
+FD_IMPORT_BINARY( file1, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg" );
+FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/inter-latin-400-normal-gitzw0hO.woff" );
+FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/inter-latin-400-normal-BOOGhInR.woff2" );
+FD_IMPORT_BINARY( file4_zstd, "src/app/fdctl/dist/assets/index-AUG1eEXO.js.zstd" );
+FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/index-AUG1eEXO.js" );
+FD_IMPORT_BINARY( file5_zstd, "src/app/fdctl/dist/assets/index-DxnZQB7I.css.zstd" );
+FD_IMPORT_BINARY( file5, "src/app/fdctl/dist/assets/index-DxnZQB7I.css" );
+FD_IMPORT_BINARY( file6_zstd, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg.zstd" );
+FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg" );
 FD_IMPORT_BINARY( file7, "src/app/fdctl/dist/index.html" );
 
 fd_http_static_file_t STATIC_FILES[] = {
@@ -24,42 +24,42 @@ fd_http_static_file_t STATIC_FILES[] = {
         .zstd_data_len = &file0_zstd_sz
     },
     {
-        .name = "/assets/inter-latin-400-normal-gitzw0hO.woff",
+        .name = "/assets/firedancer-D_J0EzUc.svg",
         .data = file1,
         .data_len = &file1_sz,
-        .zstd_data = NULL,
-        .zstd_data_len = 0UL
+        .zstd_data = file1_zstd,
+        .zstd_data_len = &file1_zstd_sz
     },
     {
-        .name = "/assets/firedancer-D_J0EzUc.svg",
+        .name = "/assets/inter-latin-400-normal-gitzw0hO.woff",
         .data = file2,
         .data_len = &file2_sz,
-        .zstd_data = file2_zstd,
-        .zstd_data_len = &file2_zstd_sz
-    },
-    {
-        .name = "/assets/index-DxnZQB7I.css",
-        .data = file3,
-        .data_len = &file3_sz,
-        .zstd_data = file3_zstd,
-        .zstd_data_len = &file3_zstd_sz
+        .zstd_data = NULL,
+        .zstd_data_len = 0UL
     },
     {
         .name = "/assets/inter-latin-400-normal-BOOGhInR.woff2",
-        .data = file4,
-        .data_len = &file4_sz,
+        .data = file3,
+        .data_len = &file3_sz,
         .zstd_data = NULL,
         .zstd_data_len = 0UL
     },
     {
-        .name = "/assets/privateYou-DxC3xn7b.svg",
+        .name = "/assets/index-AUG1eEXO.js",
+        .data = file4,
+        .data_len = &file4_sz,
+        .zstd_data = file4_zstd,
+        .zstd_data_len = &file4_zstd_sz
+    },
+    {
+        .name = "/assets/index-DxnZQB7I.css",
         .data = file5,
         .data_len = &file5_sz,
         .zstd_data = file5_zstd,
         .zstd_data_len = &file5_zstd_sz
     },
     {
-        .name = "/assets/index-Cjv14UtT.js",
+        .name = "/assets/privateYou-DxC3xn7b.svg",
         .data = file6,
         .data_len = &file6_sz,
         .zstd_data = file6_zstd,
