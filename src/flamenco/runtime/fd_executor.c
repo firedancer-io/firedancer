@@ -1623,7 +1623,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &txn_ctx->instr_infos[i], NULL );
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &txn_ctx->instr_infos[i] );
     }
 
     txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;

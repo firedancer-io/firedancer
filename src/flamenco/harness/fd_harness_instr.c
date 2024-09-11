@@ -100,6 +100,7 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
   (void)instr;
 
   fd_v2_exec_env_t exec_env = FD_V2_EXEC_ENV_INIT_DEFAULT;
+  exec_env.harness_type     = FD_V2_HARNESS_TYPE_INSTR;
 
   /* In order to capture all of the accounts required to execute an instruction,
      we need to copy over:
@@ -211,8 +212,8 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
   }
   
   fd_v2_instr_env_t instr_env = FD_V2_INSTR_ENV_INIT_DEFAULT;
-  txn_env.instructions_count  = 1UL;
-  txn_env.instructions        = &instr_env;
+  txn_env.instrs_count        = 1UL;
+  txn_env.instrs              = &instr_env;
 
   instr_env.program_id_idx = instr->program_id;
   instr_env.accounts       = fd_scratch_alloc( alignof(pb_byte_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(pb_byte_t) * instr->acct_cnt ) );
@@ -239,16 +240,10 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
 
 static void
 fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
+
   fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
 
-  fd_sol_sysvar_clock_t clock = {0};
-  fd_sysvar_clock_read( &clock, ctx->txn_ctx->slot_ctx );
-  FD_LOG_NOTICE(("CLOCK EPOCH %lu", clock.epoch ));
-
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
-
-  fd_sysvar_clock_read( &clock, ctx->txn_ctx->slot_ctx );
-  FD_LOG_NOTICE(("CLOCK EPOCH 2 %lu", clock.epoch ));
 
   /* TODO: FIX THIS PLEASE THIS IS A MEGA MEGA HACK */
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
@@ -278,9 +273,9 @@ fd_harness_exec_restore_features( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exe
 }
 
 static void
-fd_harness_exec_setup( fd_harness_ctx_t * ctx ) {
+fd_harness_exec_setup( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exec_env ) {
 
-  /* Allocate new workspace */
+  /* Allocate new workspace. */
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) {
@@ -288,24 +283,25 @@ fd_harness_exec_setup( fd_harness_ctx_t * ctx ) {
   }
   ctx->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
 
-  /* Declare an alloc from the wksp */
+  /* Declare an alloc from the wksp. */
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
   
-  /* Allocate, attach, and push a scratch frame */
+  /* Allocate, attach, and push a scratch frame. */
 
-  /* TODO: use scratch methods here and define things out */
+  /* TODO: use scratch methods here and define things out. */
+
   void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
   void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
   fd_scratch_attach( smem, fmem, 1<<30, 64UL );
   fd_scratch_push();
 
-  /* Scratch allocate a funk that will exist for the scope of the execution */
+  /* Scratch allocate a funk that will exist for the scope of the execution. */
 
   void * funk_mem = fd_scratch_alloc( fd_funk_align(), fd_funk_footprint() );
   ctx->funk       = fd_funk_join( fd_funk_new( funk_mem, 999UL, (ulong)fd_tickcount(), 4UL+fd_tile_cnt(), 1024UL ) );
 
-  /* Allocate txn, slot, and epoch contexts */
+  /* Allocate txn, slot, and epoch contexts. */
 
   uchar * epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( 128UL ) );
   uchar * slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
@@ -326,9 +322,12 @@ fd_harness_exec_setup( fd_harness_ctx_t * ctx ) {
   ctx->slot_ctx->funk_txn  = fd_funk_txn_prepare( ctx->funk, NULL, &xid, 1 );
   ctx->slot_ctx->epoch_ctx = ctx->epoch_ctx;
 
-  fd_slot_bank_new( &ctx->slot_ctx->slot_bank ); 
+  /* Setup the slot bank and set the slot number. */
 
-  /* Populate relevant txn context fields */
+  fd_slot_bank_new( &ctx->slot_ctx->slot_bank ); 
+  ctx->slot_ctx->slot_bank.slot = exec_env->slots[0].slot_number;
+
+  /* Populate relevant txn context fields. */
 
   fd_exec_txn_ctx_setup( ctx->txn_ctx, NULL, NULL );
   ctx->txn_ctx->epoch_ctx = ctx->epoch_ctx;
@@ -372,9 +371,6 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
     borrowed_account->const_data = borrowed_account->data;
   }
 
-  FD_LOG_NOTICE(("ACCOUNT DATA FOR PUBKEY %32J %lx", pubkey, borrowed_account->const_data));
-  FD_LOG_HEXDUMP_NOTICE(("ACCOUNT DATA", borrowed_account->const_data, acc->data->size));
-
   borrowed_account->starting_lamports     = acc->lamports;
   borrowed_account->starting_dlen         = acc->data->size;
   borrowed_account->meta->info.lamports   = acc->lamports;
@@ -385,99 +381,67 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
 
 }
 
-// static void
-// fd_harness_exec_populate_instr( fd_harness_ctx_t * ctx,
-//                                 fd_v2_exec_env_t * exec_env,
-//                                 fd_instr_info_t *  instr ) {
-    
-//   fd_v2_txn_env_t   * txn_env   = &exec_env->slots[0].txns[0];
-//   fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
-//   fd_exec_txn_ctx_t * txn_ctx   = ctx->txn_ctx;
-
-//   instr->program_id = (uchar)instr_env->program_id_idx;
-//   instr->data_sz    = (ushort)instr_env->data->size;
-//   instr->acct_cnt   = (ushort)instr_env->accounts->size;
-//   instr->data       = fd_scratch_alloc( 1, instr->data_sz );
-
-//   fd_memcpy( instr->data, instr_env->data->bytes, instr->data_sz );
-//   fd_memcpy( &instr->program_id_pubkey, &txn_ctx->accounts[instr->program_id], sizeof(fd_pubkey_t) );
-
-//   FD_LOG_NOTICE(("INSTRUCTION PROGRAM ID PUBKEY %32J", &instr->program_id_pubkey));
-
-//   /* For each instruction account update accesses to transaction accounts. */
-//   for( uint i=0U; i<instr->acct_cnt; i++ ) {
-//     instr->acct_txn_idxs[i]     = (uchar)instr_env->accounts[i];
-//     instr->acct_flags[i]        = 0;/* TODO: SET FLAGS */
-//     fd_memcpy( &instr->acct_pubkeys[i], &txn_ctx->accounts[i], sizeof(fd_pubkey_t) );
-//     instr->borrowed_accounts[i] = &txn_ctx->borrowed_accounts[instr_env->accounts[i]];
-
-//     if( fd_txn_account_is_writable_idx( txn_ctx, (uchar)instr_env->accounts[i] ) ) {
-//       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-
-//       /* Need to update the borrowed accounts to reflect that they are writable. */
-//       instr->borrowed_accounts[i]->meta = (void *)instr->borrowed_accounts[i]->const_meta;
-//       instr->borrowed_accounts[i]->data = (void *)instr->borrowed_accounts[i]->const_data;
-//       instr->borrowed_accounts[i]->rec  = (void *)instr->borrowed_accounts[i]->const_rec;
-//     }
-
-//     /* This is the equivalent of fd_txn_is_signer() but instead doesn't involve
-//        constructing a txn_descriptor.  */
-//     if( instr->acct_txn_idxs[i]<txn_env->header.num_required_signatures ) {
-//       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-//     }
-//   }
-
-// }
-
 int
 fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
 
   /* First read in file and decode the protobuf */
-  fd_v2_exec_env_t exec_env = FD_V2_EXEC_ENV_INIT_ZERO;
+
+  fd_v2_exec_env_t exec_env_struct = FD_V2_EXEC_ENV_INIT_ZERO;
 
   pb_istream_t istream = pb_istream_from_buffer( file_buf, file_sz );
-  if( FD_UNLIKELY( !pb_decode( &istream, FD_V2_EXEC_ENV_FIELDS, &exec_env ) ) ) {
+  if( FD_UNLIKELY( !pb_decode( &istream, FD_V2_EXEC_ENV_FIELDS, &exec_env_struct ) ) ) {
     FD_LOG_ERR(( "Failed to decode exec env pb" ));
   }
 
-  fd_v2_txn_env_t *   txn_env   = &exec_env.slots[0].txns[0];
-  fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
+  fd_v2_exec_env_t *  exec_env  = &exec_env_struct;
+  fd_v2_slot_env_t *  slot_env  = &exec_env->slots[0];
+  fd_v2_txn_env_t *   txn_env   = &slot_env->txns[0];
+  fd_v2_instr_env_t * instr_env = &txn_env->instrs[0];
 
   /* Setup the basic execution environment: allocate contexts and important
      data structures (funk, wksp, acc_mgr, etc. ) */
   fd_harness_ctx_t ctx = {0};
-  fd_harness_exec_setup( &ctx );
-  ctx.slot_ctx->slot_bank.slot = exec_env.slots[0].slot_number;
-  ctx.exec_env  = &exec_env; /* TODO: get rid of these */
-  ctx.slot_env  = &exec_env.slots[0];
-  ctx.txn_env   = txn_env;
-  ctx.instr_env = instr_env;
+  fd_harness_exec_setup( &ctx, exec_env );
 
   /* Load in all account states into the borrowed accounts/acc_mgr.
      Need to load in the transaction accounts, the corresponding programdata
-     accounts, and the sysvars in their own ways.
-     TODO: SPLIT INTO TWO BUCKETS. */
-  FD_LOG_NOTICE(("txn env keys cnt %lu", ctx.txn_ctx->accounts_cnt));
-  for( uint i=0U; i<exec_env.acct_states_count; i++ ) {
-    fd_v2_acct_state_t * acc = &exec_env.acct_states[i];
+     accounts, and the sysvars in their own ways. */
+
+  for( uint i=0U; i<exec_env->acct_states_count; i++ ) {
+    fd_v2_acct_state_t * acc = &exec_env->acct_states[i];
     fd_harness_exec_load_acc( &ctx, &ctx.txn_ctx->borrowed_accounts[i], acc );
   } 
 
-  /* TODO: all of the cache stuff should go here */
+  /* Restore the sysvars from the account states that are loaded in from the
+     exec env's acct states. */
+
   fd_harness_exec_restore_sysvars( &ctx );
+
+  /* Setup the transaction context with the relevant fields. */
 
   fd_exec_txn_ctx_setup( ctx.txn_ctx, NULL, NULL );
   ctx.txn_ctx->compute_unit_limit = txn_env->cu_avail;
   ctx.txn_ctx->compute_meter      = txn_env->cu_avail;
   ctx.txn_ctx->accounts_cnt       = txn_env->account_keys_count;
 
-  /* Load in transaction information */
   for( uint i=0U; i<txn_env->account_keys_count; i++ ) {
     fd_pubkey_t * pubkey = (fd_pubkey_t*)txn_env->account_keys[i]->bytes;
     fd_memcpy( &ctx.txn_ctx->accounts[i], pubkey, sizeof(fd_pubkey_t) );
   }
 
-  /* Mock up txn descriptor fields */
+  /* Load in all features from the execution environment. */
+
+  fd_harness_exec_restore_features( &ctx, exec_env );
+
+  /* Set the required fields for the transaction descriptor and instruction.
+     This allows for the instruction parsing and setup to be handled by the
+     same function that is used in the runtime. 
+     
+     An optimization/hack that is used here to prevent a memcpy is the fact
+     that the fd_instr_info's data and the instr_acc_idxs fields are populated
+     using data offsets into txn_ctx->_txn_raw. The _txn_raw is just set to
+     the account indicies. The instr data is reset after the function call. */
+
   fd_txn_t * txn_descriptor             = fd_scratch_alloc( alignof(fd_txn_t), sizeof(fd_txn_t) );
   txn_descriptor->signature_cnt         = (uchar)txn_env->header.num_required_signatures;
   txn_descriptor->readonly_signed_cnt   = (uchar)txn_env->header.num_readonly_signed_accounts;
@@ -490,29 +454,23 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
   txn_instr->program_id      = (uchar)instr_env->program_id_idx;
   txn_instr->acct_cnt        = (ushort)instr_env->accounts->size;
   txn_instr->data_sz         = (ushort)instr_env->data->size;
+  txn_instr->acct_off        = (ushort)0;
 
-  ctx.txn_ctx->txn_descriptor = txn_descriptor;
-
-  /* Load in all features */
-  fd_harness_exec_restore_features( &ctx, &exec_env );
-
-  /* Capture ctx */
-  fd_capture_ctx_t * capture_ctx = fd_scratch_alloc( alignof(fd_capture_ctx_t), sizeof(fd_capture_ctx_t) );
-  capture_ctx->exec_env  = ctx.exec_env;
-  capture_ctx->slot_env  = ctx.slot_env;
-  capture_ctx->txn_env   = ctx.txn_env;
-  capture_ctx->instr_env = ctx.instr_env;
-
+  ctx.txn_ctx->txn_descriptor   = txn_descriptor;
+  ctx.txn_ctx->_txn_raw->raw    = instr_env->accounts->bytes;
+  ctx.txn_ctx->_txn_raw->txn_sz = (ushort)instr_env->accounts->size;
 
   /* Populate the instruction */
   fd_instr_info_t instr = {0};
   fd_convert_txn_instr_to_instr( ctx.txn_ctx,
                                  txn_instr,
                                  ctx.txn_ctx->borrowed_accounts,
-                                 &instr,
-                                 capture_ctx );
+                                 &instr );
+  instr.data = instr_env->data->bytes;
 
   fd_funk_end_write( ctx.funk );
+
+  /* The instruciton at this point should be fully set up. */
 
   int res = fd_execute_instr( ctx.txn_ctx, &instr );
   FD_LOG_NOTICE(("res %d", res));
@@ -550,7 +508,6 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
 
   instr_effects.result     = res;
   instr_effects.custom_err = res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ? txn_ctx->custom_err : 0U;
-
 
   return 0;
 }

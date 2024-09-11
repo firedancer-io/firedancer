@@ -43,8 +43,7 @@ void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_txn_instr_t const *  txn_instr,
                                fd_borrowed_account_t * borrowed_accounts,
-                               fd_instr_info_t *       instr,
-                               fd_capture_ctx_t *      capture_ctx );
+                               fd_instr_info_t *       instr );
 
 FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,

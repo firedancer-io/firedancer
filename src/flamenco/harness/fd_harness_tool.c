@@ -15,7 +15,7 @@ main( int argc, char ** argv ) {
 
   FD_LOG_WARNING(("HELLO"));
 
-  char path[312] = "/data/ibhatt/instr-3M6ubN9DGkdiXsEavgLCjYQUmY5ee1adTByiQteeSbDxJL9nUuUqJWMiUwiL59oCJ6uSz1Fr6SQSsJUSK4fc3MKh-00.pb.bin";
+  char path[312] = "/data/ibhatt/instr-5kmRAiYhnA5rP2982nZubwTmQLAiwp2dMb36az5aYfuXcQrddDcSsfNtRP4A4dEvV7nNDNzrDkbf7nEC4F8XbjaQ-08.pb.bin";
 
   int file = open( path, O_RDONLY );
   struct stat st;
@@ -23,11 +23,11 @@ main( int argc, char ** argv ) {
     FD_LOG_WARNING(( "fstat(%s): %s", path, fd_io_strerror( errno ) ));
     return 0;
   }
-  ulong file_sz = (ulong)st.st_size;
-  uchar * buf = malloc( file_sz );
+  ulong   file_sz = (ulong)st.st_size;
+  uchar * buf     = malloc( file_sz );
+
   FD_TEST( 0==fd_io_read( file, buf, file_sz, file_sz, &file_sz ) );
   FD_TEST( 0==close( file ) );
-
 
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );

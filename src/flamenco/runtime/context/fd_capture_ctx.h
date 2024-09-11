@@ -36,12 +36,6 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
 
   /* Transaction Capture */
   int                      dump_txn_to_pb;
-
-  /* Runtime Fuzz v2 */
-  fd_v2_exec_env_t *       exec_env;
-  fd_v2_slot_env_t *       slot_env;
-  fd_v2_txn_env_t *        txn_env;
-  fd_v2_instr_env_t *      instr_env;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )

@@ -21,10 +21,6 @@ struct fd_harness_ctx {
    fd_exec_slot_ctx_t  * slot_ctx;
    fd_exec_txn_ctx_t   * txn_ctx;
    fd_acc_mgr_t        * acc_mgr;
-   fd_v2_exec_env_t    * exec_env;
-   fd_v2_slot_env_t    * slot_env;
-   fd_v2_txn_env_t     * txn_env;
-   fd_v2_instr_env_t   * instr_env;
 };
 typedef struct fd_harness_ctx fd_harness_ctx_t;
 

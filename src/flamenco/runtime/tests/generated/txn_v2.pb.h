@@ -42,8 +42,8 @@ account data actually comes from higher level fuzzers. */
     pb_size_t account_keys_count;
     pb_bytes_array_t **account_keys;
     /* Instruction(s) that the transaction executes. */
-    pb_size_t instructions_count;
-    struct fd_v2_instr_env *instructions;
+    pb_size_t instrs_count;
+    struct fd_v2_instr_env *instrs;
     /* Recent blockhash provided in the message. */
     pb_bytes_array_t *recent_blockhash;
     /* Address table lookups that aren't availble in legacy messages. */
@@ -100,7 +100,7 @@ extern "C" {
 #define FD_V2_TXN_ENV_HEADER_TAG                 1
 #define FD_V2_TXN_ENV_IS_LEGACY_TAG              2
 #define FD_V2_TXN_ENV_ACCOUNT_KEYS_TAG           3
-#define FD_V2_TXN_ENV_INSTRUCTIONS_TAG           4
+#define FD_V2_TXN_ENV_INSTRS_TAG                 4
 #define FD_V2_TXN_ENV_RECENT_BLOCKHASH_TAG       5
 #define FD_V2_TXN_ENV_ALUT_ENTRIES_TAG           6
 #define FD_V2_TXN_ENV_MESSAGE_HASH_TAG           7
@@ -133,7 +133,7 @@ X(a, POINTER,  REPEATED, UINT32,   readonly_indexes,   3)
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            1) \
 X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         2) \
 X(a, POINTER,  REPEATED, BYTES,    account_keys,      3) \
-X(a, POINTER,  REPEATED, MESSAGE,  instructions,      4) \
+X(a, POINTER,  REPEATED, MESSAGE,  instrs,            4) \
 X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
 X(a, POINTER,  REPEATED, MESSAGE,  alut_entries,      6) \
 X(a, POINTER,  SINGULAR, BYTES,    message_hash,      7) \
@@ -142,7 +142,7 @@ X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          9)
 #define FD_V2_TXN_ENV_CALLBACK NULL
 #define FD_V2_TXN_ENV_DEFAULT NULL
 #define fd_v2_txn_env_t_header_MSGTYPE fd_v2_txn_header_t
-#define fd_v2_txn_env_t_instructions_MSGTYPE fd_v2_instr_env_t
+#define fd_v2_txn_env_t_instrs_MSGTYPE fd_v2_instr_env_t
 #define fd_v2_txn_env_t_alut_entries_MSGTYPE fd_v2_lut_entry_t
 
 #define FD_V2_TXN_EFFECTS_FIELDLIST(X, a) \

@@ -482,6 +482,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   }
   vm->cu -= heap_cost_result;
 
+  FD_LOG_NOTICE(("asdfasdfasdf"));
+
   int exec_err = fd_vm_exec( vm );
 
   if( FD_UNLIKELY( vm->trace ) ) {
@@ -523,7 +525,6 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
       fd_valloc_free( instr_ctx->valloc, input );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
-
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

@@ -10,6 +10,14 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+typedef enum fd_v2_harness_type {
+    FD_V2_HARNESS_TYPE_INSTR = 0,
+    FD_V2_HARNESS_TYPE_TXN = 1,
+    FD_V2_HARNESS_TYPE_SLOT = 2,
+    FD_V2_HARNESS_TYPE_RUNTIME = 3
+} fd_v2_harness_type_t;
+
 /* Struct definitions */
 typedef struct fd_v2_seed_address {
     /* The seed address base. (32 bytes) */
@@ -67,6 +75,7 @@ TODO: fill in the rest of the status cache. */
 } fd_v2_status_cache_t;
 
 typedef struct fd_v2_exec_env {
+    fd_v2_harness_type_t harness_type;
     /* Starting account states before harness execution. */
     pb_size_t acct_states_count;
     struct fd_v2_acct_state *acct_states;
@@ -88,6 +97,7 @@ epoch boundary. */
 } fd_v2_exec_env_t;
 
 typedef struct fd_v2_exec_effects {
+    fd_v2_harness_type_t harness_type;
     /* Slot effects. */
     pb_size_t slot_effects_count;
     struct fd_v2_slot_effects *slot_effects;
@@ -101,6 +111,22 @@ typedef struct fd_v2_exec_effects {
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _FD_V2_HARNESS_TYPE_MIN FD_V2_HARNESS_TYPE_INSTR
+#define _FD_V2_HARNESS_TYPE_MAX FD_V2_HARNESS_TYPE_RUNTIME
+#define _FD_V2_HARNESS_TYPE_ARRAYSIZE ((fd_v2_harness_type_t)(FD_V2_HARNESS_TYPE_RUNTIME+1))
+
+
+
+
+
+
+
+#define fd_v2_exec_env_t_harness_type_ENUMTYPE fd_v2_harness_type_t
+
+#define fd_v2_exec_effects_t_harness_type_ENUMTYPE fd_v2_harness_type_t
+
+
 /* Initializer values for message structs */
 #define FD_V2_SEED_ADDRESS_INIT_DEFAULT          {{0}, {0}, {0}}
 #define FD_V2_ACCT_STATE_INIT_DEFAULT            {{0}, 0, NULL, 0, 0, {0}, false, FD_V2_SEED_ADDRESS_INIT_DEFAULT}
@@ -108,16 +134,16 @@ extern "C" {
 #define FD_V2_LEADER_SCHEDULE_INIT_DEFAULT       {0, NULL, 0, NULL}
 #define FD_V2_RENT_SCHEDULE_INIT_DEFAULT         {0, {{NULL}, NULL}, 0}
 #define FD_V2_STATUS_CACHE_INIT_DEFAULT          {{{NULL}, NULL}}
-#define FD_V2_EXEC_ENV_INIT_DEFAULT              {0, NULL, 0, NULL, false, FD_V2_LEADER_SCHEDULE_INIT_DEFAULT, 0, NULL, false, FD_V2_STATUS_CACHE_INIT_DEFAULT, {{NULL}, NULL}}
-#define FD_V2_EXEC_EFFECTS_INIT_DEFAULT          {0, NULL, 0, NULL}
+#define FD_V2_EXEC_ENV_INIT_DEFAULT              {_FD_V2_HARNESS_TYPE_MIN, 0, NULL, 0, NULL, false, FD_V2_LEADER_SCHEDULE_INIT_DEFAULT, 0, NULL, false, FD_V2_STATUS_CACHE_INIT_DEFAULT, {{NULL}, NULL}}
+#define FD_V2_EXEC_EFFECTS_INIT_DEFAULT          {_FD_V2_HARNESS_TYPE_MIN, 0, NULL, 0, NULL}
 #define FD_V2_SEED_ADDRESS_INIT_ZERO             {{0}, {0}, {0}}
 #define FD_V2_ACCT_STATE_INIT_ZERO               {{0}, 0, NULL, 0, 0, {0}, false, FD_V2_SEED_ADDRESS_INIT_ZERO}
 #define FD_V2_FEATURE_INIT_ZERO                  {{0}, 0}
 #define FD_V2_LEADER_SCHEDULE_INIT_ZERO          {0, NULL, 0, NULL}
 #define FD_V2_RENT_SCHEDULE_INIT_ZERO            {0, {{NULL}, NULL}, 0}
 #define FD_V2_STATUS_CACHE_INIT_ZERO             {{{NULL}, NULL}}
-#define FD_V2_EXEC_ENV_INIT_ZERO                 {0, NULL, 0, NULL, false, FD_V2_LEADER_SCHEDULE_INIT_ZERO, 0, NULL, false, FD_V2_STATUS_CACHE_INIT_ZERO, {{NULL}, NULL}}
-#define FD_V2_EXEC_EFFECTS_INIT_ZERO             {0, NULL, 0, NULL}
+#define FD_V2_EXEC_ENV_INIT_ZERO                 {_FD_V2_HARNESS_TYPE_MIN, 0, NULL, 0, NULL, false, FD_V2_LEADER_SCHEDULE_INIT_ZERO, 0, NULL, false, FD_V2_STATUS_CACHE_INIT_ZERO, {{NULL}, NULL}}
+#define FD_V2_EXEC_EFFECTS_INIT_ZERO             {_FD_V2_HARNESS_TYPE_MIN, 0, NULL, 0, NULL}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_V2_SEED_ADDRESS_BASE_TAG              1
@@ -139,14 +165,16 @@ extern "C" {
 #define FD_V2_RENT_SCHEDULE_PARTITIONS_TAG       2
 #define FD_V2_RENT_SCHEDULE_SLOTS_PER_YEAR_TAG   3
 #define FD_V2_STATUS_CACHE_TX_HASHES_TAG         1
-#define FD_V2_EXEC_ENV_ACCT_STATES_TAG           1
-#define FD_V2_EXEC_ENV_FEATURES_TAG              2
-#define FD_V2_EXEC_ENV_LEADER_SCHEDULE_TAG       3
-#define FD_V2_EXEC_ENV_SLOTS_TAG                 4
-#define FD_V2_EXEC_ENV_STATUS_CACHE_TAG          5
-#define FD_V2_EXEC_ENV_BLOCK_HASH_QUEUE_TAG      6
-#define FD_V2_EXEC_EFFECTS_SLOT_EFFECTS_TAG      1
-#define FD_V2_EXEC_EFFECTS_ACCT_STATES_TAG       2
+#define FD_V2_EXEC_ENV_HARNESS_TYPE_TAG          1
+#define FD_V2_EXEC_ENV_ACCT_STATES_TAG           2
+#define FD_V2_EXEC_ENV_FEATURES_TAG              3
+#define FD_V2_EXEC_ENV_LEADER_SCHEDULE_TAG       4
+#define FD_V2_EXEC_ENV_SLOTS_TAG                 5
+#define FD_V2_EXEC_ENV_STATUS_CACHE_TAG          6
+#define FD_V2_EXEC_ENV_BLOCK_HASH_QUEUE_TAG      7
+#define FD_V2_EXEC_EFFECTS_HARNESS_TYPE_TAG      1
+#define FD_V2_EXEC_EFFECTS_SLOT_EFFECTS_TAG      2
+#define FD_V2_EXEC_EFFECTS_ACCT_STATES_TAG       3
 
 /* Struct field encoding specification for nanopb */
 #define FD_V2_SEED_ADDRESS_FIELDLIST(X, a) \
@@ -194,12 +222,13 @@ X(a, CALLBACK, SINGULAR, BYTES,    tx_hashes,         1)
 #define FD_V2_STATUS_CACHE_DEFAULT NULL
 
 #define FD_V2_EXEC_ENV_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       1) \
-X(a, POINTER,  REPEATED, MESSAGE,  features,          2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  leader_schedule,   3) \
-X(a, POINTER,  REPEATED, MESSAGE,  slots,             4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  status_cache,      5) \
-X(a, CALLBACK, SINGULAR, BYTES,    block_hash_queue,   6)
+X(a, STATIC,   SINGULAR, UENUM,    harness_type,      1) \
+X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       2) \
+X(a, POINTER,  REPEATED, MESSAGE,  features,          3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  leader_schedule,   4) \
+X(a, POINTER,  REPEATED, MESSAGE,  slots,             5) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  status_cache,      6) \
+X(a, CALLBACK, SINGULAR, BYTES,    block_hash_queue,   7)
 #define FD_V2_EXEC_ENV_CALLBACK pb_default_field_callback
 #define FD_V2_EXEC_ENV_DEFAULT NULL
 #define fd_v2_exec_env_t_acct_states_MSGTYPE fd_v2_acct_state_t
@@ -209,8 +238,9 @@ X(a, CALLBACK, SINGULAR, BYTES,    block_hash_queue,   6)
 #define fd_v2_exec_env_t_status_cache_MSGTYPE fd_v2_status_cache_t
 
 #define FD_V2_EXEC_EFFECTS_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, MESSAGE,  slot_effects,      1) \
-X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       2)
+X(a, STATIC,   SINGULAR, UENUM,    harness_type,      1) \
+X(a, POINTER,  REPEATED, MESSAGE,  slot_effects,      2) \
+X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       3)
 #define FD_V2_EXEC_EFFECTS_CALLBACK NULL
 #define FD_V2_EXEC_EFFECTS_DEFAULT NULL
 #define fd_v2_exec_effects_t_slot_effects_MSGTYPE fd_v2_slot_effects_t

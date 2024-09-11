@@ -30,8 +30,7 @@ void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_txn_instr_t const *  txn_instr,
                                fd_borrowed_account_t * borrowed_accounts,
-                               fd_instr_info_t *       instr,
-                               fd_capture_ctx_t *      capture_ctx ) {
+                               fd_instr_info_t *       instr ) {
 
   fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const * txn_raw        = txn_ctx->_txn_raw;
@@ -41,19 +40,10 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
   instr->program_id_pubkey = accounts[txn_instr->program_id];
   instr->acct_cnt          = txn_instr->acct_cnt;
   instr->data_sz           = txn_instr->data_sz;
-  if( capture_ctx ) {
-    instr->data            = capture_ctx->instr_env->data->bytes;
-  } else {
-    instr->data            = (uchar *)txn_raw->raw + txn_instr->data_off;
-  }
+  instr->data              = (uchar *)txn_raw->raw + txn_instr->data_off;
 
   uchar   acc_idx_seen[256] = {0};
-  uchar * instr_acc_idxs    = NULL;
-  if( capture_ctx ) {
-    instr_acc_idxs = capture_ctx->instr_env->accounts->bytes;
-  } else {
-    instr_acc_idxs = (uchar *)txn_raw->raw + txn_instr->acct_off;
-  }
+  uchar * instr_acc_idxs    = (uchar *)txn_raw->raw + txn_instr->acct_off;
 
   for( ulong i = 0; i < instr->acct_cnt; i++ ) {
     if( borrowed_accounts != NULL ) {
