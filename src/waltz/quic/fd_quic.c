@@ -4463,10 +4463,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
     }
 
-    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
-      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
-    }
-
     /* add to sent list */
     fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
 
