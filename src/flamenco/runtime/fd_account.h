@@ -403,7 +403,7 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
 
 /* https://github.com/anza-xyz/agave/blob/92ad51805862fbb47dc40968dff9f93b57395b51/sdk/program/src/message/legacy.rs#L636 */
 static inline int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t * txn_ctx, int idx ) {
+fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
   int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
