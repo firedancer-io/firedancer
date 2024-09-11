@@ -147,6 +147,11 @@ fd_flamenco_yaml_walk( void *       _self,
     return;
   }
 
+  if( type == FD_FLAMENCO_TYPE_ENUM_DISC ) {
+    /* Don't do anything with this */
+    return;
+  }
+
   fd_flamenco_yaml_t * self = (fd_flamenco_yaml_t *)_self;
   FILE *               file = self->file;
 
@@ -187,6 +192,7 @@ fd_flamenco_yaml_walk( void *       _self,
 
       switch( type ) {
       case FD_FLAMENCO_TYPE_MAP_END:
+      case FD_FLAMENCO_TYPE_ENUM_END:
         fprintf( file, "{}\n" );
         break;
       case FD_FLAMENCO_TYPE_ARR_END:
@@ -265,6 +271,7 @@ fd_flamenco_yaml_walk( void *       _self,
   /* Print node value */
   switch( type ) {
   case FD_FLAMENCO_TYPE_MAP:
+  case FD_FLAMENCO_TYPE_ENUM:
     self->stack[ level+1 ] = STATE_OBJECT_BEGIN;
     break;
   case FD_FLAMENCO_TYPE_ARR:
@@ -333,6 +340,8 @@ fd_flamenco_yaml_walk( void *       _self,
   }
   case FD_FLAMENCO_TYPE_CSTR:
     fprintf( file, "'%s'\n", (char const *)arg );
+    break;
+  case FD_FLAMENCO_TYPE_ENUM_DISC:
     break;
   default:
     FD_LOG_CRIT(( "unknown type %#x", type ));

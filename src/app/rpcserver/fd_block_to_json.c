@@ -10,7 +10,9 @@
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_executor_err.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "fd_block_to_json.h"
+#include "fd_stub_to_json.h"
 
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
@@ -94,9 +96,10 @@ instr_strerror( int err ) {
   return "";
 }
 
-void fd_error_to_json( fd_webserver_t * ws,
-                       const uchar* bytes,
-                       ulong size ) {
+void
+fd_error_to_json( fd_webserver_t * ws,
+                  const uchar* bytes,
+                  ulong size ) {
   const uchar* orig_bytes = bytes;
   ulong orig_size = size;
 
@@ -256,13 +259,170 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
 }
 
 const char*
-  fd_txn_to_json_full( fd_webserver_t * ws,
-                       fd_txn_t* txn,
-                       const uchar* raw,
-                       ulong raw_sz,
-                       fd_rpc_encoding_t encoding,
-                       long maxvers,
-                       int rewards ) {
+vote_program_to_json( fd_webserver_t * ws,
+                      fd_txn_t * txn,
+                      fd_txn_instr_t * instr,
+                      const uchar * raw ) {
+  (void)txn;
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
+    fd_vote_instruction_t   instruction;
+    fd_bincode_decode_ctx_t decode = {
+      .data    = raw + instr->data_off,
+      .dataend = raw + instr->data_off + instr->data_sz,
+      .valloc  = fd_scratch_virtual()
+    };
+    int decode_result = fd_vote_instruction_decode( &instruction, &decode );
+    if( decode_result != FD_BINCODE_SUCCESS ) {
+      EMIT_SIMPLE("null");
+      return NULL;
+    }
+
+    EMIT_SIMPLE("{\"parsed\":");
+
+    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
+    fd_vote_instruction_walk( json, &instruction, fd_rpc_json_walk, NULL, 0 );
+
+    EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":null}");
+  } FD_SCRATCH_SCOPE_END;
+  return NULL;
+}
+
+const char *
+system_program_to_json( fd_webserver_t * ws,
+                        fd_txn_t * txn,
+                        fd_txn_instr_t * instr,
+                        const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "system_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+config_program_to_json( fd_webserver_t * ws,
+                        fd_txn_t * txn,
+                        fd_txn_instr_t * instr,
+                        const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "config_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+stake_program_to_json( fd_webserver_t * ws,
+                       fd_txn_t * txn,
+                       fd_txn_instr_t * instr,
+                       const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "stake_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+compute_budget_program_to_json( fd_webserver_t * ws,
+                                fd_txn_t * txn,
+                                fd_txn_instr_t * instr,
+                                const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "compute_budget_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+address_lookup_table_program_to_json( fd_webserver_t * ws,
+                                      fd_txn_t * txn,
+                                      fd_txn_instr_t * instr,
+                                      const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "address_lookup_table_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+executor_zk_elgamal_proof_program_to_json( fd_webserver_t * ws,
+                                           fd_txn_t * txn,
+                                           fd_txn_instr_t * instr,
+                                           const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "executor_zk_elgamal_proof_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+bpf_loader_program_to_json( fd_webserver_t * ws,
+                            fd_txn_t * txn,
+                            fd_txn_instr_t * instr,
+                            const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "bpf_loader_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+fd_instr_to_json( fd_webserver_t * ws,
+                  fd_txn_t * txn,
+                  fd_txn_instr_t * instr,
+                  const uchar * raw,
+                  fd_rpc_encoding_t encoding ) {
+  if( encoding == FD_ENC_JSON ) {
+    EMIT_SIMPLE("{\"accounts\":[");
+    const uchar * instr_acc_idxs = raw + instr->acct_off;
+    for (ushort j = 0; j < instr->acct_cnt; j++) {
+      fd_web_reply_sprintf(ws, "%s%u", (j == 0 ? "" : ","), (uint)instr_acc_idxs[j]);
+    }
+    EMIT_SIMPLE("],\"data\":\"");
+    fd_web_reply_encode_base58(ws, raw + instr->data_off, instr->data_sz);
+    fd_web_reply_sprintf(ws, "\",\"programIdIndex\":%u,\"stackHeight\":null}", (uint)instr->program_id);
+
+  } else if( encoding == FD_ENC_JSON_PARSED ) {
+    ushort acct_cnt = txn->acct_addr_cnt;
+    const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
+    if( instr->program_id >= acct_cnt ) {
+      EMIT_SIMPLE("null");
+      return NULL;
+    }
+    const fd_pubkey_t * prog = accts + instr->program_id;
+    if ( !memcmp( prog, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return vote_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return system_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return config_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return stake_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return compute_budget_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return address_lookup_table_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return executor_zk_elgamal_proof_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ))) {
+      return bpf_loader_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      return bpf_loader_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      return bpf_loader_program_to_json( ws, txn, instr, raw );
+    } else {
+      EMIT_SIMPLE("null");
+    }
+  }
+  return NULL;
+}
+
+const char*
+fd_txn_to_json_full( fd_webserver_t * ws,
+                     fd_txn_t* txn,
+                     const uchar* raw,
+                     ulong raw_sz,
+                     fd_rpc_encoding_t encoding,
+                     long maxvers,
+                     int rewards ) {
   (void)maxvers;
   (void)rewards;
 
@@ -289,9 +449,21 @@ const char*
   ushort acct_cnt = txn->acct_addr_cnt;
   const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
   char buf32[FD_BASE58_ENCODED_32_SZ];
-  for (ushort idx = 0; idx < acct_cnt; idx++) {
-    fd_base58_encode_32(accts[idx].uc, NULL, buf32);
-    fd_web_reply_sprintf(ws, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
+
+  if( encoding == FD_ENC_JSON ) {
+    for (ushort idx = 0; idx < acct_cnt; idx++) {
+      fd_base58_encode_32(accts[idx].uc, NULL, buf32);
+      fd_web_reply_sprintf(ws, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
+    }
+  } else if( encoding == FD_ENC_JSON_PARSED ) {
+    for (ushort idx = 0; idx < acct_cnt; idx++) {
+      fd_base58_encode_32(accts[idx].uc, NULL, buf32);
+      bool signer = (idx < txn->signature_cnt);
+      bool writable = ((idx < txn->signature_cnt - txn->readonly_signed_cnt) ||
+                       ((idx >= txn->signature_cnt) && (idx < acct_cnt - txn->readonly_unsigned_cnt)));
+      fd_web_reply_sprintf(ws, "%s{\"pubkey\":\"%s\",\"signer\":%s,\"source\":\"transaction\",\"writable\":%s}",
+                           (idx == 0 ? "" : ","), buf32, (signer ? "true" : "false"), (writable ? "true" : "false"));
+    }
   }
 
   fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
@@ -299,17 +471,9 @@ const char*
 
   ushort instr_cnt = txn->instr_cnt;
   for (ushort idx = 0; idx < instr_cnt; idx++) {
-    fd_web_reply_sprintf(ws, "%s{\"accounts\":[", (idx == 0 ? "" : ","));
-
-    fd_txn_instr_t * instr = &txn->instr[idx];
-    const uchar * instr_acc_idxs = raw + instr->acct_off;
-    for (ushort j = 0; j < instr->acct_cnt; j++)
-      fd_web_reply_sprintf(ws, "%s%u", (j == 0 ? "" : ","), (uint)instr_acc_idxs[j]);
-
-    EMIT_SIMPLE("],\"data\":\"");
-    fd_web_reply_encode_base58(ws, raw + instr->data_off, instr->data_sz);
-
-    fd_web_reply_sprintf(ws, "\",\"programIdIndex\":%u,\"stackHeight\":null}", (uint)instr->program_id);
+    if( idx ) EMIT_SIMPLE(",");
+    const char * res = fd_instr_to_json( ws, txn, &txn->instr[idx], raw, encoding );
+    if( res ) return res;
   }
 
   const fd_hash_t * recent = (const fd_hash_t *)(raw + txn->recent_blockhash_off);
@@ -333,13 +497,14 @@ const char*
 
   return NULL;
 }
+
 const char*
-  fd_txn_to_json_accts( fd_webserver_t * ws,
-                        fd_txn_t* txn,
-                        const uchar* raw,
-                        fd_rpc_encoding_t encoding,
-                        long maxvers,
-                        int rewards ) {
+fd_txn_to_json_accts( fd_webserver_t * ws,
+                      fd_txn_t* txn,
+                      const uchar* raw,
+                      fd_rpc_encoding_t encoding,
+                      long maxvers,
+                      int rewards ) {
   (void)encoding;
   (void)maxvers;
   (void)rewards;
@@ -371,14 +536,14 @@ const char*
 }
 
 const char *
-  fd_txn_to_json( fd_webserver_t * ws,
-                  fd_txn_t* txn,
-                  const uchar* raw,
-                  ulong raw_sz,
-                  fd_rpc_encoding_t encoding,
-                  long maxvers,
-                  enum fd_block_detail detail,
-                  int rewards ) {
+fd_txn_to_json( fd_webserver_t * ws,
+                fd_txn_t* txn,
+                const uchar* raw,
+                ulong raw_sz,
+                fd_rpc_encoding_t encoding,
+                long maxvers,
+                enum fd_block_detail detail,
+                int rewards ) {
   if( detail == FD_BLOCK_DETAIL_FULL )
     return fd_txn_to_json_full( ws, txn, raw, raw_sz, encoding, maxvers, rewards );
   else if( detail == FD_BLOCK_DETAIL_ACCTS )
@@ -530,13 +695,13 @@ fd_block_to_json( fd_webserver_t * ws,
 }
 
 const char*
-  fd_account_to_json( fd_webserver_t * ws,
-                      fd_pubkey_t acct,
-                      fd_rpc_encoding_t enc,
-                      uchar const * val,
-                      ulong val_sz,
-                      long off,
-                      long len ) {
+fd_account_to_json( fd_webserver_t * ws,
+                    fd_pubkey_t acct,
+                    fd_rpc_encoding_t enc,
+                    uchar const * val,
+                    ulong val_sz,
+                    long off,
+                    long len ) {
   fd_web_reply_sprintf(ws, "{\"data\":[\"");
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
