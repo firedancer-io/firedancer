@@ -352,9 +352,7 @@ fd_quic_sandbox_send_frame( fd_quic_sandbox_t * sandbox,
    * frame types */
   uint pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT;
 
-  /* Scratch space to deserialize frame data into */
-  fd_quic_frame_u frame[1];
-  ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz, frame );
+  ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return;
   if( FD_UNLIKELY( rc==0UL || rc>frame_sz ) ) {
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );

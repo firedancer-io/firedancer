@@ -253,9 +253,6 @@ struct fd_quic_conn {
 
   ushort ipv4_id;           /* ipv4 id field */
 
-  /* some scratch space for frame encoding/decoding */
-  fd_quic_frame_u frame_union;
-
   /* buffer to send next */
   /* rename tx_buf, since it's easy to confuse with stream->tx_buf */
   /* must be at least FD_QUIC_MAX_UDP_PAYLOAD_SZ */
