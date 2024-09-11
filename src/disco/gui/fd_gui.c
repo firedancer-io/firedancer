@@ -50,9 +50,10 @@ fd_gui_new( void *        shmem,
 
   gui->debug_in_leader_slot = ULONG_MAX;
 
+
   gui->next_sample_400millis = fd_log_wallclock();
-  gui->next_sample_100millis = fd_log_wallclock();
-  gui->next_sample_10millis  = fd_log_wallclock();
+  gui->next_sample_100millis = gui->next_sample_400millis;
+  gui->next_sample_10millis  = gui->next_sample_400millis;
 
   memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
   fd_base58_encode_32( identity_key, NULL, gui->summary.identity_key_base58 );
@@ -60,7 +61,7 @@ fd_gui_new( void *        shmem,
 
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
-  gui->summary.startup_time_nanos            = fd_log_wallclock();
+  gui->summary.startup_time_nanos            = gui->next_sample_400millis;
 
   gui->summary.startup_progress                       = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
   gui->summary.startup_got_full_snapshot              = 0;
@@ -205,7 +206,7 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
   gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 0 ] = total_txn_cnt;
   gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 1 ] = vote_txn_cnt;
   gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 2 ] = nonvote_failed_txn_cnt;
-  gui->summary.estimated_tps_history_idx = (gui->summary.estimated_tps_history_idx+1UL) % 150;
+  gui->summary.estimated_tps_history_idx = (gui->summary.estimated_tps_history_idx+1UL) % FD_GUI_TPS_HISTORY_SAMPLE_CNT;
 }
 
 /* Snapshot all of the data from metrics to construct a view of the

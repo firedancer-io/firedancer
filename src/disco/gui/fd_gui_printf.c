@@ -283,8 +283,8 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "tps_history" );
     jsonp_open_array( gui, "value" );
 
-    for( ulong i=0UL; i<150UL; i++ ) {
-      ulong idx = (gui->summary.estimated_tps_history_idx+i) % 150UL;
+    for( ulong i=0UL; i<FD_GUI_TPS_HISTORY_SAMPLE_CNT; i++ ) {
+      ulong idx = (gui->summary.estimated_tps_history_idx+i) % FD_GUI_TPS_HISTORY_SAMPLE_CNT;
       jsonp_open_array( gui, NULL );
         jsonp_double( gui, NULL, (double)gui->summary.estimated_tps_history[ idx ][ 0 ]/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
         jsonp_double( gui, NULL, (double)gui->summary.estimated_tps_history[ idx ][ 1 ]/(double)FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS );
@@ -653,7 +653,7 @@ fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
 
 void
 fd_gui_printf_estimated_tps( fd_gui_t * gui ) {
-  ulong idx = (gui->summary.estimated_tps_history_idx+149) % 150UL;
+  ulong idx = (gui->summary.estimated_tps_history_idx+FD_GUI_TPS_HISTORY_SAMPLE_CNT-1UL) % FD_GUI_TPS_HISTORY_SAMPLE_CNT;
 
   jsonp_open_envelope( gui, "summary", "estimated_tps" );
     jsonp_open_object( gui, "value" );

@@ -12,6 +12,7 @@
 
 #define FD_GUI_SLOTS_CNT (864000UL)
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L) /* 10 second moving average */
+#define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -243,7 +244,7 @@ struct fd_gui {
     ulong slot_estimated;
 
     ulong estimated_tps_history_idx;
-    ulong estimated_tps_history[ 150UL ][ 3UL ];
+    ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
 
     ulong last_leader_slot;
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
