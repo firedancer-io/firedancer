@@ -475,6 +475,13 @@ fd_gui_printf_estimated_slot( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_skip_rate( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "skip_rate" );
+    jsonp_double( gui, "value", gui->summary.skip_rate );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx ) {
   jsonp_open_envelope( gui, "epoch", "new" );

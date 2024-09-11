@@ -243,6 +243,8 @@ struct fd_gui {
     ulong slot_completed;
     ulong slot_estimated;
 
+    double skip_rate;
+
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
 
@@ -268,6 +270,8 @@ struct fd_gui {
       long end_time;
       ulong start_slot;
       ulong end_slot;
+      ulong slots_leader_cnt;
+      ulong slots_leader_skipped_cnt;
       ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
