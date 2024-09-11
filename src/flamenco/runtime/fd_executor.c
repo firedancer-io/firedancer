@@ -408,44 +408,47 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
     // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L94
     if( !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) {
       if( read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, program_loader_state, &err ) && fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {        // ProgramAccountLoadResult::ProgramOfLoaderV3
-        fd_bincode_decode_ctx_t ctx = {
+        fd_bincode_decode_ctx_t program_decode_ctx = {
           .data    = (uchar *)account->const_meta + account->const_meta->hlen,
-          .dataend = (char *) ctx.data + account->const_meta->dlen,
+          .dataend = (char *) program_decode_ctx.data + account->const_meta->dlen,
           .valloc  = fd_scratch_virtual(),
         };
 
         fd_bpf_upgradeable_loader_state_t loader_state[1];
-        // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L99
-        if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( loader_state, &ctx ) ) ) {
-          fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&loader_state->inner.program.programdata_address;
+        fd_borrowed_account_t * programdata_account = NULL;
+        // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L98
+        if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( loader_state, &program_decode_ctx ) && 
+                       !fd_txn_borrowed_account_executable_view( txn_ctx, &loader_state->inner.program.programdata_address, &programdata_account) ) ) {
 
-          fd_borrowed_account_t * programdata_account = NULL;
-          err = fd_txn_borrowed_account_executable_view( txn_ctx, programdata_pubkey, &programdata_account );
+          fd_bincode_decode_ctx_t program_data_decode_ctx = {
+            .data    = programdata_account->const_data,
+            .dataend = programdata_account->const_data + programdata_account->const_meta->dlen,
+            .valloc  = fd_scratch_virtual(),
+          };
+          fd_bpf_upgradeable_loader_state_t programdata_loader_state[1];
 
           // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L99
-          if ( err!=FD_ACC_MGR_SUCCESS ) {
-            continue;
-          };
+          if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( programdata_loader_state, &program_data_decode_ctx ) && fd_bpf_upgradeable_loader_state_is_program_data( programdata_loader_state ) ) ) {
 
-          ulong acc_size = programdata_account->const_meta->dlen;
-          // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L164
-          if( acc_size<=PROGRAMDATA_METADATA_SIZE ) {
-            // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L601
-            hit_max_limit = 1;
-          }
+            ulong acc_size = programdata_account->const_meta->dlen;
+            // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L164
+            if( acc_size<=PROGRAMDATA_METADATA_SIZE ) {
+              // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L601
+              hit_max_limit = 1;
+            }
 
-          // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L167
-          ulong programdata_data_offset = PROGRAMDATA_METADATA_SIZE;
-          ulong programdata_data_len    = fd_ulong_sat_sub( programdata_account->const_meta->dlen, programdata_data_offset );
-          const uchar * programdata_data = programdata_account->const_data + programdata_data_offset;
+            // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L167
+            ulong programdata_data_offset = PROGRAMDATA_METADATA_SIZE;
+            ulong programdata_data_len    = fd_ulong_sat_sub( programdata_account->const_meta->dlen, programdata_data_offset );
+            const uchar * programdata_data = programdata_account->const_data + programdata_data_offset;
 
-          fd_sbpf_elf_info_t  _elf_info[ 1UL ];
-          fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, programdata_data, programdata_data_len, 0 );
-          if( FD_UNLIKELY( !elf_info ) ) {
-            hit_max_limit = 1;
+            fd_sbpf_elf_info_t  _elf_info[ 1UL ];
+            fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, programdata_data, programdata_data_len, 0 );
+            if( FD_UNLIKELY( !elf_info ) ) {
+              hit_max_limit = 1;
+            }
           }
         }
-
       }
     }
 
