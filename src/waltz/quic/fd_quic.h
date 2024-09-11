@@ -589,17 +589,15 @@ fd_quic_process_packet( fd_quic_t * quic,
                         ulong       data_sz );
 
 uint
-fd_quic_tx_buffered_raw( fd_quic_t * quic,
-                         uchar **    tx_ptr_ptr,
-                         uchar *     tx_buf,
-                         ulong       tx_buf_sz,
-                         ulong *     tx_sz,
-                         uchar const dst_mac_addr[ static 6 ],
-                         ushort *    ipv4_id,
-                         uint        dst_ipv4_addr,
-                         ushort      src_udp_port,
-                         ushort      dst_udp_port,
-                         int         flush );
+fd_quic_tx_buffered_raw( fd_quic_t *   quic,
+                         uchar const * tx,
+                         ulong         tx_sz,
+                         uchar const   dst_mac_addr[ static 6 ],
+                         ushort *      ipv4_id,
+                         uint          dst_ipv4_addr,
+                         ushort        src_udp_port,
+                         ushort        dst_udp_port,
+                         int           flush );
 
 FD_PROTOTYPES_END
 
