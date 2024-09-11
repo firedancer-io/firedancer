@@ -34,4 +34,5 @@ dump/test-vectors/txn/fixtures/programs/crash-10c291c5d8f688fa03b3007887e577e636
 dump/test-vectors/txn/fixtures/programs/crash-42295e53abb4382e2d579d46dcb1b20e63f030ea.fix
 dump/test-vectors/txn/fixtures/programs/crash-6ef8cb5316bd5ce7aba8f27053acc63cb381780e.fix
 dump/test-vectors/txn/fixtures/programs/crash-f2a184eee1b1e6d5d455923d93825767843fcea6.fix
+dump/test-vectors/txn/fixtures/programs/2418705d8008ed1bd58108b4e9ce43ae111a1cdc_1870939.fix
 dump/test-vectors/txn/fixtures/programs/crash-ea899f146d047a3428f23aa0512d2f144aeae609.fix
