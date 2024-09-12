@@ -761,6 +761,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = test_ctx->max_age;
+  slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
   slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
