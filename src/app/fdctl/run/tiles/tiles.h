@@ -81,6 +81,9 @@ struct fd_microblock_trailer {
 
   /* Number of CUs used in the current microblock. */
   ulong cus_used;
+
+  /* Fees collected in the current microblock. */
+  ulong fees_collected;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 

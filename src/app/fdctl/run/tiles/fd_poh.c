@@ -384,6 +384,7 @@ typedef struct {
   ulong slot;
   ulong hashcnt;
   ulong cus_used;
+  ulong fees_collected;
 
   /* When we send a microblock on to the shred tile, we need to tell
      it how many hashes there have been since the last microblock, so
@@ -714,6 +715,7 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
   ctx->slot                = tick_height/ticks_per_slot;
   ctx->hashcnt             = 0UL;
   ctx->cus_used            = 0UL;
+  ctx->fees_collected      = 0UL;
   ctx->last_slot           = ctx->slot;
   ctx->last_hashcnt        = 0UL;
   ctx->reset_slot          = ctx->slot;
@@ -943,6 +945,7 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->current_leader_bank     = bank;
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
+  ctx->fees_collected          = 0UL;
 
   /* We are about to start publishing to the shred tile for this slot
      so update the highwater mark so we never republish in this slot
@@ -1734,7 +1737,8 @@ after_frag( void *             _ctx,
   ctx->last_slot    = ctx->slot;
   ctx->last_hashcnt = ctx->hashcnt;
 
-  ctx->cus_used += ctx->_microblock_trailer->cus_used;
+  ctx->cus_used       += ctx->_microblock_trailer->cus_used;
+  ctx->fees_collected += ctx->_microblock_trailer->fees_collected;
 
   if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );

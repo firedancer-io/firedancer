@@ -1264,6 +1264,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
     slot->compute_units = compute_units;
     slot->fees          = fees;
   }
+  slot->fees          = fees;
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;

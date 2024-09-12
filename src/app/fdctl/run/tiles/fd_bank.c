@@ -98,7 +98,7 @@ before_frag( void * _ctx,
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
 extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_load_results, int * out_executing_results, int * out_executed_results, uint * out_consumed_cus );
-extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
+extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info, void * collected_fees );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
 extern int    fd_ext_bank_verify_precompiles( void const * bank, void const * txn );
@@ -240,7 +240,8 @@ after_frag( void *             _ctx,
       be reused.  Once commit is called, the transactions MUST be mixed
       into the PoH otherwise we will fork and diverge, so the link from
       here til PoH mixin must be completely reliable with nothing dropped. */
-  fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output, pre_balance_info );
+  ulong collected_fees[ 1 ];
+  fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output, pre_balance_info, collected_fees );
   pre_balance_info        = NULL;
   load_and_execute_output = NULL;
 
@@ -249,9 +250,10 @@ after_frag( void *             _ctx,
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
-  trailer->bank_idx      = ctx->kind_id;
-  trailer->bank_busy_seq = seq;
-  trailer->cus_used      = total_executed_cus;
+  trailer->bank_idx       = ctx->kind_id;
+  trailer->bank_busy_seq  = seq;
+  trailer->cus_used       = total_executed_cus;
+  trailer->fees_collected = *collected_fees;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
