@@ -1315,11 +1315,6 @@ fd_pack_expire_before( fd_pack_t * pack,
   return deleted_cnt;
 }
 
-ulong
-fd_pack_current_block_cost( fd_pack_t const * pack ) {
-  return pack->cumulative_block_cost;
-}
-
 void
 fd_pack_end_block( fd_pack_t * pack ) {
   fd_histf_sample( pack->net_cus_per_block,       pack->cumulative_block_cost                                );

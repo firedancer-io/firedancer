@@ -942,6 +942,7 @@ fd_ext_poh_begin_leader( void const * bank,
 
   ctx->current_leader_bank     = bank;
   ctx->microblocks_lower_bound = 0UL;
+  ctx->cus_used                = 0UL;
 
   /* We are about to start publishing to the shred tile for this slot
      so update the highwater mark so we never republish in this slot
@@ -1545,13 +1546,11 @@ during_frag( void * _ctx,
 
       FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
       fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->pack_in.mem, chunk );
-      FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu,cus=%lu)",
+      FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                     ctx->slot,
                     ctx->microblocks_lower_bound,
-                    done_packing->microblocks_in_slot,
-                    done_packing->cus_used ));
+                    done_packing->microblocks_in_slot ));
       ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
-      ctx->cus_used = done_packing->cus_used;
     }
     return;
   } else {
@@ -1735,7 +1734,7 @@ after_frag( void *             _ctx,
   ctx->last_slot    = ctx->slot;
   ctx->last_hashcnt = ctx->hashcnt;
 
-  ctx->cus_used = ctx->_microblock_trailer->cus_used;
+  ctx->cus_used += ctx->_microblock_trailer->cus_used;
 
   if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );

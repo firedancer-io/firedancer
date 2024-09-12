@@ -79,14 +79,13 @@ struct fd_microblock_trailer {
      released to pack for reuse. */
   ulong bank_busy_seq;
 
-  /* Number of CUs used in the current block. */
+  /* Number of CUs used in the current microblock. */
   ulong cus_used;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
 struct fd_done_packing {
    ulong microblocks_in_slot;
-   ulong cus_used;
 };
 typedef struct fd_done_packing fd_done_packing_t;
 
@@ -96,7 +95,6 @@ struct fd_microblock_bank_trailer {
      which guarantees it is valid while pack or bank tiles might be
      using it. */
   void const * bank;
-  ulong        cus_used;
 };
 typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
 

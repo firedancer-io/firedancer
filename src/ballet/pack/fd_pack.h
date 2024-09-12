@@ -363,10 +363,6 @@ ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
    transaction was found (and then removed) and 0 if not. */
 int fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
 
-/* fd_pack_current_block_cost returns the current block cost (in CUs)
-   that have been used. */
-ulong fd_pack_current_block_cost( fd_pack_t const * pack );
-
 /* fd_pack_end_block resets some state to prepare for the next block.
    Specifically, the per-block limits are cleared and transactions in
    the microblocks scheduled after the call to this function are allowed
