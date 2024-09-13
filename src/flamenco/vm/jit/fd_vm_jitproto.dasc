@@ -72,6 +72,11 @@ FD_TL uint  fd_jit_segment_cnt;
 FD_TL uint  fd_jit_mem_ro_sz[ FD_VM_JIT_SEGMENT_MAX ];
 FD_TL uint  fd_jit_mem_rw_sz[ FD_VM_JIT_SEGMENT_MAX ];
 FD_TL ulong fd_jit_mem_base [ FD_VM_JIT_SEGMENT_MAX ];
+FD_TL ulong fd_jit_call_stack_mem[128]; /* UGLY */
+FD_TL uint  fd_jit_call_idx;
+FD_TL ulong fd_jit_segfault_vaddr = 0x4141414141414141;
+FD_TL ulong fd_jit_code_base;
+FD_TL dasm_State * fd_jit_dasm;
 
 | .define translate_in,  rdi
 | .define translate_out, rdx
@@ -85,7 +90,7 @@ FD_TL ulong fd_jit_mem_base [ FD_VM_JIT_SEGMENT_MAX ];
    BPF | r0  | r1  | r2  | r3  | r4  | r5  | r6  | r7  | r8  | r9  | r10
    X86 | rsi | r11 | r12 | r13 | r14 | r15 | rbx | rcx | r8  | r9  | r10
 
-   x86_64 GPRs rax, rdi, rdx do not map to sBPF registers.  Those can
+   x86_64 GPRs rax, rdi, rdx, rbp do not map to sBPF registers.  Those can
    be used as scratch registers for complex opcodes.
 
    Note that this mapping cannot be trivially changed.  Certain x86
@@ -112,8 +117,8 @@ static uchar const reg_bpf2x86[11] = {
   | .define bpf_r5,  r15
   [ 6] =     FD_DASM_RBX,
   | .define bpf_r6,  rbx
-  [ 7] =     FD_DASM_RBP,
-  | .define bpf_r7,  rbp
+  [ 7] =     FD_DASM_RCX,
+  | .define bpf_r7,  rcx
   [ 8] =     FD_DASM_R8,
   | .define bpf_r8,  r8
   [ 9] =     FD_DASM_R9,
@@ -162,18 +167,58 @@ struct account_meta {
 
 typedef struct account_meta account_meta_t;
 
-static void
-fd_jit_call_imm( uint imm ) {
+| .globals lbl_
+static FD_TL void * labels[ lbl__MAX ];
+
+static ulong
+fd_jit_op_call_imm( uint imm,
+                    uint cur_pc,
+                    uint dst_pc ) {
   fd_vm_t * vm = fd_jit_vm;
   ulong * reg = vm->reg;
+  fd_vm_shadow_t * shadow = vm->shadow;
   fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, imm, NULL );
   if( !syscall ) {
-    FD_LOG_ERR(( "function call not implemented" ));
+    ulong frame_cnt = vm->frame_cnt;
+    shadow[ frame_cnt ].r6 = reg[6];
+    shadow[ frame_cnt ].r7 = reg[7];
+    shadow[ frame_cnt ].r8 = reg[8];
+    shadow[ frame_cnt ].r9 = reg[9];
+    shadow[ frame_cnt ].pc = cur_pc;
+    reg[10] += FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ;
+    vm->frame_cnt = frame_cnt+1;
+    ulong x86_dst = (ulong)fd_jit_code_base + (ulong)dasm_getpclabel( &fd_jit_dasm, dst_pc );
+    //FD_LOG_NOTICE(( "Calling BPF function %u at %p from %u", dst_pc, (void *)x86_dst, cur_pc ));
+    //__asm__("int3");
+    return x86_dst;
   } else {
+    FD_LOG_NOTICE(( "Executing syscall %08x (%#lx, %#lx, %#lx, %#lx, %#lx)", imm, reg[1], reg[2], reg[3], reg[4], reg[5] ));
     syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], reg+0 );
+    return 0;
   }
 }
-  
+
+static ulong
+fd_jit_op_exit( void ) {
+  fd_vm_t * vm = fd_jit_vm;
+  ulong frame_cnt = vm->frame_cnt;
+  if( FD_UNLIKELY( !frame_cnt ) ) {
+    return 0;
+  }
+  vm->frame_cnt = --frame_cnt;
+  ulong * reg = vm->reg;
+  fd_vm_shadow_t * shadow = vm->shadow;
+  reg[6]   = shadow[ frame_cnt ].r6;
+  reg[7]   = shadow[ frame_cnt ].r7;
+  reg[8]   = shadow[ frame_cnt ].r8;
+  reg[9]   = shadow[ frame_cnt ].r9;
+  uint pc = (uint)shadow[ frame_cnt ].pc + 1;
+  reg[10] -= FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ;
+  //FD_LOG_NOTICE(( "Returning to %u", pc ));
+  ulong x86_dst = (ulong)fd_jit_code_base + (ulong)dasm_getpclabel( &fd_jit_dasm, pc );
+  return x86_dst;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -287,7 +332,7 @@ main( int     argc,
   txn_ctx->acc_mgr   = acc_mgr;
   txn_ctx->valloc    = fd_scratch_virtual();
 
-  ulong cu_avail = 100000UL;
+  ulong cu_avail = ULONG_MAX;
   txn_ctx->compute_meter      = cu_avail;
   txn_ctx->compute_unit_limit = cu_avail;
 
@@ -303,45 +348,72 @@ main( int     argc,
 
   /* Set up accounts */
 
-  uchar account[ 256 ] = {0x20};
-  account_meta_t metas[1] = {
+  uchar * account1 = fd_scratch_alloc( 32, 0x1000000 );
+  memset( account1, 0, 0x1000000 );
+  uchar account2[ 32 ] = {0};
+  account_meta_t metas[2] = {
     {
       .pubkey   = {0},
       .owner    = {0},
-      .data     = 1UL<<32,
-      .data_len = sizeof(account),
+      .data     = 3UL<<32,
+      .data_len = 0x1000000,
+      .lamports = 1000000000,
+      .flags    = 0
+    },
+    {
+      .pubkey   = {0},
+      .owner    = {0},
+      .data     = 4UL<<32,
+      .data_len = sizeof(account2),
       .lamports = 1000000000,
       .flags    = 0
     }
   };
 
-  FD_LOG_NOTICE(( "account at %p", (void *)account ));
-  FD_LOG_NOTICE(( "base table at %p", (void *)fd_jit_mem_base ));
+  /* Region 0: Sentinel */
+  fd_jit_mem_ro_sz[0] = 0;
+  fd_jit_mem_rw_sz[0] = 0;
+  fd_jit_mem_base [0] = 0;
 
-  /* Region 0: Metadata table */
-  fd_jit_mem_ro_sz[0] = sizeof(metas);
-  fd_jit_mem_rw_sz[0] = sizeof(metas);
-  fd_jit_mem_base [0] = (ulong)metas;
+  /* Region 1: Stack */
+# define VM_STACK_SZ 0x10000UL
+  void * stack_mem = fd_scratch_alloc( 0x10, VM_STACK_SZ );
+  fd_jit_mem_ro_sz[1] = VM_STACK_SZ;
+  fd_jit_mem_rw_sz[1] = VM_STACK_SZ;
+  fd_jit_mem_base [1] = (ulong)stack_mem;
 
-  /* Region 1: Account */
-  fd_jit_mem_ro_sz[1] = sizeof(account);
-  fd_jit_mem_rw_sz[1] = 0;
-  fd_jit_mem_base [1] = (ulong)account;
+  /* Region 2: Metadata table */
+  fd_jit_mem_ro_sz[2] = sizeof(metas);
+  fd_jit_mem_rw_sz[2] = sizeof(metas);
+  fd_jit_mem_base [2] = (ulong)metas;
 
-  fd_jit_segment_cnt  = 2U;
+  /* Region 3: Account */
+  fd_jit_mem_ro_sz[3] = (uint)metas[0].data_len;
+  fd_jit_mem_rw_sz[3] = 0;
+  fd_jit_mem_base [3] = (ulong)account1;
 
-  fd_vm_input_region_t mem_regions[2];
+  /* Region 4: Account */
+  fd_jit_mem_ro_sz[4] = sizeof(account2);
+  fd_jit_mem_rw_sz[4] = sizeof(account2);
+  fd_jit_mem_base [4] = (ulong)account2;
+
+  fd_jit_segment_cnt = 5U;
+
+  fd_vm_input_region_t mem_regions[5];
   for( uint j=0U; j<fd_jit_segment_cnt; j++ ) {
     mem_regions[j] = (fd_vm_input_region_t) {
       .vaddr_offset = ((ulong)j)<<32,
       .haddr        = fd_jit_mem_base [j],
       .region_sz    = fd_jit_mem_ro_sz[j],
-      .is_writable  = fd_jit_mem_rw_sz[j] != 0
+      .is_writable  = fd_jit_mem_rw_sz[j] > 0
     };
   }
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_scratch_alloc( fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
+  // ulong event_max = 1UL<<20;
+  // ulong event_data_max = 2048UL;
+  //fd_vm_trace_t * trace = fd_vm_trace_new( aligned_alloc( fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
   FD_TEST( fd_vm_init(
     vm,
     instr_ctx,
@@ -356,18 +428,24 @@ main( int     argc,
     prog->entry_pc, /* entry_pc */
     prog->calldests, /* calldests */
     syscalls,
-    NULL, /* trace */
+    NULL,// trace,
     sha,
     mem_regions,
     fd_jit_segment_cnt,
     NULL, /* acc_region_metas */
     0 /* is_deprecated */ ) );
 
-  vm->reg[ 1] = 0; /* account table address */
-  vm->reg[ 2] = 1; /* account count */
-  vm->reg[ 3] = 1UL<<32; /* instruction data address */
+  vm->reg[ 1] = 2UL<<32; /* account table address */
+  vm->reg[ 2] = 2; /* account count */
+  vm->reg[ 3] = 3UL<<32; /* instruction data address */
   vm->reg[ 4] = 0; /* instruction data size */
-  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  vm->reg[10] = (1UL<<32) + 0x1000;
+
+  for( uint j=0U; j<fd_jit_segment_cnt; j++ ) {
+    vm->region_haddr[j] = fd_jit_mem_base[j];
+    vm->region_ld_sz[j] = fd_jit_mem_ro_sz[j];
+    vm->region_st_sz[j] = fd_jit_mem_rw_sz[j];
+  }
 
   fd_jit_vm = vm;
 
@@ -379,9 +457,8 @@ main( int     argc,
 
   | .section code
   dasm_init( &d, DASM_MAXSECTION );
+  fd_jit_dasm = d;
 
-  | .globals lbl_
-  void * labels[ lbl__MAX ];
   dasm_setupglobal( &d, labels, lbl__MAX );
 
   dasm_growpc( &d, (uint)prog->text_cnt );
@@ -423,18 +500,19 @@ main( int     argc,
      permission error. */
 
   ulong fs_base; __asm__( "mov %%fs:0, %0" : "=r"(fs_base) );
-  uint  fd_jit_segment_cnt_tpoff = (uint)( (ulong)&fd_jit_segment_cnt - fs_base );
-  uint  fd_jit_mem_ro_sz_tpoff   = (uint)( (ulong)fd_jit_mem_ro_sz    - fs_base );
-  uint  fd_jit_mem_rw_sz_tpoff   = (uint)( (ulong)fd_jit_mem_rw_sz    - fs_base );
-  uint  fd_jit_mem_base_tpoff    = (uint)( (ulong)fd_jit_mem_base     - fs_base );
+  uint  fd_jit_segment_cnt_tpoff    = (uint)( (ulong)&fd_jit_segment_cnt - fs_base );
+  uint  fd_jit_mem_ro_sz_tpoff      = (uint)( (ulong)fd_jit_mem_ro_sz    - fs_base );
+  uint  fd_jit_mem_rw_sz_tpoff      = (uint)( (ulong)fd_jit_mem_rw_sz    - fs_base );
+  uint  fd_jit_mem_base_tpoff       = (uint)( (ulong)fd_jit_mem_base     - fs_base );
+  uint  fd_jit_segfault_vaddr_tpoff = (uint)( (ulong)&fd_jit_segfault_vaddr - fs_base );
 
   |.macro gen_scalar_translate, sz_table_tpoff
   | // rdi := virtual address
-  | // esi := size of the access minus 1
+  | // ebp := size of the access minus 1
   |
   | // edx := segment offset
   | mov edx, edi
-  | 
+  |
   | // edi := segment index
   | shr rdi, 32
   |
@@ -445,17 +523,17 @@ main( int     argc,
   |
   | // aligned access?
   | mov eax, edx
-  | and eax, esi
+  | and eax, ebp
   | test eax, eax
   | jnz ->translate_fail
   |
   | // no multi segment overlap?
-  | add esi, edx
+  | add ebp, edx
   | jc ->translate_fail
   |
   | // segment offset in bounds?
   | fs
-  | cmp esi, [rdi*4 + sz_table_tpoff]
+  | cmp ebp, [rdi*4 + sz_table_tpoff]
   | jae ->translate_fail
   |
   | // rdx := host address
@@ -464,51 +542,56 @@ main( int     argc,
   | ret
   |.endmacro
 
+  |->translate_fail:
+  | shl rdi, 32
+  | or rdi, rdx
+  | fs
+  | mov [fd_jit_segfault_vaddr_tpoff], rdi
+  | add rsp, 8
+  | jmp ->sigsegv
+
   |->fd_jit_vm_translate_rw:
   | gen_scalar_translate, fd_jit_mem_rw_sz_tpoff
   |->fd_jit_vm_translate_ro:
   | gen_scalar_translate, fd_jit_mem_ro_sz_tpoff
-  |->translate_fail:
-  | add rsp, 8
-  | jmp ->sigsegv
 
   |.macro translate_rw_1
-  | xor esi, esi
+  | xor ebp, ebp
   | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_rw_2
-  | mov esi, 1
+  | mov ebp, 1
   | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_rw_4
-  | mov esi, 3
+  | mov ebp, 3
   | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_rw_8
-  | mov esi, 7
+  | mov ebp, 7
   | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_ro_1
-  | xor esi, esi
+  | xor ebp, ebp
   | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   |.macro translate_ro_2
-  | mov esi, 1
+  | mov ebp, 1
   | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   |.macro translate_ro_4
-  | mov esi, 3
+  | mov ebp, 3
   | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   |.macro translate_ro_8
-  | mov esi, 7
+  | mov ebp, 7
   | call ->fd_jit_vm_translate_ro
   |.endmacro
 
@@ -544,17 +627,40 @@ main( int     argc,
 
   |->emulate_call_imm:
   | call ->save_regs
+  | mov eax, ebp // arg 3
   | mov rbp, rsp
   /* Align stack pointer by 16 */
   | and rsp, -16
   | push rbp
   | push rbp
-  | mov rax, &&fd_jit_call_imm
+  | // arg 1 already in rdi
+  | mov rsi, rdx // arg 2
+  | mov edx, eax // arg 3
+  | mov rax, &&fd_jit_op_call_imm
   | call rax
+  | mov rdi, rax // x86 jump address (todo make this static)
   | pop rbp
   | pop rbp
   | mov rsp, rbp
   | call ->restore_regs
+  | test rdi, rdi
+  | jz ->emulate_call_imm_ret
+  | add rsp, 8
+  | jmp rdi
+  |->emulate_call_imm_ret:
+  | ret
+
+  |->emulate_exit:
+  | call ->save_regs
+  | mov rax, &&fd_jit_op_exit
+  | call rax
+  | mov rdi, rax // return address
+  | call ->restore_regs
+  | test rdi, rdi
+  | jz ->emulate_exit_ret
+  | add rsp, 8
+  | jmp rdi
+  |->emulate_exit_ret:
   | ret
 
   /* Start translating user code */
@@ -573,7 +679,9 @@ main( int     argc,
   /* Restore register context */
 
   | call ->restore_regs
+  | jmp rdi
 
+  //ulong         text_skip  = prog->text_off >> 3;
   ulong * const text_start = prog->text;
   ulong *       text_end   = prog->text + prog->text_cnt;
 
@@ -611,7 +719,8 @@ main( int     argc,
 
     /* Create a dynamic label for each instruction */
 
-    next_label = bpf_label_off + (int)( cur - text_start );
+    uint cur_pc = (uint)( cur - text_start );
+    next_label = bpf_label_off + (int)cur_pc;
     |=>next_label:
 
     /* Translate instruction */
@@ -658,7 +767,7 @@ main( int     argc,
 
     case 0x18:  /* FD_SBPF_OP_LDQ */
       cur++; {
-      ulong imm64 = ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
+      ulong imm64 = (ulong)imm | ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
       if( imm64==0 ) {
         | xor dst32, dst32
       } else {
@@ -970,10 +1079,18 @@ main( int     argc,
       | neg dst32
       break;
 
-    case 0x85:  /* FD_SBPF_OP_CALL_IMM */
+    case 0x85: { /* FD_SBPF_OP_CALL_IMM */
       | mov rdi, imm
+      | mov rdx, cur_pc
+      ulong target_pc = (ulong)fd_pchash_inverse( imm );
+      if( target_pc < prog->text_cnt ) {
+        | mov ebp, (uint)target_pc
+      } else {
+        | xor ebp, ebp
+      }
       | call ->emulate_call_imm
       break;
+    }
 
     case 0x87:  /* FD_SBPF_OP_NEG64 */
       | neg dst64
@@ -998,6 +1115,7 @@ main( int     argc,
       break;
 
     case 0x95:  /* FD_SBPF_OP_EXIT */
+      | call ->emulate_exit
       | jmp ->success
       break;
 
@@ -1198,20 +1316,51 @@ main( int     argc,
   FD_LOG_NOTICE(( "x86 code size: %lu bytes (%#lx)", sz, sz ));
 
   void * buf = mmap( 0, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+  if( FD_UNLIKELY( buf==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed" ));
+  fd_jit_code_base = (ulong)buf;
   dasm_encode( &d, buf );
-  dasm_free( &d );
+  ulong entry_pc    = prog->entry_pc;
+  ulong entry_haddr = (ulong)buf + (ulong)dasm_getpclabel( &d, (uint)entry_pc );
   mprotect( buf, sz, PROT_READ | PROT_EXEC );
 
   /* Execute */
 
-  int (* main_)( void ) = (int (*)( void ))( (ulong)labels[ lbl_main ] );
+  int (* main_)( ulong entry_haddr ) = (int (*)( ulong ))( (ulong)labels[ lbl_main ] );
   printf("main at %p\n", (void *)(ulong)main_);
   //__asm__ __volatile__( "int3" );
-  int rc = main_();
-  printf( "JIT returned %d\n", rc );
+  for( ulong j=0UL; j<3; j++ ) {
+    long dt = -fd_log_wallclock();
+    vm->pc = entry_pc;
+    vm->reg[ 1] = 2UL<<32; /* account table address */
+    vm->reg[ 2] = 2; /* account count */
+    vm->reg[ 3] = 3UL<<32; /* instruction data address */
+    vm->reg[ 4] = 0; /* instruction data size */
+    vm->reg[10] = (1UL<<32) + 0x1000;
+    int interp_err = fd_vm_exec_notrace( vm );
+    //int interp_err = fd_vm_exec_trace( vm );
+    // fd_vm_trace_printf( trace, syscalls );
+    if( FD_UNLIKELY( interp_err!=FD_VM_SUCCESS ) ) FD_LOG_ERR(( "%d", interp_err ));
+    FD_LOG_NOTICE(( "Interpreter took %g seconds to Blake2b hash %#x bytes", (double)(dt+fd_log_wallclock())/1e9, metas[0].data_len ));
+  }
+  for( ulong j=0UL; j<3; j++ ) {
+    long dt = -fd_log_wallclock();
+    vm->reg[ 1] = 2UL<<32; /* account table address */
+    vm->reg[ 2] = 2; /* account count */
+    vm->reg[ 3] = 3UL<<32; /* instruction data address */
+    vm->reg[ 4] = 0; /* instruction data size */
+    vm->reg[10] = (1UL<<32) + 0x1000;
+    int rc = main_( entry_haddr );
+    if( rc==999 ) {
+      FD_LOG_ERR(( "Memory access fault at %#lx", fd_jit_segfault_vaddr ));
+    }
+    FD_LOG_NOTICE(( "JIT took %g seconds to Blake2b hash %#x bytes", (double)(dt+fd_log_wallclock())/1e9, metas[0].data_len ));
+  }
 
+  FD_LOG_HEXDUMP_NOTICE(( "account2", account2, sizeof(account2) ));
   FD_LOG_NOTICE(( "%*s", txn_ctx->log_collector.log_sz, txn_ctx->log_collector.buf ));
 
+  fd_jit_dasm = NULL;
+  dasm_free( &d );
   fd_halt();
   return 0;
 }

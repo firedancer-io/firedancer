@@ -389,7 +389,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
     if( dst_region==4UL ) {
       dst_region_idx          = fd_vm_get_input_mem_region_idx( vm, dst_offset );
       dst_haddr               = (uchar*)(vm->input_mem_regions[ dst_region_idx ].haddr + dst_offset - vm->input_mem_regions[ dst_region_idx ].vaddr_offset);
-      dst_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz, 
+      dst_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz,
                                                                     ((ulong)dst_haddr - vm->input_mem_regions[ dst_region_idx ].haddr) ) );
       if( FD_UNLIKELY( !vm->input_mem_regions[ dst_region_idx ].is_writable ) ) {
         *_ret = 1;
@@ -412,7 +412,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
     if( src_region==4UL ) {
       src_region_idx          = fd_vm_get_input_mem_region_idx( vm, src_offset );
       src_haddr               = (uchar*)(vm->input_mem_regions[ src_region_idx ].haddr + src_offset - vm->input_mem_regions[ src_region_idx ].vaddr_offset);
-      src_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz, 
+      src_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz,
                                                                     ((ulong)src_haddr - vm->input_mem_regions[ src_region_idx ].haddr) ) );
       if( FD_UNLIKELY( src_region_idx+1UL==vm->input_mem_regions_cnt && src_bytes_in_cur_region<sz ) ) {
         *_ret = 1;
@@ -429,7 +429,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
       *_ret = 0;
       return FD_VM_SUCCESS;
     }
-  
+
     /* Case where the operation spans multiple regions. Copy over the bytes
        from each region while iterating to the next one. */
     /* TODO: An optimization would be to memcpy chunks at once */
@@ -624,7 +624,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     void * dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
     fd_memset( dst, b, sz );
   } else {
-    /* Syscall manages the pointer accesses directly and will report in the 
+    /* Syscall manages the pointer accesses directly and will report in the
        case of bad memory accesses. */
     ulong sz_left              = sz;
     ulong dst_offset           = dst_vaddr & 0xffffffffUL;
@@ -735,7 +735,7 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
       *_ret = 0;
       return FD_VM_SUCCESS;
     }
-  
+
     /* Case where the operation spans multiple regions. Copy over the bytes
        from each region while iterating to the next one. */
     /* TODO: An optimization would be to memcpy chunks at once */

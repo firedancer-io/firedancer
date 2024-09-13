@@ -239,12 +239,12 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
-     this non-guarantee is (rightfully) exploited by the fuzz harnesses. 
+     this non-guarantee is (rightfully) exploited by the fuzz harnesses.
      Agave doesn't perform these checks explicitly due to Rust's guarantees  */
-  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt || 
+  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
                    (const uchar *) vm->text < vm->rodata ||
                    (const uchar *) vm->text > (const uchar *) vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *) vm->text  + vm->text_sz >  vm->rodata + vm->rodata_sz ) ) 
+                   (const uchar *) vm->text  + vm->text_sz >  vm->rodata + vm->rodata_sz ) )
     return FD_VM_ERR_BAD_TEXT;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
@@ -289,7 +289,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
          BRANCH TARGETS OF CALL_REG?? */
-      
+
       i++; /* Skip the addl imm */
       break;
     }
@@ -504,7 +504,7 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   }
 
   /* Unpack input and rodata */
-  fd_vm_mem_cfg( vm );
+  //fd_vm_mem_cfg( vm );
 
   /* Initialize registers */
   /* FIXME: Zero out shadow, stack and heap here? */
