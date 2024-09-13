@@ -48,6 +48,11 @@ sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 uchar const *                 in,
                                 ulong                         in_sz );
 
+int
+sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
+                              uchar const *                 in,
+                              ulong                         in_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_exec_sol_compat_h */

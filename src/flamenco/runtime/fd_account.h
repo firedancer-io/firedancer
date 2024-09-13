@@ -413,7 +413,8 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t * txn_ctx, int idx ) {
     return 0;
   }
 
-  if( fd_pubkey_is_builtin_program( &txn_ctx->accounts[idx] ) || fd_pubkey_is_sysvar_id( &txn_ctx->accounts[idx] ) ) {
+  if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) 
+      || ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
     return 0;
   }
 

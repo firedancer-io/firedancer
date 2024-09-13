@@ -81,7 +81,6 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                 executable_cnt;                  /* Number of BPF upgradeable loader accounts. */
   fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
-  uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
   uchar                 nonce_accounts[128];             /* Nonce accounts in the txn to be saved */
   uint                  num_instructions;                /* Counter for number of instructions in txn */
   fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */

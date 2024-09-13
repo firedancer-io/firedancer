@@ -39,8 +39,6 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   if( !memcmp( account->const_meta->info.owner, owner, sizeof( fd_pubkey_t ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
-  /* self.touch()? */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
@@ -49,6 +47,7 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  /* self.touch()? */
   account->meta->slot = ctx->slot_ctx->slot_bank.slot;
   memcpy( account->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   return FD_EXECUTOR_INSTR_SUCCESS;

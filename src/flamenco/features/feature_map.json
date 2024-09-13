@@ -200,5 +200,6 @@
   {"name":"ed25519_precompile_verify_strict","pubkey":"ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo","cleaned_up":2000,"comment":"only impl the activated path"},
   {"name":"zk_elgamal_proof_program_enabled","pubkey":"zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv"},
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4"},
-  {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"}
+  {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
+  {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"}
 ]

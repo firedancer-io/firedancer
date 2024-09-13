@@ -40,6 +40,7 @@
 #include "sysvar/fd_sysvar_slot_history.h"
 
 #include "../nanopb/pb_decode.h"
+#include "../nanopb/pb_encode.h"
 #include "../types/fd_solana_block.pb.h"
 
 #include "fd_system_ids.h"
@@ -732,10 +733,6 @@ fd_runtime_execute_txn_task(void *tpool,
     return;
   }
 
-  int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-  if( res != 0 ) {
-    FD_LOG_ERR(("could not prepare txn"));
-  }
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
@@ -930,16 +927,16 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/account_loader.rs#L278-L284 */
-  err = fd_executor_check_txn_program_accounts_and_data_sz( txn_ctx );
+  // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L264
+  err = fd_executor_check_replenish_program_cache( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;
     return;
   }
 
-  // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L264
-  err = fd_executor_check_replenish_program_cache( txn_ctx );
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/account_loader.rs#L278-L284 */
+  err = fd_executor_check_txn_program_accounts_and_data_sz( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;
@@ -954,11 +951,6 @@ fd_runtime_execute_txn( fd_execute_txn_task_info_t * task_info ) {
     setup, execute the transaction, and reclaim dead accounts. */
   if( FD_UNLIKELY( task_info->exec_res ) ) {
     return;
-  }
-
-  int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-  if( FD_UNLIKELY( res ) ) {
-    FD_LOG_ERR(("could not prepare txn"));
   }
 
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -1005,6 +997,9 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                                          fd_capture_ctx_t *           capture_ctx,
                                          fd_txn_p_t *                 txn,
                                          fd_execute_txn_task_info_t * task_info ) {
+
+  FD_SCRATCH_SCOPE_BEGIN {
+
   int res = 0;
 
   task_info->txn_ctx              = fd_valloc_malloc( fd_scratch_virtual(), FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
@@ -1030,10 +1025,6 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
 
   /* execute */
-  res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-  if( FD_UNLIKELY( res!=0 ) ) {
-    FD_LOG_ERR(("could not prepare txn"));
-  }
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
 
@@ -1047,6 +1038,8 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
   return res;
+
+  } FD_SCRATCH_SCOPE_END;
 }
 
 
@@ -1297,15 +1290,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
        any way, then the full account can be rolled back as it is done now.
        However, most of the time the account data is not changed, and only
        the lamport balance has to change. */
-    ulong                   post_fee_balance = txn_ctx->borrowed_accounts[0].starting_lamports;
     fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[0] );
 
     fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
     memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
-    
+
     void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
     fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-    borrowed_account->meta->info.lamports = post_fee_balance;
+    borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[0] );
@@ -1377,17 +1369,109 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_store_stake_delegation( slot_ctx, acc_rec );
       }
 
-      if( txn_ctx->unknown_accounts[i] ) {
-        memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-        fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
-      }
-
       fd_funk_start_write( slot_ctx->acc_mgr->funk );
       fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
       fd_funk_end_write( slot_ctx->acc_mgr->funk );
     }
   }
   return 0;
+}
+
+static bool
+encode_return_data( pb_ostream_t *stream, const pb_field_t *field, void * const *arg ) {
+  fd_exec_txn_ctx_t * txn_ctx = (fd_exec_txn_ctx_t *)(*arg);
+  pb_encode_tag_for_field(stream, field);
+  pb_encode_string(stream, txn_ctx->return_data.data, txn_ctx->return_data.len );
+  return 1;
+}
+
+static ulong
+fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
+  fd_solblock_TransactionStatusMeta txn_status = {0};
+
+  txn_status.has_fee = 1;
+  txn_status.fee = txn_ctx->execution_fee + txn_ctx->priority_fee;
+
+  txn_status.has_compute_units_consumed = 1;
+  txn_status.compute_units_consumed = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+
+  ulong acct_cnt = txn_ctx->accounts_cnt;
+  txn_status.pre_balances_count = txn_status.post_balances_count = (pb_size_t)acct_cnt;
+  uint64_t pre_balances[acct_cnt];
+  txn_status.pre_balances = pre_balances;
+  uint64_t post_balances[acct_cnt];
+  txn_status.post_balances = post_balances;
+
+  for (ulong idx = 0; idx < acct_cnt; idx++) {
+    fd_borrowed_account_t const * acct = &txn_ctx->borrowed_accounts[idx];
+    pre_balances[idx] = acct->starting_lamports;
+    post_balances[idx] = ( acct->meta ? acct->meta->info.lamports :
+                           ( acct->orig_meta ? acct->orig_meta->info.lamports : acct->starting_lamports ) );
+  }
+
+  if( txn_ctx->return_data.len ) {
+    txn_status.has_return_data = 1;
+    txn_status.return_data.has_program_id = 1;
+    fd_memcpy( txn_status.return_data.program_id, txn_ctx->return_data.program_id.uc, 32U );
+    pb_callback_t data = { .funcs.encode = encode_return_data, .arg = txn_ctx };
+    txn_status.return_data.data = data;
+  }
+
+  union {
+    pb_bytes_array_t arr;
+    uchar space[64];
+  } errarr;
+  pb_byte_t * errptr = errarr.arr.bytes;
+  if( txn_ctx->custom_err != UINT_MAX ) {
+    *(uint*)errptr = 8 /* Instruction error */;
+    errptr += sizeof(uint);
+    *errptr = (uchar)txn_ctx->instr_err_idx;
+    errptr += 1;
+    *(int*)errptr = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    errptr += sizeof(int);
+    *(uint*)errptr = txn_ctx->custom_err;
+    errptr += sizeof(uint);
+    errarr.arr.size = (uint)(errptr - errarr.arr.bytes);
+    txn_status.has_err = 1;
+    txn_status.err.err = &errarr.arr;
+  } else if( txn_ctx->exec_err ) {
+    switch( txn_ctx->exec_err_kind ) {
+      case FD_EXECUTOR_ERR_KIND_SYSCALL:
+        break;
+      case FD_EXECUTOR_ERR_KIND_INSTR:
+        *(uint*)errptr = 8 /* Instruction error */;
+        errptr += sizeof(uint);
+        *errptr = (uchar)txn_ctx->instr_err_idx;
+        errptr += 1;
+        *(int*)errptr = txn_ctx->exec_err;
+        errptr += sizeof(int);
+        errarr.arr.size = (uint)(errptr - errarr.arr.bytes);
+        txn_status.has_err = 1;
+        txn_status.err.err = &errarr.arr;
+        break;
+      case FD_EXECUTOR_ERR_KIND_EBPF:
+        break;
+    }
+  }
+
+  if( dest == NULL ) {
+    size_t sz = 0;
+    bool r = pb_get_encoded_size( &sz, fd_solblock_TransactionStatusMeta_fields, &txn_status );
+    if( !r ) {
+      FD_LOG_WARNING(( "pb_get_encoded_size failed" ));
+      return 0;
+    }
+    return sz + txn_ctx->log_collector.buf_sz;
+  }
+
+  pb_ostream_t stream = pb_ostream_from_buffer( dest, dest_sz );
+  bool r = pb_encode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status );
+  if( !r ) {
+    FD_LOG_WARNING(( "pb_encode failed" ));
+    return 0;
+  }
+  pb_write( &stream, txn_ctx->log_collector.buf, txn_ctx->log_collector.buf_sz );
+  return stream.bytes_written;
 }
 
 /* fd_runtime_finalize_txns_update_blockstore_meta() updates transaction metadata
@@ -1418,16 +1502,17 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   /* Get the total size of all logs */
   ulong tot_meta_sz = 2*sizeof(ulong);
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+    /* Prebalance compensation */
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-    if( txn_ctx->log_collector.buf_sz ) {
-      ulong meta_sz = txn_ctx->log_collector.buf_sz;
-      tot_meta_sz += meta_sz;
-    }
+    txn_ctx->borrowed_accounts[0].starting_lamports += (txn_ctx->execution_fee + txn_ctx->priority_fee);
+    /* Get the size without the copy */
+    tot_meta_sz += fd_txn_copy_meta( txn_ctx, NULL, 0 );
   }
   uchar * cur_laddr = fd_alloc_malloc( blockstore_alloc, 1, tot_meta_sz );
   if( cur_laddr == NULL ) {
     return;
   }
+  uchar * const end_laddr = cur_laddr + tot_meta_sz;
 
   fd_blockstore_start_write( blockstore );
   fd_block_t * blk = fd_blockstore_block_query( blockstore, slot_ctx->slot_bank.slot );
@@ -1440,13 +1525,9 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
 
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-    if( txn_ctx->log_collector.buf_sz ) {
-      /* Prepare metadata.
-         Note: currently we only include logs, that are already serialized in protobuf. */
-      ulong  meta_sz = txn_ctx->log_collector.buf_sz;
-      void * meta_laddr = cur_laddr;
-      ulong  meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, meta_laddr );
-      fd_memcpy( meta_laddr, txn_ctx->log_collector.buf, meta_sz );
+    ulong meta_sz = fd_txn_copy_meta( txn_ctx, cur_laddr, (size_t)(end_laddr - cur_laddr) );
+    if( meta_sz ) {
+      ulong  meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr );
 
       /* Update all the signatures */
       char const * sig_p = (char const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
@@ -1466,7 +1547,7 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
     fd_log_collector_delete( &txn_ctx->log_collector );
   }
 
-  FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr ) );
+  FD_TEST( cur_laddr == end_laddr );
 
   fd_blockstore_end_write( blockstore );
 }
@@ -1543,7 +1624,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
            any way, then the full account can be rolled back as it is done now.
            However, most of the time the account data is not changed, and only
            the lamport balance has to change. */
-        ulong                   post_fee_balance = txn_ctx->borrowed_accounts[0].starting_lamports;
         fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[0] );
 
         fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
@@ -1551,8 +1631,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
 
         void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-        borrowed_account->meta->info.lamports = post_fee_balance;
-
+        borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
         accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[0];
         for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
@@ -1617,11 +1696,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
           if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
             // TODO: does this correctly handle stake account close?
             fd_store_stake_delegation( slot_ctx, acc_rec );
-          }
-
-          if( txn_ctx->unknown_accounts[i] ) {
-            memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-            fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
           }
 
           accounts_to_save[acc_idx++] = acc_rec;
@@ -1996,7 +2070,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
 
-  if( slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+  if( slot_ctx->slot_bank.slot != 0 && (
+      FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+      FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_distribute_partitioned_epoch_rewards( slot_ctx );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -3891,7 +3967,8 @@ void fd_process_new_epoch(
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+  if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+         FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
     fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );

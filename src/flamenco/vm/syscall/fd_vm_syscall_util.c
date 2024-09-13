@@ -243,6 +243,8 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
                               /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L666 */
+
   /* This syscall is ... uh ... problematic.  But the community has
      already recognized this and deprecated it:
 
@@ -297,15 +299,29 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      between different compilations of the Solana validator and the
      below. */
 
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L676-L680 */
+
+  ulong align = vm->check_align ? 8UL : 1UL;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L681-L683
+     Nothing to do. This section can't error, see:
+     https://doc.rust-lang.org/1.81.0/src/core/alloc/layout.rs.html#70
+     https://doc.rust-lang.org/1.81.0/src/core/alloc/layout.rs.html#100 */
+
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L684
+     Nothing to do.
+     TODO: unclear if it throw InstructionError::CallDepth
+     https://github.com/anza-xyz/agave/blob/v2.0.8/program-runtime/src/invoke_context.rs#L662 */
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L685-L693 */
+
   /* Non-zero free address implies that this is a free() call.  Since
      this is a bump allocator, free is a no-op. */
-
   if( FD_UNLIKELY( free_vaddr ) ) {
     *_ret = 0UL;
     return FD_VM_SUCCESS;
   }
-
-  ulong align = vm->check_align ? 8UL : 1UL;
 
   ulong heap_sz    = fd_ulong_align_up( vm->heap_sz, align                           );
   ulong heap_vaddr = fd_ulong_sat_add ( heap_sz,     FD_VM_MEM_MAP_HEAP_REGION_START );
@@ -332,8 +348,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: check cu model (this model seems to be using CPI related
-     parameters!) */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L18 */
+
   /* FIXME: confirm exact handling matches Solana for the NULL, sz==0
      and/or dst==src cases (see other mem syscalls ... they don't all
      fault in the same way though in principle that shouldn't break
@@ -341,13 +357,12 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
      ranges (the below is computed as though the ranges are in exact
      math and don't overlap), the below handling matches the original
      implementation. */
-  /* FIXME: consider what err code to use on overlap case further */
   /* FIXME: use overlap logic from runtime? */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  if( FD_UNLIKELY( ((src_vaddr> dst_vaddr) & ((src_vaddr-dst_vaddr)<sz)) |
-                   ((dst_vaddr>=src_vaddr) & ((dst_vaddr-src_vaddr)<sz)) ) ) return FD_VM_ERR_MEM_OVERLAP;
+  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L31 */
+  FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, src_vaddr, sz, dst_vaddr, sz );
 
   if( FD_UNLIKELY( !sz ) ) {
     *_ret = 0;
@@ -467,6 +482,8 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L59 */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
@@ -596,6 +613,8 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L115 */
+
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   ulong FD_FN_UNUSED dst_region = dst_vaddr >> 32;
@@ -603,9 +622,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
 
   if( dst_region!=4UL || !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
     void * dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-    if( FD_LIKELY( sz ) ) {
-      memset( dst, b, sz );
-    }
+    fd_memset( dst, b, sz );
   } else {
     /* Syscall manages the pointer accesses directly and will report in the 
        case of bad memory accesses. */

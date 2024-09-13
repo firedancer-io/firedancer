@@ -1060,7 +1060,7 @@ fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong
 }
 
 int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz ) {
+fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1099,6 +1099,20 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
     }
 
     *block_data_out = data_out;
+
+    if( parent_block_hash_out ) {
+      if( ( query = fd_block_map_query_safe( block_map, &block_map_entry_out->parent_slot, NULL ) ) == NULL ) {
+        memset( parent_block_hash_out, 0, sizeof(fd_hash_t) );
+      } else {
+        fd_memcpy( parent_block_hash_out, query->block_hash.uc, sizeof(fd_hash_t) );
+
+        if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) {
+          fd_valloc_free( alloc, data_out );
+          continue;
+        }
+      }
+    }
+
     return FD_BLOCKSTORE_OK;
   }
 }

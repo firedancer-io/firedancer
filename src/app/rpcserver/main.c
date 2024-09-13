@@ -207,6 +207,12 @@ int main( int argc, char ** argv ) {
   fd_rpc_ctx_t * ctx = NULL;
   fd_rpc_start_service( &args, &ctx );
 
+#define SMAX 1LU<<28
+  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,
+                                fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) );
+  ulong fmem[4U];
+  fd_scratch_attach( smem, fmem, SMAX, 4U );
+
   if( args.offline ) {
     while( !stopflag ) {
       fd_rpc_ws_poll( ctx );
