@@ -86,8 +86,6 @@ fd_gui_new( void *        shmem,
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
 
-  gui->summary.skip_rate = 0.0;
-
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
 
@@ -141,7 +139,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_completed_slot,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
-    fd_gui_printf_skip_rate,
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -152,6 +149,7 @@ fd_gui_ws_open( fd_gui_t * gui,
 
   for( ulong i=0UL; i<2UL; i++ ) {
     if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
+      fd_gui_printf_skip_rate( gui, i );
       fd_gui_printf_epoch( gui, i );
       FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
     }
@@ -161,21 +159,6 @@ fd_gui_ws_open( fd_gui_t * gui,
      block other information. */
   fd_gui_printf_peers_all( gui );
   FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
-}
-
-/* Returns ULONG_MAX if no known current epoch. */
-static ulong
-fd_gui_current_epoch( fd_gui_t * gui ) {
-  if( FD_LIKELY( gui->epoch.has_epoch[ 0 ] && gui->epoch.has_epoch[ 1 ] ) ) {
-    return fd_ulong_min( gui->epoch.epochs[ 0 ].epoch, gui->epoch.epochs[ 1 ].epoch );
-  }
-  if( FD_LIKELY( gui->epoch.has_epoch[ 0 ] ) ) {
-    return gui->epoch.epochs[ 0 ].epoch;
-  }
-  if( FD_LIKELY( gui->epoch.has_epoch[ 1 ] ) ) {
-    return gui->epoch.epochs[ 1 ].epoch;
-  }
-  return ULONG_MAX;
 }
 
 static void
@@ -950,10 +933,12 @@ fd_gui_clear_slot( fd_gui_t * gui,
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   int mine = 0;
+  ulong epoch_idx;
   for( ulong i=0UL; i<2UL; i++) {
     if( FD_LIKELY( _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
       fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( gui->epoch.epochs[ i ].lsched, _slot );
       mine = !memcmp( slot_leader->uc, gui->summary.identity_key->uc, 32UL );
+      epoch_idx = i;
       break;
     }
   }
@@ -974,20 +959,19 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->completed_time         = LONG_MAX;
 
   if( FD_LIKELY( slot->mine ) ) {
-    ulong current_epoch = fd_gui_current_epoch( gui );
-    if( FD_LIKELY( current_epoch!=ULONG_MAX ) ) {
-      ulong epoch_idx = current_epoch % 2UL;
-      if( FD_LIKELY( slot->slot>=gui->epoch.epochs[ epoch_idx ].start_slot && slot->slot<=gui->epoch.epochs[ epoch_idx ].end_slot ) ) {
-        gui->epoch.epochs[ epoch_idx ].slots_leader_skipped_cnt++;
-        gui->epoch.epochs[ epoch_idx ].slots_leader_cnt++;
-        gui->summary.skip_rate = (double)gui->epoch.epochs[ epoch_idx ].slots_leader_skipped_cnt/(double)gui->epoch.epochs[ epoch_idx ].slots_leader_cnt;
-      }
-    }
+    /* All slots start off skipped, until we see it get onto the reset
+       chain. */
+    gui->epoch.epochs[ epoch_idx ].my_total_slots++;
+    gui->epoch.epochs[ epoch_idx ].my_skipped_slots++;
   }
 
   if( FD_UNLIKELY( !_slot ) ) {
     /* Slot 0 is always rooted */
-    slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    slot->level   = FD_GUI_SLOT_LEVEL_ROOTED;
+    slot->skipped = 0;
+    if( FD_LIKELY( slot->mine ) ) {
+      gui->epoch.epochs[ epoch_idx ].my_skipped_slots--;
+    }
   }
 }
 
@@ -1006,10 +990,13 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   ulong idx = epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
 
-  gui->epoch.epochs[ idx ].epoch          = epoch;
-  gui->epoch.epochs[ idx ].start_slot     = start_slot;
-  gui->epoch.epochs[ idx ].end_slot       = start_slot + slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake = excluded_stake;
+
+  gui->epoch.epochs[ idx ].epoch            = epoch;
+  gui->epoch.epochs[ idx ].start_slot       = start_slot;
+  gui->epoch.epochs[ idx ].end_slot         = start_slot + slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
+  gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
+  gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                epoch,
@@ -1034,9 +1021,6 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
       break;
     }
   }
-
-  gui->epoch.epochs[ idx ].slots_leader_cnt         = 0UL;
-  gui->epoch.epochs[ idx ].slots_leader_skipped_cnt = 0UL;
 
   fd_gui_printf_epoch( gui, idx );
   fd_hcache_snap_ws_broadcast( gui->hcache );
@@ -1138,7 +1122,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 
   ulong parent_slot_idx = 0UL;
 
-  int republish_skip_rate = 0;
+  int republish_skip_rate[ 2 ] = {0};
 
   for( ulong i=0UL; i<fd_ulong_min( _slot+1, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
@@ -1166,14 +1150,11 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
         slot->skipped = 1;
         should_republish = 1;
         if( FD_LIKELY( slot->mine ) ) {
-          /* Do skip accounting for our leader slots. */
-          ulong current_epoch = fd_gui_current_epoch( gui );
-          if( FD_LIKELY( current_epoch!=ULONG_MAX ) ) {
-            ulong epoch_idx = current_epoch % 2UL;
-            if( FD_LIKELY( slot->slot>=gui->epoch.epochs[ epoch_idx ].start_slot && slot->slot<=gui->epoch.epochs[ epoch_idx ].end_slot ) ) {
-              gui->epoch.epochs[ epoch_idx ].slots_leader_skipped_cnt++;
-              gui->summary.skip_rate = (double)gui->epoch.epochs[ epoch_idx ].slots_leader_skipped_cnt/(double)gui->epoch.epochs[ epoch_idx ].slots_leader_cnt;
-              republish_skip_rate = 1;
+          for( ulong i=0UL; i<2UL; i++ ) {
+            if( FD_LIKELY( parent_slot>=gui->epoch.epochs[ i ].start_slot && parent_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+              gui->epoch.epochs[ i ].my_skipped_slots++;
+              republish_skip_rate[ i ] = 1;
+              break;
             }
           }
         }
@@ -1184,14 +1165,11 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
         slot->skipped = 0;
         should_republish = 1;
         if( FD_LIKELY( slot->mine ) ) {
-          /* Do skip accounting for our leader slots. */
-          ulong current_epoch = fd_gui_current_epoch( gui );
-          if( FD_LIKELY( current_epoch!=ULONG_MAX ) ) {
-            ulong epoch_idx = current_epoch % 2UL;
-            if( FD_LIKELY( slot->slot>=gui->epoch.epochs[ epoch_idx ].start_slot && slot->slot<=gui->epoch.epochs[ epoch_idx ].end_slot ) ) {
-              gui->epoch.epochs[ epoch_idx ].slots_leader_skipped_cnt--;
-              gui->summary.skip_rate = (double)gui->epoch.epochs[ epoch_idx ].slots_leader_skipped_cnt/(double)gui->epoch.epochs[ epoch_idx ].slots_leader_cnt;
-              republish_skip_rate = 1;
+          for( ulong i=0UL; i<2UL; i++ ) {
+            if( FD_LIKELY( parent_slot>=gui->epoch.epochs[ i ].start_slot && parent_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+              gui->epoch.epochs[ i ].my_skipped_slots--;
+              republish_skip_rate[ i ] = 1;
+              break;
             }
           }
         }
@@ -1241,9 +1219,11 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
   }
 
-  if( FD_LIKELY( republish_skip_rate ) ) {
-    fd_gui_printf_skip_rate( gui );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( republish_skip_rate[ i ] ) ) {
+      fd_gui_printf_skip_rate( gui, i );
+      fd_hcache_snap_ws_broadcast( gui->hcache );
+    }
   }
 }
 

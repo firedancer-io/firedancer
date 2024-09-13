@@ -475,9 +475,14 @@ fd_gui_printf_estimated_slot( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_skip_rate( fd_gui_t * gui ) {
+fd_gui_printf_skip_rate( fd_gui_t * gui,
+                         ulong      epoch_idx ) {
   jsonp_open_envelope( gui, "summary", "skip_rate" );
-    jsonp_double( gui, "value", gui->summary.skip_rate );
+    jsonp_open_object( gui, "value" );
+      jsonp_ulong( gui, "epoch", gui->epoch.epochs[ epoch_idx ].epoch );
+      if( FD_UNLIKELY( !gui->epoch.epochs[ epoch_idx ].my_total_slots ) ) jsonp_double( gui, "value", 0.0 );
+      else                                                                jsonp_double( gui, "value", (double)gui->epoch.epochs[ epoch_idx ].my_skipped_slots/(double)gui->epoch.epochs[ epoch_idx ].my_total_slots );
+    jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
 
