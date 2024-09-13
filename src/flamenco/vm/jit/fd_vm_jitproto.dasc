@@ -65,7 +65,7 @@
    - rip-relative if host is Linux x86_64 without threads
    Other host environments are unsupported. */
 
-//static FD_TL fd_vm_t * fd_jit_vm  = NULL;  /* current VM being executed */
+static FD_TL fd_vm_t * fd_jit_vm  = NULL;  /* current VM being executed */
 //static FD_TL ulong     ic_correct = 0UL;   /* number of lddw instructions executed */
 
 FD_TL uint  fd_jit_segment_cnt;
@@ -73,16 +73,6 @@ FD_TL uint  fd_jit_mem_ro_sz[ FD_VM_JIT_SEGMENT_MAX ];
 FD_TL uint  fd_jit_mem_rw_sz[ FD_VM_JIT_SEGMENT_MAX ];
 FD_TL ulong fd_jit_mem_base [ FD_VM_JIT_SEGMENT_MAX ];
 
-/* Import fd_vm_jit_helpers.S symbols */
-
-/* The fd_jit_vm_translate_{ro,rw} subroutines translate a virtual
-   address (in rdi) to a host address (in rdx on success). Clobbers rsi.
-   Jumps to the segfault handler on failure.  Reasons for failure
-   include:  OOB segment index, OOB offset within segment, access
-   overlaps multiple segments, attempted to write to read-only memory. */
-
-extern uchar fd_jit_vm_translate_ro;
-extern uchar fd_jit_vm_translate_rw;
 | .define translate_in,  rdi
 | .define translate_out, rdx
 
@@ -95,8 +85,8 @@ extern uchar fd_jit_vm_translate_rw;
    BPF | r0  | r1  | r2  | r3  | r4  | r5  | r6  | r7  | r8  | r9  | r10
    X86 | rsi | r11 | r12 | r13 | r14 | r15 | rbx | rcx | r8  | r9  | r10
 
-   x86_64 GPRs rax, rdi, rbp, rdx do not map to sBPF registers.  Those
-   can be used as scratch registers for complex opcodes.
+   x86_64 GPRs rax, rdi, rdx do not map to sBPF registers.  Those can
+   be used as scratch registers for complex opcodes.
 
    Note that this mapping cannot be trivially changed.  Certain x86
    instructions (like div) have hardcoded register accesses which the
@@ -132,6 +122,47 @@ static uchar const reg_bpf2x86[11] = {
   | .define bpf_r10, r10
 };
 
+/* GDB JIT debug interface */
+
+#define GDB_JIT_NOACTION      0
+#define GDB_JIT_REGISTER_FN   1
+#define GDB_JIT_UNREGISTER_FN 2
+
+struct gdb_jit_code_entry {
+  struct gdb_jit_code_entry * next_entry;
+  struct gdb_jit_code_entry * prev_entry;
+  char const *                symfile_addr;
+  ulong                       symfile_size;
+};
+
+struct gdb_jit_descriptor {
+  uint version;
+  uint action_flag;
+  struct gdb_jit_code_entry * relevant_entry;
+  struct gdb_jit_code_entry * first_entry;
+};
+
+/* GDB puts a breakpoint in this function. */
+void __attribute__((noinline)) __jit_debug_register_code(void) {}
+
+struct gdb_jit_descriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
+
+
+/* New proposed ABI */
+
+struct account_meta {
+  /* 0x00 */ uint8_t pubkey[0x20];
+  /* 0x20 */ uint8_t owner[0x20];
+  /* 0x40 */ uint64_t data;
+  /* 0x48 */ uint64_t data_len;
+  /* 0x50 */ uint64_t lamports;
+  /* 0x58 */ uint64_t flags;
+  /* 0x60 */ uint8_t unused[0x20];
+};
+
+typedef struct account_meta account_meta_t;
+
+  
 int
 main( int     argc,
       char ** argv ) {
@@ -259,19 +290,41 @@ main( int     argc,
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
-  uint    input_data_sz = 1000U;
-  uchar * input_data    = fd_scratch_alloc( 16UL, input_data_sz );
+  /* Set up accounts */
 
-  fd_jit_segment_cnt  = 1U;
-  fd_jit_mem_ro_sz[0] = input_data_sz;
-  fd_jit_mem_rw_sz[0] = input_data_sz;
-  fd_jit_mem_base[0]  = (ulong)input_data;
+  uchar account[ 256 ];
+  fd_memset( account, 0xff, sizeof(account) );
+  account_meta_t metas[1] = {
+    {
+      .pubkey   = {0},
+      .owner    = {0},
+      .data     = 1UL<<32,
+      .data_len = sizeof(account),
+      .lamports = 1000000000,
+      .flags    = 0
+    }
+  };
 
-  fd_vm_input_region_t mem_regions[1];
+  FD_LOG_NOTICE(( "account at %p", (void *)account ));
+  FD_LOG_NOTICE(( "base table at %p", (void *)fd_jit_mem_base ));
+
+  /* Region 0: Metadata table */
+  fd_jit_mem_ro_sz[0] = sizeof(metas);
+  fd_jit_mem_rw_sz[0] = sizeof(metas);
+  fd_jit_mem_base [0] = (ulong)metas;
+
+  /* Region 1: Account */
+  fd_jit_mem_ro_sz[1] = sizeof(account);
+  fd_jit_mem_rw_sz[1] = 0;
+  fd_jit_mem_base [1] = (ulong)account;
+
+  fd_jit_segment_cnt  = 2U;
+
+  fd_vm_input_region_t mem_regions[2];
   for( uint j=0U; j<fd_jit_segment_cnt; j++ ) {
     mem_regions[j] = (fd_vm_input_region_t) {
       .vaddr_offset = ((ulong)j)<<32,
-      .haddr        = fd_jit_mem_base[j],
+      .haddr        = fd_jit_mem_base [j],
       .region_sz    = fd_jit_mem_ro_sz[j],
       .is_writable  = fd_jit_mem_rw_sz[j] != 0
     };
@@ -300,8 +353,13 @@ main( int     argc,
     NULL, /* acc_region_metas */
     0 /* is_deprecated */ ) );
 
-  vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm->reg[ 1] = 0; /* account table address */
+  vm->reg[ 2] = 1; /* account count */
+  vm->reg[ 3] = 1UL<<32; /* instruction data address */
+  vm->reg[ 4] = 0; /* instruction data size */
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+
+  fd_jit_vm = vm;
 
   printf( "vm at %p\n", (void *)vm );
 
@@ -354,54 +412,103 @@ main( int     argc,
      include access to out-of-bounds memory, unaligned address, access
      permission error. */
 
+  ulong fs_base; __asm__( "mov %%fs:0, %0" : "=r"(fs_base) );
+  uint  fd_jit_segment_cnt_tpoff = (uint)( (ulong)&fd_jit_segment_cnt - fs_base );
+  uint  fd_jit_mem_ro_sz_tpoff   = (uint)( (ulong)fd_jit_mem_ro_sz    - fs_base );
+  uint  fd_jit_mem_rw_sz_tpoff   = (uint)( (ulong)fd_jit_mem_rw_sz    - fs_base );
+  uint  fd_jit_mem_base_tpoff    = (uint)( (ulong)fd_jit_mem_base     - fs_base );
+
+  |.macro gen_scalar_translate, sz_table_tpoff
+  | // rdi := virtual address
+  | // esi := size of the access minus 1
+  |
+  | // edx := segment offset
+  | mov edx, edi
+  | 
+  | // edi := segment index
+  | shr rdi, 32
+  |
+  | // segment index in bounds?
+  | fs
+  | cmp edi, [fd_jit_segment_cnt_tpoff]
+  | jae ->translate_fail
+  |
+  | // aligned access?
+  | mov eax, edx
+  | and eax, esi
+  | test eax, eax
+  | jnz ->translate_fail
+  |
+  | // no multi segment overlap?
+  | add esi, edx
+  | jc ->translate_fail
+  |
+  | // segment offset in bounds?
+  | fs
+  | cmp esi, [rdi*4 + sz_table_tpoff]
+  | jae ->translate_fail
+  |
+  | // rdx := host address
+  | fs
+  | add rdx, [rdi*8 + fd_jit_mem_base_tpoff]
+  | ret
+  |.endmacro
+
+  |->fd_jit_vm_translate_rw:
+  | gen_scalar_translate, fd_jit_mem_rw_sz_tpoff
+  |->fd_jit_vm_translate_ro:
+  | gen_scalar_translate, fd_jit_mem_ro_sz_tpoff
+  |->translate_fail:
+  | add rsp, 8
+  | jmp ->sigsegv
+
   |.macro translate_rw_1
-  | mov esi, 0
-  | call &fd_jit_vm_translate_rw
+  | xor esi, esi
+  | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_rw_2
   | mov esi, 1
-  | call &fd_jit_vm_translate_rw
+  | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_rw_4
   | mov esi, 3
-  | call &fd_jit_vm_translate_rw
+  | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_rw_8
   | mov esi, 7
-  | call &fd_jit_vm_translate_rw
+  | call ->fd_jit_vm_translate_rw
   |.endmacro
 
   |.macro translate_ro_1
-  | mov esi, 0
-  | call &fd_jit_vm_translate_ro
+  | xor esi, esi
+  | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   |.macro translate_ro_2
   | mov esi, 1
-  | call &fd_jit_vm_translate_ro
+  | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   |.macro translate_ro_4
   | mov esi, 3
-  | call &fd_jit_vm_translate_ro
+  | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   |.macro translate_ro_8
   | mov esi, 7
-  | call &fd_jit_vm_translate_ro
+  | call ->fd_jit_vm_translate_ro
   |.endmacro
 
   /* Start translating user code */
 
   |->main:
 
-  /* SysV function prologue */
+  /* Back up execution state */
 
   | push rbp
-  | mov rbp, rsp
   | push r15
   | push r14
   | push r13
@@ -410,22 +517,21 @@ main( int     argc,
 
   /* Remember the VM pointer */
 
-  | mov64 rbx, (ulong)vm
-  | .type aVm, fd_vm_t, rbx
+  | mov64 rax, (ulong)vm
 
   /* Restore register context */
 
-  | mov bpf_r0,  aVm->reg[ 0]
-  | mov bpf_r1,  aVm->reg[ 1]
-  | mov bpf_r2,  aVm->reg[ 2]
-  | mov bpf_r3,  aVm->reg[ 3]
-  | mov bpf_r4,  aVm->reg[ 4]
-  | mov bpf_r5,  aVm->reg[ 5]
-  | mov bpf_r6,  aVm->reg[ 6]
-  | mov bpf_r7,  aVm->reg[ 7]
-  | mov bpf_r8,  aVm->reg[ 8]
-  | mov bpf_r9,  aVm->reg[ 9]
-  | mov bpf_r10, aVm->reg[10]
+  | mov bpf_r0,  [rax + offsetof(fd_vm_t, reg[ 0])]
+  | mov bpf_r1,  [rax + offsetof(fd_vm_t, reg[ 1])]
+  | mov bpf_r2,  [rax + offsetof(fd_vm_t, reg[ 2])]
+  | mov bpf_r3,  [rax + offsetof(fd_vm_t, reg[ 3])]
+  | mov bpf_r4,  [rax + offsetof(fd_vm_t, reg[ 4])]
+  | mov bpf_r5,  [rax + offsetof(fd_vm_t, reg[ 5])]
+  | mov bpf_r6,  [rax + offsetof(fd_vm_t, reg[ 6])]
+  | mov bpf_r7,  [rax + offsetof(fd_vm_t, reg[ 7])]
+  | mov bpf_r8,  [rax + offsetof(fd_vm_t, reg[ 8])]
+  | mov bpf_r9,  [rax + offsetof(fd_vm_t, reg[ 9])]
+  | mov bpf_r10, [rax + offsetof(fd_vm_t, reg[10])]
 
   ulong * const text_start = prog->text;
   ulong *       text_end   = prog->text + prog->text_cnt;
@@ -512,7 +618,11 @@ main( int     argc,
     case 0x18:  /* FD_SBPF_OP_LDQ */
       cur++; {
       ulong imm64 = ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
-      | mov dst64, imm64
+      if( imm64==0 ) {
+        | xor dst32, dst32
+      } else {
+        | mov dst64, imm64
+      }
       break;
     }
 
@@ -846,7 +956,7 @@ main( int     argc,
       break;
 
     case 0x95:  /* FD_SBPF_OP_EXIT */
-      | jmp ->leave
+      | jmp ->success
       break;
 
     case 0x97:  /* FD_SBPF_OP_MOD64_IMM */
@@ -928,7 +1038,11 @@ main( int     argc,
       break;
 
     case 0xb7:  /* FD_SBPF_OP_MOV64_IMM */
-      | mov dst64, imm
+      if( imm==0 ) {
+        | xor dst32, dst32
+      } else {
+        | mov dst64, imm
+      }
       break;
 
     case 0xbc:  /* FD_SBPF_OP_MOV_REG */
@@ -1023,30 +1137,35 @@ main( int     argc,
   | mov rax, 999
   | jmp ->leave
 
+  |->success:
+  | mov rax, bpf_r0
   |->leave:
   | pop rbx
   | pop r12
   | pop r13
   | pop r14
   | pop r15
-  | leave
+  | pop rbp
   | ret
 
   /* Finish generating code */
 
   ulong sz;
   dasm_link( &d, &sz );
+  FD_LOG_NOTICE(( "BPF code size: %lu bytes (%#lx)", prog->text_sz, prog->text_sz ));
+  FD_LOG_NOTICE(( "x86 code size: %lu bytes (%#lx)", sz, sz ));
 
   void * buf = mmap( 0, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
   dasm_encode( &d, buf );
-  mprotect( buf, sz, PROT_READ | PROT_EXEC );
-
   dasm_free( &d );
+  mprotect( buf, sz, PROT_READ | PROT_EXEC );
 
   /* Execute */
 
   int (* main_)( void ) = (int (*)( void ))( (ulong)labels[ lbl_main ] );
-  printf( "JIT returned %d\n", main_() );
+  printf("main at %p\n", (void *)(ulong)main_);
+  int rc = main_();
+  printf( "JIT returned %d\n", rc );
 
   fd_halt();
   return 0;
