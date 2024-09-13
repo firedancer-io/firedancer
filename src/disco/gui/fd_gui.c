@@ -564,6 +564,8 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
+  
+  FD_TEST( peer_cnt<40200UL );
 
   ulong added_cnt = 0UL;
   ulong added[ 40200 ] = {0};
@@ -686,6 +688,8 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
+  FD_TEST( peer_cnt<40200UL );
+
   ulong added_cnt = 0UL;
   ulong added[ 40200 ] = {0};
 
@@ -775,6 +779,8 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
+
+  FD_TEST( peer_cnt<40200UL );
 
   ulong added_cnt = 0UL;
   ulong added[ 40200 ] = {0};
@@ -995,6 +1001,7 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   ulong excluded_stake      = msg[ 4 ];
 
   FD_TEST( staked_cnt<=50000UL );
+  FD_TEST( slot_cnt<=432000UL );
 
   ulong idx = epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
@@ -1092,6 +1099,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_landed_vote = msg[ 0 ];
 
   ulong parent_cnt = msg[ 1 ];
+  FD_TEST( parent_cnt<1024UL );
 
   ulong _slot = msg[ 2 ];
 

@@ -655,6 +655,10 @@ again:
 
   ulong header_len = 1UL+len_bytes+4UL;
   ulong frame_len  = header_len+payload_len;
+  if( FD_UNLIKELY( frame_len<header_len ) ) { /* Overflow */
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME );
+    return;
+  }
 
   if( FD_UNLIKELY( conn->recv_bytes_parsed+frame_len+1UL>http->max_ws_recv_frame_len ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME );
