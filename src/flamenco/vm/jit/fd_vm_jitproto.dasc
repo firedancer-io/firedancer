@@ -162,6 +162,17 @@ struct account_meta {
 
 typedef struct account_meta account_meta_t;
 
+static void
+fd_jit_call_imm( uint imm ) {
+  fd_vm_t * vm = fd_jit_vm;
+  ulong * reg = vm->reg;
+  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, imm, NULL );
+  if( !syscall ) {
+    FD_LOG_ERR(( "function call not implemented" ));
+  } else {
+    syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], reg+0 );
+  }
+}
   
 int
 main( int     argc,
@@ -276,7 +287,7 @@ main( int     argc,
   txn_ctx->acc_mgr   = acc_mgr;
   txn_ctx->valloc    = fd_scratch_virtual();
 
-  ulong cu_avail = 10000UL;
+  ulong cu_avail = 100000UL;
   txn_ctx->compute_meter      = cu_avail;
   txn_ctx->compute_unit_limit = cu_avail;
 
@@ -501,6 +512,51 @@ main( int     argc,
   | call ->fd_jit_vm_translate_ro
   |.endmacro
 
+  |->save_regs:
+  | mov64 rax, (ulong)vm
+  | mov [rax + offsetof(fd_vm_t, reg[ 0])], bpf_r0
+  | mov [rax + offsetof(fd_vm_t, reg[ 1])], bpf_r1
+  | mov [rax + offsetof(fd_vm_t, reg[ 2])], bpf_r2
+  | mov [rax + offsetof(fd_vm_t, reg[ 3])], bpf_r3
+  | mov [rax + offsetof(fd_vm_t, reg[ 4])], bpf_r4
+  | mov [rax + offsetof(fd_vm_t, reg[ 5])], bpf_r5
+  | mov [rax + offsetof(fd_vm_t, reg[ 6])], bpf_r6
+  | mov [rax + offsetof(fd_vm_t, reg[ 7])], bpf_r7
+  | mov [rax + offsetof(fd_vm_t, reg[ 8])], bpf_r8
+  | mov [rax + offsetof(fd_vm_t, reg[ 9])], bpf_r9
+  | mov [rax + offsetof(fd_vm_t, reg[10])], bpf_r10
+  | ret
+
+  |->restore_regs:
+  | mov64 rax, (ulong)vm
+  | mov bpf_r0,  [rax + offsetof(fd_vm_t, reg[ 0])]
+  | mov bpf_r1,  [rax + offsetof(fd_vm_t, reg[ 1])]
+  | mov bpf_r2,  [rax + offsetof(fd_vm_t, reg[ 2])]
+  | mov bpf_r3,  [rax + offsetof(fd_vm_t, reg[ 3])]
+  | mov bpf_r4,  [rax + offsetof(fd_vm_t, reg[ 4])]
+  | mov bpf_r5,  [rax + offsetof(fd_vm_t, reg[ 5])]
+  | mov bpf_r6,  [rax + offsetof(fd_vm_t, reg[ 6])]
+  | mov bpf_r7,  [rax + offsetof(fd_vm_t, reg[ 7])]
+  | mov bpf_r8,  [rax + offsetof(fd_vm_t, reg[ 8])]
+  | mov bpf_r9,  [rax + offsetof(fd_vm_t, reg[ 9])]
+  | mov bpf_r10, [rax + offsetof(fd_vm_t, reg[10])]
+  | ret
+
+  |->emulate_call_imm:
+  | call ->save_regs
+  | mov rbp, rsp
+  /* Align stack pointer by 16 */
+  | and rsp, -16
+  | push rbp
+  | push rbp
+  | mov rax, &&fd_jit_call_imm
+  | call rax
+  | pop rbp
+  | pop rbp
+  | mov rsp, rbp
+  | call ->restore_regs
+  | ret
+
   /* Start translating user code */
 
   |->main:
@@ -514,23 +570,9 @@ main( int     argc,
   | push r12
   | push rbx
 
-  /* Remember the VM pointer */
-
-  | mov64 rax, (ulong)vm
-
   /* Restore register context */
 
-  | mov bpf_r0,  [rax + offsetof(fd_vm_t, reg[ 0])]
-  | mov bpf_r1,  [rax + offsetof(fd_vm_t, reg[ 1])]
-  | mov bpf_r2,  [rax + offsetof(fd_vm_t, reg[ 2])]
-  | mov bpf_r3,  [rax + offsetof(fd_vm_t, reg[ 3])]
-  | mov bpf_r4,  [rax + offsetof(fd_vm_t, reg[ 4])]
-  | mov bpf_r5,  [rax + offsetof(fd_vm_t, reg[ 5])]
-  | mov bpf_r6,  [rax + offsetof(fd_vm_t, reg[ 6])]
-  | mov bpf_r7,  [rax + offsetof(fd_vm_t, reg[ 7])]
-  | mov bpf_r8,  [rax + offsetof(fd_vm_t, reg[ 8])]
-  | mov bpf_r9,  [rax + offsetof(fd_vm_t, reg[ 9])]
-  | mov bpf_r10, [rax + offsetof(fd_vm_t, reg[10])]
+  | call ->restore_regs
 
   ulong * const text_start = prog->text;
   ulong *       text_end   = prog->text + prog->text_cnt;
@@ -929,7 +971,8 @@ main( int     argc,
       break;
 
     case 0x85:  /* FD_SBPF_OP_CALL_IMM */
-      // TODO
+      | mov rdi, imm
+      | call ->emulate_call_imm
       break;
 
     case 0x87:  /* FD_SBPF_OP_NEG64 */
@@ -937,7 +980,7 @@ main( int     argc,
       break;
 
     case 0x8d:  /* FD_SBPF_OP_CALL_REG */
-      // TODO
+      FD_LOG_WARNING(( "TODO: CALLX" ));
       break;
 
     /* 0x90 - 0x9f ******************************************************/
@@ -1166,6 +1209,8 @@ main( int     argc,
   //__asm__ __volatile__( "int3" );
   int rc = main_();
   printf( "JIT returned %d\n", rc );
+
+  FD_LOG_NOTICE(( "%*s", txn_ctx->log_collector.log_sz, txn_ctx->log_collector.buf ));
 
   fd_halt();
   return 0;

@@ -174,6 +174,17 @@ struct account_meta {
 
 typedef struct account_meta account_meta_t;
 
+static void
+fd_jit_call_imm( uint imm ) {
+  fd_vm_t * vm = fd_jit_vm;
+  ulong * reg = vm->reg;
+  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, imm, NULL );
+  if( !syscall ) {
+    FD_LOG_ERR(( "function call not implemented" ));
+  } else {
+    syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], reg+0 );
+  }
+}
   
 int
 main( int     argc,
@@ -288,7 +299,7 @@ main( int     argc,
   txn_ctx->acc_mgr   = acc_mgr;
   txn_ctx->valloc    = fd_scratch_virtual();
 
-  ulong cu_avail = 10000UL;
+  ulong cu_avail = 100000UL;
   txn_ctx->compute_meter      = cu_avail;
   txn_ctx->compute_unit_limit = cu_avail;
 
@@ -381,7 +392,7 @@ main( int     argc,
   //| .section code
 #define DASM_SECTION_CODE	0
 #define DASM_MAXSECTION		1
-#line 370 "fd_vm_jitproto.dasc"
+#line 381 "fd_vm_jitproto.dasc"
   dasm_init( &d, DASM_MAXSECTION );
 
   //| .globals lbl_
@@ -392,12 +403,15 @@ enum {
   lbl_fd_jit_vm_translate_rw,
   lbl_translate_fail,
   lbl_fd_jit_vm_translate_ro,
+  lbl_save_regs,
+  lbl_restore_regs,
+  lbl_emulate_call_imm,
   lbl_main,
   lbl_success,
   lbl_overrun,
   lbl__MAX
 };
-#line 373 "fd_vm_jitproto.dasc"
+#line 384 "fd_vm_jitproto.dasc"
   void * labels[ lbl__MAX ];
   dasm_setupglobal( &d, labels, lbl__MAX );
 
@@ -405,7 +419,7 @@ enum {
   int next_label = 0;
 
   //| .actionlist actions
-static const unsigned char actions[1306] = {
+static const unsigned char actions[1406] = {
   254,0,248,10,72,199,192,231,3,0,0,252,233,244,11,255,248,12,72,199,192,231,
   3,0,0,252,233,244,11,255,248,13,137,252,250,72,193,252,239,32,100,59,60,37,
   237,15,131,244,14,137,208,33,252,240,133,192,15,133,244,14,1,214,15,130,244,
@@ -413,65 +427,70 @@ static const unsigned char actions[1306] = {
   252,250,72,193,252,239,32,100,59,60,37,237,15,131,244,14,137,208,33,252,240,
   133,192,15,133,244,14,1,214,15,130,244,14,255,100,59,52,189,237,15,131,244,
   14,100,72,3,20,252,253,237,195,248,14,72,131,196,8,252,233,244,12,255,248,
-  16,255,85,65,87,65,86,65,85,65,84,83,255,72,184,237,237,255,72,139,176,233,
-  76,139,152,233,76,139,160,233,76,139,168,233,76,139,176,233,76,139,184,233,
-  72,139,152,233,72,139,168,233,76,139,128,233,76,139,136,233,76,139,144,233,
-  255,249,255,64,129,192,240,43,239,255,252,233,245,255,72,129,192,240,35,239,
-  255,64,1,192,240,131,240,51,255,72,1,192,240,131,240,35,255,64,129,232,240,
-  43,239,255,72,129,252,248,240,35,239,255,15,132,245,255,72,129,232,240,35,
-  239,255,64,49,192,240,131,240,51,255,72,199,192,240,35,237,255,64,41,192,
-  240,131,240,51,255,72,57,192,240,131,240,35,15,132,245,255,72,41,192,240,
-  131,240,35,255,64,105,192,240,131,240,51,239,255,72,129,252,248,240,35,239,
-  15,135,245,255,72,105,192,240,131,240,35,239,255,64,15,175,192,240,132,240,
-  52,255,72,57,192,240,131,240,35,15,135,245,255,72,15,175,192,240,132,240,
-  36,255,252,233,244,10,255,64,144,240,42,49,210,191,237,252,247,252,247,64,
-  144,240,42,255,72,129,252,248,240,35,239,15,131,245,255,72,144,240,34,49,
-  210,72,199,199,237,72,252,247,252,247,72,144,240,34,255,64,133,192,240,131,
-  240,51,15,132,244,10,255,64,184,240,42,1,0,0,0,255,64,144,240,42,49,210,64,
-  252,247,252,240,240,43,64,144,240,42,255,72,57,192,240,131,240,35,15,131,
-  245,255,72,133,192,240,131,240,35,15,132,244,10,255,72,144,240,34,49,210,
-  72,252,247,252,240,240,35,72,144,240,34,255,64,129,200,240,43,239,255,72,
-  252,247,192,240,35,237,15,133,245,255,72,129,200,240,35,239,255,64,9,192,
-  240,131,240,51,255,72,133,192,240,131,240,35,15,133,245,255,72,9,192,240,
-  131,240,35,255,64,129,224,240,43,239,255,72,129,252,248,240,35,239,15,133,
-  245,255,72,129,224,240,35,239,255,64,33,192,240,131,240,51,255,72,57,192,
-  240,131,240,35,15,133,245,255,72,33,192,240,131,240,35,255,72,141,184,253,
-  240,3,233,190,3,0,0,0,232,244,15,64,139,2,240,139,255,72,141,184,253,240,
-  3,233,190,3,0,0,0,232,244,13,199,2,237,255,72,141,184,253,240,3,233,190,3,
-  0,0,0,232,244,13,64,137,2,240,139,255,64,193,224,240,43,235,255,72,129,252,
-  248,240,35,239,15,143,245,255,72,193,224,240,35,235,255,72,141,184,253,240,
-  3,233,190,1,0,0,0,232,244,15,64,49,192,240,131,240,51,102,64,139,2,240,139,
-  255,72,141,184,253,240,3,233,190,1,0,0,0,232,244,13,102,199,2,236,255,72,
-  141,184,253,240,3,233,190,1,0,0,0,232,244,13,64,137,2,240,139,255,64,136,
-  193,240,131,64,211,224,240,43,255,72,57,192,240,131,240,35,15,143,245,255,
-  64,136,193,240,131,72,211,224,240,35,255,72,141,184,253,240,3,233,49,252,
-  246,232,244,15,255,64,49,192,240,131,240,51,64,138,2,240,131,255,72,141,184,
-  253,240,3,233,49,252,246,232,244,13,198,2,235,255,72,141,184,253,240,3,233,
-  49,252,246,232,244,13,64,136,2,240,131,255,64,193,232,240,43,235,255,72,129,
-  252,248,240,35,239,15,141,245,255,72,193,232,240,35,235,255,72,141,184,253,
-  240,3,233,190,7,0,0,0,232,244,15,72,139,2,240,131,255,72,141,184,253,240,
-  3,233,190,7,0,0,0,232,244,13,72,199,192,237,72,137,2,255,72,141,184,253,240,
-  3,233,190,7,0,0,0,232,244,13,72,137,2,240,131,255,64,136,193,240,131,64,211,
-  232,240,43,255,72,57,192,240,131,240,35,15,141,245,255,64,136,193,240,131,
-  72,211,232,240,35,255,64,252,247,216,240,43,255,72,252,247,216,240,35,255,
-  64,144,240,42,49,210,191,237,252,247,252,247,64,135,208,240,43,255,252,233,
-  244,17,255,64,184,240,42,0,0,0,0,255,64,144,240,42,49,210,64,252,247,252,
-  240,240,43,64,135,208,240,43,255,72,144,240,34,49,210,72,252,247,252,240,
-  240,35,72,135,208,240,35,255,64,129,252,240,240,43,239,255,72,129,252,248,
-  240,35,239,15,130,245,255,72,129,252,240,240,35,239,255,72,57,192,240,131,
-  240,35,15,130,245,255,72,49,192,240,131,240,35,255,64,184,240,42,237,255,
-  72,129,252,248,240,35,239,15,134,245,255,64,137,192,240,131,240,51,255,72,
-  57,192,240,131,240,35,15,134,245,255,72,137,192,240,131,240,35,255,64,193,
-  252,248,240,43,235,255,72,129,252,248,240,35,239,15,140,245,255,72,193,252,
-  248,240,35,235,255,64,136,193,240,131,64,211,252,248,240,43,255,72,57,192,
-  240,131,240,35,15,140,245,255,64,136,193,240,131,72,211,252,248,240,35,255,
-  72,129,252,248,240,35,239,15,142,245,255,64,15,183,192,240,132,240,52,102,
-  64,193,200,240,43,8,255,64,15,200,240,43,255,72,15,200,240,35,255,72,57,192,
-  240,131,240,35,15,142,245,255,248,18,72,199,192,231,3,0,0,252,233,244,11,
-  255,248,17,72,137,252,240,248,11,91,65,92,65,93,65,94,65,95,93,195,255
+  16,72,184,237,237,72,137,176,233,76,137,152,233,76,137,160,233,76,137,168,
+  233,76,137,176,233,76,137,184,233,72,137,152,233,72,137,168,233,76,137,128,
+  233,76,137,136,233,76,137,144,233,195,255,248,17,72,184,237,237,72,139,176,
+  233,76,139,152,233,76,139,160,233,76,139,168,233,76,139,176,233,76,139,184,
+  233,72,139,152,233,72,139,168,233,76,139,128,233,76,139,136,233,76,139,144,
+  233,195,255,248,18,232,244,16,72,137,229,255,72,131,228,252,240,85,85,72,
+  199,192,237,252,255,208,93,93,72,137,252,236,232,244,17,195,255,248,19,255,
+  85,65,87,65,86,65,85,65,84,83,255,232,244,17,255,249,255,64,129,192,240,43,
+  239,255,252,233,245,255,72,129,192,240,35,239,255,64,1,192,240,131,240,51,
+  255,72,1,192,240,131,240,35,255,64,129,232,240,43,239,255,72,129,252,248,
+  240,35,239,255,15,132,245,255,72,129,232,240,35,239,255,64,49,192,240,131,
+  240,51,255,72,199,192,240,35,237,255,64,41,192,240,131,240,51,255,72,57,192,
+  240,131,240,35,15,132,245,255,72,41,192,240,131,240,35,255,64,105,192,240,
+  131,240,51,239,255,72,129,252,248,240,35,239,15,135,245,255,72,105,192,240,
+  131,240,35,239,255,64,15,175,192,240,132,240,52,255,72,57,192,240,131,240,
+  35,15,135,245,255,72,15,175,192,240,132,240,36,255,252,233,244,10,255,64,
+  144,240,42,49,210,191,237,252,247,252,247,64,144,240,42,255,72,129,252,248,
+  240,35,239,15,131,245,255,72,144,240,34,49,210,72,199,199,237,72,252,247,
+  252,247,72,144,240,34,255,64,133,192,240,131,240,51,15,132,244,10,255,64,
+  184,240,42,1,0,0,0,255,64,144,240,42,49,210,64,252,247,252,240,240,43,64,
+  144,240,42,255,72,57,192,240,131,240,35,15,131,245,255,72,133,192,240,131,
+  240,35,15,132,244,10,255,72,144,240,34,49,210,72,252,247,252,240,240,35,72,
+  144,240,34,255,64,129,200,240,43,239,255,72,252,247,192,240,35,237,15,133,
+  245,255,72,129,200,240,35,239,255,64,9,192,240,131,240,51,255,72,133,192,
+  240,131,240,35,15,133,245,255,72,9,192,240,131,240,35,255,64,129,224,240,
+  43,239,255,72,129,252,248,240,35,239,15,133,245,255,72,129,224,240,35,239,
+  255,64,33,192,240,131,240,51,255,72,57,192,240,131,240,35,15,133,245,255,
+  72,33,192,240,131,240,35,255,72,141,184,253,240,3,233,190,3,0,0,0,232,244,
+  15,64,139,2,240,139,255,72,141,184,253,240,3,233,190,3,0,0,0,232,244,13,199,
+  2,237,255,72,141,184,253,240,3,233,190,3,0,0,0,232,244,13,64,137,2,240,139,
+  255,64,193,224,240,43,235,255,72,129,252,248,240,35,239,15,143,245,255,72,
+  193,224,240,35,235,255,72,141,184,253,240,3,233,190,1,0,0,0,232,244,15,64,
+  49,192,240,131,240,51,102,64,139,2,240,139,255,72,141,184,253,240,3,233,190,
+  1,0,0,0,232,244,13,102,199,2,236,255,72,141,184,253,240,3,233,190,1,0,0,0,
+  232,244,13,64,137,2,240,139,255,64,136,193,240,131,64,211,224,240,43,255,
+  72,57,192,240,131,240,35,15,143,245,255,64,136,193,240,131,72,211,224,240,
+  35,255,72,141,184,253,240,3,233,49,252,246,232,244,15,255,64,49,192,240,131,
+  240,51,64,138,2,240,131,255,72,141,184,253,240,3,233,49,252,246,232,244,13,
+  198,2,235,255,72,141,184,253,240,3,233,49,252,246,232,244,13,64,136,2,240,
+  131,255,64,193,232,240,43,235,255,72,129,252,248,240,35,239,15,141,245,255,
+  72,193,232,240,35,235,255,72,141,184,253,240,3,233,190,7,0,0,0,232,244,15,
+  72,139,2,240,131,255,72,141,184,253,240,3,233,190,7,0,0,0,232,244,13,72,199,
+  192,237,72,137,2,255,72,141,184,253,240,3,233,190,7,0,0,0,232,244,13,72,137,
+  2,240,131,255,64,136,193,240,131,64,211,232,240,43,255,72,57,192,240,131,
+  240,35,15,141,245,255,64,136,193,240,131,72,211,232,240,35,255,64,252,247,
+  216,240,43,255,72,199,199,237,232,244,18,255,72,252,247,216,240,35,255,64,
+  144,240,42,49,210,191,237,252,247,252,247,64,135,208,240,43,255,252,233,244,
+  20,255,64,184,240,42,0,0,0,0,255,64,144,240,42,49,210,64,252,247,252,240,
+  240,43,64,135,208,240,43,255,72,144,240,34,49,210,72,252,247,252,240,240,
+  35,72,135,208,240,35,255,64,129,252,240,240,43,239,255,72,129,252,248,240,
+  35,239,15,130,245,255,72,129,252,240,240,35,239,255,72,57,192,240,131,240,
+  35,15,130,245,255,72,49,192,240,131,240,35,255,64,184,240,42,237,255,72,129,
+  252,248,240,35,239,15,134,245,255,64,137,192,240,131,240,51,255,72,57,192,
+  240,131,240,35,15,134,245,255,72,137,192,240,131,240,35,255,64,193,252,248,
+  240,43,235,255,72,129,252,248,240,35,239,15,140,245,255,72,193,252,248,240,
+  35,235,255,64,136,193,240,131,64,211,252,248,240,43,255,72,57,192,240,131,
+  240,35,15,140,245,255,64,136,193,240,131,72,211,252,248,240,35,255,72,129,
+  252,248,240,35,239,15,142,245,255,64,15,183,192,240,132,240,52,102,64,193,
+  200,240,43,8,255,64,15,200,240,43,255,72,15,200,240,35,255,72,57,192,240,
+  131,240,35,15,142,245,255,248,21,72,199,192,231,3,0,0,252,233,244,11,255,
+  248,20,72,137,252,240,248,11,91,65,92,65,93,65,94,65,95,93,195,255
 };
 
-#line 380 "fd_vm_jitproto.dasc"
+#line 391 "fd_vm_jitproto.dasc"
   dasm_setup( &d, actions );
 
   dasm_State ** Dst = &d;
@@ -480,7 +499,7 @@ static const unsigned char actions[1306] = {
 
   //| .code
   dasm_put(Dst, 0);
-#line 387 "fd_vm_jitproto.dasc"
+#line 398 "fd_vm_jitproto.dasc"
 
   /* Exception handlers */
 
@@ -489,13 +508,13 @@ static const unsigned char actions[1306] = {
   //| mov rax, 999
   //| jmp ->leave
   dasm_put(Dst, 2);
-#line 394 "fd_vm_jitproto.dasc"
+#line 405 "fd_vm_jitproto.dasc"
 
   //|->sigsegv:
   //| mov rax, 999
   //| jmp ->leave
   dasm_put(Dst, 16);
-#line 398 "fd_vm_jitproto.dasc"
+#line 409 "fd_vm_jitproto.dasc"
 
   /* Address translation macros
 
@@ -559,12 +578,12 @@ static const unsigned char actions[1306] = {
   //|->fd_jit_vm_translate_ro:
   //| gen_scalar_translate, fd_jit_mem_ro_sz_tpoff
   dasm_put(Dst, 30, fd_jit_segment_cnt_tpoff, fd_jit_mem_rw_sz_tpoff, fd_jit_mem_base_tpoff, fd_jit_segment_cnt_tpoff);
-#line 460 "fd_vm_jitproto.dasc"
+#line 471 "fd_vm_jitproto.dasc"
   //|->translate_fail:
   //| add rsp, 8
   //| jmp ->sigsegv
   dasm_put(Dst, 120, fd_jit_mem_ro_sz_tpoff, fd_jit_mem_base_tpoff);
-#line 463 "fd_vm_jitproto.dasc"
+#line 474 "fd_vm_jitproto.dasc"
 
   //|.macro translate_rw_1
   //| xor esi, esi
@@ -606,31 +625,25 @@ static const unsigned char actions[1306] = {
   //| call ->fd_jit_vm_translate_ro
   //|.endmacro
 
-  /* Start translating user code */
-
-  //|->main:
-  dasm_put(Dst, 148);
-#line 507 "fd_vm_jitproto.dasc"
-
-  /* Back up execution state */
-
-  //| push rbp
-  //| push r15
-  //| push r14
-  //| push r13
-  //| push r12
-  //| push rbx
-  dasm_put(Dst, 151);
-#line 516 "fd_vm_jitproto.dasc"
-
-  /* Remember the VM pointer */
-
+  //|->save_regs:
   //| mov64 rax, (ulong)vm
-  dasm_put(Dst, 162, (unsigned int)((ulong)vm), (unsigned int)(((ulong)vm)>>32));
-#line 520 "fd_vm_jitproto.dasc"
+  //| mov [rax + offsetof(fd_vm_t, reg[ 0])], bpf_r0
+  //| mov [rax + offsetof(fd_vm_t, reg[ 1])], bpf_r1
+  //| mov [rax + offsetof(fd_vm_t, reg[ 2])], bpf_r2
+  //| mov [rax + offsetof(fd_vm_t, reg[ 3])], bpf_r3
+  //| mov [rax + offsetof(fd_vm_t, reg[ 4])], bpf_r4
+  //| mov [rax + offsetof(fd_vm_t, reg[ 5])], bpf_r5
+  //| mov [rax + offsetof(fd_vm_t, reg[ 6])], bpf_r6
+  //| mov [rax + offsetof(fd_vm_t, reg[ 7])], bpf_r7
+  //| mov [rax + offsetof(fd_vm_t, reg[ 8])], bpf_r8
+  //| mov [rax + offsetof(fd_vm_t, reg[ 9])], bpf_r9
+  //| mov [rax + offsetof(fd_vm_t, reg[10])], bpf_r10
+  //| ret
+  dasm_put(Dst, 148, (unsigned int)((ulong)vm), (unsigned int)(((ulong)vm)>>32), offsetof(fd_vm_t, reg[ 0]), offsetof(fd_vm_t, reg[ 1]), offsetof(fd_vm_t, reg[ 2]), offsetof(fd_vm_t, reg[ 3]), offsetof(fd_vm_t, reg[ 4]), offsetof(fd_vm_t, reg[ 5]), offsetof(fd_vm_t, reg[ 6]), offsetof(fd_vm_t, reg[ 7]), offsetof(fd_vm_t, reg[ 8]), offsetof(fd_vm_t, reg[ 9]), offsetof(fd_vm_t, reg[10]));
+#line 529 "fd_vm_jitproto.dasc"
 
-  /* Restore register context */
-
+  //|->restore_regs:
+  //| mov64 rax, (ulong)vm
   //| mov bpf_r0,  [rax + offsetof(fd_vm_t, reg[ 0])]
   //| mov bpf_r1,  [rax + offsetof(fd_vm_t, reg[ 1])]
   //| mov bpf_r2,  [rax + offsetof(fd_vm_t, reg[ 2])]
@@ -642,8 +655,51 @@ static const unsigned char actions[1306] = {
   //| mov bpf_r8,  [rax + offsetof(fd_vm_t, reg[ 8])]
   //| mov bpf_r9,  [rax + offsetof(fd_vm_t, reg[ 9])]
   //| mov bpf_r10, [rax + offsetof(fd_vm_t, reg[10])]
-  dasm_put(Dst, 167, offsetof(fd_vm_t, reg[ 0]), offsetof(fd_vm_t, reg[ 1]), offsetof(fd_vm_t, reg[ 2]), offsetof(fd_vm_t, reg[ 3]), offsetof(fd_vm_t, reg[ 4]), offsetof(fd_vm_t, reg[ 5]), offsetof(fd_vm_t, reg[ 6]), offsetof(fd_vm_t, reg[ 7]), offsetof(fd_vm_t, reg[ 8]), offsetof(fd_vm_t, reg[ 9]), offsetof(fd_vm_t, reg[10]));
-#line 534 "fd_vm_jitproto.dasc"
+  //| ret
+  dasm_put(Dst, 200, (unsigned int)((ulong)vm), (unsigned int)(((ulong)vm)>>32), offsetof(fd_vm_t, reg[ 0]), offsetof(fd_vm_t, reg[ 1]), offsetof(fd_vm_t, reg[ 2]), offsetof(fd_vm_t, reg[ 3]), offsetof(fd_vm_t, reg[ 4]), offsetof(fd_vm_t, reg[ 5]), offsetof(fd_vm_t, reg[ 6]), offsetof(fd_vm_t, reg[ 7]), offsetof(fd_vm_t, reg[ 8]), offsetof(fd_vm_t, reg[ 9]), offsetof(fd_vm_t, reg[10]));
+#line 544 "fd_vm_jitproto.dasc"
+
+  //|->emulate_call_imm:
+  //| call ->save_regs
+  //| mov rbp, rsp
+  dasm_put(Dst, 252);
+#line 548 "fd_vm_jitproto.dasc"
+  /* Align stack pointer by 16 */
+  //| and rsp, -16
+  //| push rbp
+  //| push rbp
+  //| mov rax, &&fd_jit_call_imm
+  //| call rax
+  //| pop rbp
+  //| pop rbp
+  //| mov rsp, rbp
+  //| call ->restore_regs
+  //| ret
+  dasm_put(Dst, 261, (ptrdiff_t)(&fd_jit_call_imm));
+#line 559 "fd_vm_jitproto.dasc"
+
+  /* Start translating user code */
+
+  //|->main:
+  dasm_put(Dst, 286);
+#line 563 "fd_vm_jitproto.dasc"
+
+  /* Back up execution state */
+
+  //| push rbp
+  //| push r15
+  //| push r14
+  //| push r13
+  //| push r12
+  //| push rbx
+  dasm_put(Dst, 289);
+#line 572 "fd_vm_jitproto.dasc"
+
+  /* Restore register context */
+
+  //| call ->restore_regs
+  dasm_put(Dst, 300);
+#line 576 "fd_vm_jitproto.dasc"
 
   ulong * const text_start = prog->text;
   ulong *       text_end   = prog->text + prog->text_cnt;
@@ -684,8 +740,8 @@ static const unsigned char actions[1306] = {
 
     next_label = bpf_label_off + (int)( cur - text_start );
     //|=>next_label:
-    dasm_put(Dst, 212, next_label);
-#line 574 "fd_vm_jitproto.dasc"
+    dasm_put(Dst, 304, next_label);
+#line 616 "fd_vm_jitproto.dasc"
 
     /* Translate instruction */
 
@@ -695,56 +751,56 @@ static const unsigned char actions[1306] = {
 
     case 0x04:  /* FD_SBPF_OP_ADD_IMM */
       //| add dst32, imm
-      dasm_put(Dst, 214, (x86_dst), imm);
-#line 583 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 306, (x86_dst), imm);
+#line 625 "fd_vm_jitproto.dasc"
       break;
 
     case 0x05:  /* FD_SBPF_OP_JA */
       //| jmp =>jmp_dst_lbl
-      dasm_put(Dst, 221, jmp_dst_lbl);
-#line 587 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 313, jmp_dst_lbl);
+#line 629 "fd_vm_jitproto.dasc"
       break;
 
     case 0x07:  /* FD_SBPF_OP_ADD64_IMM */
       //| add dst64, imm
-      dasm_put(Dst, 225, (x86_dst), imm);
-#line 591 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 317, (x86_dst), imm);
+#line 633 "fd_vm_jitproto.dasc"
       break;
 
     case 0x0c:  /* FD_SBPF_OP_ADD_REG */
       //| add dst32, src32
-      dasm_put(Dst, 232, (x86_src), (x86_dst));
-#line 595 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 324, (x86_src), (x86_dst));
+#line 637 "fd_vm_jitproto.dasc"
       break;
 
     case 0x0f:  /* FD_SBPF_OP_ADD64_REG */
       //| add dst64, src64
-      dasm_put(Dst, 240, (x86_src), (x86_dst));
-#line 599 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 332, (x86_src), (x86_dst));
+#line 641 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x10 - 0x1f ******************************************************/
 
     case 0x14:  /* FD_SBPF_OP_SUB_IMM */
       //| sub dst32, imm
-      dasm_put(Dst, 248, (x86_dst), imm);
-#line 605 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 340, (x86_dst), imm);
+#line 647 "fd_vm_jitproto.dasc"
       break;
 
     case 0x15:  /* FD_SBPF_OP_JEQ_IMM */
       //| cmp dst64, imm
-      dasm_put(Dst, 255, (x86_dst), imm);
-#line 609 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 347, (x86_dst), imm);
+#line 651 "fd_vm_jitproto.dasc"
       /* pre branch check here ... branchless cu update? */
       //| je =>jmp_dst_lbl
-      dasm_put(Dst, 263, jmp_dst_lbl);
-#line 611 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 355, jmp_dst_lbl);
+#line 653 "fd_vm_jitproto.dasc"
       break;
 
     case 0x17:  /* FD_SBPF_OP_SUB64_IMM */
       //| sub dst64, imm
-      dasm_put(Dst, 267, (x86_dst), imm);
-#line 615 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 359, (x86_dst), imm);
+#line 657 "fd_vm_jitproto.dasc"
       break;
 
     case 0x18:  /* FD_SBPF_OP_LDQ */
@@ -752,33 +808,33 @@ static const unsigned char actions[1306] = {
       ulong imm64 = ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
       if( imm64==0 ) {
         //| xor dst32, dst32
-        dasm_put(Dst, 274, (x86_dst), (x86_dst));
-#line 622 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 366, (x86_dst), (x86_dst));
+#line 664 "fd_vm_jitproto.dasc"
       } else {
         //| mov dst64, imm64
-        dasm_put(Dst, 282, (x86_dst), imm64);
-#line 624 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 374, (x86_dst), imm64);
+#line 666 "fd_vm_jitproto.dasc"
       }
       break;
     }
 
     case 0x1c:  /* FD_SBPF_OP_SUB_REG */
       //| sub dst32, src32
-      dasm_put(Dst, 289, (x86_src), (x86_dst));
-#line 630 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 381, (x86_src), (x86_dst));
+#line 672 "fd_vm_jitproto.dasc"
       break;
 
     case 0x1d:  /* FD_SBPF_OP_JEQ_REG */
       //| cmp dst64, src64
       //| je =>jmp_dst_lbl
-      dasm_put(Dst, 297, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 635 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 389, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 677 "fd_vm_jitproto.dasc"
       break;
 
     case 0x1f:  /* FD_SBPF_OP_SUB64_REG */
       //| sub dst64, src64
-      dasm_put(Dst, 308, (x86_src), (x86_dst));
-#line 639 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 400, (x86_src), (x86_dst));
+#line 681 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x20 - 0x2f ******************************************************/
@@ -786,41 +842,41 @@ static const unsigned char actions[1306] = {
     case 0x24:  /* FD_SBPF_OP_MUL_IMM */
       /* TODO strength reduction? */
       //| imul dst32, imm
-      dasm_put(Dst, 316, (x86_dst), (x86_dst), imm);
-#line 646 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 408, (x86_dst), (x86_dst), imm);
+#line 688 "fd_vm_jitproto.dasc"
       break;
 
     case 0x25:  /* FD_SBPF_OP_JGT_IMM */
       //| cmp dst64, imm
       //| ja =>jmp_dst_lbl
-      dasm_put(Dst, 325, (x86_dst), imm, jmp_dst_lbl);
-#line 651 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 417, (x86_dst), imm, jmp_dst_lbl);
+#line 693 "fd_vm_jitproto.dasc"
       break;
 
     case 0x27:  /* FD_SBPF_OP_MUL64_IMM */
       /* TODO strength reduction? */
       //| imul dst64, imm
-      dasm_put(Dst, 336, (x86_dst), (x86_dst), imm);
-#line 656 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 428, (x86_dst), (x86_dst), imm);
+#line 698 "fd_vm_jitproto.dasc"
       break;
 
     case 0x2c:  /* FD_SBPF_OP_MUL_REG */
       //| imul dst32, src32
-      dasm_put(Dst, 345, (x86_dst), (x86_src));
-#line 660 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 437, (x86_dst), (x86_src));
+#line 702 "fd_vm_jitproto.dasc"
       break;
 
     case 0x2d:  /* FD_SBPF_OP_JGT_REG */
       //| cmp dst64, src64
       //| ja =>jmp_dst_lbl
-      dasm_put(Dst, 354, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 665 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 446, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 707 "fd_vm_jitproto.dasc"
       break;
 
     case 0x2f:  /* FD_SBPF_OP_MUL64_REG */
       //| imul dst64, src64
-      dasm_put(Dst, 365, (x86_dst), (x86_src));
-#line 669 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 457, (x86_dst), (x86_src));
+#line 711 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x30 - 0x3f ******************************************************/
@@ -828,8 +884,8 @@ static const unsigned char actions[1306] = {
     case 0x34:  /* FD_SBPF_OP_DIV_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
-        dasm_put(Dst, 374);
-#line 676 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 466);
+#line 718 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -837,22 +893,22 @@ static const unsigned char actions[1306] = {
       //| mov edi, imm
       //| div edi
       //| xchg eax, dst32
-      dasm_put(Dst, 379, (x86_dst), imm, (x86_dst));
-#line 683 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 471, (x86_dst), imm, (x86_dst));
+#line 725 "fd_vm_jitproto.dasc"
       break;
 
     case 0x35:  /* FD_SBPF_OP_JGE_IMM */
       //| cmp dst64, imm
       //| jae =>jmp_dst_lbl
-      dasm_put(Dst, 396, (x86_dst), imm, jmp_dst_lbl);
-#line 688 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 488, (x86_dst), imm, jmp_dst_lbl);
+#line 730 "fd_vm_jitproto.dasc"
       break;
 
     case 0x37:  /* FD_SBPF_OP_DIV64_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
-        dasm_put(Dst, 374);
-#line 693 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 466);
+#line 735 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -860,133 +916,133 @@ static const unsigned char actions[1306] = {
       //| mov rdi, imm
       //| div rdi
       //| xchg rax, dst64
-      dasm_put(Dst, 407, (x86_dst), imm, (x86_dst));
-#line 700 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 499, (x86_dst), imm, (x86_dst));
+#line 742 "fd_vm_jitproto.dasc"
       break;
 
     case 0x3c:  /* FD_SBPF_OP_DIV_REG */
       //| test src32, src32
       //| jz ->sigfpe
-      dasm_put(Dst, 427, (x86_src), (x86_src));
-#line 705 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 519, (x86_src), (x86_src));
+#line 747 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 1
-        dasm_put(Dst, 439, (x86_dst));
-#line 707 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 531, (x86_dst));
+#line 749 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
       //| xor edx, edx
       //| div src32
       //| xchg eax, dst32
-      dasm_put(Dst, 448, (x86_dst), (x86_src), (x86_dst));
-#line 713 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 540, (x86_dst), (x86_src), (x86_dst));
+#line 755 "fd_vm_jitproto.dasc"
       break;
 
     case 0x3d:  /* FD_SBPF_OP_JGE_REG */
       //| cmp dst64, src64
       //| jae =>jmp_dst_lbl
-      dasm_put(Dst, 466, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 718 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 558, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 760 "fd_vm_jitproto.dasc"
       break;
 
     case 0x3f:  /* FD_SBPF_OP_DIV64_REG */
       //| test src64, src64
       //| jz ->sigfpe
-      dasm_put(Dst, 477, (x86_src), (x86_src));
-#line 723 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 569, (x86_src), (x86_src));
+#line 765 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 1
-        dasm_put(Dst, 439, (x86_dst));
-#line 725 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 531, (x86_dst));
+#line 767 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
       //| xor edx, edx
       //| div src64
       //| xchg rax, dst64
-      dasm_put(Dst, 489, (x86_dst), (x86_src), (x86_dst));
-#line 731 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 581, (x86_dst), (x86_src), (x86_dst));
+#line 773 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x40 - 0x4f ******************************************************/
 
     case 0x44:  /* FD_SBPF_OP_OR_IMM */
       //| or dst32, imm
-      dasm_put(Dst, 507, (x86_dst), imm);
-#line 737 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 599, (x86_dst), imm);
+#line 779 "fd_vm_jitproto.dasc"
       break;
 
     case 0x45:  /* FD_SBPF_OP_JSET_IMM */
       //| test dst64, imm
       //| jnz =>jmp_dst_lbl
-      dasm_put(Dst, 514, (x86_dst), imm, jmp_dst_lbl);
-#line 742 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 606, (x86_dst), imm, jmp_dst_lbl);
+#line 784 "fd_vm_jitproto.dasc"
       break;
 
     case 0x47:  /* FD_SBPF_OP_OR64_IMM */
       //| or dst64, imm
-      dasm_put(Dst, 525, (x86_dst), imm);
-#line 746 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 617, (x86_dst), imm);
+#line 788 "fd_vm_jitproto.dasc"
       break;
 
     case 0x4c:  /* FD_SBPF_OP_OR_REG */
       //| or dst32, src32
-      dasm_put(Dst, 532, (x86_src), (x86_dst));
-#line 750 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 624, (x86_src), (x86_dst));
+#line 792 "fd_vm_jitproto.dasc"
       break;
 
     case 0x4d:  /* FD_SBPF_OP_JSET_REG */
       //| test dst64, src64
       //| jnz =>jmp_dst_lbl
-      dasm_put(Dst, 540, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 755 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 632, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 797 "fd_vm_jitproto.dasc"
       break;
 
     case 0x4f:  /* FD_SBPF_OP_OR64_REG */
       //| or dst64, src64
-      dasm_put(Dst, 551, (x86_src), (x86_dst));
-#line 759 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 643, (x86_src), (x86_dst));
+#line 801 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x50 - 0x5f ******************************************************/
 
     case 0x54:  /* FD_SBPF_OP_AND_IMM */
       //| and dst32, imm
-      dasm_put(Dst, 559, (x86_dst), imm);
-#line 765 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 651, (x86_dst), imm);
+#line 807 "fd_vm_jitproto.dasc"
       break;
 
     case 0x55:  /* FD_SBPF_OP_JNE_IMM */
       //| cmp dst64, imm
       //| jne =>jmp_dst_lbl
-      dasm_put(Dst, 566, (x86_dst), imm, jmp_dst_lbl);
-#line 770 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 658, (x86_dst), imm, jmp_dst_lbl);
+#line 812 "fd_vm_jitproto.dasc"
       break;
 
     case 0x57:  /* FD_SBPF_OP_AND64_IMM */
       //| and dst64, imm
-      dasm_put(Dst, 577, (x86_dst), imm);
-#line 774 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 669, (x86_dst), imm);
+#line 816 "fd_vm_jitproto.dasc"
       break;
 
     case 0x5c:  /* FD_SBPF_OP_AND_REG */
       //| and dst32, src32
-      dasm_put(Dst, 584, (x86_src), (x86_dst));
-#line 778 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 676, (x86_src), (x86_dst));
+#line 820 "fd_vm_jitproto.dasc"
       break;
 
     case 0x5d:  /* FD_SBPF_OP_JNE_REG */
       //| cmp dst64, src64
       //| jne =>jmp_dst_lbl
-      dasm_put(Dst, 592, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 783 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 684, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 825 "fd_vm_jitproto.dasc"
       break;
 
     case 0x5f:  /* FD_SBPF_OP_AND64_REG */
       //| and dst64, src64
-      dasm_put(Dst, 603, (x86_src), (x86_dst));
-#line 787 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 695, (x86_src), (x86_dst));
+#line 829 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x60 - 0x6f ******************************************************/
@@ -995,43 +1051,43 @@ static const unsigned char actions[1306] = {
       //| lea translate_in, [src64+offset]
       //| translate_ro_4
       //| mov dst32, [translate_out]
-      dasm_put(Dst, 611, (x86_src), offset, (x86_dst));
-#line 795 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 703, (x86_src), offset, (x86_dst));
+#line 837 "fd_vm_jitproto.dasc"
       break;
 
     case 0x62:  /* FD_SBPF_OP_STW */
       //| lea translate_in, [dst64+offset]
       //| translate_rw_4
       //| mov dword [translate_out], imm
-      dasm_put(Dst, 632, (x86_dst), offset, imm);
-#line 801 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 724, (x86_dst), offset, imm);
+#line 843 "fd_vm_jitproto.dasc"
       break;
 
     case 0x63:  /* FD_SBPF_OP_STXW */
       //| lea translate_in, [dst64+offset]
       //| translate_rw_4
       //| mov [translate_out], src32
-      dasm_put(Dst, 651, (x86_dst), offset, (x86_src));
-#line 807 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 743, (x86_dst), offset, (x86_src));
+#line 849 "fd_vm_jitproto.dasc"
       break;
 
     case 0x64:  /* FD_SBPF_OP_LSH_IMM */
       //| shl dst32, imm
-      dasm_put(Dst, 672, (x86_dst), imm);
-#line 811 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 764, (x86_dst), imm);
+#line 853 "fd_vm_jitproto.dasc"
       break;
 
     case 0x65:  /* FD_SBPF_OP_JSGT_IMM */
       //| cmp dst64, imm
       //| jg =>jmp_dst_lbl
-      dasm_put(Dst, 679, (x86_dst), imm, jmp_dst_lbl);
-#line 816 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 771, (x86_dst), imm, jmp_dst_lbl);
+#line 858 "fd_vm_jitproto.dasc"
       break;
 
     case 0x67:  /* FD_SBPF_OP_LSH64_IMM */
       //| shl dst64, imm
-      dasm_put(Dst, 690, (x86_dst), imm);
-#line 820 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 782, (x86_dst), imm);
+#line 862 "fd_vm_jitproto.dasc"
       break;
 
     case 0x69:  /* FD_SBPF_OP_LDXH */
@@ -1039,45 +1095,45 @@ static const unsigned char actions[1306] = {
       //| translate_ro_2
       //| xor dst32, dst32
       //| mov Rw(x86_dst), [translate_out]
-      dasm_put(Dst, 697, (x86_src), offset, (x86_dst), (x86_dst), (x86_dst));
-#line 827 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 789, (x86_src), offset, (x86_dst), (x86_dst), (x86_dst));
+#line 869 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6a:  /* FD_SBPF_OP_STH */
       //| lea translate_in, [dst64+offset]
       //| translate_rw_2
       //| mov word [translate_out], imm
-      dasm_put(Dst, 726, (x86_dst), offset, imm);
-#line 833 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 818, (x86_dst), offset, imm);
+#line 875 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6b:  /* FD_SBPF_OP_STXH */
       //| lea translate_in, [dst64+offset]
       //| translate_rw_2
       //| mov [translate_out], src32
-      dasm_put(Dst, 746, (x86_dst), offset, (x86_src));
-#line 839 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 838, (x86_dst), offset, (x86_src));
+#line 881 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6c:  /* FD_SBPF_OP_LSH_REG */
       //| mov cl, src8
       //| shl dst32, cl
-      dasm_put(Dst, 767, (x86_src), (x86_dst));
-#line 844 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 859, (x86_src), (x86_dst));
+#line 886 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6d:  /* FD_SBPF_OP_JSGT_REG */
       //| cmp dst64, src64
       //| jg =>jmp_dst_lbl
-      dasm_put(Dst, 778, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 849 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 870, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 891 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6f:  /* FD_SBPF_OP_LSH64_REG */
       //| mov cl, src8
       //| shl dst64, cl
-      dasm_put(Dst, 789, (x86_src), (x86_dst));
-#line 854 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 881, (x86_src), (x86_dst));
+#line 896 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x70 - 0x7f ******************************************************/
@@ -1085,56 +1141,56 @@ static const unsigned char actions[1306] = {
     case 0x71:  /* FD_SBPF_OP_LDXB */
       //| lea translate_in, [src64+offset]
       //| translate_ro_1
-      dasm_put(Dst, 800, (x86_src), offset);
-#line 861 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 892, (x86_src), offset);
+#line 903 "fd_vm_jitproto.dasc"
       /* TODO is there a better way to zero upper and mov byte? */
       //| xor dst32, dst32
       //| mov Rb(x86_dst), [translate_out]
-      dasm_put(Dst, 814, (x86_dst), (x86_dst), (x86_dst));
-#line 864 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 906, (x86_dst), (x86_dst), (x86_dst));
+#line 906 "fd_vm_jitproto.dasc"
       break;
 
     case 0x72:  /* FD_SBPF_OP_STB */
       //| lea translate_in, [src64+offset]
       //| translate_rw_1
       //| mov byte [translate_out], imm
-      dasm_put(Dst, 827, (x86_src), offset, imm);
-#line 870 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 919, (x86_src), offset, imm);
+#line 912 "fd_vm_jitproto.dasc"
       break;
 
     case 0x73:  /* FD_SBPF_OP_STXB */
       //| lea translate_in, [dst64+offset]
       //| translate_rw_1
       //| mov byte [translate_out], Rb(x86_src)
-      dasm_put(Dst, 844, (x86_dst), offset, (x86_src));
-#line 876 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 936, (x86_dst), offset, (x86_src));
+#line 918 "fd_vm_jitproto.dasc"
       break;
 
     case 0x74:  /* FD_SBPF_OP_RSH_IMM */
       //| shr dst32, imm
-      dasm_put(Dst, 863, (x86_dst), imm);
-#line 880 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 955, (x86_dst), imm);
+#line 922 "fd_vm_jitproto.dasc"
       break;
 
     case 0x75:  /* FD_SBPF_OP_JSGE_IMM */
       //| cmp dst64, imm
       //| jge =>jmp_dst_lbl
-      dasm_put(Dst, 870, (x86_dst), imm, jmp_dst_lbl);
-#line 885 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 962, (x86_dst), imm, jmp_dst_lbl);
+#line 927 "fd_vm_jitproto.dasc"
       break;
 
     case 0x77:  /* FD_SBPF_OP_RSH64_IMM */
       //| shr dst64, imm
-      dasm_put(Dst, 881, (x86_dst), imm);
-#line 889 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 973, (x86_dst), imm);
+#line 931 "fd_vm_jitproto.dasc"
       break;
 
     case 0x79:  /* FD_SBPF_OP_LDXQ */
       //| lea translate_in, [src64+offset]
       //| translate_ro_8
       //| mov dst64, [translate_out]
-      dasm_put(Dst, 888, (x86_src), offset, (x86_dst));
-#line 895 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 980, (x86_src), offset, (x86_dst));
+#line 937 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7a:  /* FD_SBPF_OP_STQ */
@@ -1142,59 +1198,62 @@ static const unsigned char actions[1306] = {
       //| translate_rw_8
       //| mov rax, imm
       //| mov [translate_out], rax
-      dasm_put(Dst, 909, (x86_dst), offset, imm);
-#line 902 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1001, (x86_dst), offset, imm);
+#line 944 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7b:  /* FD_SBPF_OP_STXQ */
       //| lea translate_in, [dst64+offset]
       //| translate_rw_8
       //| mov [translate_out], src64
-      dasm_put(Dst, 932, (x86_dst), offset, (x86_src));
-#line 908 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1024, (x86_dst), offset, (x86_src));
+#line 950 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7c:  /* FD_SBPF_OP_RSH_REG */
       //| mov cl, src8
       //| shr dst32, cl
-      dasm_put(Dst, 953, (x86_src), (x86_dst));
-#line 913 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1045, (x86_src), (x86_dst));
+#line 955 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7d:  /* FD_SBPF_OP_JSGE_REG */
       //| cmp dst64, src64
       //| jge =>jmp_dst_lbl
-      dasm_put(Dst, 964, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 918 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1056, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 960 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7f:  /* FD_SBPF_OP_RSH64_REG */
       //| mov cl, src8
       //| shr dst64, cl
-      dasm_put(Dst, 975, (x86_src), (x86_dst));
-#line 923 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1067, (x86_src), (x86_dst));
+#line 965 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x80-0x8f ********************************************************/
 
     case 0x84:  /* FD_SBPF_OP_NEG */
       //| neg dst32
-      dasm_put(Dst, 986, (x86_dst));
-#line 929 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1078, (x86_dst));
+#line 971 "fd_vm_jitproto.dasc"
       break;
 
     case 0x85:  /* FD_SBPF_OP_CALL_IMM */
-      // TODO
+      //| mov rdi, imm
+      //| call ->emulate_call_imm
+      dasm_put(Dst, 1085, imm);
+#line 976 "fd_vm_jitproto.dasc"
       break;
 
     case 0x87:  /* FD_SBPF_OP_NEG64 */
       //| neg dst64
-      dasm_put(Dst, 993, (x86_dst));
-#line 937 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1093, (x86_dst));
+#line 980 "fd_vm_jitproto.dasc"
       break;
 
     case 0x8d:  /* FD_SBPF_OP_CALL_REG */
-      // TODO
+      FD_LOG_WARNING(( "TODO: CALLX" ));
       break;
 
     /* 0x90 - 0x9f ******************************************************/
@@ -1202,8 +1261,8 @@ static const unsigned char actions[1306] = {
     case 0x94:  /* FD_SBPF_OP_MOD_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
-        dasm_put(Dst, 374);
-#line 948 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 466);
+#line 991 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -1211,21 +1270,21 @@ static const unsigned char actions[1306] = {
       //| mov edi, imm
       //| div edi
       //| xchg edx, dst32
-      dasm_put(Dst, 1000, (x86_dst), imm, (x86_dst));
-#line 955 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1100, (x86_dst), imm, (x86_dst));
+#line 998 "fd_vm_jitproto.dasc"
       break;
 
     case 0x95:  /* FD_SBPF_OP_EXIT */
       //| jmp ->success
-      dasm_put(Dst, 1018);
-#line 959 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1118);
+#line 1002 "fd_vm_jitproto.dasc"
       break;
 
     case 0x97:  /* FD_SBPF_OP_MOD64_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
-        dasm_put(Dst, 374);
-#line 964 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 466);
+#line 1007 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -1233,175 +1292,175 @@ static const unsigned char actions[1306] = {
       //| mov rdi, imm
       //| div rdi
       //| xchg rax, dst64
-      dasm_put(Dst, 407, (x86_dst), imm, (x86_dst));
-#line 971 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 499, (x86_dst), imm, (x86_dst));
+#line 1014 "fd_vm_jitproto.dasc"
       break;
 
     case 0x9c:  /* FD_SBPF_OP_MOD_REG */
       //| test src32, src32
       //| jz ->sigfpe
-      dasm_put(Dst, 427, (x86_src), (x86_src));
-#line 976 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 519, (x86_src), (x86_src));
+#line 1019 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 0
-        dasm_put(Dst, 1023, (x86_dst));
-#line 978 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 1123, (x86_dst));
+#line 1021 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
       //| xor edx, edx
       //| div src32
       //| xchg edx, dst32
-      dasm_put(Dst, 1032, (x86_dst), (x86_src), (x86_dst));
-#line 984 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1132, (x86_dst), (x86_src), (x86_dst));
+#line 1027 "fd_vm_jitproto.dasc"
       break;
 
     case 0x9f:  /* FD_SBPF_OP_MOD64_REG */
       //| test src64, src64
       //| jz ->sigfpe
-      dasm_put(Dst, 477, (x86_src), (x86_src));
-#line 989 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 569, (x86_src), (x86_src));
+#line 1032 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 0
-        dasm_put(Dst, 1023, (x86_dst));
-#line 991 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 1123, (x86_dst));
+#line 1034 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
       //| xor edx, edx
       //| div src64
       //| xchg rdx, dst64
-      dasm_put(Dst, 1051, (x86_dst), (x86_src), (x86_dst));
-#line 997 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1151, (x86_dst), (x86_src), (x86_dst));
+#line 1040 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xa0 - 0xaf ******************************************************/
 
     case 0xa4:  /* FD_SBPF_OP_XOR_IMM */
       //| xor dst32, imm
-      dasm_put(Dst, 1070, (x86_dst), imm);
-#line 1003 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1170, (x86_dst), imm);
+#line 1046 "fd_vm_jitproto.dasc"
       break;
 
     case 0xa5:  /* FD_SBPF_OP_JLT_IMM */
       //| cmp dst64, imm
       //| jb =>jmp_dst_lbl
-      dasm_put(Dst, 1078, (x86_dst), imm, jmp_dst_lbl);
-#line 1008 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1178, (x86_dst), imm, jmp_dst_lbl);
+#line 1051 "fd_vm_jitproto.dasc"
       break;
 
     case 0xa7:  /* FD_SBPF_OP_XOR64_IMM */
       // TODO sign extension
       //| xor dst64, imm
-      dasm_put(Dst, 1089, (x86_dst), imm);
-#line 1013 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1189, (x86_dst), imm);
+#line 1056 "fd_vm_jitproto.dasc"
       break;
 
     case 0xac:  /* FD_SBPF_OP_XOR_REG */
       //| xor dst32, src32
-      dasm_put(Dst, 274, (x86_src), (x86_dst));
-#line 1017 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 366, (x86_src), (x86_dst));
+#line 1060 "fd_vm_jitproto.dasc"
       break;
 
     case 0xad:  /* FD_SBPF_OP_JLT_REG */
       //| cmp dst64, src64
       //| jb =>jmp_dst_lbl
-      dasm_put(Dst, 1097, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 1022 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1197, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 1065 "fd_vm_jitproto.dasc"
       break;
 
     case 0xaf:  /* FD_SBPF_OP_XOR64_REG */
       //| xor dst64, src64
-      dasm_put(Dst, 1108, (x86_src), (x86_dst));
-#line 1026 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1208, (x86_src), (x86_dst));
+#line 1069 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xb0 - 0xbf ******************************************************/
 
     case 0xb4:  /* FD_SBPF_OP_MOV_IMM */
       //| mov dst32, imm
-      dasm_put(Dst, 1116, (x86_dst), imm);
-#line 1032 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1216, (x86_dst), imm);
+#line 1075 "fd_vm_jitproto.dasc"
       break;
 
     case 0xb5:  /* FD_SBPF_OP_JLE_IMM */
       //| cmp dst64, imm
       //| jbe =>jmp_dst_lbl
-      dasm_put(Dst, 1122, (x86_dst), imm, jmp_dst_lbl);
-#line 1037 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1222, (x86_dst), imm, jmp_dst_lbl);
+#line 1080 "fd_vm_jitproto.dasc"
       break;
 
     case 0xb7:  /* FD_SBPF_OP_MOV64_IMM */
       if( imm==0 ) {
         //| xor dst32, dst32
-        dasm_put(Dst, 274, (x86_dst), (x86_dst));
-#line 1042 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 366, (x86_dst), (x86_dst));
+#line 1085 "fd_vm_jitproto.dasc"
       } else {
         //| mov dst64, imm
-        dasm_put(Dst, 282, (x86_dst), imm);
-#line 1044 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 374, (x86_dst), imm);
+#line 1087 "fd_vm_jitproto.dasc"
       }
       break;
 
     case 0xbc:  /* FD_SBPF_OP_MOV_REG */
       //| mov dst32, src32
-      dasm_put(Dst, 1133, (x86_src), (x86_dst));
-#line 1049 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1233, (x86_src), (x86_dst));
+#line 1092 "fd_vm_jitproto.dasc"
       break;
 
     case 0xbd:  /* FD_SBPF_OP_JLE_REG */
       //| cmp dst64, src64
       //| jbe =>jmp_dst_lbl
-      dasm_put(Dst, 1141, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 1054 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1241, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 1097 "fd_vm_jitproto.dasc"
       break;
 
     case 0xbf:  /* FD_SBPF_OP_MOV64_REG */
       //| mov dst64, src64
-      dasm_put(Dst, 1152, (x86_src), (x86_dst));
-#line 1058 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1252, (x86_src), (x86_dst));
+#line 1101 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xc0 - 0xcf ******************************************************/
 
     case 0xc4:  /* FD_SBPF_OP_ARSH_IMM */
       //| sar dst32, imm
-      dasm_put(Dst, 1160, (x86_dst), imm);
-#line 1064 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1260, (x86_dst), imm);
+#line 1107 "fd_vm_jitproto.dasc"
       break;
 
     case 0xc5:  /* FD_SBPF_OP_JSLT_IMM */
       //| cmp dst64, imm
       //| jl =>jmp_dst_lbl
-      dasm_put(Dst, 1168, (x86_dst), imm, jmp_dst_lbl);
-#line 1069 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1268, (x86_dst), imm, jmp_dst_lbl);
+#line 1112 "fd_vm_jitproto.dasc"
       break;
 
     case 0xc7:  /* FD_SBPF_OP_ARSH64_IMM */
       //| sar dst64, imm
-      dasm_put(Dst, 1179, (x86_dst), imm);
-#line 1073 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1279, (x86_dst), imm);
+#line 1116 "fd_vm_jitproto.dasc"
       break;
 
     case 0xcc:  /* FD_SBPF_OP_ARSH_REG */
       //| mov cl, src8
       //| sar dst32, cl
-      dasm_put(Dst, 1187, (x86_src), (x86_dst));
-#line 1078 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1287, (x86_src), (x86_dst));
+#line 1121 "fd_vm_jitproto.dasc"
       break;
 
     case 0xcd:  /* FD_SBPF_OP_JSLT_REG */
       //| cmp dst64, src64
       //| jl =>jmp_dst_lbl
-      dasm_put(Dst, 1199, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 1083 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1299, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 1126 "fd_vm_jitproto.dasc"
       break;
 
     case 0xcf:  /* FD_SBPF_OP_ARSH64_REG */
       //| mov cl, src8
       //| sar dst64, cl
-      dasm_put(Dst, 1210, (x86_src), (x86_dst));
-#line 1088 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1310, (x86_src), (x86_dst));
+#line 1131 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xd0 - 0xdf ******************************************************/
@@ -1413,8 +1472,8 @@ static const unsigned char actions[1306] = {
     case 0xd5:  /* FD_SBPF_OP_JSLE_IMM */
       //| cmp dst64, imm
       //| jle =>jmp_dst_lbl
-      dasm_put(Dst, 1222, (x86_dst), imm, jmp_dst_lbl);
-#line 1099 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1322, (x86_dst), imm, jmp_dst_lbl);
+#line 1142 "fd_vm_jitproto.dasc"
       break;
 
     case 0xdc:  /* FD_SBPF_OP_END_BE */
@@ -1422,18 +1481,18 @@ static const unsigned char actions[1306] = {
       case 16U:
         //| movzx dst32, Rw(x86_dst)
         //| ror Rw(x86_dst), 8
-        dasm_put(Dst, 1233, (x86_dst), (x86_dst), (x86_dst));
-#line 1106 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 1333, (x86_dst), (x86_dst), (x86_dst));
+#line 1149 "fd_vm_jitproto.dasc"
         break;
       case 32U:
         //| bswap dst32
-        dasm_put(Dst, 1249, (x86_dst));
-#line 1109 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 1349, (x86_dst));
+#line 1152 "fd_vm_jitproto.dasc"
         break;
       case 64U:
         //| bswap dst64
-        dasm_put(Dst, 1255, (x86_dst));
-#line 1112 "fd_vm_jitproto.dasc"
+        dasm_put(Dst, 1355, (x86_dst));
+#line 1155 "fd_vm_jitproto.dasc"
         break;
       default:
         break;
@@ -1444,8 +1503,8 @@ static const unsigned char actions[1306] = {
     case 0xdd:  /* FD_SBPF_OP_JSLE_REG */
       //| cmp dst64, src64
       //| jle =>jmp_dst_lbl
-      dasm_put(Dst, 1261, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 1122 "fd_vm_jitproto.dasc"
+      dasm_put(Dst, 1361, (x86_src), (x86_dst), jmp_dst_lbl);
+#line 1165 "fd_vm_jitproto.dasc"
       break;
 
     default:
@@ -1462,8 +1521,8 @@ static const unsigned char actions[1306] = {
   //|->overrun: // FIXME
   //| mov rax, 999
   //| jmp ->leave
-  dasm_put(Dst, 1272);
-#line 1138 "fd_vm_jitproto.dasc"
+  dasm_put(Dst, 1372);
+#line 1181 "fd_vm_jitproto.dasc"
 
   //|->success:
   //| mov rax, bpf_r0
@@ -1475,8 +1534,8 @@ static const unsigned char actions[1306] = {
   //| pop r15
   //| pop rbp
   //| ret
-  dasm_put(Dst, 1286);
-#line 1149 "fd_vm_jitproto.dasc"
+  dasm_put(Dst, 1386);
+#line 1192 "fd_vm_jitproto.dasc"
 
   /* Finish generating code */
 
@@ -1497,6 +1556,8 @@ static const unsigned char actions[1306] = {
   //__asm__ __volatile__( "int3" );
   int rc = main_();
   printf( "JIT returned %d\n", rc );
+
+  FD_LOG_NOTICE(( "%*s", txn_ctx->log_collector.log_sz, txn_ctx->log_collector.buf ));
 
   fd_halt();
   return 0;
