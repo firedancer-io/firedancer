@@ -292,8 +292,7 @@ main( int     argc,
 
   /* Set up accounts */
 
-  uchar account[ 256 ];
-  fd_memset( account, 0xff, sizeof(account) );
+  uchar account[ 256 ] = {0x20};
   account_meta_t metas[1] = {
     {
       .pubkey   = {0},
@@ -570,7 +569,7 @@ main( int     argc,
 
     /* Create a dynamic label for each instruction */
 
-    next_label = bpf_label_off + (int)( text_end - text_start );
+    next_label = bpf_label_off + (int)( cur - text_start );
     |=>next_label:
 
     /* Translate instruction */
@@ -1164,6 +1163,7 @@ main( int     argc,
 
   int (* main_)( void ) = (int (*)( void ))( (ulong)labels[ lbl_main ] );
   printf("main at %p\n", (void *)(ulong)main_);
+  //__asm__ __volatile__( "int3" );
   int rc = main_();
   printf( "JIT returned %d\n", rc );
 
