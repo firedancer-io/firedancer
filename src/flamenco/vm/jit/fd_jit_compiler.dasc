@@ -1,14 +1,41 @@
-/* fd_vm_jitproto is a first draft of a sBPF JIT compiler for
-   Firedancer.  Nothing to see here, it's broken and work-in-progress.
+#include "fd_jit_private.h"
+#include "../fd_vm_private.h"
+#include <setjmp.h>
 
-   This version of the JIT compiler supports a linear memory mapping
-   only. */
+/* WARNING: WORK IN PROGRESS!
+   This is an experimental version of the Firedancer JIT compiler.
+   It is disabled in production.  There are known security issues in
+   this code.  It is not covered by the Firedancer bug bounty policy. */
 
-#define _GNU_SOURCE
-#include "../../fd_flamenco_base.h"
+/* fd_jit_compile_abort is a setjmp buffer to quickly abort a JIT
+   compile operation without unwinding. */
+
+extern FD_TL jmp_buf fd_jit_compile_abort;
+
+/* DynASM code uses realloc.  fd_jit can estimate the number of bytes
+   needed, so we can do better and allocate once on startup.
+
+   DynASM calls realloc in 4 places:  On initialization in dasm_init,
+   dasm_setupglobal, and dasm_growpc.  Then, for every block of code
+   in dasm_put.
+
+   Checks that enough memory was allocated on initialization are moved
+   to test_vm_jit.  Checks during code generation (dasm_put) are moved
+   to the fd_dasm_put_check function call.  Calls to 'realloc' and
+   'free' are removed. */
+
+#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_put_check( (p), (need) ))
+#define DASM_M_FREE(ctx, p, sz) do{}while(0)
+
+static void
+fd_dasm_put_check( void * ptr,
+                   ulong  min_sz ) {
+  (void)ptr; (void)min_sz;
+}
 
 /* Include dynasm headers.  These fail to compile when some strict
    checks are enabled. */
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
@@ -17,83 +44,15 @@
 #include "dasm_x86.h"
 #pragma GCC diagnostic pop
 | .arch x64
+| .actionlist actions
+| .globals fd_jit_lbl_
 
-#include "../../../ballet/sbpf/fd_sbpf_instr.h"
-#include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../runtime/fd_acc_mgr.h"
-#include "../../runtime/context/fd_exec_epoch_ctx.h"
-#include "../../runtime/context/fd_exec_slot_ctx.h"
-#include "../../runtime/context/fd_exec_txn_ctx.h"
-#include "../../runtime/sysvar/fd_sysvar_recent_hashes.h"
-#include "../fd_vm_private.h"
+/* Compile time thread locals */
 
-#include <assert.h>
-#include <setjmp.h>
-#include <errno.h>
-#include <stdio.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
+FD_TL void * fd_jit_labels[ FD_JIT_LABEL_CNT ];
+FD_STATIC_ASSERT( sizeof(fd_jit_labels)==fd_jit_lbl__MAX*8, label_cnt );
 
-/* FD_DASM_R{...} specify the dynasm register index of x86_64 registers. */
-
-#define FD_DASM_RAX  (0)
-#define FD_DASM_RCX  (1)
-#define FD_DASM_RDX  (2)
-#define FD_DASM_RBX  (3)
-#define FD_DASM_RSP  (4)
-#define FD_DASM_RBP  (5)
-#define FD_DASM_RSI  (6)
-#define FD_DASM_RDI  (7)
-#define FD_DASM_R8   (8)
-#define FD_DASM_R9   (9)
-#define FD_DASM_R10 (10)
-#define FD_DASM_R11 (11)
-#define FD_DASM_R12 (12)
-#define FD_DASM_R13 (13)
-#define FD_DASM_R14 (14)
-#define FD_DASM_R15 (15)
-
-/* FD_VM_JIT_SEGMENT_MAX is the max number of segments. */
-
-#define FD_VM_JIT_SEGMENT_MAX (64)
-
-/* Thread-local storage ***************************************************
-
-   For now, these are assumed to be absolute-addressed using the fs segment
-   selector.  Practically, this means that fd_vm_jitproto only supports
-   targets with FD_HAS_THREADS.  (Other targets might use absolute
-   addressing without a segment selector or rip-relative) */
-
-static FD_TL fd_vm_t * fd_jit_vm  = NULL;  /* current VM being executed */
-
-/* Thread-local storage for address translation
-
-   fd_jit_segment_cnt is number of memory regions mapped in by the VM.
-   fd_jit_mem_{ro,rw}_sz are the number of read- and write-addressable
-   bytes in each region.  fd_jit_mem_base points to the first byte of a
-   region in host address space. */
-
-static FD_TL uint  fd_jit_segment_cnt;
-static FD_TL uint  fd_jit_mem_ro_sz[ FD_VM_JIT_SEGMENT_MAX ];
-static FD_TL uint  fd_jit_mem_rw_sz[ FD_VM_JIT_SEGMENT_MAX ];
-static FD_TL ulong fd_jit_mem_base [ FD_VM_JIT_SEGMENT_MAX ];
-
-/* Thread-local storage for fast return to JIT entrypoint
-   These are a setjmp()-like anchor for quickly exiting out of a VM
-   execution, e.g. in case of a VM fault.
-   Slots: 0=rbx 1=rbp 2=r12 3=r13 4=r14 5=r15 6=rsp 7=rip */
-
-static FD_TL ulong fd_jit_jmp_buf[8];
-
-/* Thread-local storage for exception handling */
-
-static FD_TL ulong fd_jit_segfault_vaddr;
-static FD_TL ulong fd_jit_segfault_rip;
-
-//static FD_TL ulong     ic_correct = 0UL;   /* number of lddw instructions executed */
-
-
-/* Mapping between sBPF registers and x86_64 registers ********************
+/* Mapping between sBPF registers and x86_64 registers *****************
 
    This mapping is valid just before a translated sBPF instruction is
    about to be executed.  (At the `=>next_label` token in the code gen
@@ -139,315 +98,16 @@ static uchar const reg_bpf2x86[11] = {
   | .define bpf_r10, r10
 };
 
-/* GDB JIT debug interface ***********************************************/
 
-#define GDB_JIT_NOACTION      0
-#define GDB_JIT_REGISTER_FN   1
-#define GDB_JIT_UNREGISTER_FN 2
+/* JIT compiler *******************************************************/
 
-struct gdb_jit_code_entry {
-  struct gdb_jit_code_entry * next_entry;
-  struct gdb_jit_code_entry * prev_entry;
-  char const *                symfile_addr;
-  ulong                       symfile_size;
-};
-
-struct gdb_jit_descriptor {
-  uint version;
-  uint action_flag;
-  struct gdb_jit_code_entry * relevant_entry;
-  struct gdb_jit_code_entry * first_entry;
-};
-
-/* GDB puts a breakpoint in this function. */
-void __attribute__((noinline)) __jit_debug_register_code(void) {}
-
-struct gdb_jit_descriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
-
-
-/* New proposed ABI */
-
-struct account_meta {
-  /* 0x00 */ uint8_t pubkey[0x20];
-  /* 0x20 */ uint8_t owner[0x20];
-  /* 0x40 */ uint64_t data;
-  /* 0x48 */ uint64_t data_len;
-  /* 0x50 */ uint64_t lamports;
-  /* 0x58 */ uint64_t flags;
-  /* 0x60 */ uint8_t unused[0x20];
-};
-
-typedef struct account_meta account_meta_t;
-
-/* fd_jit_labels is a table of function pointers to 'static' labels in the
-   JIT code.  They are indexed by fd_jit_lbl_{...}. */
-
-| .globals fd_jit_lbl_
-static FD_TL void * fd_jit_labels[ fd_jit_lbl__MAX ];
-
-/* fd_jit_entrypoint is the entrypoint function of JIT compiled code.
-   first_rip is a pointer to the x86 instruction in the host address space
-   that corresponds to the BPF entrypoint. */
-
-typedef int (* fd_jit_entrypoint_t)( ulong first_rip );
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  char const * bin_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
-
-  /* Read and parse ELF binary */
-
-  FILE * bin_file = fopen( bin_path, "r" );
-  if( FD_UNLIKELY( !bin_file ) )
-    FD_LOG_ERR(( "fopen(\"%s\") failed (%i-%s)", bin_path, errno, fd_io_strerror( errno ) ));
-
-  struct stat bin_stat;
-  if( FD_UNLIKELY( 0!=fstat( fileno( bin_file ), &bin_stat ) ) )
-    FD_LOG_ERR(( "fstat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( !S_ISREG( bin_stat.st_mode ) ) )
-    FD_LOG_ERR(( "File \"%s\" not a regular file", bin_path ));
-
-  ulong  bin_sz  = (ulong)bin_stat.st_size;
-  void * bin_buf = malloc( bin_sz+8UL );
-  if( FD_UNLIKELY( !bin_buf ) )
-    FD_LOG_ERR(( "malloc(%#lx) failed (%i-%s)", bin_sz, errno, fd_io_strerror( errno ) ));
-
-  if( FD_UNLIKELY( fread( bin_buf, bin_sz, 1UL, bin_file )!=1UL ) )
-    FD_LOG_ERR(( "fread() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  FD_TEST( 0==fclose( bin_file ) );
-
-  int is_deploy = 0;
-  fd_sbpf_elf_info_t elf_info;
-  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, is_deploy ) );
-
-  void * rodata = malloc( elf_info.rodata_footprint );
-  FD_TEST( rodata );
-
-  ulong  prog_align     = fd_sbpf_program_align();
-  ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( prog_align, prog_footprint ), &elf_info, rodata );
-  FD_TEST( prog );
-
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new(
-      aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-  FD_TEST( syscalls );
-
-  fd_vm_syscall_register_all( syscalls, is_deploy );
-
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, is_deploy ) ) )
-    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-
-  /* Create workspace and scratch allocator */
-
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
-  assert( wksp );
-
-  ulong   smax = 1UL<<30;  /* 1 GiB */
-  uchar * smem = malloc( smax );
-  ulong fmem[ 64 ];
-  fd_scratch_attach( smem, fmem, smax, 64UL );
-  fd_scratch_push();
-
-  /* Create runtime context */
-
-  ulong txn_max = 2UL;
-  ulong rec_max = 1024UL;
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1UL ), 1UL, (ulong)fd_tickcount(), txn_max, rec_max ) );
-  assert( funk );
-  fd_funk_start_write( funk );
-
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
-  assert( acc_mgr );
-
-  fd_funk_txn_xid_t xid[1] = {{ .ul = {0,1} }};
-
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  assert( funk_txn );
-  fd_scratch_push();
-
-  ulong vote_acct_max = 1;
-  uchar * epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
-  uchar * slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-  uchar * txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
-
-  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx  = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
-  fd_exec_txn_ctx_t *   txn_ctx   = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ) );
-
-  assert( epoch_ctx );
-  assert( slot_ctx  );
-
-  epoch_ctx->epoch_bank.rent.lamports_per_uint8_year = 3480;
-  epoch_ctx->epoch_bank.rent.exemption_threshold = 2;
-  epoch_ctx->epoch_bank.rent.burn_percent = 50;
-
-  fd_features_enable_all( &epoch_ctx->features );
-
-  slot_ctx->epoch_ctx = epoch_ctx;
-  slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->acc_mgr   = acc_mgr;
-  slot_ctx->valloc    = fd_scratch_virtual();
-
-  fd_slot_bank_new( &slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
-
-  txn_ctx->epoch_ctx = epoch_ctx;
-  txn_ctx->slot_ctx  = slot_ctx;
-  txn_ctx->funk_txn  = funk_txn;
-  txn_ctx->acc_mgr   = acc_mgr;
-  txn_ctx->valloc    = fd_scratch_virtual();
-
-  ulong cu_avail = ULONG_MAX;
-  txn_ctx->compute_meter      = cu_avail;
-  txn_ctx->compute_unit_limit = cu_avail;
-
-  fd_exec_instr_ctx_t instr_ctx[1] = {{0}};
-  instr_ctx->epoch_ctx = epoch_ctx;
-  instr_ctx->slot_ctx  = slot_ctx;
-  instr_ctx->txn_ctx   = txn_ctx;
-
-  /* Set up VM */
-
-  fd_sha256_t _sha[1];
-  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
-
-  /* Set up accounts */
-
-# define ACC1_SZ 0x100000
-  uchar * account1 = fd_scratch_alloc( 32, ACC1_SZ );
-  memset( account1, 0, ACC1_SZ );
-  uchar account2[ 32 ] = {0};
-  account_meta_t metas[2] = {
-    {
-      .pubkey   = {0},
-      .owner    = {0},
-      .data     = 3UL<<32,
-      .data_len = ACC1_SZ,
-      .lamports = 1000000000,
-      .flags    = 0
-    },
-    {
-      .pubkey   = {0},
-      .owner    = {0},
-      .data     = 4UL<<32,
-      .data_len = sizeof(account2),
-      .lamports = 1000000000,
-      .flags    = 0
-    }
-  };
-
-  /* Region 0: Sentinel */
-  fd_jit_mem_ro_sz[0] = 0;
-  fd_jit_mem_rw_sz[0] = 0;
-  fd_jit_mem_base [0] = 0;
-
-  /* Region 1: Stack */
-# define VM_STACK_SZ 0x10000UL
-  void * stack_mem = fd_scratch_alloc( 0x10, VM_STACK_SZ );
-  fd_jit_mem_ro_sz[1] = VM_STACK_SZ;
-  fd_jit_mem_rw_sz[1] = VM_STACK_SZ;
-  fd_jit_mem_base [1] = (ulong)stack_mem;
-
-  /* Region 2: Metadata table */
-  fd_jit_mem_ro_sz[2] = sizeof(metas);
-  fd_jit_mem_rw_sz[2] = sizeof(metas);
-  fd_jit_mem_base [2] = (ulong)metas;
-
-  /* Region 3: Account */
-  fd_jit_mem_ro_sz[3] = (uint)metas[0].data_len;
-  fd_jit_mem_rw_sz[3] = 0;
-  fd_jit_mem_base [3] = (ulong)account1;
-
-  /* Region 4: Account */
-  fd_jit_mem_ro_sz[4] = sizeof(account2);
-  fd_jit_mem_rw_sz[4] = sizeof(account2);
-  fd_jit_mem_base [4] = (ulong)account2;
-
-  fd_jit_segment_cnt = 5U;
-
-  fd_vm_input_region_t mem_regions[5];
-  for( uint j=0U; j<fd_jit_segment_cnt; j++ ) {
-    mem_regions[j] = (fd_vm_input_region_t) {
-      .vaddr_offset = ((ulong)j)<<32,
-      .haddr        = fd_jit_mem_base [j],
-      .region_sz    = fd_jit_mem_ro_sz[j],
-      .is_writable  = fd_jit_mem_rw_sz[j] > 0
-    };
-  }
-
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_scratch_alloc( fd_vm_align(), fd_vm_footprint() ) ) );
-  FD_TEST( vm );
-  // ulong event_max = 1UL<<20;
-  // ulong event_data_max = 2048UL;
-  //fd_vm_trace_t * trace = fd_vm_trace_new( aligned_alloc( fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
-  FD_TEST( fd_vm_init(
-    vm,
-    instr_ctx,
-    FD_VM_HEAP_DEFAULT,  /* heap_max */
-    txn_ctx->compute_meter, /* entry_cu */
-    rodata, /* rodata */
-    elf_info.rodata_sz, /* rodata_sz */
-    prog->text, /* text */
-    prog->text_cnt, /* text_cnt */
-    prog->text_off, /* text_off */
-    prog->text_sz,  /* text_sz */
-    prog->entry_pc, /* entry_pc */
-    prog->calldests, /* calldests */
-    syscalls,
-    NULL,// trace,
-    sha,
-    mem_regions,
-    fd_jit_segment_cnt,
-    NULL, /* acc_region_metas */
-    0 /* is_deprecated */ ) );
-
-  vm->reg[ 1] = 2UL<<32; /* account table address */
-  vm->reg[ 2] = 2; /* account count */
-  vm->reg[ 3] = 3UL<<32; /* instruction data address */
-  vm->reg[ 4] = 0; /* instruction data size */
-  vm->reg[10] = (1UL<<32) + 0x1000;
-
-  for( uint j=0U; j<fd_jit_segment_cnt; j++ ) {
-    vm->region_haddr[j] = fd_jit_mem_base[j];
-    vm->region_ld_sz[j] = fd_jit_mem_ro_sz[j];
-    vm->region_st_sz[j] = fd_jit_mem_rw_sz[j];
-  }
-
-  fd_jit_vm = vm;
-
-  /* Set up dynasm */
-
-  dasm_State * d;
+void
+fd_jit_compile( struct dasm_State **       Dst,
+                fd_sbpf_program_t const *  prog,
+                fd_sbpf_syscalls_t const * syscalls ) {
 
   | .section code
-  dasm_init( &d, DASM_MAXSECTION );
-
-  dasm_setupglobal( &d, fd_jit_labels, fd_jit_lbl__MAX );
-
-  dasm_growpc( &d, (uint)prog->text_cnt );
-  int next_label = 0;
-
-  | .actionlist actions
-  dasm_setup( &d, actions );
-
-  dasm_State ** Dst = &d;
-
-  /* Start emitting code */
-
   | .code
-
-  /* Exception handlers */
-
-  |->vm_fault:
-  | mov edi, 999
-  | jmp ->longjmp
 
   /* Derive offsets of thread locals in FS "segment" */
 
@@ -458,6 +118,7 @@ main( int     argc,
 # endif
 # define FS_RELATIVE(ptr) ((uint)( (ulong)(ptr) - fs_base ))
   uint  fd_jit_vm_tpoff             = FS_RELATIVE( &fd_jit_vm             );
+  uint  fd_jit_syscalls_tpoff       = FS_RELATIVE( &fd_jit_syscalls       );
   uint  fd_jit_segment_cnt_tpoff    = FS_RELATIVE( &fd_jit_segment_cnt    );
   uint  fd_jit_mem_ro_sz_tpoff      = FS_RELATIVE( fd_jit_mem_ro_sz       );
   uint  fd_jit_mem_rw_sz_tpoff      = FS_RELATIVE( fd_jit_mem_rw_sz       );
@@ -575,7 +236,8 @@ main( int     argc,
   |.endmacro
 
   |->save_regs:
-  | mov64 rax, (ulong)vm
+  | fs
+  | mov rax, [fd_jit_vm_tpoff]
   | mov [rax + offsetof(fd_vm_t, reg[ 0])], bpf_r0
   | mov [rax + offsetof(fd_vm_t, reg[ 1])], bpf_r1
   | mov [rax + offsetof(fd_vm_t, reg[ 2])], bpf_r2
@@ -590,7 +252,8 @@ main( int     argc,
   | ret
 
   |->restore_regs:
-  | mov64 rax, (ulong)vm
+  | fs
+  | mov rax, [fd_jit_vm_tpoff]
   | mov bpf_r0,  [rax + offsetof(fd_vm_t, reg[ 0])]
   | mov bpf_r1,  [rax + offsetof(fd_vm_t, reg[ 1])]
   | mov bpf_r2,  [rax + offsetof(fd_vm_t, reg[ 2])]
@@ -667,8 +330,8 @@ main( int     argc,
   | sub rsp, 16
   | fs
   | mov r11, [fd_jit_vm_tpoff]
-  | mov r10, [r11 + offsetof(fd_vm_t, syscalls)]
-  | mov r10, [r10 + rdi + offsetof(fd_sbpf_syscalls_t, func)]
+  | fs
+  | mov r10, [rdi + fd_jit_syscalls_tpoff + offsetof(fd_sbpf_syscalls_t, func)]
   | mov rdi, r11
   | // load BPF r1 through r5 into function arguments
   | // FIXME could avoid spill to memory by shuffling registers
@@ -695,38 +358,41 @@ main( int     argc,
   |->call_stack_push:
   | fs
   | mov rdi, [fd_jit_vm_tpoff]
-  | mov esi, [rdi + offsetof(fd_vm_t, frame_cnt)]
   | // vm->frame_cnt++
-  | lea eax, [esi+1]
-  | mov [rdi + offsetof(fd_vm_t, frame_cnt)], eax
+  | inc qword [rdi + offsetof(fd_vm_t, frame_cnt)]
   | // save registers
-  | shl esi, FD_VM_STACK_FRAME_LG_MAX
-  | mov [rdi+rsi+REG(6)], bpf_r6
-  | mov [rdi+rsi+REG(7)], bpf_r7
-  | mov [rdi+rsi+REG(8)], bpf_r8
-  | mov [rdi+rsi+REG(9)], bpf_r9
-  | ret
+  | pop rdi
+  | push bpf_r6
+  | push bpf_r7
+  | push bpf_r8
+  | push bpf_r9
+  | add bpf_r10, 0x2000
+  | jmp rdi
 
   /* The call_stack_pop function undoes the effects of call_stack_push. */
 
   |->call_stack_pop:
   | fs
   | mov rdi, [fd_jit_vm_tpoff]
-  | mov esi, [rdi + offsetof(fd_vm_t, frame_cnt)]
   | // vm->frame_cnt--
-  | dec esi
-  | mov [rdi + offsetof(fd_vm_t, frame_cnt)], esi
+  | dec qword [rdi + offsetof(fd_vm_t, frame_cnt)]
   | // restore registers
-  | shl esi, FD_VM_STACK_FRAME_LG_MAX
-  | mov bpf_r6, [rdi+esi+REG(6)]
-  | mov bpf_r7, [rdi+esi+REG(7)]
-  | mov bpf_r8, [rdi+esi+REG(8)]
-  | mov bpf_r9, [rdi+esi+REG(9)]
-  | ret
+  | pop rdi
+  | pop bpf_r9
+  | pop bpf_r8
+  | pop bpf_r7
+  | pop bpf_r6
+  | sub bpf_r10, 0x2000
+  | jmp rdi
 
 # undef REG
+  /* Exception handlers */
 
-  /* Start translating user code */
+  |->vm_fault:
+  | mov edi, FD_VM_ERR_ABORT
+  | jmp ->longjmp
+
+  /* JIT entrypoint from C code */
 
   |->entrypoint:
 
@@ -734,7 +400,7 @@ main( int     argc,
 
   | call ->setjmp // preserves rdi
   | test edx, edx
-  | jnz ->return_to_callee
+  | jnz >1
 
   /* Enter JIT execution context */
 
@@ -742,14 +408,13 @@ main( int     argc,
   | call rdi
   | mov rdi, bpf_r0
   | call ->longjmp
-  |->return_to_callee:
+  |1:
   | ret
 
-  //ulong         text_skip  = prog->text_off >> 3;
+  /* Start translating user code */
+
   ulong * const text_start = prog->text;
   ulong *       text_end   = prog->text + prog->text_cnt;
-
-  int bpf_label_off = next_label;
 
   for( ulong * cur=text_start; cur<text_end; cur++ ) {
     ulong instr = *cur;
@@ -774,7 +439,7 @@ main( int     argc,
     /* Macro for translating jumps */
 
     ulong * jmp_dst       = cur + 1 + offset; /* may be OOB, FIXME validate */
-    int     jmp_dst_lbl   = bpf_label_off + (int)( jmp_dst - text_start );
+    int     jmp_dst_lbl   = (int)( jmp_dst - text_start );
     //int     jmp_bounds_ok = jmp_dst>=text_start && jmp<text_end;
     /* FIXME do a bounds check */
     /* FIXME what happens if the label is not set? */
@@ -784,7 +449,7 @@ main( int     argc,
     /* Create a dynamic label for each instruction */
 
     uint cur_pc = (uint)( cur - text_start );
-    next_label = bpf_label_off + (int)cur_pc;
+    int next_label = (int)cur_pc;
     |=>next_label:
 
     /* Translate instruction */
@@ -1144,7 +809,7 @@ main( int     argc,
       break;
 
     case 0x85: { /* FD_SBPF_OP_CALL_IMM */
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, imm, NULL );
+      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
       if( !syscall ) {
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
         | call ->call_stack_push
@@ -1152,7 +817,7 @@ main( int     argc,
       } else {
         /* Optimize for code footprint: Generate an offset into the
            syscall table (32-bit) instead of the syscall address (64-bit) */
-        | mov rdi, (uint)( (ulong)syscall - (ulong)vm->syscalls );
+        | mov rdi, (uint)( (ulong)syscall - (ulong)syscalls );
         | call ->emulate_syscall
       }
       break;
@@ -1357,49 +1022,39 @@ main( int     argc,
 
   }
 
-  /* Instruction overrun */
-
-  |->overrun: // FIXME
+  |->overrun:
   | jmp ->vm_fault
 
-  /* Finish generating code */
+}
 
-  ulong sz;
-  dasm_link( &d, &sz );
-  FD_LOG_NOTICE(( "BPF code size: %lu bytes (%#lx)", prog->text_sz, prog->text_sz ));
-  FD_LOG_NOTICE(( "x86 code size: %lu bytes (%#lx)", sz, sz ));
 
-  void * buf = mmap( 0, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
-  if( FD_UNLIKELY( buf==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed" ));
-  dasm_encode( &d, buf );
-  ulong entry_pc    = prog->entry_pc;
-  ulong entry_haddr = (ulong)buf + (ulong)dasm_getpclabel( &d, (uint)entry_pc );
-  dasm_free( &d );
-  mprotect( buf, sz, PROT_READ | PROT_EXEC );
+void *
+fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
+                 fd_sbpf_program_t const *  prog,
+                 fd_sbpf_syscalls_t const * syscalls,
+                 void *                     code_buf,
+                 ulong                      code_bufsz,
+                 void *                     scratch,
+                 ulong                      scratch_sz,
+                 int *                      out_err ) {
 
-  /* Execute */
+  dasm_State * d;
+  dasm_init( &d, DASM_MAXSECTION );
+  dasm_setupglobal( &d, fd_jit_labels, fd_jit_lbl__MAX );
+  dasm_growpc( &d, (uint)prog->text_cnt );
+  dasm_setup( &d, actions );
 
-  FD_LOG_NOTICE(( "vm at %p", (void *)fd_jit_vm ));
+  fd_jit_compile( &d, prog, syscalls );
 
-  fd_jit_entrypoint_t jit_entry = (fd_jit_entrypoint_t)( (ulong)fd_jit_labels[ fd_jit_lbl_entrypoint ] );
-  FD_LOG_NOTICE(( "x86 code at %p", (void *)(ulong)jit_entry ));
-
-  long dt = -fd_log_wallclock();
-  vm->reg[ 1] = 2UL<<32; /* account table address */
-  vm->reg[ 2] = 2; /* account count */
-  vm->reg[ 3] = 3UL<<32; /* instruction data address */
-  vm->reg[ 4] = 0; /* instruction data size */
-  vm->reg[10] = (1UL<<32) + 0x1000;
-  vm->frame_cnt = 1; /* last exit writes to frame[0] */
-  int rc = jit_entry( entry_haddr );
-  if( rc==999 ) {
-    FD_LOG_ERR(( "Memory access fault: Attempted to access %#lx at %#lx", fd_jit_segfault_vaddr, fd_jit_segfault_rip ));
+  ulong code_sz;
+  dasm_link( &d, &code_sz );
+  if( FD_UNLIKELY( code_sz > code_bufsz ) ) {
+    *out_err = FD_VM_ERR_FULL;
+    return NULL;
   }
-  FD_LOG_NOTICE(( "Executed program in %g seconds using JIT", (double)(dt+fd_log_wallclock())/1e9 ));
 
-  FD_LOG_HEXDUMP_NOTICE(( "account2", account2, sizeof(account2) ));
-  FD_LOG_NOTICE(( "%*s", txn_ctx->log_collector.log_sz, txn_ctx->log_collector.buf ));
-
-  fd_halt();
-  return 0;
+  dasm_encode( &d, code_buf );
+  jit_prog->first_rip = (ulong)code_buf + (ulong)dasm_getpclabel( &d, (uint)prog->entry_pc );
+  dasm_free( &d );
+  return jit_prog;
 }

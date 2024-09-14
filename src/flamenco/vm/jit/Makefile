@@ -4,9 +4,9 @@ LUA ?= lua-5.1
 LUAJIT ?= ../../../../opt/git/luajit
 
 .PHONY: generate
-generate: fd_vm_jitproto.c
+generate: fd_jit_compiler.c
 
-fd_vm_jitproto.c: fd_vm_jitproto.dasc
+fd_jit_compiler.c: fd_jit_compiler.dasc
 	$(LUA) $(LUAJIT)/dynasm/dynasm.lua -o $@ $<
 
 .PHONY: vendor
