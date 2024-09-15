@@ -222,6 +222,7 @@ typedef struct {
 
     struct {
       uint max_pending_transactions;
+      int  use_consumed_cus;
     } pack;
 
     struct {

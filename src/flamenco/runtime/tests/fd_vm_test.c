@@ -13,11 +13,11 @@ fd_vm_syscall_noop( void * _vm,
                     ulong arg3,
                     ulong arg4,
                     ulong* _ret){
-  /* TODO: have input message determine CUs to deduct? 
+  /* TODO: have input message determine CUs to deduct?
   fd_vm_t * vm = (fd_vm_t *) _vm;
   vm->cu = vm->cu - 5;
   */
-  
+
   (void) _vm;
   (void) arg0;
   (void) arg1;
@@ -42,16 +42,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
     return 0UL;
   }
 
-  int rej_callx_r10 = 0;
-  if( input->has_features ) {
-    for( ulong i=0UL; i < input->features.features_count; i++ ) {
-      if( input->features.features[i] == TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ) {
-        rej_callx_r10 = 1;
-        break;
-      }
-    }
-  }
-  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), rej_callx_r10 );
+  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   FD_TEST( output_bufsz >= sizeof(fd_exec_test_validate_vm_effects_t) );
 
@@ -75,7 +66,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       rodata_sz = vm_ctx->rodata->size;
     }
 
-    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);    
+    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);
     ulong text_cnt = vm_ctx->rodata_text_section_length / 8UL;
 
     fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
@@ -99,7 +90,6 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       NULL, /* sha */
       NULL, /* mem regions */
       0,    /* mem regions count */
-      NULL, /* mem regions accs */
       0     /* is deprecated */
     );
     effects->result = fd_vm_validate( vm );
@@ -107,37 +97,15 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
     fd_valloc_free( valloc, fd_vm_delete( fd_vm_leave( vm ) ) );
 
   } while(0);
-  
+
 
   /* Run vm validate and capture result */
-  
+
   effects->success = (effects->result == FD_VM_SUCCESS);
   *output = effects;
-  
+
   test_vm_exec_instr_ctx_delete( ctx );
   return sizeof (fd_exec_test_validate_vm_effects_t);
-}
-
-void
-setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
-                           fd_vm_t *                 vm,
-                           fd_exec_instr_ctx_t *     instr_ctx ) {
-  /* cur_region is used to figure out what acc region index the account
-     corresponds to. */
-  uint cur_region = 0UL;
-  for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
-    cur_region++;
-    fd_borrowed_account_t const * acc = instr_ctx->instr->borrowed_accounts[i];
-    acc_regions_meta[i].region_idx          = cur_region;
-    acc_regions_meta[i].has_data_region     = acc->const_meta->dlen>0UL;
-    acc_regions_meta[i].has_resizing_region = !vm->is_deprecated;
-    if( acc->const_meta->dlen>0UL ) {
-      cur_region++;
-    }
-    if( vm->is_deprecated ) {
-      cur_region--;
-    }
-  }
 }
 
 ulong
@@ -224,7 +192,7 @@ do{
   FD_TEST( vm );
 
   /* Override some execution state values from the interp fuzzer input
-     This is so we can test if the interp (or vm setup) mutates any of 
+     This is so we can test if the interp (or vm setup) mutates any of
      these erroneously */
   vm->reg[0]  = input->vm_ctx.r0;
   vm->reg[1]  = input->vm_ctx.r1;
@@ -257,13 +225,8 @@ do{
     NULL, /* sha */
     input_regions,
     input_regions_cnt,
-    NULL, /* vm_acc_region_meta*/
     0 /* is deprecated */
   );
-
-  // Propagate the acc_regions_meta to the vm
-  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Validate the vm
   if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
@@ -306,7 +269,7 @@ do{
 
   /* CU error is difficult to properly compare as there may have been
      valid writes to the memory regions prior to capturing the error. And
-     the pc might be well past (by an arbitrary amount) the instruction 
+     the pc might be well past (by an arbitrary amount) the instruction
      where the CU error occurred. */
   if( exec_res == FD_VM_ERR_SIGCOST ) break;
 
@@ -336,7 +299,7 @@ do{
                                                               (void *) tmp_end,
                                                               fd_ulong_sat_sub( output_end, tmp_end) );
   FD_SCRATCH_ALLOC_APPEND( l, 1UL, input_data_regions_size );
-  
+
 
 } while(0);
 

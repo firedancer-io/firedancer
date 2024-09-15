@@ -7,10 +7,8 @@ $(call add-hdrs,fd_quic_conn.h)
 $(call add-objs,fd_quic_conn,fd_quic)
 
 $(call add-hdrs,fd_quic_conn_id.h)
-$(call add-objs,fd_quic_conn_id,fd_quic)
 
 $(call add-hdrs,fd_quic_conn_map.h)
-$(call add-objs,fd_quic_conn_map,fd_quic)
 
 $(call add-hdrs,fd_quic_pkt_meta.h)
 $(call add-objs,fd_quic_pkt_meta,fd_quic)

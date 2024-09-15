@@ -93,7 +93,7 @@ struct fd_quic_conn {
   uchar              called_conn_new;     /* whether we need to call conn_final on teardown */
 
   /* we can have multiple connection ids */
-  fd_quic_conn_id_t  our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  ulong              our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
   /* Save original destination connection id
      This will be used when we receive a retransmitted initial packet
@@ -252,9 +252,6 @@ struct fd_quic_conn {
   ulong last_pkt_number[3]; /* last (highest) packet numer seen */
 
   ushort ipv4_id;           /* ipv4 id field */
-
-  /* some scratch space for frame encoding/decoding */
-  fd_quic_frame_u frame_union;
 
   /* buffer to send next */
   /* rename tx_buf, since it's easy to confuse with stream->tx_buf */

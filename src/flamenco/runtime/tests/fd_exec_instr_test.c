@@ -197,7 +197,7 @@ _load_txn_account( fd_borrowed_account_t *           acc,
   // When they are fetched for transactions, the fields of the account are 0-set.
   fd_exec_test_acct_state_t account_state_to_save = FD_EXEC_TEST_ACCT_STATE_INIT_ZERO;
   memcpy( account_state_to_save.address, state->address, sizeof(fd_pubkey_t) );
-  
+
   // Restore the account state if it has lamports
   if( state->lamports ) {
     account_state_to_save = *state;
@@ -722,16 +722,16 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_epoch_schedule_init( slot_ctx );
   fd_sysvar_rent_init( slot_ctx );
 
-  /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled 
+  /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled
 
      TODO: The init parameters are not exactly conformant with Agave's epoch rewards sysvar. We should
      be calling `fd_begin_partitioned_rewards` with the same parameters as Agave. However,
-     we just need the `active` field to be conformant due to a single Stake program check. 
+     we just need the `active` field to be conformant due to a single Stake program check.
      THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
      the epoch rewards sysvar, we may need to update this.
   */
-  if ( ( 
-      FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) || 
+  if ( (
+      FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature )
       ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
     fd_point_value_t point_value = {0};
@@ -761,6 +761,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = test_ctx->max_age;
+  slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
   slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
@@ -935,7 +936,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
   slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
-  
+
   return task_info;
 }
 
@@ -1752,7 +1753,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     sha,
     input_regions,
     input_regions_count,
-    NULL,
     (uchar)false );
 
   // Setup the vm state for execution
@@ -1789,10 +1789,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes,
                fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
   }
-
-  // Propogate the acc_regions_meta to the vm
-  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Look up the syscall to execute
   char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;
@@ -1861,7 +1857,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                                                         vm->input_mem_regions_cnt,
                                                         &effects->input_data_regions,
                                                         &effects->input_data_regions_count,
-                                                        (void *)tmp_end, 
+                                                        (void *)tmp_end,
                                                         fd_ulong_sat_sub( output_end, tmp_end ) );
 
   /* Return the effects */
@@ -1876,7 +1872,7 @@ error:
   return 0;
 }
 
-/* Stubs fd_execute_instr for binaries compiled with 
+/* Stubs fd_execute_instr for binaries compiled with
    `-Xlinker --wrap=fd_execute_instr` */
 int
 __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,

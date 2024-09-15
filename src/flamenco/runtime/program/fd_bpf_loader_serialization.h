@@ -14,33 +14,27 @@ uchar *
 fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
                                        ulong *                   sz,
                                        ulong *                   pre_lens,
-                                       fd_vm_input_region_t *    input_mem_regions,            
-                                       uint *                    input_mem_regions_cnt,
-                                       fd_vm_acc_region_meta_t * acc_region_metas,
-                                       int                       copy_account_data );
+                                       fd_vm_input_region_t *    input_mem_regions,
+                                       uint *                    input_mem_regions_cnt );
 
 int
-fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx, 
+fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
                                          uchar *             buffer,
-                                         ulong               buffer_sz,
-                                         int                 copy_account_data );
+                                         ulong               buffer_sz );
 
 uchar *
 fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
-                                         ulong *                   sz, 
+                                         ulong *                   sz,
                                          ulong *                   pre_lens,
-                                         fd_vm_input_region_t *    input_mem_regions,            
-                                         uint *                    input_mem_regions_cnt,
-                                         fd_vm_acc_region_meta_t * acc_region_metas,
-                                         int                       copy_account_data );
+                                         fd_vm_input_region_t *    input_mem_regions,
+                                         uint *                    input_mem_regions_cnt );
 
 int
 fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
                                            ulong const *       pre_lens,
                                            uchar *             input,
-                                           ulong               input_sz,
-                                           int                 copy_account_data );
+                                           ulong               input_sz );
 
 
 FD_PROTOTYPES_END

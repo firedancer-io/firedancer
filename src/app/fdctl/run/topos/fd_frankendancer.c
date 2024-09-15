@@ -148,7 +148,8 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) )
+    FOR(bank_tile_cnt) fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );
@@ -269,6 +270,7 @@ fd_topo_frankendancer( config_t * config ) {
       tile->pack.bank_tile_count               = config->layout.bank_tile_count;
       tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+      tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 

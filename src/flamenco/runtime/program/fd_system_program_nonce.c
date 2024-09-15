@@ -1014,7 +1014,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t const * txn_ctx ) {
                    (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
-  if( FD_UNLIKELY( !fd_txn_is_writable( txn_ctx->txn_descriptor, instr_accts[0] ) ) ) {
+  if( FD_UNLIKELY( !fd_txn_account_is_writable_idx( txn_ctx, instr_accts[0] ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 

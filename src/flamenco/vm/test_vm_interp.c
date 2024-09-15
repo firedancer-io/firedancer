@@ -50,7 +50,6 @@ test_program_success( char *                test_case_name,
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
-      /* mem_regions_accs */ NULL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
@@ -219,7 +218,7 @@ test_0cu_exit( void ) {
     fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 )
   };
   ulong text_cnt = 3UL;
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false /* not tested here*/ );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -242,7 +241,6 @@ test_0cu_exit( void ) {
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
-      /* mem_regions_accs */ NULL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
@@ -271,7 +269,6 @@ test_0cu_exit( void ) {
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
-      /* mem_regions_accs */ NULL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
@@ -295,7 +292,7 @@ main( int     argc,
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 

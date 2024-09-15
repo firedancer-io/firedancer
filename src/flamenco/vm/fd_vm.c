@@ -312,7 +312,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_CALLX: {
       /* The register number to read is stored in the immediate.
          https://github.com/solana-labs/rbpf/blob/v0.8.1/src/verifier.rs#L218 */
-      if( FD_UNLIKELY( instr.imm > ( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, reject_callx_r10 )  ? 9 : 10 ) ) ) {
+      if( FD_UNLIKELY( instr.imm > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
       }
       break;
@@ -443,7 +443,6 @@ fd_vm_init(
    fd_sha256_t * sha,
    fd_vm_input_region_t * mem_regions,
    uint mem_regions_cnt,
-   fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
@@ -483,7 +482,6 @@ fd_vm_init(
   vm->sha = sha;
   vm->input_mem_regions = mem_regions;
   vm->input_mem_regions_cnt = mem_regions_cnt;
-  vm->acc_region_metas = acc_region_metas;
   vm->is_deprecated = is_deprecated;
 
   /* Unpack the configuration */
