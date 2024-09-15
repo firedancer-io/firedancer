@@ -238,7 +238,6 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* sha             */ NULL,
     /* mem_regions     */ NULL,
     /* mem_regions_cnt */ 0,
-    /* mem_region_accs */ NULL,
     /* is_deprecated   */ 0 );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "NULL vm" ));
@@ -401,19 +400,15 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   ulong                   input_sz                = 0UL;
   ulong                   pre_lens[256]           = {0};
   fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
 
   uchar * input = NULL;
   if( FD_UNLIKELY( is_deprecated ) ) {
     input = fd_bpf_loader_input_serialize_unaligned( *instr_ctx, &input_sz, pre_lens,
-                                                     input_mem_regions, &input_mem_regions_cnt,
-                                                     acc_region_metas, !direct_mapping );
+                                                     input_mem_regions, &input_mem_regions_cnt );
   } else {
     input = fd_bpf_loader_input_serialize_aligned( *instr_ctx, &input_sz, pre_lens,
-                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                   acc_region_metas, !direct_mapping );
+                                                   input_mem_regions, &input_mem_regions_cnt );
   }
 
   if( FD_UNLIKELY( input==NULL ) ) {
@@ -448,7 +443,6 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     /* sha                   */ sha,
     /* input_mem_regions     */ input_mem_regions,
     /* input_mem_regions_cnt */ input_mem_regions_cnt,
-    /* acc_region_metas      */ acc_region_metas,
     /* is_deprecated         */ is_deprecated );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "null vm" ));
@@ -515,12 +509,12 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   }
 
   if( FD_UNLIKELY( is_deprecated ) ) {
-    if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_unaligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
+    if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_unaligned( *instr_ctx, pre_lens, input, input_sz )!=0 ) ) {
       fd_valloc_free( instr_ctx->valloc, input );
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
   } else {
-    if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
+    if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz )!=0 ) ) {
       fd_valloc_free( instr_ctx->valloc, input );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }

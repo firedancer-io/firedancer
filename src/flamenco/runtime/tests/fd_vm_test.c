@@ -90,7 +90,6 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       NULL, /* sha */
       NULL, /* mem regions */
       0,    /* mem regions count */
-      NULL, /* mem regions accs */
       0     /* is deprecated */
     );
     effects->result = fd_vm_validate( vm );
@@ -107,28 +106,6 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
 
   test_vm_exec_instr_ctx_delete( ctx );
   return sizeof (fd_exec_test_validate_vm_effects_t);
-}
-
-void
-setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
-                           fd_vm_t *                 vm,
-                           fd_exec_instr_ctx_t *     instr_ctx ) {
-  /* cur_region is used to figure out what acc region index the account
-     corresponds to. */
-  uint cur_region = 0UL;
-  for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
-    cur_region++;
-    fd_borrowed_account_t const * acc = instr_ctx->instr->borrowed_accounts[i];
-    acc_regions_meta[i].region_idx          = cur_region;
-    acc_regions_meta[i].has_data_region     = acc->const_meta->dlen>0UL;
-    acc_regions_meta[i].has_resizing_region = !vm->is_deprecated;
-    if( acc->const_meta->dlen>0UL ) {
-      cur_region++;
-    }
-    if( vm->is_deprecated ) {
-      cur_region--;
-    }
-  }
 }
 
 ulong
@@ -248,13 +225,8 @@ do{
     NULL, /* sha */
     input_regions,
     input_regions_cnt,
-    NULL, /* vm_acc_region_meta*/
     0 /* is deprecated */
   );
-
-  // Propagate the acc_regions_meta to the vm
-  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Validate the vm
   if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {

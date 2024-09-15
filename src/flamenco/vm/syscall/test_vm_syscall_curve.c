@@ -96,7 +96,6 @@ main( int     argc,
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
-      /* mem_regions_accs */ NULL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );

@@ -18,9 +18,9 @@ typedef struct fd_vm fd_vm_t;
 struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong pc; };
 typedef struct fd_vm_shadow fd_vm_shadow_t;
 
-/* fd_vm_input_region_t holds information about fragmented memory regions 
+/* fd_vm_input_region_t holds information about fragmented memory regions
    within the larger input region. */
-   
+
 struct __attribute__((aligned(8UL))) fd_vm_input_region {
    ulong         vaddr_offset; /* Represents offset from the start of the input region. */
    ulong         haddr;        /* Host address corresponding to the start of the mem region. */
@@ -36,7 +36,7 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
    uint  region_idx;
    uchar has_data_region;
-   uchar has_resizing_region;        
+   uchar has_resizing_region;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
@@ -138,9 +138,9 @@ struct fd_vm {
      region_st_sz[1] is also zero such that requests to store data to
      any positive sz range in this region will fail, making region 1
      unwritable.
-     
+
      When the direct mapping feature is enabled, the input region will
-     no longer be a contigious buffer of host memory.  Instead 
+     no longer be a contigious buffer of host memory.  Instead
      it will compose of several fragmented regions of memory each with
      its own read/write privleges and size.  Address translation to the
      input region will now have to rely on a binary search lookup of the
@@ -163,10 +163,7 @@ struct fd_vm {
   fd_vm_input_region_t *    input_mem_regions;               /* An array of input mem regions represent the input region.
                                                                 The virtual addresses of each region are contigiuous and
                                                                 strictly increasing. */
-  uint                      input_mem_regions_cnt;          
-  fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indicies
-                                                                from the instruction context to the input memory region index
-                                                                of the account's data region in the input space. */
+  uint                      input_mem_regions_cnt;
   uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
                                                                 vm's current instance was initialized by a deprecated program. */
 
@@ -195,10 +192,10 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_VM_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
-   integer power of 2.  FOOTPRINT is a multiple of align. 
+   integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (789416UL)
+#define FD_VM_FOOTPRINT (789400UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -258,7 +255,6 @@ fd_vm_init(
    fd_sha256_t * sha,
    fd_vm_input_region_t * mem_regions,
    uint mem_regions_cnt,
-   fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.

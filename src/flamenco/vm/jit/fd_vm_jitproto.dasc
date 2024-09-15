@@ -188,7 +188,6 @@ main( int     argc,
     sha,
     mem_regions,
     mem_region_cnt,
-    NULL, /* acc_region_metas */
     0 /* is_deprecated */ ) );
 
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;

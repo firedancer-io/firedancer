@@ -443,7 +443,6 @@ fd_vm_init(
    fd_sha256_t * sha,
    fd_vm_input_region_t * mem_regions,
    uint mem_regions_cnt,
-   fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
@@ -483,7 +482,6 @@ fd_vm_init(
   vm->sha = sha;
   vm->input_mem_regions = mem_regions;
   vm->input_mem_regions_cnt = mem_regions_cnt;
-  vm->acc_region_metas = acc_region_metas;
   vm->is_deprecated = is_deprecated;
 
   /* Unpack the configuration */
