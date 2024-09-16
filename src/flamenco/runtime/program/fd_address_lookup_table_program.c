@@ -25,6 +25,7 @@ typedef struct fd_addrlut fd_addrlut_t;
 #define FD_ADDRLUT_META_SZ       (56UL)
 #define FD_ADDRLUT_MAX_ADDR_CNT (256UL)
 #define DEFAULT_COMPUTE_UNITS   (750UL)
+#define MAX_ENTRIES             FD_SYSVAR_SLOT_HASHES_CAP
 
 static fd_addrlut_t *
 fd_addrlut_new( void * mem ) {
@@ -95,31 +96,54 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.4/sdk/program/src/address_lookup_table/state.rs#L79-L103 */
+static ulong
+slot_hashes_position( fd_slot_hash_t const * hashes, ulong slot ) {
+  /* Logic is copied from slice::binary_search_by() in Rust
+     Returns the slot hash position of the input slot. */
+  ulong start = 0UL;
+  ulong end = deq_fd_slot_hash_t_cnt( hashes );
 
-static int
-fd_addrlut_status( fd_lookup_table_meta_t const * state,
-                   ulong                          current_slot,
-                   fd_slot_hashes_t const *       slot_hashes,
-                   ulong *                        remaining_blocks ) {
-  if( state->deactivation_slot == ULONG_MAX )
-    return FD_ADDRLUT_STATUS_ACTIVATED;
-  if( state->deactivation_slot == current_slot ) {
-    *remaining_blocks = 513UL;
-    return FD_ADDRLUT_STATUS_DEACTIVATING;
-  }
+  while( start < end ) {
+    ulong mid      = start + (end - start) / 2UL;
+    ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
 
-  /* TODO consider making this a binary search */
-  for( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( slot_hashes->hashes );
-       !deq_fd_slot_hash_t_iter_done( slot_hashes->hashes, iter );
-       iter = deq_fd_slot_hash_t_iter_next( slot_hashes->hashes, iter ) ) {
-    fd_slot_hash_t const * ele = deq_fd_slot_hash_t_iter_ele_const( slot_hashes->hashes, iter );
-    if( ele->slot == state->deactivation_slot ) {
-      *remaining_blocks = 512UL - (current_slot - ele->slot);
-      return FD_ADDRLUT_STATUS_DEACTIVATING;
+    if( mid_slot == slot ) {
+      return mid;
+    } else if( mid_slot > slot ) {
+      start = mid + 1UL;
+    } else {
+      end = mid;
     }
   }
 
+  return ULONG_MAX;
+}
+
+/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
+static uchar
+fd_addrlut_status( fd_lookup_table_meta_t const * state,
+                   ulong                          current_slot,
+                   fd_slot_hash_t const *         slot_hashes,
+                   ulong *                        remaining_blocks ) {
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L82-L83 */
+  if( state->deactivation_slot==ULONG_MAX ) {
+    return FD_ADDRLUT_STATUS_ACTIVATED;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L84-L87 */
+  if( state->deactivation_slot==current_slot ) {
+    *remaining_blocks = MAX_ENTRIES + 1UL;
+    return FD_ADDRLUT_STATUS_DEACTIVATING;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L88-L100 */
+  ulong slot_hash_position = slot_hashes_position( slot_hashes, state->deactivation_slot );
+  if( slot_hash_position!=ULONG_MAX ) {
+    *remaining_blocks = MAX_ENTRIES - slot_hash_position;
+    return FD_ADDRLUT_STATUS_DEACTIVATING;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L102 */
   return FD_ADDRLUT_STATUS_DEACTIVATED;
 }
 
@@ -219,18 +243,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
-    int is_recent_slot = 0;
-    /* TODO: loop is naive */
-    for( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( slot_hashes->hashes );
-         !deq_fd_slot_hash_t_iter_done( slot_hashes->hashes, iter );
-         iter = deq_fd_slot_hash_t_iter_next( slot_hashes->hashes, iter ) ) {
-      fd_slot_hash_t const * ele = deq_fd_slot_hash_t_iter_ele_const( slot_hashes->hashes, iter );
-      if( ele->slot == create->recent_slot ) {
-        is_recent_slot = 1;
-        break;
-      }
-    }
-
+    ulong is_recent_slot = slot_hashes_position( slot_hashes->hashes, create->recent_slot )!=ULONG_MAX;
     if( FD_UNLIKELY( !is_recent_slot ) ) {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
       /* Max msg_sz: 24 - 3 + 20 = 41 < 127 => we can use printf */
@@ -872,7 +885,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
   ulong remaining_blocks = 0UL;
-  int status = fd_addrlut_status( &state->meta, clock->slot, slot_hashes, &remaining_blocks );
+  int status = fd_addrlut_status( &state->meta, clock->slot, slot_hashes->hashes, &remaining_blocks );
 
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
@@ -977,59 +990,14 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* Public API                                                         */
 /**********************************************************************/
 
-static ulong
-find_slot_hash( fd_slot_hash_t const * hashes, ulong slot ) {
-  /* Logic is copied from slice::binary_search_by() in Rust */
-  ulong start = 0UL;
-  ulong end = deq_fd_slot_hash_t_cnt( hashes );
-
-  while( start < end ) {
-    ulong mid      = start + (end - start) / 2UL;
-    ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
-
-    if( mid_slot == slot ) {
-      return slot;
-    } else if( mid_slot > slot ) {
-      start = mid + 1UL;
-    } else {
-      end = mid;
-    }
-  }
-
-  return ULONG_MAX;
-}
-
-/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
-static uchar
-status( fd_address_lookup_table_t const * self,
-        ulong                             current_slot,
-        fd_slot_hash_t const *            slot_hashes ) {
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L82-L83 */
-  if( self->meta.deactivation_slot == ULONG_MAX ) {
-    return FD_ADDRLUT_STATUS_ACTIVATED;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L84-L87 */
-  if( self->meta.deactivation_slot == current_slot ) {
-    return FD_ADDRLUT_STATUS_DEACTIVATING;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L88-L100 */
-  if( find_slot_hash( slot_hashes, self->meta.deactivation_slot ) != ULONG_MAX ) {
-    return FD_ADDRLUT_STATUS_DEACTIVATING;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L102 */
-  return FD_ADDRLUT_STATUS_DEACTIVATED;
-}
-
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L72-L78 */
 static uchar
 is_active( fd_address_lookup_table_t const * self,
            ulong                             current_slot,
            fd_slot_hash_t const *            slot_hashes ) {
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L73-L77 */
-  switch( status( self, current_slot, slot_hashes ) ) {
+  ulong _dummy[1];
+  switch( fd_addrlut_status( &self->meta, current_slot, slot_hashes, _dummy ) ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
     case FD_ADDRLUT_STATUS_DEACTIVATING:
       return 1;
