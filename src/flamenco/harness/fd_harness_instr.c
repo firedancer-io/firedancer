@@ -584,22 +584,39 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
 
   /* Populate the account states, and add in the missing sysvars required for
      program execution. */
-  FD_TEST(legacy_instr.accounts_count <= 256UL, "Too many accounts in legacy instr");
+  FD_TEST(legacy_instr.accounts_count <= 256UL);
   exec_env.acct_states_count = legacy_instr.accounts_count;
   exec_env.acct_states       = fd_scratch_alloc( alignof(fd_v2_acct_state_t), sizeof(fd_v2_acct_state_t) * 256UL );
+
+  /* Prepare sysvar accounts */
+  fd_pubkey_t const fd_relevant_sysvar_ids[] = {
+    fd_sysvar_clock_id,
+    fd_sysvar_epoch_schedule_id,
+    fd_sysvar_rent_id,
+    fd_sysvar_recent_block_hashes_id,
+  };
+  const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
+  uchar seen_sysvar_accounts[num_sysvar_entries] = {0};
   
   /* First copy over the existing account state. */
 
   for( uint i=0U; i<legacy_instr.accounts_count; i++ ) {
     fd_memcpy( exec_env.acct_states[i].address, legacy_instr.accounts[i].address, sizeof(fd_pubkey_t) );
     exec_env.acct_states[i].lamports      = legacy_instr.accounts[i].lamports;
-    exec_env.acct_states[i].data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( legacy_instr.accounts[i].data_len ) );
-    exec_env.acct_states[i].data->size    = legacy_instr.accounts[i].data_len;
+    exec_env.acct_states[i].data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( legacy_instr.accounts[i].data->size ) );
+    exec_env.acct_states[i].data->size    = legacy_instr.accounts[i].data->size;
     fd_memcpy( exec_env.acct_states[i].data->bytes, legacy_instr.accounts[i].data->bytes, legacy_instr.accounts[i].data->size );
     exec_env.acct_states[i].executable    = legacy_instr.accounts[i].executable;
     exec_env.acct_states[i].rent_epoch    = legacy_instr.accounts[i].rent_epoch;
     fd_memcpy( exec_env.acct_states[i].owner, legacy_instr.accounts[i].owner, sizeof(fd_pubkey_t) );
     exec_env.acct_states[i].has_seed_addr = false;
+
+    for( uint j=0U; j<num_sysvar_entries; j++ ) {
+      if( !memcmp( exec_env.acct_states[i].address, fd_relevant_sysvar_ids[j].uc, sizeof(fd_pubkey_t) ) ) {
+        seen_sysvar_accounts[j] = 1;
+        break;
+      }
+    }
   }
 
   /* Now iterate over the existing accounts and figure out which sysvars are
@@ -612,8 +629,10 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
      accounts and M is the number of sysvars; it can be combined into the
      previous one. */
 
-  for( uint i=0U; i<legacy_instr.accounts_count; i++ ) {
-    for()
+  for( uint j=0; j<num_sysvar_entries; ++j ) {
+    if( !seen_sysvar_accounts[j] ) {
+
+    }
   }
 
   return 0;
