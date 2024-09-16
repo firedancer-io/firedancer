@@ -207,21 +207,22 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
   fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
   fd_pubkey_t *   pubkey   = (fd_pubkey_t*)acc->address;
 
-  if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) ) {
-    /* Don't need to load in the accounts if it already exists. TODO: consider
-       even throwing an error here because it means the exec env is probably
-       busted. */
+  FD_BORROWED_ACCOUNT_DECL( existing_acc );
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, pubkey, existing_acc );
+  if( FD_UNLIKELY( !err ) ) {
+    /* Don't need to load in the accounts if it already exists */
+    *borrowed_account = *existing_acc;
     return;
   }
 
   fd_borrowed_account_init( borrowed_account );
 
-  int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
-                               /* txn         */ funk_txn,
-                               /* pubkey      */ pubkey,
-                               /* do_create   */ 1,
-                               /* min_data_sz */ acc->data->size,
-                                                 borrowed_account );
+  err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
+                           /* txn         */ funk_txn,
+                           /* pubkey      */ pubkey,
+                           /* do_create   */ 1,
+                           /* min_data_sz */ acc->data->size,
+                                             borrowed_account );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to load account into funk" ));
   }
