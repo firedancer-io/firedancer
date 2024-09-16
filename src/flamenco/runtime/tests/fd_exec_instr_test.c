@@ -14,7 +14,9 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
@@ -593,6 +595,16 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     fd_sysvar_slot_hashes_init( slot_ctx, &default_slot_hashes );
   }
 
+  /* Provide default stake history if not provided */
+  if( !slot_ctx->sysvar_cache->has_stake_history ) {
+    fd_sysvar_stake_history_init( slot_ctx );
+  }
+
+  /* Provide default last restart slot sysvar if not provided */
+  if( !slot_ctx->sysvar_cache->has_last_restart_slot ) {
+    fd_sysvar_last_restart_slot_init( slot_ctx );
+  }
+
   /* Provide a default clock if not present */
   if( !slot_ctx->sysvar_cache->has_clock ) {
     fd_sysvar_clock_init( slot_ctx );
@@ -610,8 +622,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
      THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
      the epoch rewards sysvar, we may need to update this.
   */
-  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, 0, (fd_hash_t *) empty_bytes);
+  if ( ( 
+      FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) || 
+      FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature )
+      ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
+    fd_point_value_t point_value = {0};
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, point_value, (fd_hash_t *) empty_bytes);
   }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
@@ -637,6 +653,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = test_ctx->max_age;
+  slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
   slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
@@ -805,11 +822,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_runtime_pre_execute_check( task_info );
 
   if( !task_info->exec_res ) {
-    int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
-    if( FD_UNLIKELY( res ) ) {
-      FD_LOG_ERR(("could not prepare txn"));
-    }
-
     task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
   }

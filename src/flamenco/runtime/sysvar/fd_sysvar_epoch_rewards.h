@@ -40,7 +40,7 @@ fd_sysvar_epoch_rewards_init(
     ulong distributed_rewards,
     ulong distribution_starting_block_height,
     ulong num_partitions,
-    uint128 total_points,
+    fd_point_value_t point_value,
     const fd_hash_t * last_blockhash
 );
 

@@ -167,7 +167,7 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
 
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
-  args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 10 );
+  args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 50 );
   args->params.max_ws_connection_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-connection-cnt", NULL, 10 );
   args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
@@ -206,6 +206,12 @@ int main( int argc, char ** argv ) {
 
   fd_rpc_ctx_t * ctx = NULL;
   fd_rpc_start_service( &args, &ctx );
+
+#define SMAX 1LU<<28
+  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,
+                                fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) );
+  ulong fmem[4U];
+  fd_scratch_attach( smem, fmem, SMAX, 4U );
 
   if( args.offline ) {
     while( !stopflag ) {

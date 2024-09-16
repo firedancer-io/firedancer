@@ -520,7 +520,7 @@ fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
    call cannot fail and returns FD_BLOCKSTORE_OK. */
 
 int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz );
+fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz );
 
 /* fd_blockstore_block_map_query_volatile is the same as above except it
    only copies out the metadata (fd_block_map_t).  Returns

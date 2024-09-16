@@ -178,6 +178,7 @@ typedef struct {
       int  larger_max_cost_per_block;
       int  larger_shred_limits_per_block;
       int  disable_blockstore;
+      int  disable_status_cache;
     } bench;
   } development;
 
@@ -221,6 +222,7 @@ typedef struct {
 
     struct {
       uint max_pending_transactions;
+      int  use_consumed_cus;
     } pack;
 
     struct {

@@ -84,9 +84,6 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_txn_p_t * txn );
 
 int
-fd_execute_txn_prepare_finish( fd_exec_txn_ctx_t * txn_ctx );
-
-int
 fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
                          int exec_txn_err );
 
@@ -117,14 +114,6 @@ int
 fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
 
 int
-fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
-                                     fd_borrowed_account_t * rec );
-
-void
-fd_txn_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
-                                  void const *        addr );
-
-int
 fd_executor_collect_fee( fd_borrowed_account_t const * rec,
                          ulong                         fee );
 
@@ -145,7 +134,7 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx );

@@ -173,6 +173,7 @@ typedef struct {
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
+      int   use_consumed_cus;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
@@ -246,6 +247,9 @@ typedef struct {
 
     struct {
       ulong accounts_cnt;
+      int   mode;
+      float contending_fraction;
+      float cu_price_spread;
     } benchg;
 
     /* Firedancer-only tile configs */

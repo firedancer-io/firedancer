@@ -197,7 +197,7 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot, fd_valloc_t valloc ) {
   // fd_slot_bank_t *      root_bank = read_root_bank( ctx, valloc );
   // FD_LOG_NOTICE( ( "funk root is %lu", root_bank->slot ) );
 
-  for(;;) {
+  for(;;) FD_SCRATCH_SCOPE_BEGIN {
     fd_readwrite_start_read( &glob->lock );
 
     if( glob->epoch_bank != NULL &&
@@ -261,7 +261,7 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot, fd_valloc_t valloc ) {
     glob->epoch_bank = epoch_bank;
     glob->epoch_bank_epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot, NULL);
     fd_readwrite_end_write( &glob->lock );
-  }
+  } FD_SCRATCH_SCOPE_END;
 }
 
 
@@ -322,26 +322,6 @@ block_flags_to_confirmation_status( uchar flags ) {
   return "null";
 }
 
-static void
-fd_method_cleanup( uchar ** smem ) {
-  fd_scratch_detach( NULL );
-  free( *smem );
-}
-
-/* Setup scratch space */
-#define FD_METHOD_SCRATCH_BEGIN( SMAX ) do {                            \
-  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,                  \
-                                fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) ); \
-  ulong fmem[4U];                                                       \
-  fd_scratch_attach( smem, fmem, SMAX, 4U );                            \
-  fd_scratch_push();                                                    \
-  uchar * __fd_scratch_guard_ ## __LINE__                               \
-  __attribute__((cleanup(fd_method_cleanup))) = smem;                   \
-  (void)__fd_scratch_guard_ ## __LINE__;                                \
-  do
-
-#define FD_METHOD_SCRATCH_END while(0); } while(0)
-
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
 
@@ -349,7 +329,7 @@ static int
 method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
 
-  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+  FD_SCRATCH_SCOPE_BEGIN {
     // Path to argument
     static const uint PATH[3] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -429,7 +409,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
 
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
 
   return 0;
 }
@@ -439,7 +419,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+  FD_SCRATCH_SCOPE_BEGIN {
     // Path to argument
     static const uint PATH[3] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -468,7 +448,7 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
                          ctx->global->last_slot_notify.slot_exec.slot, metadata->info.lamports, ctx->call_id);
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -557,8 +537,9 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong blk_sz;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_block_map_t meta[1];
+  fd_hash_t parent_hash;
   uchar * blk_data;
-  if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, fd_libc_alloc_virtual(), &blk_data, &blk_sz ) ) {
+  if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, &parent_hash, fd_libc_alloc_virtual(), &blk_data, &blk_sz ) ) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }
@@ -569,6 +550,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
                                       blk_data,
                                       blk_sz,
                                       meta,
+                                      &parent_hash,
                                       enc,
                                       (maxvers == NULL ? 0 : *(const long*)maxvers),
                                       det,
@@ -587,6 +569,7 @@ static int
 method_getBlockCommitment(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getBlockCommitment is not implemented" ));
   fd_method_error(ctx, -1, "getBlockCommitment is not implemented");
   return 0;
 }
@@ -610,6 +593,7 @@ static int
 method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getBlockProduction is not implemented" ));
   fd_method_error(ctx, -1, "getBlockProduction is not implemented");
   return 0;
 }
@@ -756,6 +740,7 @@ static int
 method_getClusterNodes(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getClusterNodes is not implemented" ));
   fd_method_error(ctx, -1, "getClusterNodes is not implemented");
   return 0;
 }
@@ -766,7 +751,7 @@ method_getClusterNodes(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
-  FD_METHOD_SCRATCH_BEGIN( 1<<28 ) { /* read_epoch consumes a ton of scratch space! */
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
 
     fd_webserver_t * ws   = &ctx->global->ws;
     ulong            slot = get_slot_from_commitment_level( values, ctx );
@@ -795,7 +780,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
                          ctx->global->last_slot_notify.slot_exec.transaction_count,
                          ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -805,7 +790,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  FD_METHOD_SCRATCH_BEGIN( 1<<28 ) { /* read_epoch consumes a ton of scratch space! */
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     fd_webserver_t * ws = &ctx->global->ws;
     ulong            slot = get_slot_from_commitment_level( values, ctx );
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, slot, fd_scratch_virtual() );
@@ -821,7 +806,7 @@ method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
                          (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
                          ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -878,7 +863,7 @@ method_getFirstAvailableBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  FD_METHOD_SCRATCH_BEGIN( 1<<28 ) { /* read_epoch consumes a ton of scratch space! */
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     ulong slot = get_slot_from_commitment_level( values, ctx );
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, slot, fd_scratch_virtual());
     if( epoch_bank == NULL ) {
@@ -890,7 +875,7 @@ method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
     fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -908,6 +893,7 @@ static int
 method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getHighestSnapshotSlot is not implemented" ));
   fd_method_error(ctx, -1, "getHighestSnapshotSlot is not implemented");
   return 0;
 }
@@ -932,6 +918,7 @@ static int
 method_getInflationGovernor(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getInflationGovernor is not implemented" ));
   fd_method_error(ctx, -1, "getInflationGovernor is not implemented");
   return 0;
 }
@@ -943,6 +930,7 @@ static int
 method_getInflationRate(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   (void)ctx;
+  FD_LOG_WARNING(( "getInflationRate is not implemented" ));
   fd_method_error(ctx, -1, "getInflationRate is not implemented");
   return 0;
   /* FIXME!
@@ -965,6 +953,7 @@ static int
 method_getInflationReward(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getInflationReward is not implemented" ));
   fd_method_error(ctx, -1, "getInflationReward is not implemented");
   return 0;
 }
@@ -974,6 +963,7 @@ static int
 method_getLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getLargestAccounts is not implemented" ));
   fd_method_error(ctx, -1, "getLargestAccounts is not implemented");
   return 0;
 }
@@ -1002,6 +992,7 @@ static int
 method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getLeaderSchedule is not implemented" ));
   fd_method_error(ctx, -1, "getLeaderSchedule is not implemented");
   return 0;
 }
@@ -1011,6 +1002,7 @@ static int
 method_getMaxRetransmitSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getMaxRetransmitSlot is not implemented" ));
   fd_method_error(ctx, -1, "getMaxRetransmitSlot is not implemented");
   return 0;
 }
@@ -1033,7 +1025,7 @@ method_getMaxShredInsertSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_METHOD_SCRATCH_BEGIN( 1<<28 ) { /* read_epoch consumes a ton of scratch space! */
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     static const uint PATH_SIZE[3] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
       (JSON_TOKEN_LBRACKET<<16) | 0,
@@ -1054,7 +1046,7 @@ method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                          min_balance, ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -1063,7 +1055,7 @@ method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_
 
 static int
 method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+  FD_SCRATCH_SCOPE_BEGIN {
     static const uint ENC_PATH[4] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
       (JSON_TOKEN_LBRACKET<<16) | 1,
@@ -1112,25 +1104,24 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
         fd_method_error(ctx, -1, "invalid base58 encoding");
         return 0;
       }
-      fd_scratch_push();
-      ulong val_sz;
-      void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
-      if (val == NULL) {
-        fd_web_reply_sprintf(ws, "null");
-        continue;
-      }
+      FD_SCRATCH_SCOPE_BEGIN {
+        ulong val_sz;
+        void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
+        if (val == NULL) {
+          fd_web_reply_sprintf(ws, "null");
+          continue;
+        }
 
-      const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, FD_LONG_UNSET, FD_LONG_UNSET );
-      if( err ) {
-        fd_method_error(ctx, -1, "%s", err);
-        return 0;
-      }
-
-      fd_scratch_pop();
+        const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, FD_LONG_UNSET, FD_LONG_UNSET );
+        if( err ) {
+          fd_method_error(ctx, -1, "%s", err);
+          return 0;
+        }
+      } FD_SCRATCH_SCOPE_END;
     }
 
     fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -1139,6 +1130,7 @@ static int
 method_getProgramAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getProgramAccounts is not implemented" ));
   fd_method_error(ctx, -1, "getProgramAccounts is not implemented");
   return 0;
 }
@@ -1186,6 +1178,7 @@ static int
 method_getRecentPrioritizationFees(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getRecentPrioritizationFees is not implemented" ));
   fd_method_error(ctx, -1, "getRecentPrioritizationFees is not implemented");
   return 0;
 }
@@ -1195,6 +1188,7 @@ static int
 method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSignaturesForAddress is not implemented" ));
   fd_method_error(ctx, -1, "getSignaturesForAddress is not implemented");
   return 0;
 }
@@ -1269,6 +1263,7 @@ static int
 method_getSlotLeader(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSlotLeader is not implemented" ));
   fd_method_error(ctx, -1, "getSlotLeader is not implemented");
   /* FIXME!
      fd_webserver_t * ws = &ctx->global->ws;
@@ -1286,6 +1281,7 @@ static int
 method_getSlotLeaders(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSlotLeaders is not implemented" ));
   fd_method_error(ctx, -1, "getSlotLeaders is not implemented");
   return 0;
 }
@@ -1295,6 +1291,7 @@ static int
 method_getStakeActivation(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getStakeActivation is not implemented" ));
   fd_method_error(ctx, -1, "getStakeActivation is not implemented");
   return 0;
 }
@@ -1304,6 +1301,7 @@ static int
 method_getStakeMinimumDelegation(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getStakeMinimumDelegation is not implemented" ));
   fd_method_error(ctx, -1, "getStakeMinimumDelegation is not implemented");
   return 0;
 }
@@ -1314,6 +1312,7 @@ static int
 method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSupply is not implemented" ));
   fd_method_error(ctx, -1, "getSupply is not implemented");
   return 0;
 }
@@ -1323,6 +1322,7 @@ static int
 method_getTokenAccountBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenAccountBalance is not implemented" ));
   fd_method_error(ctx, -1, "getTokenAccountBalance is not implemented");
   return 0;
 }
@@ -1332,6 +1332,7 @@ static int
 method_getTokenAccountsByDelegate(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenAccountsByDelegate is not implemented" ));
   fd_method_error(ctx, -1, "getTokenAccountsByDelegate is not implemented");
   return 0;
 }
@@ -1341,6 +1342,7 @@ static int
 method_getTokenAccountsByOwner(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenAccountsByOwner is not implemented" ));
   fd_method_error(ctx, -1, "getTokenAccountsByOwner is not implemented");
   return 0;
 }
@@ -1350,6 +1352,7 @@ static int
 method_getTokenLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenLargestAccounts is not implemented" ));
   fd_method_error(ctx, -1, "getTokenLargestAccounts is not implemented");
   return 0;
 }
@@ -1359,6 +1362,7 @@ static int
 method_getTokenSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenSupply is not implemented" ));
   fd_method_error(ctx, -1, "getTokenSupply is not implemented");
   return 0;
 }
@@ -1471,7 +1475,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
 // Implementation of the "getTransactionCount" methods
 static int
 method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_METHOD_SCRATCH_BEGIN( 1<<28 ) { /* read_epoch consumes a ton of scratch space! */
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     (void)values;
     fd_webserver_t * ws = &ctx->global->ws;
     fd_rpc_global_ctx_t * glob      = ctx->global;
@@ -1483,13 +1487,12 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
       return 0;
     }
-    FD_LOG_NOTICE(("getTransactionCount: slot_bank->slot=%lu", slot_bank->slot));
     fd_web_reply_sprintf( ws,
-                          "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                          "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                           slot_bank->transaction_count,
                           ctx->call_id );
     fd_readwrite_end_read( &glob->lock );
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -1521,7 +1524,7 @@ vote_account_to_json(fd_webserver_t * ws, fd_vote_accounts_pair_t_mapnode_t cons
 
 static int
 method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_METHOD_SCRATCH_BEGIN( 1<<28 ) { /* read_epoch consumes a ton of scratch space! */
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     ulong slot = get_slot_from_commitment_level( values, ctx );
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, slot, fd_scratch_virtual());
     if( epoch_bank == NULL ) {
@@ -1582,7 +1585,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
     fd_web_reply_sprintf(ws, "],\"delinquent\":[]},\"id\":%s}" CRLF, ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -1629,6 +1632,7 @@ static int
 method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "minimumLedgerSlot is not implemented" ));
   fd_method_error(ctx, -1, "minimumLedgerSlot is not implemented");
   return 0;
 }
@@ -1638,6 +1642,7 @@ static int
 method_requestAirdrop(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "requestAirdrop is not implemented" ));
   fd_method_error(ctx, -1, "requestAirdrop is not implemented");
   return 0;
 }
@@ -1727,6 +1732,7 @@ static int
 method_simulateTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "simulateTransaction is not implemented" ));
   fd_method_error(ctx, -1, "simulateTransaction is not implemented");
   return 0;
 }
@@ -2023,7 +2029,7 @@ static int
 ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
 
-  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+  FD_SCRATCH_SCOPE_BEGIN {
     // Path to argument
     static const uint PATH[3] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -2110,7 +2116,7 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                          subid, sub->call_id);
 
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
 
   return 1;
 }
@@ -2119,7 +2125,7 @@ static int
 ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg, struct fd_ws_subscription * sub) {
   fd_webserver_t * ws = &ctx->global->ws;
 
-  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+  FD_SCRATCH_SCOPE_BEGIN {
     ulong conn_id = sub->conn_id;
 
     ulong val_sz;
@@ -2138,7 +2144,7 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
       return 0;
     }
     fd_web_reply_sprintf(ws, "},\"subscription\":%lu}}" CRLF, sub->subsc_id);
-  } FD_METHOD_SCRATCH_END;
+  } FD_SCRATCH_SCOPE_END;
 
   return 1;
 }

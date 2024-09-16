@@ -470,7 +470,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, reject_callx_r10)>>3,
     .id         = {"\x23\x2d\x66\x6d\x5c\x7d\x78\x7e\xf9\x05\x90\x7b\x5c\x5b\xfe\x99\xd2\x8a\x96\xc4\x37\xaa\x40\x2a\x06\x26\x72\x4e\xdd\x3c\x7a\x10"},
                   /* 3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX */
-    .name       = "reject_callx_r10" },
+    .name       = "reject_callx_r10",
+    .cleaned_up = 2010 },
 
   { .index      = offsetof(fd_features_t, drop_redundant_turbine_path)>>3,
     .id         = {"\x2f\xd4\x72\x78\xb4\x96\xc4\xff\x58\x4b\x74\x4b\xfc\xec\x33\x90\x63\xd1\x91\xe8\xd1\xa7\xad\x65\xd2\xe2\x5d\xb1\x03\x6f\xd7\x8f"},
@@ -1097,7 +1098,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, deprecate_unused_legacy_vote_plumbing)>>3,
     .id         = {"\x51\x60\x3a\x65\xd2\x58\xf6\x81\xa9\x9d\x75\xfb\x82\x92\x01\x9d\x7c\xba\xba\x95\x17\x6d\x3b\xfd\xac\x4d\xba\x6f\x72\x50\xbc\x93"},
                   /* 6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe */
-    .name       = "deprecate_unused_legacy_vote_plumbing" },
+    .name       = "deprecate_unused_legacy_vote_plumbing",
+    .cleaned_up = 2010 },
 
   { .index      = offsetof(fd_features_t, reward_full_priority_fee)>>3,
     .id         = {"\x29\xb5\x7d\x02\xf6\x06\xf2\xf1\x3c\xe6\x5d\x22\xd1\xfc\x80\x59\xcd\x36\x5a\x6d\x1c\x97\x5a\xbf\x46\x0f\x48\x0e\x16\x11\xe2\xa4"},
@@ -1150,6 +1152,11 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x09\x63\xab\xd0\x05\x64\xa6\xa5\x74\xcd\xdf\xb3\xc1\xa6\xcf\xb3\xc9\x9e\x1d\x7d\xf1\xdc\x91\xd5\x67\xdf\x68\xeb\x77\x49\x22\xb7"},
                   /* depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv */
     .name       = "deprecate_legacy_vote_ixs" },
+
+  { .index      = offsetof(fd_features_t, partitioned_epoch_rewards_superfeature)>>3,
+    .id         = {"\x05\xb1\xf6\xd0\xa0\xbf\xfc\x81\xbc\x95\xde\xeb\x35\x7a\x88\x3e\xa6\x5e\x44\xce\xb5\x15\x5a\xd2\xb0\xb5\x57\xbf\x87\xf9\x4b\x53"},
+                  /* PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 */
+    .name       = "partitioned_epoch_rewards_superfeature" },
 
   { .index = ULONG_MAX }
 };
@@ -1364,6 +1371,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8e1411a93085cb0e: return &ids[ 199 ];
   case 0x0b9047b5bb9ef961: return &ids[ 200 ];
   case 0xa5a66405d0ab6309: return &ids[ 201 ];
+  case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
   default: break;
   }
 
@@ -1574,5 +1582,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, ed25519_precompile_verify_strict     
 FD_STATIC_ASSERT( offsetof( fd_features_t, zk_elgamal_proof_program_enabled                        )>>3==199UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, move_stake_and_move_lamports_ixs                        )>>3==200UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_legacy_vote_ixs                               )>>3==201UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, partitioned_epoch_rewards_superfeature                  )>>3==202UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

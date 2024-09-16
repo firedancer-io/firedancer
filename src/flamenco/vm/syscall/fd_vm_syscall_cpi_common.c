@@ -37,14 +37,15 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             fd_pubkey_t const * program_id,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
+  /* fd_vm_prepare_instruction will handle the case where pubkey is missing */
+  out_instr->program_id_pubkey = *program_id;
+  out_instr->program_id = UCHAR_MAX;
 
   /* Find the index of the CPI instruction's program account in the transaction */
-  /* TODO: what if this is not present? */
   fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
   for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( program_id, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
       out_instr->program_id = (uchar)i;
-      out_instr->program_id_pubkey = txn_accs[i];
       break;
     }
   }
@@ -701,7 +702,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   *_ret = instr_exec_res;
 
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
+  if( FD_UNLIKELY( err_exec ) ) return err_exec;
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/syscalls/cpi.rs#L1128-L1145 */
   /* Update all account permissions before updating the account data updates.

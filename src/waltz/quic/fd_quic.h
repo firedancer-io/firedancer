@@ -583,10 +583,6 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
 FD_QUIC_API void
 fd_quic_stream_fin( fd_quic_stream_t * stream );
 
-/* TODO: fd_quic_stream_close */
-//void
-//fd_quic_stream_close( fd_quic_stream_t * stream, int direction_flags );
-
 FD_QUIC_API void
 fd_quic_process_packet( fd_quic_t * quic,
                         uchar *     data,

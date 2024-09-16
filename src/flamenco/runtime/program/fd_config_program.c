@@ -69,6 +69,8 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   };
   decode_result = fd_config_keys_decode( &current_data, &config_acc_state_decode_context );
   if( FD_UNLIKELY( decode_result!=FD_BINCODE_SUCCESS ) ) {
+    //TODO: full log, including err
+    fd_log_collector_msg_literal( ctx, "Unable to deserialize config account" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -118,21 +120,33 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       fd_borrowed_account_t * signer_account = NULL;
       int borrow_err = fd_instr_borrowed_account_view_idx( ctx, (uchar)counter, &signer_account );
       if( FD_UNLIKELY( borrow_err!=FD_ACC_MGR_SUCCESS ) ) {
+        /* Max msg_sz: 35 - 4 + 45 = 76 < 127 => we can use printf */
+        fd_log_collector_printf_dangerous_max_127( ctx,
+          "account %32J is not in account list", signer );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
       if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( signer_account ) ) ) {
+        /* Max msg_sz: 35 - 4 + 45 = 76 < 127 => we can use printf */
+        fd_log_collector_printf_dangerous_max_127( ctx,
+          "account %32J is not in account list", signer );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;  /* seems to be deliberately not ACC_BORROW_FAILED? */
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
 
       if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter ) ) ) {
+        /* Max msg_sz: 35 - 4 + 45 = 76 < 127 => we can use printf */
+        fd_log_collector_printf_dangerous_max_127( ctx,
+          "account %32J signer_key().is_none()", signer );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L80-L87 */
 
       if( FD_UNLIKELY( 0!=memcmp( signer_account->pubkey, signer, sizeof(fd_pubkey_t) ) ) ) {
+        /* Max msg_sz: 53 - 3 + 20 = 70 < 127 => we can use printf */
+        fd_log_collector_printf_dangerous_max_127( ctx,
+          "account[%lu].signer_key() does not match Config data)", counter+1 );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -149,6 +163,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         }
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L97 */
         if( FD_UNLIKELY( !is_signer ) ) {
+          /* Max msg_sz: 41 - 4 + 45 = 82 < 127 => we can use printf */
+          fd_log_collector_printf_dangerous_max_127( ctx,
+            "account %32J is not in stored signer list", signer );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
       }
@@ -158,6 +175,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
     } else if( !is_config_account_signer ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L101 */
+      fd_log_collector_msg_literal( ctx, "account[0].signer_key().is_none()" );
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     }
@@ -174,6 +192,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
         if( FD_UNLIKELY( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 && 
                          key_list.keys[i].signer == key_list.keys[j].signer ) ) {
+          fd_log_collector_msg_literal( ctx, "new config contains duplicate keys" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
       }
@@ -182,8 +201,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L118-L126 */
 
-  if( FD_UNLIKELY( current_signer_key_cnt>counter ) )
+  if( FD_UNLIKELY( current_signer_key_cnt>counter ) ) {
+    /* Max msg_sz: 35 - 6 + 2*20 = 69 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx,
+      "too few signers: %lu; expected: %lu", counter, current_signer_key_cnt );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
 
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L128-L129 */
@@ -194,7 +217,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
 
   if( FD_UNLIKELY( config_acc_rec->const_meta->dlen<ctx->instr->data_sz ) ) {
-    /* TODO Log: "instruction data too large" */
+    fd_log_collector_msg_literal( ctx, "instruction data too large" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

@@ -9,7 +9,10 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/fd_executor_err.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "fd_block_to_json.h"
+#include "fd_stub_to_json.h"
 
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
@@ -28,94 +31,109 @@ void fd_tokenbalance_to_json( fd_webserver_t * ws, struct _fd_solblock_TokenBala
   fd_web_reply_sprintf(ws, "\"uiAmountString\":\"%s\"}}", b->ui_token_amount.ui_amount_string);
 }
 
-void fd_error_to_json( fd_webserver_t * ws,
-                       const uchar* bytes,
-                       ulong size ) {
-  /* I worked this out by brute force examination of actual cases */
+static char const *
+instr_strerror( int err ) {
+  switch( err ) {
+  case FD_EXECUTOR_INSTR_SUCCESS                                : return ""; // not used
+  case FD_EXECUTOR_INSTR_ERR_FATAL                              : return ""; // not used
+  case FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        : return "GenericError";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        : return "InvalidArgument";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA                 : return "InvalidInstructionData";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA                   : return "InvalidAccountData";
+  case FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL                 : return "AccountDataTooSmall";
+  case FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS                 : return "InsufficientFunds";
+  case FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID               : return "IncorrectProgramId";
+  case FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE         : return "MissingRequiredSignature";
+  case FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED            : return "AccountAlreadyInitialized";
+  case FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT              : return "UninitializedAccount";
+  case FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR                   : return "UnbalancedInstruction";
+  case FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID                : return "ModifiedProgramId";
+  case FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND     : return "ExternalAccountLamportSpend";
+  case FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED             : return "ExternalAccountDataModified";
+  case FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE            : return "ReadonlyLamportChange";
+  case FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED             : return "ReadonlyDataModified";
+  case FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_IDX              : return "DuplicateAccountIndex";
+  case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED                : return "ExecutableModified";
+  case FD_EXECUTOR_INSTR_ERR_RENT_EPOCH_MODIFIED                : return "RentEpochModified";
+  case FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS                : return "NotEnoughAccountKeys";
+  case FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED              : return "AccountDataSizeChanged";
+  case FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE                 : return "AccountNotExecutable";
+  case FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED                  : return "AccountBorrowFailed";
+  case FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING             : return "AccountBorrowOutstanding";
+  case FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_OUT_OF_SYNC      : return "DuplicateAccountOutOfSync";
+  case FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR                         : return "Custom(u32)";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_ERR                        : return "InvalidError";
+  case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED           : return "ExecutableDataModified";
+  case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE          : return "ExecutableLamportChange";
+  case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT : return "ExecutableAccountNotRentExempt";
+  case FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID             : return "UnsupportedProgramId";
+  case FD_EXECUTOR_INSTR_ERR_CALL_DEPTH                         : return "CallDepth";
+  case FD_EXECUTOR_INSTR_ERR_MISSING_ACC                        : return "MissingAccount";
+  case FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED             : return "ReentrancyNotAllowed";
+  case FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED           : return "MaxSeedLengthExceeded";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS                      : return "InvalidSeeds";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC                    : return "InvalidRealloc";
+  case FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED            : return "ComputationalBudgetExceeded";
+  case FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION               : return "PrivilegeEscalation";
+  case FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  : return "ProgramEnvironmentSetupFailure";
+  case FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE         : return "ProgramFailedToComplete";
+  case FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPILE          : return "ProgramFailedToCompile";
+  case FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE                      : return "Immutable";
+  case FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY                : return "IncorrectAuthority";
+  case FD_EXECUTOR_INSTR_ERR_BORSH_IO_ERROR                     : return "BorshIoError(String)";
+  case FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT                : return "AccountNotRentExempt";
+  case FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER                  : return "InvalidAccountOwner";
+  case FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW                : return "ArithmeticOverflow";
+  case FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR                 : return "UnsupportedSysvar";
+  case FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER                      : return "IllegalOwner";
+  case FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED      : return "MaxAccountsDataAllocationsExceeded";
+  case FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED                  : return "MaxAccountsExceeded";
+  case FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       : return "MaxInstructionTraceLengthExceeded";
+  case FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS          : return "BuiltinProgramsMustConsumeComputeUnits";
+  default: break;
+  }
 
+  return "";
+}
+
+void
+fd_error_to_json( fd_webserver_t * ws,
+                  const uchar* bytes,
+                  ulong size ) {
   const uchar* orig_bytes = bytes;
   ulong orig_size = size;
 
-#define INSTRUCTION_ERROR 8
-  if (size < sizeof(uint) || *(const uint*)bytes != INSTRUCTION_ERROR) /* Always the same? */
+  if (size < sizeof(uint) )
     goto dump_as_hex;
+  uint kind = *(const uint*)bytes;
   bytes += sizeof(uint);
   size -= sizeof(uint);
 
-  if (size < 1)
-    goto dump_as_hex;
-  uint index = *(bytes++); /* Instruction index */
-  size--;
+  if( kind == 8 /* Instruction error */ ) {
+    if( size < 1 )
+      goto dump_as_hex;
+    uint index = *(bytes++); /* Instruction index */
+    size--;
 
-  if (size < sizeof(uint))
-    goto dump_as_hex;
-  uint cnum =  *(const uint*)bytes;
-  bytes += sizeof(uint);
-  size -= sizeof(uint);
-
-  switch (cnum) {
-  case 25: { /* "Custom" */
     if (size < sizeof(uint))
       goto dump_as_hex;
-    uint code =  *(const uint*)bytes; /* Custom code? */
-    fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,{\"Custom\":%u}]}", index, code);
-    return;
+    int cnum =  *(const int*)bytes;
+    bytes += sizeof(uint);
+    size -= sizeof(uint);
+
+    if( cnum == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+      if (size < sizeof(uint))
+        goto dump_as_hex;
+      uint code = *(const uint*)bytes; /* Custom code? */
+      fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,{\"Custom\":%u}]}", index, code);
+      return;
+    } else {
+      fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"%s\"]}", index, instr_strerror( cnum ));
+      return;
+    }
   }
 
-  case 0: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"GenericError\"]}", index); return;
-  case 1: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidArgument\"]}", index); return;
-  case 2: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidInstructionData\"]}", index); return;
-  case 3: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidAccountData\"]}", index); return;
-  case 4: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountDataTooSmall\"]}", index); return;
-  case 5: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InsufficientFunds\"]}", index); return;
-  case 6: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"IncorrectProgramId\"]}", index); return;
-  case 7: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"MissingRequiredSignature\"]}", index); return;
-  case 8: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountAlreadyInitialized\"]}", index); return;
-  case 9: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"UninitializedAccount\"]}", index); return;
-  case 10: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"UnbalancedInstruction\"]}", index); return;
-  case 11: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ModifiedProgramId\"]}", index); return;
-  case 12: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ExternalAccountLamportSpend\"]}", index); return;
-  case 13: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ExternalAccountDataModified\"]}", index); return;
-  case 14: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ReadonlyLamportChange\"]}", index); return;
-  case 15: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ReadonlyDataModified\"]}", index); return;
-  case 16: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"DuplicateAccountIndex\"]}", index); return;
-  case 17: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ExecutableModified\"]}", index); return;
-  case 18: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"RentEpochModified\"]}", index); return;
-  case 19: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"NotEnoughAccountKeys\"]}", index); return;
-  case 20: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountDataSizeChanged\"]}", index); return;
-  case 21: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountNotExecutable\"]}", index); return;
-  case 22: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountBorrowFailed\"]}", index); return;
-  case 23: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountBorrowOutstanding\"]}", index); return;
-  case 24: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"DuplicateAccountOutOfSync\"]}", index); return;
-  case 26: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidError\"]}", index); return;
-  case 27: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ExecutableDataModified\"]}", index); return;
-  case 28: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ExecutableLamportChange\"]}", index); return;
-  case 29: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ExecutableAccountNotRentExempt\"]}", index); return;
-  case 30: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"UnsupportedProgramId\"]}", index); return;
-  case 31: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"CallDepth\"]}", index); return;
-  case 32: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"MissingAccount\"]}", index); return;
-  case 33: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ReentrancyNotAllowed\"]}", index); return;
-  case 34: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"MaxSeedLengthExceeded\"]}", index); return;
-  case 35: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidSeeds\"]}", index); return;
-  case 36: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidRealloc\"]}", index); return;
-  case 37: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ComputationalBudgetExceeded\"]}", index); return;
-  case 38: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"PrivilegeEscalation\"]}", index); return;
-  case 39: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ProgramEnvironmentSetupFailure\"]}", index); return;
-  case 40: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ProgramFailedToComplete\"]}", index); return;
-  case 41: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ProgramFailedToCompile\"]}", index); return;
-  case 42: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"Immutable\"]}", index); return;
-  case 43: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"IncorrectAuthority\"]}", index); return;
-  case 44: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"BorshIoError(String::new())\"]}", index); return;
-  case 45: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"AccountNotRentExempt\"]}", index); return;
-  case 46: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"InvalidAccountOwner\"]}", index); return;
-  case 47: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"ArithmeticOverflow\"]}", index); return;
-  case 48: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"UnsupportedSysvar\"]}", index); return;
-  case 49: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"IllegalOwner\"]}", index); return;
-  case 50: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"MaxAccountsDataSizeExceeded\"]}", index); return;
-  case 51: fd_web_reply_sprintf(ws, "{\"InstructionError\":[%u,\"MaxAccountsExceeded\"]}", index); return;
-  }
-
-  dump_as_hex:
+ dump_as_hex:
   EMIT_SIMPLE("\"");
   fd_web_reply_encode_hex(ws, orig_bytes, orig_size);
   EMIT_SIMPLE("\"");
@@ -133,6 +151,20 @@ void fd_inner_instructions_to_json( fd_webserver_t * ws,
   EMIT_SIMPLE("]}");
 }
 
+struct decode_return_data_buf {
+  uchar data[256];
+  ulong sz;
+};
+
+static bool
+decode_return_data(pb_istream_t *stream, const pb_field_t *field, void **arg) {
+  (void)field;
+  struct decode_return_data_buf * buf = (struct decode_return_data_buf *)(*arg);
+  buf->sz = fd_ulong_min( sizeof(buf->data), stream->bytes_left );
+  pb_read( stream, buf->data, buf->sz );
+  return 1;
+}
+
 const char*
 fd_txn_meta_to_json( fd_webserver_t * ws,
                      const void * meta_raw,
@@ -143,6 +175,10 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
   }
 
   fd_solblock_TransactionStatusMeta txn_status = {0};
+  struct decode_return_data_buf return_data_buf;
+  pb_callback_t return_data_cb = { .funcs.decode = decode_return_data, .arg = &return_data_buf };
+  txn_status.return_data.data = return_data_cb;
+
   pb_istream_t stream = pb_istream_from_buffer( meta_raw, meta_raw_sz );
   if( FD_UNLIKELY( !pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) ) ) {
     FD_LOG_ERR(( "failed to decode txn status: %s", PB_GET_ERROR( &stream ) ));
@@ -202,8 +238,20 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
     if (i > 0) EMIT_SIMPLE(",");
     fd_tokenbalance_to_json(ws, txn_status.pre_token_balances + i);
   }
-  EMIT_SIMPLE("],\"rewards\":[");
-  EMIT_SIMPLE("],\"status\":{\"Ok\":null}},");
+  EMIT_SIMPLE("]");
+  if( txn_status.has_return_data ) {
+    EMIT_SIMPLE(",\"returnData\":{\"data\":[\"");
+    fd_web_reply_encode_base64( ws, return_data_buf.data, return_data_buf.sz );
+    EMIT_SIMPLE("\",\"base64\"]");
+    if( txn_status.return_data.has_program_id ) {
+      char buf32[FD_BASE58_ENCODED_32_SZ];
+      fd_base58_encode_32(txn_status.return_data.program_id, NULL, buf32);
+      fd_web_reply_sprintf(ws, ",\"programId\":\"%s\"", buf32);
+    }
+    EMIT_SIMPLE("}");
+  }
+  EMIT_SIMPLE(",\"rewards\":null,\"status\":{\"Ok\":null}");
+  EMIT_SIMPLE("},");
 
   pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
 
@@ -211,13 +259,170 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
 }
 
 const char*
-  fd_txn_to_json_full( fd_webserver_t * ws,
-                       fd_txn_t* txn,
-                       const uchar* raw,
-                       ulong raw_sz,
-                       fd_rpc_encoding_t encoding,
-                       long maxvers,
-                       int rewards ) {
+vote_program_to_json( fd_webserver_t * ws,
+                      fd_txn_t * txn,
+                      fd_txn_instr_t * instr,
+                      const uchar * raw ) {
+  (void)txn;
+  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
+    fd_vote_instruction_t   instruction;
+    fd_bincode_decode_ctx_t decode = {
+      .data    = raw + instr->data_off,
+      .dataend = raw + instr->data_off + instr->data_sz,
+      .valloc  = fd_scratch_virtual()
+    };
+    int decode_result = fd_vote_instruction_decode( &instruction, &decode );
+    if( decode_result != FD_BINCODE_SUCCESS ) {
+      EMIT_SIMPLE("null");
+      return NULL;
+    }
+
+    EMIT_SIMPLE("{\"parsed\":");
+
+    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
+    fd_vote_instruction_walk( json, &instruction, fd_rpc_json_walk, NULL, 0 );
+
+    EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":null}");
+  } FD_SCRATCH_SCOPE_END;
+  return NULL;
+}
+
+const char *
+system_program_to_json( fd_webserver_t * ws,
+                        fd_txn_t * txn,
+                        fd_txn_instr_t * instr,
+                        const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "system_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+config_program_to_json( fd_webserver_t * ws,
+                        fd_txn_t * txn,
+                        fd_txn_instr_t * instr,
+                        const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "config_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+stake_program_to_json( fd_webserver_t * ws,
+                       fd_txn_t * txn,
+                       fd_txn_instr_t * instr,
+                       const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "stake_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+compute_budget_program_to_json( fd_webserver_t * ws,
+                                fd_txn_t * txn,
+                                fd_txn_instr_t * instr,
+                                const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "compute_budget_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+address_lookup_table_program_to_json( fd_webserver_t * ws,
+                                      fd_txn_t * txn,
+                                      fd_txn_instr_t * instr,
+                                      const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "address_lookup_table_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+executor_zk_elgamal_proof_program_to_json( fd_webserver_t * ws,
+                                           fd_txn_t * txn,
+                                           fd_txn_instr_t * instr,
+                                           const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "executor_zk_elgamal_proof_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+bpf_loader_program_to_json( fd_webserver_t * ws,
+                            fd_txn_t * txn,
+                            fd_txn_instr_t * instr,
+                            const uchar * raw ) {
+  (void)ws;(void)txn;(void)instr;(void)raw;
+  FD_LOG_WARNING(( "bpf_loader_program_to_json not implemented" ));
+  EMIT_SIMPLE("null");
+  return NULL;
+}
+
+const char*
+fd_instr_to_json( fd_webserver_t * ws,
+                  fd_txn_t * txn,
+                  fd_txn_instr_t * instr,
+                  const uchar * raw,
+                  fd_rpc_encoding_t encoding ) {
+  if( encoding == FD_ENC_JSON ) {
+    EMIT_SIMPLE("{\"accounts\":[");
+    const uchar * instr_acc_idxs = raw + instr->acct_off;
+    for (ushort j = 0; j < instr->acct_cnt; j++) {
+      fd_web_reply_sprintf(ws, "%s%u", (j == 0 ? "" : ","), (uint)instr_acc_idxs[j]);
+    }
+    EMIT_SIMPLE("],\"data\":\"");
+    fd_web_reply_encode_base58(ws, raw + instr->data_off, instr->data_sz);
+    fd_web_reply_sprintf(ws, "\",\"programIdIndex\":%u,\"stackHeight\":null}", (uint)instr->program_id);
+
+  } else if( encoding == FD_ENC_JSON_PARSED ) {
+    ushort acct_cnt = txn->acct_addr_cnt;
+    const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
+    if( instr->program_id >= acct_cnt ) {
+      EMIT_SIMPLE("null");
+      return NULL;
+    }
+    const fd_pubkey_t * prog = accts + instr->program_id;
+    if ( !memcmp( prog, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return vote_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return system_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return config_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return stake_program_to_json( ws, txn, instr, raw );
+    } else if ( !memcmp( prog, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return compute_budget_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return address_lookup_table_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      return executor_zk_elgamal_proof_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ))) {
+      return bpf_loader_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      return bpf_loader_program_to_json( ws, txn, instr, raw );
+    } else if( !memcmp( prog, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      return bpf_loader_program_to_json( ws, txn, instr, raw );
+    } else {
+      EMIT_SIMPLE("null");
+    }
+  }
+  return NULL;
+}
+
+const char*
+fd_txn_to_json_full( fd_webserver_t * ws,
+                     fd_txn_t* txn,
+                     const uchar* raw,
+                     ulong raw_sz,
+                     fd_rpc_encoding_t encoding,
+                     long maxvers,
+                     int rewards ) {
   (void)maxvers;
   (void)rewards;
 
@@ -244,9 +449,21 @@ const char*
   ushort acct_cnt = txn->acct_addr_cnt;
   const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
   char buf32[FD_BASE58_ENCODED_32_SZ];
-  for (ushort idx = 0; idx < acct_cnt; idx++) {
-    fd_base58_encode_32(accts[idx].uc, NULL, buf32);
-    fd_web_reply_sprintf(ws, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
+
+  if( encoding == FD_ENC_JSON ) {
+    for (ushort idx = 0; idx < acct_cnt; idx++) {
+      fd_base58_encode_32(accts[idx].uc, NULL, buf32);
+      fd_web_reply_sprintf(ws, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
+    }
+  } else if( encoding == FD_ENC_JSON_PARSED ) {
+    for (ushort idx = 0; idx < acct_cnt; idx++) {
+      fd_base58_encode_32(accts[idx].uc, NULL, buf32);
+      bool signer = (idx < txn->signature_cnt);
+      bool writable = ((idx < txn->signature_cnt - txn->readonly_signed_cnt) ||
+                       ((idx >= txn->signature_cnt) && (idx < acct_cnt - txn->readonly_unsigned_cnt)));
+      fd_web_reply_sprintf(ws, "%s{\"pubkey\":\"%s\",\"signer\":%s,\"source\":\"transaction\",\"writable\":%s}",
+                           (idx == 0 ? "" : ","), buf32, (signer ? "true" : "false"), (writable ? "true" : "false"));
+    }
   }
 
   fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
@@ -254,17 +471,9 @@ const char*
 
   ushort instr_cnt = txn->instr_cnt;
   for (ushort idx = 0; idx < instr_cnt; idx++) {
-    fd_web_reply_sprintf(ws, "%s{\"accounts\":[", (idx == 0 ? "" : ","));
-
-    fd_txn_instr_t * instr = &txn->instr[idx];
-    const uchar * instr_acc_idxs = raw + instr->acct_off;
-    for (ushort j = 0; j < instr->acct_cnt; j++)
-      fd_web_reply_sprintf(ws, "%s%u", (j == 0 ? "" : ","), (uint)instr_acc_idxs[j]);
-
-    EMIT_SIMPLE("],\"data\":\"");
-    fd_web_reply_encode_base58(ws, raw + instr->data_off, instr->data_sz);
-
-    fd_web_reply_sprintf(ws, "\",\"programIdIndex\":%u,\"stackHeight\":null}", (uint)instr->program_id);
+    if( idx ) EMIT_SIMPLE(",");
+    const char * res = fd_instr_to_json( ws, txn, &txn->instr[idx], raw, encoding );
+    if( res ) return res;
   }
 
   const fd_hash_t * recent = (const fd_hash_t *)(raw + txn->recent_blockhash_off);
@@ -288,13 +497,14 @@ const char*
 
   return NULL;
 }
+
 const char*
-  fd_txn_to_json_accts( fd_webserver_t * ws,
-                        fd_txn_t* txn,
-                        const uchar* raw,
-                        fd_rpc_encoding_t encoding,
-                        long maxvers,
-                        int rewards ) {
+fd_txn_to_json_accts( fd_webserver_t * ws,
+                      fd_txn_t* txn,
+                      const uchar* raw,
+                      fd_rpc_encoding_t encoding,
+                      long maxvers,
+                      int rewards ) {
   (void)encoding;
   (void)maxvers;
   (void)rewards;
@@ -326,14 +536,14 @@ const char*
 }
 
 const char *
-  fd_txn_to_json( fd_webserver_t * ws,
-                  fd_txn_t* txn,
-                  const uchar* raw,
-                  ulong raw_sz,
-                  fd_rpc_encoding_t encoding,
-                  long maxvers,
-                  enum fd_block_detail detail,
-                  int rewards ) {
+fd_txn_to_json( fd_webserver_t * ws,
+                fd_txn_t* txn,
+                const uchar* raw,
+                ulong raw_sz,
+                fd_rpc_encoding_t encoding,
+                long maxvers,
+                enum fd_block_detail detail,
+                int rewards ) {
   if( detail == FD_BLOCK_DETAIL_FULL )
     return fd_txn_to_json_full( ws, txn, raw, raw_sz, encoding, maxvers, rewards );
   else if( detail == FD_BLOCK_DETAIL_ACCTS )
@@ -348,6 +558,7 @@ fd_block_to_json( fd_webserver_t * ws,
                   const uchar * blk_data,
                   ulong blk_sz,
                   fd_block_map_t * meta,
+                  fd_hash_t * parent_hash,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
@@ -356,8 +567,10 @@ fd_block_to_json( fd_webserver_t * ws,
 
   char hash[50];
   fd_base58_encode_32(meta->block_hash.uc, 0, hash);
-  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\"",
-                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash);
+  char phash[50];
+  fd_base58_encode_32(parent_hash->uc, 0, phash);
+  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
+                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_web_reply_sprintf(ws, "},\"id\":%s}", call_id);
@@ -482,13 +695,13 @@ fd_block_to_json( fd_webserver_t * ws,
 }
 
 const char*
-  fd_account_to_json( fd_webserver_t * ws,
-                      fd_pubkey_t acct,
-                      fd_rpc_encoding_t enc,
-                      uchar const * val,
-                      ulong val_sz,
-                      long off,
-                      long len ) {
+fd_account_to_json( fd_webserver_t * ws,
+                    fd_pubkey_t acct,
+                    fd_rpc_encoding_t enc,
+                    uchar const * val,
+                    ulong val_sz,
+                    long off,
+                    long len ) {
   fd_web_reply_sprintf(ws, "{\"data\":[\"");
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;

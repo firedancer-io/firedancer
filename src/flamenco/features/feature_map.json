@@ -78,7 +78,7 @@
   {"name":"stake_split_uses_rent_sysvar","pubkey": "FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV","cleaned_up":1180},
   {"name":"add_get_minimum_delegation_instruction_to_stake_program","pubkey": "St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT","cleaned_up":1180},
   {"name":"error_on_syscall_bpf_function_hash_collisions","pubkey": "8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b"},
-  {"name":"reject_callx_r10","pubkey": "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX"},
+  {"name":"reject_callx_r10","pubkey": "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX","cleaned_up":2010},
   {"name":"drop_redundant_turbine_path","pubkey": "4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU","cleaned_up":1180},
   {"name":"executables_incur_cpi_data_cost","pubkey": "7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829","cleaned_up":1180},
   {"name":"fix_recent_blockhashes","pubkey": "6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo","cleaned_up":1180},
@@ -190,7 +190,7 @@
   {"name":"enable_chained_merkle_shreds","pubkey":"7uZBkJXJ1HkuP6R3MJfZs7mLwymBcDbKdqbF51ZWLier"},
   {"name":"remove_rounding_in_fee_calculation","pubkey":"BtVN7YjDzNE6Dk7kTT7YTDgMNUZTNgiSJgsdzAeTg2jF"},
   {"name":"enable_tower_sync_ix","pubkey":"tSynMCspg4xFiCj1v3TDb4c7crMR5tSBhLz4sF7rrNA"},
-  {"name":"deprecate_unused_legacy_vote_plumbing","pubkey":"6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe"},
+  {"name":"deprecate_unused_legacy_vote_plumbing","pubkey":"6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe","cleaned_up":2010},
   {"name":"reward_full_priority_fee","pubkey":"3opE3EzAKnUftUDURkzMgwpNgimBAypW1mNDYH4x4Zg7"},
   {"name":"disable_rent_fees_collection","pubkey":"CJzY83ggJHqPGDq8VisV3U91jDJLuEaALZooBrXtnnLU"},
   {"name":"add_new_reserved_account_keys","pubkey":"8U4skmMVnF6k2kMvrWbQuRUT3qQSiTYpSjqmhmgfthZu"},
@@ -200,5 +200,6 @@
   {"name":"ed25519_precompile_verify_strict","pubkey":"ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo","cleaned_up":2000,"comment":"only impl the activated path"},
   {"name":"zk_elgamal_proof_program_enabled","pubkey":"zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv"},
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4"},
-  {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"}
+  {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
+  {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"}
 ]

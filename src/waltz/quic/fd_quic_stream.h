@@ -233,15 +233,6 @@ void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream );
 
 
-/* set stream connection
-
-   args
-     stream      the stream to change
-     conn        the connection to set on the stream or NULL to remove the connection */
-void
-fd_quic_stream_set_conn( fd_quic_stream_t * stream, fd_quic_conn_t * conn );
-
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_stream_h */

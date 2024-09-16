@@ -21,8 +21,6 @@
 #define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
-#define FD_QUIC_CONN_STATE_CLOSING            8 /* waiting for a clean close (initiator) */
-#define FD_QUIC_CONN_STATE_DRAIN              9 /* waiting for a clean close (peer) */
 
 enum {
   FD_QUIC_CONN_REASON_NO_ERROR                     = 0x00,    /* No error */
@@ -95,7 +93,7 @@ struct fd_quic_conn {
   uchar              called_conn_new;     /* whether we need to call conn_final on teardown */
 
   /* we can have multiple connection ids */
-  fd_quic_conn_id_t  our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  ulong              our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
   /* Save original destination connection id
      This will be used when we receive a retransmitted initial packet
@@ -141,8 +139,6 @@ struct fd_quic_conn {
        duplicate packets should already have been dropped
      data received higher than this would be a gap
        ignore at present, assuming will be resent in order */
-  ulong tx_crypto_offset[4]; /* next handshake data (crypto) offset
-                                   one per encryption level */
   ulong rx_crypto_offset[4]; /* expected handshake data (crypto) offset
                                    one per encryption level */
 
@@ -257,9 +253,6 @@ struct fd_quic_conn {
 
   ushort ipv4_id;           /* ipv4 id field */
 
-  /* some scratch space for frame encoding/decoding */
-  fd_quic_frame_u frame_union;
-
   /* buffer to send next */
   /* rename tx_buf, since it's easy to confuse with stream->tx_buf */
   /* must be at least FD_QUIC_MAX_UDP_PAYLOAD_SZ */
@@ -313,7 +306,6 @@ struct fd_quic_conn {
 
   /* max stream data per stream type */
   ulong                tx_initial_max_stream_data_uni;
-  ulong                rx_initial_max_stream_data_uni;
 
   /* last tx packet num with max_data frame referring to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
@@ -321,7 +313,7 @@ struct fd_quic_conn {
        and update this value */
   ulong                upd_pkt_number;
 
-  /* current round-trip-time */
+  /* current round-trip-time (FIXME this never updates) */
   ulong                rtt;
 
   /* highest peer encryption level */
@@ -371,15 +363,6 @@ fd_quic_conn_get_context( fd_quic_conn_t * conn );
      FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
 FD_QUIC_API void
 fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint type, ulong stream_cnt );
-
-
-/* get the current value for the concurrent streams for the specified type
-
-   type is one of:
-     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
-     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
-FD_QUIC_API ulong
-fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint type );
 
 
 /* update the tree weight

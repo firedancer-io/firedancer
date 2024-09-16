@@ -223,7 +223,7 @@ static void write_stdout( char * buf, ulong buf_sz ) {
 
 static int stop1 = 0;
 
-#define FD_MONITOR_TEXT_BUF_SZ 65536
+#define FD_MONITOR_TEXT_BUF_SZ 131072
 char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
 char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
 
@@ -522,6 +522,9 @@ add_bench_topo( fd_topo_t  * topo,
                 ulong        benchg_tile_cnt,
                 ulong        benchs_tile_cnt,
                 ulong        accounts_cnt,
+                int          transaction_mode,
+                float        contending_fraction,
+                float        cu_price_spread,
                 ulong        conn_cnt,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
@@ -538,6 +541,9 @@ monitor_cmd_fn( args_t *         args,
                     config->development.bench.benchg_tile_count,
                     config->development.bench.benchs_tile_count,
                     0UL,
+                    0,
+                    0.0f,
+                    0.0f,
                     0UL,
                     0,
                     0U,
