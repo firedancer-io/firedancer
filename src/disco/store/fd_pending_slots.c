@@ -136,11 +136,13 @@ fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
 int
 fd_pending_slots_check( fd_pending_slots_t const * pending_slots,
                         ulong                      slot ) {
-  if( pending_slots->start == pending_slots->end ) {
-    return 1;
-  } else if( slot < pending_slots->start && (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX / 4L ) {
+  if( slot < pending_slots->lo_wmark ) {
     return 0;
-  } else if( slot >= pending_slots->end && (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX / 4L ) {
+  } else if( pending_slots->start == pending_slots->end ) {
+    return 1;
+  } else if( slot < pending_slots->start && (long)(pending_slots->end - slot) > ((long)FD_PENDING_MAX / 4L) ) {
+    return 0;
+  } else if( slot >= pending_slots->end && (long)(slot - pending_slots->start) > ((long)FD_PENDING_MAX / 4L) ) {
     return 0;
   }
 
@@ -154,11 +156,14 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
   fd_pending_slots_lock( pending_slots );
 
   long * pending = pending_slots->pending;
-  if( pending_slots->start == pending_slots->end ) {
+  if( slot < pending_slots->lo_wmark ) {
+    FD_LOG_ERR(( "pending queue overrun: lo_wmark=%lu, start=%lu, end=%lu, new slot=%lu", pending_slots->lo_wmark, pending_slots->start, pending_slots->end, slot ));
+  } else if( pending_slots->start == pending_slots->end ) {
     /* Queue is empty */
     pending_slots->start = slot;
     pending_slots->end = slot+1U;
     pending[slot & FD_PENDING_MASK] = when;
+    FD_LOG_WARNING(("PENDING QUEUE: EMPTY, START SLOT: %lu, END SLOT: %lu", pending_slots->start, pending_slots->end));
 
   } else if ( slot < pending_slots->start ) {
     /* Grow down */
@@ -170,6 +175,7 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
       pending[i & FD_PENDING_MASK] = 0;
     }
     pending_slots->start = slot;
+    FD_LOG_WARNING(("PENDING QUEUE: GROW DOWN, START SLOT: %lu", pending_slots->start));
 
   } else if ( slot >= pending_slots->end ) {
     /* Grow up */
@@ -181,6 +187,7 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
       pending[i & FD_PENDING_MASK] = 0;
     }
     pending_slots->end = slot+1U;
+    FD_LOG_WARNING(("PENDING QUEUE: GROW UP, END SLOT: %lu", pending_slots->end));
 
   } else {
     /* Update in place */

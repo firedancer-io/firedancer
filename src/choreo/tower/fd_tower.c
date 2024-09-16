@@ -453,7 +453,7 @@ fd_tower_best_fork( FD_PARAM_UNUSED fd_tower_t const * tower,
   if( FD_UNLIKELY( !best ) ) {
 
     /* If the best fork is not in the frontier, then we must have pruned
-       it and we're now in a bad state. */
+       it or improperly re-used its fork and we're now in a bad state. */
 
     /* TODO eqvoc */
 
