@@ -24,13 +24,16 @@ struct fd_harness_ctx {
 };
 typedef struct fd_harness_ctx fd_harness_ctx_t;
 
-/* Dump execution state to protobuf format that capture the execution
-   environment. */
-
 int
 fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx, 
                        fd_instr_info_t   const * instr_info, 
                        ushort                    instr_idx );
+
+int
+fd_harness_exec_instr( uchar const * file_buf, ulong file_sz );
+
+int
+fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz );
 
 int
 fd_harness_dump_txn( fd_exec_txn_ctx_t * txn_ctx );
@@ -40,12 +43,6 @@ fd_harness_dump_slot( fd_exec_slot_ctx_t * slot_ctx );
 
 int 
 fd_harness_dump_runtime( fd_exec_epoch_ctx_t * epoch_ctx );
-
-/* Restore execution state from protobuf format. Outputs a protobuf
-   that captures the execution environment effects. */
-
-int
-fd_harness_exec_instr( uchar const * file_buf, ulong file_sz );
 
 int
 fd_harness_exec_txn( uchar const * filename, ulong file_sz );

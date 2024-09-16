@@ -1,7 +1,12 @@
 #include "fd_harness.h"
 #include "../runtime/sysvar/fd_sysvar_clock.h"
+#include "../runtime/tests/generated/invoke.pb.h"
 
-static void
+/* TODO: some of these helpers can be factored out to some common utils file */
+
+/* Instruction dumping helpers ************************************************/
+
+void
 fd_harness_dump_file( fd_v2_exec_env_t  const * exec_env,
                       fd_exec_txn_ctx_t const * txn_ctx,
                       ushort                    instr_idx ) {
@@ -48,7 +53,7 @@ fd_harness_dump_file( fd_v2_exec_env_t  const * exec_env,
   fclose( file );
 }
 
-static void
+void
 fd_harness_dump_acct_state( fd_borrowed_account_t const * borrowed_account,
                             fd_v2_acct_state_t *          output_account ) {
 
@@ -78,7 +83,7 @@ fd_harness_dump_acct_state( fd_borrowed_account_t const * borrowed_account,
   output_account->has_seed_addr = false;
 }
 
-static void
+void
 fd_harness_dump_features( fd_features_t const * features, fd_v2_feature_t * output_features ) {
   uint idx = 0U;
   for( fd_feature_id_t const *id = fd_feature_iter_init(); 
@@ -89,6 +94,212 @@ fd_harness_dump_features( fd_features_t const * features, fd_v2_feature_t * outp
     fd_memcpy( &output_features[idx++].feature_id, &(id->id), sizeof(fd_pubkey_t) );
   }
 } 
+ 
+
+/* Execute instruction helpers ************************************************/
+
+void
+fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
+
+  fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
+
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+
+  /* TODO: FIX THIS PLEASE THIS IS A MEGA MEGA HACK */
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
+  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+    if( last ) {
+      *recent_block_hash = *last;
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+    }
+  }
+
+} 
+
+void
+fd_harness_exec_restore_features( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exec_env ) {
+  fd_exec_epoch_ctx_t * epoch_ctx = ctx->epoch_ctx;
+  fd_features_disable_all( &epoch_ctx->features );
+  for( uint i=0U; i<exec_env->features_count; i++ ) {
+    fd_pubkey_t * feature = (fd_pubkey_t*)exec_env->features[i].feature_id;
+    fd_features_enable_decoded_one_off( &epoch_ctx->features, feature, exec_env->features[i].slot );
+  }
+}
+
+void
+fd_harness_exec_setup( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exec_env ) {
+
+  /* Allocate new workspace. */
+
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>=fd_shmem_cpu_cnt() ) {
+    cpu_idx = 0UL;
+  }
+  ctx->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+
+  /* Declare an alloc from the wksp. */
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
+  
+  /* Allocate, attach, and push a scratch frame. */
+
+  /* TODO: use scratch methods here and define things out. */
+
+  void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
+  void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
+  fd_scratch_attach( smem, fmem, 1<<30, 64UL );
+  fd_scratch_push();
+
+  /* Scratch allocate a funk that will exist for the scope of the execution. */
+
+  void * funk_mem = fd_scratch_alloc( fd_funk_align(), fd_funk_footprint() );
+  ctx->funk       = fd_funk_join( fd_funk_new( funk_mem, 999UL, (ulong)fd_tickcount(), 4UL+fd_tile_cnt(), 1024UL ) );
+
+  /* Allocate txn, slot, and epoch contexts. */
+
+  uchar * epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( 128UL ) );
+  uchar * slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
+  uchar * txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
+
+  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, 128UL ) );
+  ctx->slot_ctx  = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  ctx->txn_ctx   = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ) );
+
+  /* Allocate acc mgr and generate a funk transaction. Populate other slot ctx
+     fields needed for execution. */
+
+  fd_funk_txn_xid_t xid = fd_funk_generate_xid();
+
+  fd_funk_start_write( ctx->funk );
+
+  ctx->slot_ctx->acc_mgr   = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), ctx->funk );
+  ctx->slot_ctx->funk_txn  = fd_funk_txn_prepare( ctx->funk, NULL, &xid, 1 );
+  ctx->slot_ctx->epoch_ctx = ctx->epoch_ctx;
+
+  /* Setup the slot bank and set the slot number. */
+
+  fd_slot_bank_new( &ctx->slot_ctx->slot_bank ); 
+  ctx->slot_ctx->slot_bank.slot = exec_env->slots[0].slot_number;
+
+  /* Populate relevant txn context fields. */
+
+  fd_exec_txn_ctx_setup( ctx->txn_ctx, NULL, NULL );
+  ctx->txn_ctx->epoch_ctx = ctx->epoch_ctx;
+  ctx->txn_ctx->slot_ctx  = ctx->slot_ctx;
+  ctx->txn_ctx->funk_txn  = ctx->slot_ctx->funk_txn;
+  ctx->txn_ctx->acc_mgr   = ctx->slot_ctx->acc_mgr;
+  ctx->txn_ctx->valloc    = ctx->slot_ctx->valloc;
+
+}
+
+void
+fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
+                          fd_borrowed_account_t * borrowed_account, 
+                          fd_v2_acct_state_t *    acc ) {
+  
+  fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
+  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
+  fd_pubkey_t *   pubkey   = (fd_pubkey_t*)acc->address;
+
+  if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) ) {
+    /* Don't need to load in the accounts if it already exists. TODO: consider
+       even throwing an error here because it means the exec env is probably
+       busted. */
+    return;
+  }
+
+  fd_borrowed_account_init( borrowed_account );
+
+  int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
+                               /* txn         */ funk_txn,
+                               /* pubkey      */ pubkey,
+                               /* do_create   */ 1,
+                               /* min_data_sz */ acc->data->size,
+                                                 borrowed_account );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "Failed to load account into funk" ));
+  }
+
+  if( acc->data->size ) {
+    fd_memcpy( borrowed_account->data, acc->data->bytes, acc->data->size );
+    borrowed_account->const_data = borrowed_account->data;
+  }
+
+  borrowed_account->starting_lamports     = acc->lamports;
+  borrowed_account->starting_dlen         = acc->data->size;
+  borrowed_account->meta->info.lamports   = acc->lamports;
+  borrowed_account->meta->info.executable = acc->executable;
+  borrowed_account->meta->info.rent_epoch = acc->rent_epoch;
+  borrowed_account->meta->dlen            = acc->data->size;
+  fd_memcpy( borrowed_account->meta->info.owner, acc->owner, sizeof(fd_pubkey_t) );
+}
+
+void
+fd_harness_exec_write_effects( fd_exec_txn_ctx_t * txn_ctx,
+                               int                 res,
+                               char const *        filename ) {
+
+  fd_v2_exec_effects_t  exec_effects  = FD_V2_EXEC_EFFECTS_INIT_ZERO;
+  fd_v2_slot_effects_t  slot_effects  = FD_V2_SLOT_EFFECTS_INIT_ZERO;
+  fd_v2_txn_effects_t   txn_effects   = FD_V2_TXN_EFFECTS_INIT_ZERO;
+  fd_v2_instr_effects_t instr_effects = FD_V2_INSTR_EFFECTS_INIT_ZERO;
+
+  exec_effects.harness_type       = FD_V2_HARNESS_TYPE_INSTR;
+  exec_effects.slot_effects_count = 1UL;
+  exec_effects.slot_effects       = &slot_effects;
+  exec_effects.acct_states_count  = (uint)txn_ctx->accounts_cnt;
+  exec_effects.acct_states        = fd_scratch_alloc( alignof(fd_v2_acct_state_t), sizeof(fd_v2_acct_state_t) * txn_ctx->accounts_cnt );
+
+  for( uint i=0U; i<txn_ctx->accounts_cnt; i++ ) {
+    fd_v2_acct_state_t * output_account = &exec_effects.acct_states[i];
+    fd_harness_dump_acct_state( &txn_ctx->borrowed_accounts[i], output_account );
+  }
+
+  slot_effects.txn_effects_count = 1UL;
+  slot_effects.txn_effects       = &txn_effects;
+
+  txn_effects.instr_effects_count = 1UL;
+  txn_effects.instr_effects       = &instr_effects;
+  txn_effects.cus_remain          = txn_ctx->compute_meter;
+  txn_effects.return_data         = fd_scratch_alloc( 1UL, PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
+  txn_effects.return_data->size   = (uint)txn_ctx->return_data.len;
+  fd_memcpy( txn_effects.return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
+
+  instr_effects.result     = res;
+  instr_effects.custom_err = res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ? txn_ctx->custom_err : 0U;
+
+  /* Encode the protobuf and output to file */
+  
+  /* TODO: Find a better bound for the out buf size */
+  ulong out_buf_size  = 100UL * 1024UL * 1024UL;
+  uint8_t * out       = fd_scratch_alloc( alignof(uint8_t), out_buf_size );
+  pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
+
+  if( FD_UNLIKELY( !pb_encode( &stream, FD_V2_EXEC_EFFECTS_FIELDS, &exec_effects ) ) ) {
+    FD_LOG_ERR(( "Failed to encode execution environment protobuf" ));
+  }
+
+  FILE * file = fopen( filename, "wb" );
+  if( FD_UNLIKELY( !file ) ) {
+    FD_LOG_ERR(( "Unable to open file=%s to write", filename ));
+  }
+
+  FD_LOG_NOTICE(("Writing to file=%s", filename));
+
+  fwrite( out, 1, stream.bytes_written, file );
+  fclose( file );
+
+
+}
+
+
+/* Instruction API start*/
 
 int
 fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx, 
@@ -108,10 +319,6 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
      2. Executable accounts
      3. Sysvar accounts
    */
-
-  fd_sol_sysvar_clock_t clock = {0};
-  fd_sysvar_clock_read( &clock, txn_ctx->slot_ctx );
-  FD_LOG_NOTICE(("CLOCK EPOCH %lu", clock.epoch ));
 
   /* Make this static */
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
@@ -236,151 +443,6 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
   } FD_SCRATCH_SCOPE_END;
 }
 
-/* Execute runtime environment ************************************************/
-
-static void
-fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
-
-  fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
-
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
-
-  /* TODO: FIX THIS PLEASE THIS IS A MEGA MEGA HACK */
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
-  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
-    if( last ) {
-      *recent_block_hash = *last;
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
-    }
-  }
-
-} 
-
-static void
-fd_harness_exec_restore_features( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exec_env ) {
-  fd_exec_epoch_ctx_t * epoch_ctx = ctx->epoch_ctx;
-  fd_features_disable_all( &epoch_ctx->features );
-  for( uint i=0U; i<exec_env->features_count; i++ ) {
-    fd_pubkey_t * feature = (fd_pubkey_t*)exec_env->features[i].feature_id;
-    fd_features_enable_decoded_one_off( &epoch_ctx->features, feature, exec_env->features[i].slot );
-  }
-}
-
-static void
-fd_harness_exec_setup( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exec_env ) {
-
-  /* Allocate new workspace. */
-
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>=fd_shmem_cpu_cnt() ) {
-    cpu_idx = 0UL;
-  }
-  ctx->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
-
-  /* Declare an alloc from the wksp. */
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
-  
-  /* Allocate, attach, and push a scratch frame. */
-
-  /* TODO: use scratch methods here and define things out. */
-
-  void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
-  void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
-  fd_scratch_attach( smem, fmem, 1<<30, 64UL );
-  fd_scratch_push();
-
-  /* Scratch allocate a funk that will exist for the scope of the execution. */
-
-  void * funk_mem = fd_scratch_alloc( fd_funk_align(), fd_funk_footprint() );
-  ctx->funk       = fd_funk_join( fd_funk_new( funk_mem, 999UL, (ulong)fd_tickcount(), 4UL+fd_tile_cnt(), 1024UL ) );
-
-  /* Allocate txn, slot, and epoch contexts. */
-
-  uchar * epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( 128UL ) );
-  uchar * slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-  uchar * txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
-
-  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, 128UL ) );
-  ctx->slot_ctx  = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
-  ctx->txn_ctx   = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ) );
-
-  /* Allocate acc mgr and generate a funk transaction. Populate other slot ctx
-     fields needed for execution. */
-
-  fd_funk_txn_xid_t xid = fd_funk_generate_xid();
-
-  fd_funk_start_write( ctx->funk );
-
-  ctx->slot_ctx->acc_mgr   = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), ctx->funk );
-  ctx->slot_ctx->funk_txn  = fd_funk_txn_prepare( ctx->funk, NULL, &xid, 1 );
-  ctx->slot_ctx->epoch_ctx = ctx->epoch_ctx;
-
-  /* Setup the slot bank and set the slot number. */
-
-  fd_slot_bank_new( &ctx->slot_ctx->slot_bank ); 
-  ctx->slot_ctx->slot_bank.slot = exec_env->slots[0].slot_number;
-
-  /* Populate relevant txn context fields. */
-
-  fd_exec_txn_ctx_setup( ctx->txn_ctx, NULL, NULL );
-  ctx->txn_ctx->epoch_ctx = ctx->epoch_ctx;
-  ctx->txn_ctx->slot_ctx  = ctx->slot_ctx;
-  ctx->txn_ctx->funk_txn  = ctx->slot_ctx->funk_txn;
-  ctx->txn_ctx->acc_mgr   = ctx->slot_ctx->acc_mgr;
-  ctx->txn_ctx->valloc    = ctx->slot_ctx->valloc;
-
-}
-
-static void
-fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
-                          fd_borrowed_account_t * borrowed_account, 
-                          fd_v2_acct_state_t *    acc ) {
-  
-  fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
-  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
-  fd_pubkey_t *   pubkey   = (fd_pubkey_t*)acc->address;
-
-  if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) ) {
-    /* Don't need to load in the accounts if it already exists. TODO: consider
-       even throwing an error here because it means the exec env is probably
-       busted. */
-    return;
-  }
-
-  fd_borrowed_account_init( borrowed_account );
-
-  int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
-                               /* txn         */ funk_txn,
-                               /* pubkey      */ pubkey,
-                               /* do_create   */ 1,
-                               /* min_data_sz */ acc->data->size,
-                                                 borrowed_account );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to load account into funk" ));
-  }
-
-  if( acc->data->size ) {
-    fd_memcpy( borrowed_account->data, acc->data->bytes, acc->data->size );
-    borrowed_account->const_data = borrowed_account->data;
-  }
-
-  borrowed_account->starting_lamports     = acc->lamports;
-  borrowed_account->starting_dlen         = acc->data->size;
-  borrowed_account->meta->info.lamports   = acc->lamports;
-  borrowed_account->meta->info.executable = acc->executable;
-  borrowed_account->meta->info.rent_epoch = acc->rent_epoch;
-  borrowed_account->meta->dlen            = acc->data->size;
-  fd_memcpy( borrowed_account->meta->info.owner, acc->owner, sizeof(fd_pubkey_t) );
-
-}
-
 int
 fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
 
@@ -476,38 +538,82 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
   FD_LOG_NOTICE(("res %d", res));
   FD_LOG_NOTICE(("instr data %lx data sz %lu", instr.data, instr.data_sz));
 
+  /* Now that the instruction has been executed, the execution effects can be
+     derived from the transaction context. */
 
-  /* Use updated transaction context to dump the updated account states */
+  fd_harness_exec_write_effects( ctx.txn_ctx, res, "/data/ibhatt/instr_effects.pb.bin" );  
 
-  fd_exec_txn_ctx_t * txn_ctx = ctx.txn_ctx;
+  return 0;
+}
 
-  fd_v2_exec_effects_t  exec_effects  = FD_V2_EXEC_EFFECTS_INIT_ZERO;
-  fd_v2_slot_effects_t  slot_effects  = FD_V2_SLOT_EFFECTS_INIT_ZERO;
-  fd_v2_txn_effects_t   txn_effects   = FD_V2_TXN_EFFECTS_INIT_ZERO;
-  fd_v2_instr_effects_t instr_effects = FD_V2_INSTR_EFFECTS_INIT_ZERO;
+int
+fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
 
-  exec_effects.slot_effects_count = 1UL;
-  exec_effects.slot_effects       = &slot_effects;
-  exec_effects.acct_states_count  = (uint)txn_ctx->accounts_cnt;
-  exec_effects.acct_states        = fd_scratch_alloc( alignof(fd_v2_acct_state_t), sizeof(fd_v2_acct_state_t) * txn_ctx->accounts_cnt );
+  /* TODO: FACTOR WKSP AND ALLOCATOR CODE OUT TO COMMON FUNCTION */
 
-  for( uint i=0U; i<txn_ctx->accounts_cnt; i++ ) {
-    fd_v2_acct_state_t * output_account = &exec_effects.acct_states[i];
-    fd_harness_dump_acct_state( &txn_ctx->borrowed_accounts[i], output_account );
+  /* Declare a wksp. */
+
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+
+  /* Declare an alloc from the wksp. */
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
+  
+  /* Allocate, attach, and push a scratch frame. */
+
+  /* TODO: use scratch methods here and define things out. */
+
+  void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
+  void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
+  fd_scratch_attach( smem, fmem, 1<<30, 64UL );
+  fd_scratch_push();
+
+  fd_exec_test_instr_context_t legacy_instr = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
+
+  pb_istream_t istream = pb_istream_from_buffer( file_buf, file_sz );
+  if( FD_UNLIKELY( !pb_decode( &istream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &legacy_instr ) ) ) {
+    FD_LOG_ERR(( "Failed to decode exec env pb" ));
   }
 
-  slot_effects.txn_effects_count = 1UL;
-  slot_effects.txn_effects       = &txn_effects;
+  fd_v2_exec_env_t  exec_env  = FD_V2_EXEC_ENV_INIT_DEFAULT;
+  fd_v2_slot_env_t  slot_env  = FD_V2_SLOT_ENV_INIT_DEFAULT;
+  fd_v2_txn_env_t   txn_env   = FD_V2_TXN_ENV_INIT_DEFAULT;
+  fd_v2_instr_env_t instr_env = FD_V2_INSTR_ENV_INIT_DEFAULT;
 
-  txn_effects.instr_effects_count = 1UL;
-  txn_effects.instr_effects       = &instr_effects;
-  txn_effects.cus_remain          = txn_ctx->compute_meter;
-  txn_effects.return_data         = fd_scratch_alloc( 1UL, PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
-  txn_effects.return_data->size   = (uint)txn_ctx->return_data.len;
-  fd_memcpy( txn_effects.return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
 
-  instr_effects.result     = res;
-  instr_effects.custom_err = res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ? txn_ctx->custom_err : 0U;
+  /* Populate the account states, and add in the missing sysvars required for
+     program execution. */
+  FD_TEST(legacy_instr.accounts_count <= 256UL, "Too many accounts in legacy instr");
+  exec_env.acct_states_count = legacy_instr.accounts_count;
+  exec_env.acct_states       = fd_scratch_alloc( alignof(fd_v2_acct_state_t), sizeof(fd_v2_acct_state_t) * 256UL );
+  
+  /* First copy over the existing account state. */
+
+  for( uint i=0U; i<legacy_instr.accounts_count; i++ ) {
+    fd_memcpy( exec_env.acct_states[i].address, legacy_instr.accounts[i].address, sizeof(fd_pubkey_t) );
+    exec_env.acct_states[i].lamports      = legacy_instr.accounts[i].lamports;
+    exec_env.acct_states[i].data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( legacy_instr.accounts[i].data_len ) );
+    exec_env.acct_states[i].data->size    = legacy_instr.accounts[i].data_len;
+    fd_memcpy( exec_env.acct_states[i].data->bytes, legacy_instr.accounts[i].data->bytes, legacy_instr.accounts[i].data->size );
+    exec_env.acct_states[i].executable    = legacy_instr.accounts[i].executable;
+    exec_env.acct_states[i].rent_epoch    = legacy_instr.accounts[i].rent_epoch;
+    fd_memcpy( exec_env.acct_states[i].owner, legacy_instr.accounts[i].owner, sizeof(fd_pubkey_t) );
+    exec_env.acct_states[i].has_seed_addr = false;
+  }
+
+  /* Now iterate over the existing accounts and figure out which sysvars are
+     not inlcuded in the account. If this is the case, then default sysvars
+     accounts will be injected to the v2 format. The value of these default
+     sysvars will match the ones used in the legacy harness to maintain ease
+     of validation between the two formats.
+     
+     TODO: This can be optimized to be an O(N*M) loop where N is number of 
+     accounts and M is the number of sysvars; it can be combined into the
+     previous one. */
+
+  for( uint i=0U; i<legacy_instr.accounts_count; i++ ) {
+    for()
+  }
 
   return 0;
 }
