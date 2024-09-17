@@ -645,25 +645,44 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
     };
 
     fd_sol_sysvar_clock_encode( &sysvar_clock, &ctx );
-
-
+  }
 
   if( !seen_sysvar_accounts[1] ) { /* Epoch Schedule */
-    fd_epoch_schedule_t FD_FN_UNUSED sysvar_epoch_schedule = {
+
+    uchar epoch_schedule_data[ 20UL ];
+
+    fd_epoch_schedule_t sysvar_epoch_schedule = {
       .slots_per_epoch             = 432000UL,
       .leader_schedule_slot_offset = 432000UL,
       .warmup                      = 1UL,
       .first_normal_epoch          = 14UL,
       .first_normal_slot           = 524256UL
     };
+
+    fd_bincode_encode_ctx_t ctx = {
+      .data    = epoch_schedule_data,
+      .dataend = epoch_schedule_data + sizeof(fd_epoch_schedule_t)
+    };
+
+    fd_epoch_schedule_encode( &sysvar_epoch_schedule, &ctx );
   }
 
   if( !seen_sysvar_accounts[2] ) { /* Rent */
-    fd_rent_t FD_FN_UNUSED sysvar_rent = {
+
+    uchar rent_data[ 17UL ];
+
+    fd_rent_t sysvar_rent = {
       .lamports_per_uint8_year = 3480,
       .exemption_threshold     = 2.0,
       .burn_percent            = 50
     };
+
+    fd_bincode_encode_ctx_t ctx = {
+      .data    = rent_data, 
+      .dataend = rent_data + sizeof(fd_rent_t)
+    };
+
+    fd_rent_encode( &sysvar_rent, &ctx );
   }
 
   if( !seen_sysvar_accounts[3] ) { /* Recent Blockhashes */
