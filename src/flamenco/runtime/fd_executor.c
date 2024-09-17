@@ -227,7 +227,7 @@ status_check_tower( ulong slot, void * _ctx ) {
 
 int
 fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
-  
+
   if( FD_UNLIKELY( !txn_ctx->slot_ctx->status_cache ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -237,7 +237,7 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_txncache_query_t curr_query;
   curr_query.blockhash = blockhash->uc;
   fd_blake3_t b3[1];
-  
+
   fd_blake3_init( b3 );
   fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off),(ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
@@ -300,8 +300,8 @@ fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx 
     // Check for max loaded acct size
     fd_borrowed_account_t * acct = NULL;
     int err        = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
-    ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL; 
-  
+    ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
+
     err = accumulate_and_check_loaded_account_data_size( acc_size, requested_loaded_accounts_data_size, &accumulated_account_size );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
@@ -339,7 +339,7 @@ fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx 
     /* https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L406-L410
        Side note: I don't think there's a single condition where this statement evaluates to false since builtins_start_index
        seems to be tied to accounts.len(), so I'll skip this check. Moving on... */
-    
+
     // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L412-L429
     FD_BORROWED_ACCOUNT_DECL( owner_account );
     err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) program_account->const_meta->info.owner, owner_account );
@@ -348,7 +348,7 @@ fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx 
     }
 
     // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L413-L418
-    if( FD_UNLIKELY( memcmp( owner_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) 
+    if( FD_UNLIKELY( memcmp( owner_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) )
                   || !fd_account_is_executable( owner_account->const_meta ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
@@ -371,6 +371,8 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
 
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+    FD_SCRATCH_SCOPE_BEGIN {
+
     int hit_max_limit = 0;
     fd_borrowed_account_t * account = NULL;
     err                             = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &account );
@@ -417,7 +419,7 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
         fd_bpf_upgradeable_loader_state_t loader_state[1];
         fd_borrowed_account_t * programdata_account = NULL;
         // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L98
-        if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( loader_state, &program_decode_ctx ) && 
+        if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( loader_state, &program_decode_ctx ) &&
                        !fd_txn_borrowed_account_executable_view( txn_ctx, &loader_state->inner.program.programdata_address, &programdata_account) ) ) {
 
           fd_bincode_decode_ctx_t program_data_decode_ctx = {
@@ -456,6 +458,8 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
       // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L271
       return FD_RUNTIME_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT;
     }
+
+    } FD_SCRATCH_SCOPE_END;
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -467,7 +471,7 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
                                      fd_borrowed_account_t *     rec ) {
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L109-L125 */
   if( FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
-    if( FD_LIKELY( rec->const_meta->info.rent_epoch!=ULONG_MAX 
+    if( FD_LIKELY( rec->const_meta->info.rent_epoch!=ULONG_MAX
                 && rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) ) {
       return 1;
     }
@@ -523,13 +527,13 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* At this point, the fee payer has been validated and the fee has been
      calculated. This means that the fee can be safely subtracted from the
-     fee payer's borrowed account. However, the starting lamports of the 
-     account must be updated as well. Each instruction must have the net 
-     same (balanced) amount of lamports. This is done by comparing the 
-     borrowed accounts starting lamports and comparing it to the sum of 
+     fee payer's borrowed account. However, the starting lamports of the
+     account must be updated as well. Each instruction must have the net
+     same (balanced) amount of lamports. This is done by comparing the
+     borrowed accounts starting lamports and comparing it to the sum of
      the ending lamports. Therefore, we need to update the starting lamports
-     specifically for the fee payer. 
-     
+     specifically for the fee payer.
+
      This is especially important in the case where the transaction fails. This
      is because we need to roll back the account to the balance AFTER the fee
      is paid. It is also possible for the accounts data and owner to change.
@@ -546,7 +550,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
   txn_ctx->execution_fee = execution_fee;
   txn_ctx->priority_fee  = priority_fee;
-  
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -626,7 +630,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
         /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
         ulong active_addresses_len;
-        err = fd_get_active_addresses_len( &addr_lookup_table_state.inner.lookup_table, 
+        err = fd_get_active_addresses_len( &addr_lookup_table_state.inner.lookup_table,
                                            txn_ctx->slot_ctx->slot_bank.slot,
                                            slot_hashes->hashes,
                                            lookup_addrs_cnt,
@@ -1091,6 +1095,8 @@ void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    FD_SCRATCH_SCOPE_BEGIN {
+
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
     txn_ctx->nonce_accounts[i] = 0;
 
@@ -1107,9 +1113,9 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
 
 
-      /* All new accounts should have their rent epoch set to ULONG_MAX. 
+      /* All new accounts should have their rent epoch set to ULONG_MAX.
          https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
-      if( is_unknown_account 
+      if( is_unknown_account
           || ( i>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, borrowed_account ) ) ) {
         borrowed_account->meta->info.rent_epoch = ULONG_MAX;
       }
@@ -1150,6 +1156,8 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
       j++;
     }
+
+    } FD_SCRATCH_SCOPE_END;
   }
   txn_ctx->executable_cnt = j;
 }
@@ -1282,7 +1290,7 @@ fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
 
 /* Creates a TxnContext Protobuf message from a provided txn_ctx.
    - The transaction is assumed to have just finished phase 1 of preparation
-   - Caller of this function should have a scratch frame ready 
+   - Caller of this function should have a scratch frame ready
 */
 static void
 create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_msg,
@@ -1362,7 +1370,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     message->account_keys[i] = account_key;
   }
 
-  /* Transaction Context -> tx -> message -> account_shared_data 
+  /* Transaction Context -> tx -> message -> account_shared_data
      Contains:
       - Account data for regular accounts
       - Account data for LUT accounts
@@ -1371,7 +1379,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   */
   // Dump regular accounts first
   message->account_shared_data_count = 0;
-  message->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t), 
+  message->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t),
                                                    (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
     FD_BORROWED_ACCOUNT_DECL(borrowed_account);
@@ -1484,7 +1492,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   if( !message->is_legacy ) {
     /* Transaction Context -> tx -> message -> address_table_lookups */
     message->address_table_lookups_count = txn_descriptor->addr_table_lookup_cnt;
-    message->address_table_lookups = fd_scratch_alloc( alignof(fd_exec_test_message_address_table_lookup_t), 
+    message->address_table_lookups = fd_scratch_alloc( alignof(fd_exec_test_message_address_table_lookup_t),
                                                        txn_descriptor->addr_table_lookup_cnt * sizeof(fd_exec_test_message_address_table_lookup_t) );
     for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
       // alut -> account_key
@@ -1542,12 +1550,12 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   ulong max_age = slot_ctx->slot_bank.block_hash_queue.max_age;
   txn_context_msg->max_age = max_age;
 
-  /* Transaction Context -> blockhash_queue 
-     NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301) 
-     entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a 
+  /* Transaction Context -> blockhash_queue
+     NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
+     entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
      huge issue, but something to keep in mind. */
-  pb_bytes_array_t ** output_blockhash_queue = fd_scratch_alloc( 
-                                                      alignof(pb_bytes_array_t *), 
+  pb_bytes_array_t ** output_blockhash_queue = fd_scratch_alloc(
+                                                      alignof(pb_bytes_array_t *),
                                                       PB_BYTES_ARRAY_T_ALLOCSIZE((max_age + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue_count = 0;
   txn_context_msg->blockhash_queue = output_blockhash_queue;
@@ -1558,7 +1566,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
     nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
 
-    /* Get the index in the blockhash queue 
+    /* Get the index in the blockhash queue
        - Lower index = newer
        - 0 will be the most recent blockhash
        - Index range is [0, max_age] (not a typo) */
@@ -1782,8 +1790,8 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       ending_dlen += b->meta->dlen;
 
       /* Rent states are defined as followed:
-         - lamports == 0                      -> Uninitialized 
-         - 0 < lamports < rent_exempt_minimum -> RentPaying 
+         - lamports == 0                      -> Uninitialized
+         - 0 < lamports < rent_exempt_minimum -> RentPaying
          - lamports >= rent_exempt_minimum    -> RentExempt
          In Agave, 'self' refers to our 'after' state. */
       uchar after_uninitialized  = b->meta->info.lamports == 0;

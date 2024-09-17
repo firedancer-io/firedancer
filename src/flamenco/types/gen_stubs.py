@@ -2230,12 +2230,14 @@ class EnumType:
         print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "{n}", level++);', file=body)
         print('  switch( self->discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
+            print(f'  case {i}: {{', file=body)
             if not isinstance(v, str):
-                print(f'  case {i}: {{', file=body)
                 print(f'    fun( w, self, "{v.name}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
                 v.emitWalk("inner.")
-                print('    break;', file=body)
-                print('  }', file=body)
+            else:
+                print(f'    fun( w, self, "{v}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
+            print('    break;', file=body)
+            print('  }', file=body)
         print('  }', file=body)
         print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "{n}", level-- );', file=body)
         print("}", file=body)

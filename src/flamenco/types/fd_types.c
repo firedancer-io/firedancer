@@ -6581,6 +6581,22 @@ ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
 void fd_reward_type_walk( void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_reward_type", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "rent", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "staking", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "voting", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_reward_type", level-- );
 }
@@ -13449,6 +13465,22 @@ ulong fd_cluster_type_align( void ){ return FD_CLUSTER_TYPE_ALIGN; }
 void fd_cluster_type_walk( void * w, fd_cluster_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_cluster_type", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "Testnet", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "MainnetBeta", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "Devnet", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "Development", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_cluster_type", level-- );
 }
@@ -15290,6 +15322,14 @@ ulong fd_vote_authorize_align( void ){ return FD_VOTE_AUTHORIZE_ALIGN; }
 void fd_vote_authorize_walk( void * w, fd_vote_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_vote_authorize", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "voter", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "withdrawer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_vote_authorize", level-- );
 }
@@ -16128,6 +16168,10 @@ void fd_vote_instruction_walk( void * w, fd_vote_instruction_t const * self, fd_
   case 3: {
     fun( w, self, "withdraw", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.withdraw, "withdraw", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "update_validator_identity", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 5: {
@@ -17197,6 +17241,10 @@ void fd_system_program_instruction_walk( void * w, fd_system_program_instruction
     fd_system_program_instruction_create_account_with_seed_walk( w, &self->inner.create_account_with_seed, fun, "create_account_with_seed", level );
     break;
   }
+  case 4: {
+    fun( w, self, "advance_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 5: {
     fun( w, self, "withdraw_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.withdraw_nonce_account, "withdraw_nonce_account", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -17230,6 +17278,10 @@ void fd_system_program_instruction_walk( void * w, fd_system_program_instruction
   case 11: {
     fun( w, self, "transfer_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_system_program_instruction_transfer_with_seed_walk( w, &self->inner.transfer_with_seed, fun, "transfer_with_seed", level );
+    break;
+  }
+  case 12: {
+    fun( w, self, "upgrade_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -17522,6 +17574,42 @@ ulong fd_system_error_align( void ){ return FD_SYSTEM_ERROR_ALIGN; }
 void fd_system_error_walk( void * w, fd_system_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_system_error", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "account_already_in_use", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "result_with_negative_lamports", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "invalid_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "invalid_account_data_length", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "max_seed_length_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "address_with_seed_mismatch", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "nonce_no_recent_blockhashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "nonce_blockhash_not_expired", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 8: {
+    fun( w, self, "nonce_unexpected_blockhash_value", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_system_error", level-- );
 }
@@ -17958,6 +18046,14 @@ ulong fd_stake_authorize_align( void ){ return FD_STAKE_AUTHORIZE_ALIGN; }
 void fd_stake_authorize_walk( void * w, fd_stake_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_stake_authorize", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "staker", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "withdrawer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_stake_authorize", level-- );
 }
@@ -18980,6 +19076,10 @@ void fd_stake_instruction_walk( void * w, fd_stake_instruction_t const * self, f
     fd_stake_instruction_authorize_walk( w, &self->inner.authorize, fun, "authorize", level );
     break;
   }
+  case 2: {
+    fun( w, self, "delegate_stake", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 3: {
     fun( w, self, "split", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.split, "split", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -18990,14 +19090,26 @@ void fd_stake_instruction_walk( void * w, fd_stake_instruction_t const * self, f
   fun( w, &self->inner.withdraw, "withdraw", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
+  case 5: {
+    fun( w, self, "deactivate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 6: {
     fun( w, self, "set_lockup", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_lockup_args_walk( w, &self->inner.set_lockup, fun, "set_lockup", level );
     break;
   }
+  case 7: {
+    fun( w, self, "merge", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 8: {
     fun( w, self, "authorize_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_authorize_with_seed_args_walk( w, &self->inner.authorize_with_seed, fun, "authorize_with_seed", level );
+    break;
+  }
+  case 9: {
+    fun( w, self, "initialize_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 10: {
@@ -19013,6 +19125,18 @@ void fd_stake_instruction_walk( void * w, fd_stake_instruction_t const * self, f
   case 12: {
     fun( w, self, "set_lockup_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_lockup_checked_args_walk( w, &self->inner.set_lockup_checked, fun, "set_lockup_checked", level );
+    break;
+  }
+  case 13: {
+    fun( w, self, "get_minimum_delegation", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 14: {
+    fun( w, self, "deactivate_delinquent", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 15: {
+    fun( w, self, "redelegate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 16: {
@@ -19539,6 +19663,10 @@ ulong fd_stake_state_v2_align( void ){ return FD_STAKE_STATE_V2_ALIGN; }
 void fd_stake_state_v2_walk( void * w, fd_stake_state_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_stake_state_v2", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
     fun( w, self, "initialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_state_v2_initialized_walk( w, &self->inner.initialized, fun, "initialized", level );
@@ -19547,6 +19675,10 @@ void fd_stake_state_v2_walk( void * w, fd_stake_state_v2_t const * self, fd_type
   case 2: {
     fun( w, self, "stake", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_state_v2_stake_walk( w, &self->inner.stake, fun, "stake", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "rewards_pool", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -19762,6 +19894,10 @@ ulong fd_nonce_state_align( void ){ return FD_NONCE_STATE_ALIGN; }
 void fd_nonce_state_walk( void * w, fd_nonce_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_nonce_state", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
     fun( w, self, "initialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_nonce_data_walk( w, &self->inner.initialized, fun, "initialized", level );
@@ -20546,6 +20682,10 @@ void fd_bpf_loader_program_instruction_walk( void * w, fd_bpf_loader_program_ins
     fd_bpf_loader_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
     break;
   }
+  case 1: {
+    fun( w, self, "finalize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_loader_program_instruction", level-- );
 }
@@ -20810,6 +20950,18 @@ void fd_bpf_loader_v4_program_instruction_walk( void * w, fd_bpf_loader_v4_progr
   case 1: {
     fun( w, self, "truncate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.truncate, "truncate", FD_FLAMENCO_TYPE_UINT, "uint", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "deploy", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "retract", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "transfer_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -21231,6 +21383,10 @@ ulong fd_bpf_upgradeable_loader_program_instruction_align( void ){ return FD_BPF
 void fd_bpf_upgradeable_loader_program_instruction_walk( void * w, fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_upgradeable_loader_program_instruction", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "initialize_buffer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
     fun( w, self, "write", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
@@ -21241,9 +21397,25 @@ void fd_bpf_upgradeable_loader_program_instruction_walk( void * w, fd_bpf_upgrad
     fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_walk( w, &self->inner.deploy_with_max_data_len, fun, "deploy_with_max_data_len", level );
     break;
   }
+  case 3: {
+    fun( w, self, "upgrade", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "set_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "close", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 6: {
     fun( w, self, "extend_program", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_program_instruction_extend_program_walk( w, &self->inner.extend_program, fun, "extend_program", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "set_authority_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -21686,6 +21858,10 @@ ulong fd_bpf_upgradeable_loader_state_align( void ){ return FD_BPF_UPGRADEABLE_L
 void fd_bpf_upgradeable_loader_state_walk( void * w, fd_bpf_upgradeable_loader_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_upgradeable_loader_state", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
     fun( w, self, "buffer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_state_buffer_walk( w, &self->inner.buffer, fun, "buffer", level );
@@ -22213,6 +22389,10 @@ ulong fd_address_lookup_table_state_align( void ){ return FD_ADDRESS_LOOKUP_TABL
 void fd_address_lookup_table_state_walk( void * w, fd_address_lookup_table_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_address_lookup_table_state", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
     fun( w, self, "lookup_table", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_address_lookup_table_walk( w, &self->inner.lookup_table, fun, "lookup_table", level );
@@ -27004,9 +27184,21 @@ void fd_addrlut_instruction_walk( void * w, fd_addrlut_instruction_t const * sel
     fd_addrlut_create_walk( w, &self->inner.create_lut, fun, "create_lut", level );
     break;
   }
+  case 1: {
+    fun( w, self, "freeze_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 2: {
     fun( w, self, "extend_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_addrlut_extend_walk( w, &self->inner.extend_lut, fun, "extend_lut", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "deactivate_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "close_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -27678,6 +27870,34 @@ ulong fd_repair_protocol_align( void ){ return FD_REPAIR_PROTOCOL_ALIGN; }
 void fd_repair_protocol_walk( void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_repair_protocol", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "LegacyWindowIndex", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "LegacyHighestWindowIndex", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "LegacyOrphan", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "LegacyWindowIndexWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "LegacyHighestWindowIndexWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "LegacyOrphanWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "LegacyAncestorHashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 7: {
     fun( w, self, "pong", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ping_walk( w, &self->inner.pong, fun, "pong", level );
@@ -28619,14 +28839,222 @@ ulong fd_instr_error_enum_align( void ){ return FD_INSTR_ERROR_ENUM_ALIGN; }
 void fd_instr_error_enum_walk( void * w, fd_instr_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_instr_error_enum", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "generic_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "invalid_argument", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "invalid_instruction_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "invalid_account_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "account_data_too_small", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "insufficient_funds", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "incorrect_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "missing_required_signature", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 8: {
+    fun( w, self, "account_already_initialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 9: {
+    fun( w, self, "uninitialized_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 10: {
+    fun( w, self, "unbalanced_instruction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 11: {
+    fun( w, self, "modified_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 12: {
+    fun( w, self, "external_account_lamport_spend", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 13: {
+    fun( w, self, "external_account_data_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 14: {
+    fun( w, self, "readonly_lamport_change", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 15: {
+    fun( w, self, "readonly_data_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 16: {
+    fun( w, self, "duplicate_account_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 17: {
+    fun( w, self, "executable_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 18: {
+    fun( w, self, "rent_epoch_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 19: {
+    fun( w, self, "not_enough_account_keys", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 20: {
+    fun( w, self, "account_data_size_changed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 21: {
+    fun( w, self, "account_not_executable", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 22: {
+    fun( w, self, "account_borrow_failed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 23: {
+    fun( w, self, "account_borrow_outstanding", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 24: {
+    fun( w, self, "duplicate_account_out_of_sync", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 25: {
     fun( w, self, "custom", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.custom, "custom", FD_FLAMENCO_TYPE_UINT, "uint", level );
     break;
   }
+  case 26: {
+    fun( w, self, "invalid_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 27: {
+    fun( w, self, "executable_data_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 28: {
+    fun( w, self, "executable_lamport_change", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 29: {
+    fun( w, self, "executable_account_not_rent_exempt", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 30: {
+    fun( w, self, "unsupported_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 31: {
+    fun( w, self, "call_depth", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 32: {
+    fun( w, self, "missing_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 33: {
+    fun( w, self, "reentrancy_not_allowed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 34: {
+    fun( w, self, "max_seed_length_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 35: {
+    fun( w, self, "invalid_seeds", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 36: {
+    fun( w, self, "invalid_realloc", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 37: {
+    fun( w, self, "computational_budget_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 38: {
+    fun( w, self, "privilege_escalation", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 39: {
+    fun( w, self, "program_environment_setup_failure", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 40: {
+    fun( w, self, "program_failed_to_complete", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 41: {
+    fun( w, self, "program_failed_to_compile", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 42: {
+    fun( w, self, "immutable", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 43: {
+    fun( w, self, "incorrect_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 44: {
     fun( w, self, "borsh_io_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, self->inner.borsh_io_error, "borsh_io_error", FD_FLAMENCO_TYPE_CSTR, "char*", level );
+    break;
+  }
+  case 45: {
+    fun( w, self, "account_not_rent_exempt", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 46: {
+    fun( w, self, "invalid_account_owner", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 47: {
+    fun( w, self, "arithmetic_overflow", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 48: {
+    fun( w, self, "unsupported_sysvar", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 49: {
+    fun( w, self, "illegal_owner", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 50: {
+    fun( w, self, "max_accounts_data_allocations_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 51: {
+    fun( w, self, "max_accounts_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 52: {
+    fun( w, self, "max_instruction_trace_length_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 53: {
+    fun( w, self, "builtin_programs_must_consume_compute_units", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -29269,9 +29697,125 @@ ulong fd_txn_error_enum_align( void ){ return FD_TXN_ERROR_ENUM_ALIGN; }
 void fd_txn_error_enum_walk( void * w, fd_txn_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_txn_error_enum", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "account_in_use", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "account_loaded_twice", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "account_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "program_account_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "insufficient_funds_for_fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "invalid_account_for_fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "already_processed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "blockhash_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 8: {
     fun( w, self, "instruction_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_txn_instr_error_walk( w, &self->inner.instruction_error, fun, "instruction_error", level );
+    break;
+  }
+  case 9: {
+    fun( w, self, "call_chain_too_deep", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 10: {
+    fun( w, self, "missing_signature_for_fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 11: {
+    fun( w, self, "invalid_account_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 12: {
+    fun( w, self, "signature_failure", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 13: {
+    fun( w, self, "invalid_program_for_execution", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 14: {
+    fun( w, self, "sanitize_failure", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 15: {
+    fun( w, self, "cluster_maintenance", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 16: {
+    fun( w, self, "account_borrow_outstanding", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 17: {
+    fun( w, self, "would_exceed_max_block_cost_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 18: {
+    fun( w, self, "unsupported_version", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 19: {
+    fun( w, self, "invalid_writable_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 20: {
+    fun( w, self, "would_exceed_max_account_cost_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 21: {
+    fun( w, self, "would_exceed_account_data_block_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 22: {
+    fun( w, self, "too_many_account_locks", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 23: {
+    fun( w, self, "address_lookup_table_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 24: {
+    fun( w, self, "invalid_address_lookup_table_owner", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 25: {
+    fun( w, self, "invalid_address_lookup_table_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 26: {
+    fun( w, self, "invalid_address_lookup_table_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 27: {
+    fun( w, self, "invalid_rent_paying_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 28: {
+    fun( w, self, "would_exceed_max_vote_cost_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 29: {
+    fun( w, self, "would_exceed_account_data_total_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 30: {
@@ -29284,9 +29828,25 @@ void fd_txn_error_enum_walk( void * w, fd_txn_error_enum_t const * self, fd_type
   fun( w, &self->inner.insufficient_funds_for_rent, "insufficient_funds_for_rent", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
     break;
   }
+  case 32: {
+    fun( w, self, "max_loaded_accounts_data_size_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 33: {
+    fun( w, self, "invalid_loaded_accounts_data_size_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 34: {
+    fun( w, self, "resanitization_needed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 35: {
     fun( w, self, "program_execution_temporarily_restricted", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.program_execution_temporarily_restricted, "program_execution_temporarily_restricted", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    break;
+  }
+  case 36: {
+    fun( w, self, "unbalanced_transaction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
@@ -29440,6 +30000,10 @@ ulong fd_txn_result_align( void ){ return FD_TXN_RESULT_ALIGN; }
 void fd_txn_result_walk( void * w, fd_txn_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_txn_result", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "ok", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
     fun( w, self, "error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_txn_error_enum_walk( w, &self->inner.error, fun, "error", level );

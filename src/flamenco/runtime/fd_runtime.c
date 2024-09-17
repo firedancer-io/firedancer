@@ -1404,9 +1404,10 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
 
   for (ulong idx = 0; idx < acct_cnt; idx++) {
     fd_borrowed_account_t const * acct = &txn_ctx->borrowed_accounts[idx];
-    pre_balances[idx] = acct->starting_lamports;
+    ulong pre = ( acct->starting_lamports == ULONG_MAX ? 0UL : acct->starting_lamports );
+    pre_balances[idx] = pre;
     post_balances[idx] = ( acct->meta ? acct->meta->info.lamports :
-                           ( acct->orig_meta ? acct->orig_meta->info.lamports : acct->starting_lamports ) );
+                           ( acct->orig_meta ? acct->orig_meta->info.lamports : pre ) );
   }
 
   if( txn_ctx->return_data.len ) {
