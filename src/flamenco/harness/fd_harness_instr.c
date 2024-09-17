@@ -90,8 +90,10 @@ fd_harness_dump_features( fd_features_t const * features, fd_v2_feature_t * outp
        !fd_feature_iter_done( id ); 
        id = fd_feature_iter_next( id ) ) {
     
-    output_features[ idx ].slot = features->f[ id->index ];
-    fd_memcpy( &output_features[idx++].feature_id, &(id->id), sizeof(fd_pubkey_t) );
+    if( features->f[ id->index ] != FD_FEATURE_DISABLED ) {
+      output_features[ idx ].slot = features->f[ id->index ];
+      fd_memcpy( &output_features[idx++].feature_id, &(id->id), sizeof(fd_pubkey_t) );
+    }
   }
 } 
  
@@ -552,20 +554,22 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
 
   /* TODO: FACTOR WKSP AND ALLOCATOR CODE OUT TO COMMON FUNCTION */
 
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+
   /* Declare a wksp. */
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
 
   /* Declare an alloc from the wksp. */
 
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
+  fd_alloc_t * FD_FN_UNUSED alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
   
   /* Allocate, attach, and push a scratch frame. */
 
   /* TODO: use scratch methods here and define things out. */
 
-  void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
-  void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
+  void * smem = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), 1<<30, 22UL );
+  void * fmem = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), 64UL,  22UL );
   fd_scratch_attach( smem, fmem, 1<<30, 64UL );
   fd_scratch_push();
 
@@ -576,10 +580,10 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
     FD_LOG_ERR(( "Failed to decode exec env pb" ));
   }
 
-  fd_v2_exec_env_t  exec_env  = FD_V2_EXEC_ENV_INIT_DEFAULT;
-  fd_v2_slot_env_t  slot_env  = FD_V2_SLOT_ENV_INIT_DEFAULT;
-  fd_v2_txn_env_t   txn_env   = FD_V2_TXN_ENV_INIT_DEFAULT;
-  fd_v2_instr_env_t instr_env = FD_V2_INSTR_ENV_INIT_DEFAULT;
+  fd_v2_exec_env_t  FD_FN_UNUSED exec_env  = FD_V2_EXEC_ENV_INIT_DEFAULT;
+  fd_v2_slot_env_t  FD_FN_UNUSED slot_env  = FD_V2_SLOT_ENV_INIT_DEFAULT;
+  fd_v2_txn_env_t   FD_FN_UNUSED txn_env   = FD_V2_TXN_ENV_INIT_DEFAULT;
+  fd_v2_instr_env_t FD_FN_UNUSED instr_env = FD_V2_INSTR_ENV_INIT_DEFAULT;
 
 
   /* Populate the account states, and add in the missing sysvars required for
@@ -595,8 +599,8 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
     fd_sysvar_rent_id,
     fd_sysvar_recent_block_hashes_id,
   };
-  const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
-  uchar seen_sysvar_accounts[num_sysvar_entries] = {0};
+  ulong num_sysvar_entries                       = sizeof(fd_relevant_sysvar_ids)/sizeof(fd_pubkey_t);
+  uchar seen_sysvar_accounts[4UL] = {0};
   
   /* First copy over the existing account state. */
 
@@ -619,20 +623,51 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
     }
   }
 
-  /* Now iterate over the existing accounts and figure out which sysvars are
-     not inlcuded in the account. If this is the case, then default sysvars
-     accounts will be injected to the v2 format. The value of these default
-     sysvars will match the ones used in the legacy harness to maintain ease
-     of validation between the two formats.
-     
-     TODO: This can be optimized to be an O(N*M) loop where N is number of 
-     accounts and M is the number of sysvars; it can be combined into the
-     previous one. */
+  /* For all missing sysvars, they should be populated to contain the same
+     defaults as what is used in the v1 instr harness. First, bincode encode
+     the default into a buffer then write it into the set of account states.  */
 
-  for( uint j=0; j<num_sysvar_entries; ++j ) {
-    if( !seen_sysvar_accounts[j] ) {
+  if( !seen_sysvar_accounts[0] ) { /* Clock */
+  
+    uchar clock_data[ 40UL ];
 
-    }
+    fd_sol_sysvar_clock_t sysvar_clock = {
+      .slot                  = 10UL,
+      .epoch_start_timestamp = 0UL,
+      .epoch                 = 0UL,
+      .leader_schedule_epoch = 0UL,
+      .unix_timestamp        = 0UL
+    };
+
+    fd_bincode_encode_ctx_t ctx = {
+      .data    = clock_data,
+      .dataend = clock_data + sizeof(fd_sol_sysvar_clock_t)
+    };
+
+    fd_sol_sysvar_clock_encode( &sysvar_clock, &ctx );
+
+
+
+  if( !seen_sysvar_accounts[1] ) { /* Epoch Schedule */
+    fd_epoch_schedule_t FD_FN_UNUSED sysvar_epoch_schedule = {
+      .slots_per_epoch             = 432000UL,
+      .leader_schedule_slot_offset = 432000UL,
+      .warmup                      = 1UL,
+      .first_normal_epoch          = 14UL,
+      .first_normal_slot           = 524256UL
+    };
+  }
+
+  if( !seen_sysvar_accounts[2] ) { /* Rent */
+    fd_rent_t FD_FN_UNUSED sysvar_rent = {
+      .lamports_per_uint8_year = 3480,
+      .exemption_threshold     = 2.0,
+      .burn_percent            = 50
+    };
+  }
+
+  if( !seen_sysvar_accounts[3] ) { /* Recent Blockhashes */
+
   }
 
   return 0;
