@@ -230,9 +230,7 @@ close_conn( fd_http_server_t * http,
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Closing connection %lu (fd=%d) (%d-%s)", conn_idx, http->pollfds[ conn_idx ].fd, reason, fd_http_server_connection_close_reason_str( reason ) ));
 #endif
-  if( !http->conns[ conn_idx ].keep_alive ) {
-    if( FD_UNLIKELY( -1==close( http->pollfds[ conn_idx ].fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, strerror( errno ) ));
-  }
+  if( FD_UNLIKELY( -1==close( http->pollfds[ conn_idx ].fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, strerror( errno ) ));
   http->pollfds[ conn_idx ].fd = -1;
   if( FD_LIKELY( conn_idx<http->max_conns ) ) {
     if( FD_LIKELY( http->callbacks.close    ) ) http->callbacks.close( conn_idx, reason, http->callback_ctx );
@@ -259,7 +257,7 @@ fd_http_server_ws_close( fd_http_server_t * http,
    should be closed.  Any errors from an accept(2), read(2), or send(2)
    that are not expected here will be considered fatal and terminate the
    server. */
-
+    
 static inline int
 is_expected_network_error( int err ) {
   return
@@ -401,14 +399,6 @@ read_conn_http( fd_http_server_t * http,
 
     if( FD_UNLIKELY( conn->request_bytes_read<(ulong)result+content_len ) ) {
       return; /* Request still partial, wait for more data */
-    }
-  }
-
-  conn->keep_alive = 0;
-  for( ulong i=0UL; i<num_headers; i++ ) {
-    if( FD_LIKELY( headers[ i ].name_len==10UL && !strncasecmp( headers[ i ].name, "Connection", 10UL ) ) ) {
-      conn->keep_alive = ( headers[ i ].value_len==10UL && !strncasecmp( headers[ i ].value, "keep-alive", 10UL ) );
-      break;
     }
   }
 

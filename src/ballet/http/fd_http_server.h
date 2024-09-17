@@ -198,8 +198,6 @@ struct fd_http_server_connection {
   char * request_bytes;
   ulong  request_bytes_read;
 
-  int    keep_alive;
-
   fd_http_server_response_t response;
   ulong  response_bytes_written;
 
