@@ -668,8 +668,8 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.bench.disable_blockstore ) )
-      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_blockstore] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
     if( FD_UNLIKELY( !config->development.bench.disable_status_cache ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
