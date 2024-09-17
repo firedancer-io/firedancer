@@ -99,6 +99,9 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_xid_key_pair_init( pair, xid, key );
 
+  void * result = NULL;
+  ulong  alloc_len = 0;
+  *result_len = 0;
   for(;;) {
     ulong lock_start;
     for(;;) {
@@ -114,10 +117,21 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
       FD_COMPILER_MFENCE();
       if( lock_start == funk->write_lock ) return NULL;
     } else {
-      void * res = fd_funk_val_safe( rec, wksp, valloc, result_len );
+      uint val_sz = rec->val_sz;
+      if( val_sz ) {
+        if( result == NULL ) {
+          result = fd_valloc_malloc( valloc, FD_FUNK_VAL_ALIGN, val_sz );
+          alloc_len = val_sz;
+        } else if ( val_sz > alloc_len ) {
+          fd_valloc_free( valloc, result );
+          result = fd_valloc_malloc( valloc, FD_FUNK_VAL_ALIGN, val_sz );
+          alloc_len = val_sz;
+        }
+        fd_memcpy( result, fd_wksp_laddr_fast( wksp, rec->val_gaddr ), val_sz );
+      }
+      *result_len = val_sz;
       FD_COMPILER_MFENCE();
-      if( lock_start == funk->write_lock ) return res;
-      fd_valloc_free( valloc, res );
+      if( lock_start == funk->write_lock ) return result;
     }
 
     /* else try again */

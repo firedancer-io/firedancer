@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#define FD_FUNK_VAL_ALIGN 8UL
-
 fd_funk_rec_t *
 fd_funk_val_copy( fd_funk_rec_t * rec,
                   void const *    data,

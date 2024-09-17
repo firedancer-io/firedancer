@@ -732,19 +732,28 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
     }
   break;
   case 33:
-    if ((*(unsigned long*)&keyw[0] & 0xFFFFFFUL) == 0x746567UL) {
-      switch (keyw[3]) {
-      case 'C':
-        if (*(unsigned long*)&keyw[4] == 0x64656D7269666E6FUL && *(unsigned long*)&keyw[12] == 0x727574616E676953UL && *(unsigned long*)&keyw[20] == 0x646441726F467365UL && (*(unsigned long*)&keyw[28] & 0xFFFFFFFFFFUL) == 0x3273736572UL) {
-          return KEYW_RPCMETHOD_GETCONFIRMEDSIGNATURESFORADDRESS2; // "getConfirmedSignaturesForAddress2"
-        }
-        break;
-      case 'M':
-        if (*(unsigned long*)&keyw[4] == 0x61426D756D696E69UL && *(unsigned long*)&keyw[12] == 0x726F4665636E616CUL && *(unsigned long*)&keyw[20] == 0x6D657845746E6552UL && (*(unsigned long*)&keyw[28] & 0xFFFFFFFFFFUL) == 0x6E6F697470UL) {
-          return KEYW_RPCMETHOD_GETMINIMUMBALANCEFORRENTEXEMPTION; // "getMinimumBalanceForRentExemption"
-        }
-        break;
+    switch (keyw[0]) {
+    case 'e':
+      if (*(unsigned long*)&keyw[1] == 0x6F4E6564756C6378UL && *(unsigned long*)&keyw[9] == 0x616C75637269436EUL && *(unsigned long*)&keyw[17] == 0x6F636341676E6974UL && *(unsigned long*)&keyw[25] == 0x7473694C73746E75UL) {
+        return KEYW_JSON_EXCLUDENONCIRCULATINGACCOUNTSLIST; // "excludeNonCirculatingAccountsList"
       }
+      break;
+    case 'g':
+      if ((*(unsigned long*)&keyw[1] & 0xFFFFUL) == 0x7465UL) {
+        switch (keyw[3]) {
+        case 'C':
+          if (*(unsigned long*)&keyw[4] == 0x64656D7269666E6FUL && *(unsigned long*)&keyw[12] == 0x727574616E676953UL && *(unsigned long*)&keyw[20] == 0x646441726F467365UL && (*(unsigned long*)&keyw[28] & 0xFFFFFFFFFFUL) == 0x3273736572UL) {
+            return KEYW_RPCMETHOD_GETCONFIRMEDSIGNATURESFORADDRESS2; // "getConfirmedSignaturesForAddress2"
+          }
+          break;
+        case 'M':
+          if (*(unsigned long*)&keyw[4] == 0x61426D756D696E69UL && *(unsigned long*)&keyw[12] == 0x726F4665636E616CUL && *(unsigned long*)&keyw[20] == 0x6D657845746E6552UL && (*(unsigned long*)&keyw[28] & 0xFFFFFFFFFFUL) == 0x6E6F697470UL) {
+            return KEYW_RPCMETHOD_GETMINIMUMBALANCEFORRENTEXEMPTION; // "getMinimumBalanceForRentExemption"
+          }
+          break;
+        }
+      }
+      break;
     }
   break;
   }
@@ -861,6 +870,7 @@ const char* un_fd_webserver_json_keyword(long id) {
   case KEYW_WS_METHOD_SLOTSUPDATESUNSUBSCRIBE: return "slotsUpdatesUnsubscribe";
   case KEYW_WS_METHOD_VOTESUBSCRIBE: return "voteSubscribe";
   case KEYW_WS_METHOD_VOTEUNSUBSCRIBE: return "voteUnsubscribe";
+  case KEYW_JSON_EXCLUDENONCIRCULATINGACCOUNTSLIST: return "excludeNonCirculatingAccountsList";
   }
   return "???";
 }
