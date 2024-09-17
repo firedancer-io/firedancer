@@ -1711,7 +1711,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         dump_instr_to_protobuf(txn_ctx, &txn_ctx->instr_infos[i], i);
       }
 
-      if( true ) {
+      if( false ) {
         FD_LOG_NOTICE(("TRYING TO DUMP"));
         fd_harness_dump_instr( txn_ctx, &txn_ctx->instr_infos[i], i );
       }

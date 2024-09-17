@@ -2,6 +2,8 @@
 #include "../runtime/sysvar/fd_sysvar_clock.h"
 #include "../runtime/tests/generated/invoke.pb.h"
 
+#define FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE  sizeof(ulong) + FD_RECENT_BLOCKHASHES_MAX_ENTRIES * (sizeof(fd_hash_t) + sizeof(ulong))
+
 /* TODO: some of these helpers can be factored out to some common utils file */
 
 /* Instruction dumping helpers ************************************************/
@@ -687,6 +689,22 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
 
   if( !seen_sysvar_accounts[3] ) { /* Recent Blockhashes */
 
+    fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( fd_scratch_virtual(), FD_SYSVAR_RECENT_HASHES_CAP );
+    fd_memset( recent_block_hashes, 0, sizeof(fd_block_block_hash_entry_t) );
+    fd_recent_block_hashes_t rbh = { .hashes = recent_block_hashes };
+
+    uchar * buf = fd_scratch_alloc( 1UL, FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE );
+    ulong   sz  = fd_recent_block_hashes_size( &rbh );
+    if( sz<FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE ) {
+      sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
+    }
+  
+    fd_bincode_encode_ctx_t ctx = {
+      .data    = buf,
+      .dataend = buf + sz
+    };
+    
+    fd_recent_block_hashes_encode( &rbh, &ctx );
   }
 
   return 0;
