@@ -47,6 +47,13 @@
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
+/* TODO: precompiles currently enter this noop function. Once the move_precompile_verification_to_svm
+   feature gets activated, this will need to be replaced with precompile verification functions. */
+static int
+fd_noop_instr_execute( fd_exec_instr_ctx_t * ctx FD_PARAM_UNUSED ) {
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 struct fd_native_prog_info {
   fd_pubkey_t key;
   fd_exec_instr_fn_t fn;
@@ -80,6 +87,8 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #define MAP_PERFECT_7       ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_8       ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute
+#define MAP_PERFECT_10      ( ED25519_SV_PROG_ID      ), .fn = fd_noop_instr_execute
+#define MAP_PERFECT_11      ( KECCAK_SECP_PROG_ID     ), .fn = fd_noop_instr_execute
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -914,31 +923,127 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
   } FD_SCRATCH_SCOPE_END;
 }
 
+/* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L319-L357 */
+static inline int
+fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
+                 fd_instr_info_t *   instr ) {
+  /* Earlier checks in the permalink are redundant since Agave maintains instr stack and trace accounts separately 
+     https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L327-L328 */
+  ulong starting_lamports_h = 0UL;
+  ulong starting_lamports_l = 0UL;
+  int err = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
+  if( FD_UNLIKELY( err ) ) {
+    FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
+    return err;
+  }
+  instr->starting_lamports_h = starting_lamports_h;
+  instr->starting_lamports_l = starting_lamports_l;
+
+  /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L347-L351 */
+  if( FD_UNLIKELY( txn_ctx->instr_trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+    return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+  }
+  txn_ctx->instr_trace_length++;
+
+  /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L352-L356 */
+  if( FD_UNLIKELY( txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
+    return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
+  }
+  txn_ctx->instr_stack_sz++;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* Pushes a new instruction onto the instruction stack and trace. This check loops through all instructions in the current call stack
+   and checks for reentrancy violations. If successful, simply increments the instruction stack and trace size and returns. It is
+   the responsibility of the caller to populate the newly pushed instruction fields, which are undefined otherwise.
+
+   https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L246-L290 */
+static inline int
+fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
+                     fd_instr_info_t *       instr ) {
+  /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L256-L286 */
+  if( txn_ctx->instr_stack_sz ) {
+    /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L261-L285 */
+    uchar contains = 0;
+    uchar is_last  = 0;
+
+    // Checks all previous instructions in the stack for reentrancy
+    for( uchar level=0; level<txn_ctx->instr_stack_sz; level++ ) {
+      fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr_stack[level];
+      // Optimization: compare program id index instead of pubkey since account keys are unique
+      if( instr->program_id == instr_ctx->instr->program_id ) {
+        // Reentrancy not allowed unless caller is calling itself
+        if( level == txn_ctx->instr_stack_sz-1 ) {
+          is_last = 1;
+        }
+        contains = 1;
+      }
+    }
+    /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L282-L285 */
+    if( FD_UNLIKELY( contains && !is_last ) ) {
+      return FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED;
+    }
+  }
+  /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
+     https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L289 */
+  return fd_txn_ctx_push( txn_ctx, instr );
+}
+
+/* Pops an instruction from the instruction stack. Agave's implementation performs instruction balancing checks every time pop is called,
+   but error codes returned from `pop` are only used if the program's execution was successful. Therefore, we can optimize our code by only
+   checking for unbalanced instructions if the program execution was successful within fd_execute_instr.
+
+   https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L293-L298 */
+static inline int
+fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
+                    fd_instr_info_t * const   instr ) {
+  /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L362-L364 */
+  if( FD_UNLIKELY( txn_ctx->instr_stack_sz==0 ) ) {
+    return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
+  }
+  txn_ctx->instr_stack_sz--;
+
+  /* Verify all executable accounts have no outstanding refs
+     https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L369-L374 */
+  for( ushort i=0; i<instr->acct_cnt; i++ ) {
+    if( FD_UNLIKELY( instr->borrowed_accounts[i]->const_meta->info.executable &&
+                      instr->borrowed_accounts[i]->refcnt_excl ) ) {
+      return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
+    }
+  }
+
+  /* Verify lamports are balanced before and after instruction
+     https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L366-L380 */
+  ulong ending_lamports_h = 0UL;
+  ulong ending_lamports_l = 0UL;
+  int err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+  if( FD_UNLIKELY( ending_lamports_l != instr->starting_lamports_l || ending_lamports_h != instr->starting_lamports_h ) ) {
+   return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;;
+}
+
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? FD_MAX_INSTRUCTION_TRACE_LENGTH : ULONG_MAX;
-    if( txn_ctx->num_instructions >= max_num_instructions ) {
-      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+    fd_exec_instr_ctx_t * parent = NULL;
+    if( txn_ctx->instr_stack_sz ) {
+      parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
     }
-    txn_ctx->num_instructions++;
-    fd_pubkey_t const * txn_accs = txn_ctx->accounts;
 
-    ulong starting_lamports_h = 0;
-    ulong starting_lamports_l = 0;
-    int err = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
-    if( err ) {
+    int err = fd_instr_stack_push( txn_ctx, instr );
+    if( FD_UNLIKELY( err ) ) {
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
       return err;
     }
-    instr->starting_lamports_h = starting_lamports_h;
-    instr->starting_lamports_l = starting_lamports_l;
 
-    fd_exec_instr_ctx_t * parent = NULL;
-    if( txn_ctx->instr_stack_sz )
-      parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
-
-    fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz++ ];
+    fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
@@ -953,36 +1058,12 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .child_cnt = 0U,
     };
 
-    /* Add the instruction to the trace */
-    txn_ctx->instr_trace[ txn_ctx->instr_trace_length++ ] = (fd_exec_instr_trace_entry_t) {
+    txn_ctx->instr_trace[ txn_ctx->instr_trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
       .instr_info = instr,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
-    // defense in depth
-    if( instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt ) {
-      FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
-      int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-      txn_ctx->instr_stack_sz--;
-
-      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
-      return exec_result;
-    }
-
     fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
-    fd_pubkey_t const * program_id     = &txn_accs[ instr->program_id ];
-
-    /* TODO: this is a hack because the programs should've been verified already
-       if we reach this point that means the transaction was succesful. */
-    if( !memcmp( program_id, fd_solana_ed25519_sig_verify_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      txn_ctx->instr_stack_sz--;
-      return 0;
-    }
-    if( !memcmp( program_id, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      txn_ctx->instr_stack_sz--;
-      return 0;
-    }
-
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
@@ -993,33 +1074,16 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
-    if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
-      ulong ending_lamports_h = 0UL;
-      ulong ending_lamports_l = 0UL;
-      err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
-      if( FD_UNLIKELY( err ) ) {
-        txn_ctx->instr_stack_sz--;
-        return err;
-      }
-
-      if( FD_UNLIKELY( ending_lamports_l != starting_lamports_l || ending_lamports_h != starting_lamports_h ) ) {
-        exec_result = FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
-      }
-
-      /* TODO where does Agave do this? */
-      for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
-        if( FD_UNLIKELY( txn_ctx->borrowed_accounts[j].refcnt_excl ) ) {
-          FD_LOG_ERR(( "Txn %s: Program %s didn't release lock (%u) on %s with %u refcnt",
-                       FD_BASE58_ENCODE_64( fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0] ),
-                       FD_BASE58_ENCODE_32( instr->program_id_pubkey.uc ),
-                       *(uint *)(instr->data),
-                       FD_BASE58_ENCODE_32( txn_ctx->borrowed_accounts[j].pubkey->uc ),
-                       txn_ctx->borrowed_accounts[j].refcnt_excl ));
-        }
-      }
-
+    int stack_pop_err = fd_instr_stack_pop( txn_ctx, instr );
+    if( FD_LIKELY( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) ) {
       /* Log success */
       fd_log_collector_program_success( ctx );
+
+      /* Only report the stack pop error on success */
+      if( FD_UNLIKELY( stack_pop_err ) ) {
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
+        return stack_pop_err;
+      }
     } else {
       /* if txn_ctx->exec_err is not set, it indicates an instruction error */
       if( !txn_ctx->exec_err ) {
@@ -1047,10 +1111,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
   }
 #endif
 
-    txn_ctx->instr_stack_sz--;
-
-    /* TODO: sanity before/after checks: total lamports unchanged etc */
-    return exec_result;
+  return exec_result;
   } FD_SCRATCH_SCOPE_END;
 }
 
