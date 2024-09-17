@@ -471,6 +471,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
   ctx->metrics.reasm_publish[ pub_err ]++;
+  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
   fd_mux_advance( mux );
 }
