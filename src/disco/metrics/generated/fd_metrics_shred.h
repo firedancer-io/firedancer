@@ -95,6 +95,11 @@
 #define FD_METRICS_COUNTER_SHRED_FEC_REJECTED_FATAL_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_SHRED_FEC_REJECTED_FATAL_DESC "The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid"
 
+#define FD_METRICS_COUNTER_SHRED_TRANSACTIONS_COMPLETED_OFF  (269UL)
+#define FD_METRICS_COUNTER_SHRED_TRANSACTIONS_COMPLETED_NAME "shred_transactions_completed"
+#define FD_METRICS_COUNTER_SHRED_TRANSACTIONS_COMPLETED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_SHRED_TRANSACTIONS_COMPLETED_DESC "Estimate of total transaction count in the FEC sets that have been finalized"
 
-#define FD_METRICS_SHRED_TOTAL (15UL)
+
+#define FD_METRICS_SHRED_TOTAL (16UL)
 extern const fd_metrics_meta_t FD_METRICS_SHRED[FD_METRICS_SHRED_TOTAL];

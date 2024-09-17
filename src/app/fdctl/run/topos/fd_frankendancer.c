@@ -232,7 +232,8 @@ fd_topo_frankendancer( config_t * config ) {
       tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
       tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr       = config->tiles.net.ip_addr;
-      tile->net.zero_copy         = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
+      //tile->net.zero_copy         = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
+      tile->net.zero_copy         = 0;
       fd_memset( tile->net.xdp_mode, 0, 4 );
       fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
