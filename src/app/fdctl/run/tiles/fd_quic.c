@@ -447,11 +447,6 @@ quic_stream_notify( fd_quic_stream_t * stream,
   fd_frag_meta_t *      mcache = mux->mcache;
   void *                base   = ctx->verify_out_mem;
 
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
-    fd_tpu_reasm_cancel( reasm, slot );
-    return;  /* not a successful stream close */
-  }
-
   /* Check if reassembly slot is still valid */
 
   ulong conn_id   = stream->conn->local_conn_id;
@@ -461,6 +456,13 @@ quic_stream_notify( fd_quic_stream_t * stream,
                    ( slot->stream_id != stream_id ) ) ) {
     FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_CLOBBERED, 1UL );
     return;  /* clobbered */
+  }
+
+  /* Abort reassembly slot if QUIC stream closes non-gracefully */
+
+  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+    fd_tpu_reasm_cancel( reasm, slot );
+    return;  /* not a successful stream close */
   }
 
   /* Publish message */
