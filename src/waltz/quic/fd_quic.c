@@ -2195,7 +2195,7 @@ fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
    is sufficient */
 ulong
 fd_quic_get_service_interval( fd_quic_t * quic ) {
-  ulong min_service_interval = (ulong)1e5;
+  ulong min_service_interval = (ulong)1e9;
   ulong service_interval = quic->config.service_interval;
   if( FD_UNLIKELY( service_interval < min_service_interval ) ) {
     service_interval = quic->config.service_interval = min_service_interval;
