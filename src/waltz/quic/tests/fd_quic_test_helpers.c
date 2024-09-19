@@ -124,8 +124,7 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
-  config->idle_timeout     = (ulong)200e6; /* 200ms */
-  config->service_interval = (ulong) 10e6; /*  10ms */
+  config->idle_timeout = (ulong)200e6; /* 200ms */
   strcpy( config->sni, "local" );
 
   /* Default callbacks */

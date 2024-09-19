@@ -123,12 +123,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
   int role;
 
-  /* service_interval: time interval in ns for background services
-     (sending ACKs).  Caller should introduce additional jitter in
-     event loop. */
-  /* TODO are there any other duties than ACKs? */
-  ulong service_interval;
-
   /* ping_interval: inactivity time in ns before sending a
      ping request to peer. */
   /* TODO unused for now */

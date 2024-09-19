@@ -149,7 +149,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * client_config = &client_quic->config;
   client_config->idle_timeout = 5e6;
-  client_config->service_interval = 1e6;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.conn_final       = my_cb_conn_final;
@@ -159,7 +158,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * server_config = &server_quic->config;
   server_config->idle_timeout = 5e6;
-  server_config->service_interval = 1e6;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;

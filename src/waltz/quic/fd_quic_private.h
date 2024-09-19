@@ -164,12 +164,6 @@ void
 fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn );
 
-/* get the service interval, while ensuring the value
-   is sufficient */
-ulong
-fd_quic_get_service_interval( fd_quic_t * quic );
-
-
 /* reschedule a connection */
 void
 fd_quic_reschedule_conn( fd_quic_conn_t * conn,
