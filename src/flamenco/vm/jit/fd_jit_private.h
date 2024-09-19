@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_vm_jit_fd_jit_private_h
 
 #include "fd_jit.h"
+#include <setjmp.h>
 
 /* DynASM code uses realloc.  fd_jit can estimate the number of bytes
    needed, so we can do better and allocate once on startup.
@@ -12,10 +13,11 @@
 
    Checks that enough memory was allocated on initialization are moved
    to test_vm_jit.  Checks during code generation (dasm_put) are moved
-   to the fd_dasm_put_check function call.  Calls to 'realloc' and
+   to the fd_dasm_grow_check function call.  Calls to 'realloc' and
    'free' are removed. */
 
-#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_put_check( (p), (need) ))
+void fd_dasm_grow_check( void * ptr, ulong  min_sz );
+#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_grow_check( (p), (need) ))
 #define DASM_M_FREE(ctx, p, sz) do{}while(0)
 
 /* Include dynasm headers.  These fail to compile when some strict
@@ -28,13 +30,6 @@
 #include "dasm_proto.h"
 #include "dasm_x86.h"
 #pragma GCC diagnostic pop
-| .arch x64
-| .actionlist actions
-| .globals fd_jit_lbl_
-
-void
-fd_dasm_put_check( void * ptr,
-                   ulong  min_sz );
 
 /* FD_DASM_R{...} specify the dynasm register index of x86_64 registers. */
 
@@ -95,6 +90,10 @@ extern FD_TL ulong fd_jit_jmp_buf[8];
 extern FD_TL ulong fd_jit_segfault_vaddr;
 extern FD_TL ulong fd_jit_segfault_rip;
 
+/* fd_jit_compile_abort is a setjmp buffer to quickly abort a JIT
+   compile operation without unwinding. */
+
+extern FD_TL jmp_buf fd_jit_compile_abort;
 
 /* fd_jit_labels is a table of function pointers to 'static' labels in the
    JIT code.  They are indexed by fd_jit_lbl_{...}.  Only used at
@@ -123,7 +122,7 @@ struct fd_jit_scratch_layout {
   ulong dasm_sz;
 
   ulong lglabels_off;
-  ulong lglabels_off;
+  ulong lglabels_sz;
 
   ulong pclabels_off;
   ulong pclabels_sz;

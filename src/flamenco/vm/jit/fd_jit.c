@@ -1,4 +1,5 @@
 #include "fd_jit_private.h"
+#include <math.h>
 
 /* Runtime thread locals **********************************************/
 
@@ -13,7 +14,7 @@ FD_TL ulong fd_jit_jmp_buf[8];
 FD_TL ulong fd_jit_segfault_vaddr;
 FD_TL ulong fd_jit_segfault_rip;
 
-void *
+fd_jit_prog_t *
 fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
                  fd_sbpf_program_t const *  prog,
                  fd_sbpf_syscalls_t const * syscalls,

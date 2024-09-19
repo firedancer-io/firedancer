@@ -1,17 +1,14 @@
 #include "fd_jit_private.h"
 #include "../fd_vm_private.h"
-#include <math.h>
-#include <setjmp.h>
 
 /* WARNING: WORK IN PROGRESS!
    This is an experimental version of the Firedancer JIT compiler.
    It is disabled in production.  There are known security issues in
    this code.  It is not covered by the Firedancer bug bounty policy. */
 
-/* fd_jit_compile_abort is a setjmp buffer to quickly abort a JIT
-   compile operation without unwinding. */
-
-extern FD_TL jmp_buf fd_jit_compile_abort;
+| .arch x64
+| .actionlist actions
+| .globals fd_jit_lbl_
 
 /* Compile time thread locals */
 
