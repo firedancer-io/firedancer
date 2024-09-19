@@ -1751,8 +1751,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     syscalls,
     NULL, // TODO
     sha,
-    input_regions,
-    input_regions_count,
     (uchar)false );
 
   // Setup the vm state for execution
@@ -1853,8 +1851,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* Capture input regions */
   effects->inputdata = NULL; /* Deprecated, using input_data_regions instead */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  ulong input_regions_size = load_from_vm_input_regions( vm->input_mem_regions,
-                                                        vm->input_mem_regions_cnt,
+  ulong input_regions_size = load_from_vm_input_regions( NULL, /* FIXME: ripatel broke this */
+                                                        0UL,
                                                         &effects->input_data_regions,
                                                         &effects->input_data_regions_count,
                                                         (void *)tmp_end,

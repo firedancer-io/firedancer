@@ -48,8 +48,8 @@ test_program_success( char *                test_case_name,
       /* syscalls         */ syscalls,
       /* trace            */ NULL,
       /* sha              */ sha,
-      /* mem_regions      */ NULL,
-      /* mem_regions_cnt  */ 0UL,
+      ///* mem_regions      */ NULL,
+      ///* mem_regions_cnt  */ 0UL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
@@ -239,8 +239,8 @@ test_0cu_exit( void ) {
       /* syscalls         */ NULL,
       /* trace            */ NULL,
       /* sha              */ sha,
-      /* mem_regions      */ NULL,
-      /* mem_regions_cnt  */ 0UL,
+      // /* mem_regions      */ NULL,
+      // /* mem_regions_cnt  */ 0UL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
@@ -267,8 +267,8 @@ test_0cu_exit( void ) {
       /* syscalls         */ NULL,
       /* trace            */ NULL,
       /* sha              */ sha,
-      /* mem_regions      */ NULL,
-      /* mem_regions_cnt  */ 0UL,
+      ///* mem_regions      */ NULL,
+      ///* mem_regions_cnt  */ 0UL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );

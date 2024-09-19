@@ -181,12 +181,13 @@ cmd_trace( char const * bin_path,
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
   /* Turn input into a single memory region */
-  fd_vm_input_region_t input_region = {
-    .vaddr_offset = 0UL,
-    .haddr        = (ulong)input,
-    .region_sz    = (uint)input_sz,
-    .is_writable  = 1U
-  };
+  /* FIXME */
+  //fd_vm_input_region_t input_region = {
+  //  .vaddr_offset = 0UL,
+  //  .haddr        = (ulong)input,
+  //  .region_sz    = (uint)input_sz,
+  //  .is_writable  = 1U
+  //};
 
 
   ulong event_max      = 1UL<<30; /* 1 GiB default storage */
@@ -214,8 +215,6 @@ cmd_trace( char const * bin_path,
     .entry_pc              = tool_prog.prog->entry_pc,
     .calldests             = tool_prog.prog->calldests,
     .syscalls              = tool_prog.syscalls,
-    .input_mem_regions     = &input_region,
-    .input_mem_regions_cnt = 1U,
     .trace                 = trace,
     .sha                   = sha,
   };

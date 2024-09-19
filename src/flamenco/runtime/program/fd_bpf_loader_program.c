@@ -236,8 +236,8 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* syscalls        */ syscalls,
     /* trace           */ NULL,
     /* sha             */ NULL,
-    /* mem_regions     */ NULL,
-    /* mem_regions_cnt */ 0,
+    ///* mem_regions     */ NULL,
+    ///* mem_regions_cnt */ 0,
     /* is_deprecated   */ 0 );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "NULL vm" ));
@@ -441,8 +441,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     /* syscalls              */ syscalls,
     /* trace                 */ NULL,
     /* sha                   */ sha,
-    /* input_mem_regions     */ input_mem_regions,
-    /* input_mem_regions_cnt */ input_mem_regions_cnt,
+    ///* input_mem_regions     */ input_mem_regions,
+    ///* input_mem_regions_cnt */ input_mem_regions_cnt,
     /* is_deprecated         */ is_deprecated );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "null vm" ));

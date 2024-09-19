@@ -441,8 +441,6 @@ fd_vm_init(
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
    fd_sha256_t * sha,
-   fd_vm_input_region_t * mem_regions,
-   uint mem_regions_cnt,
    uchar is_deprecated ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
@@ -480,8 +478,6 @@ fd_vm_init(
   vm->syscalls = syscalls;
   vm->trace = trace;
   vm->sha = sha;
-  vm->input_mem_regions = mem_regions;
-  vm->input_mem_regions_cnt = mem_regions_cnt;
   vm->is_deprecated = is_deprecated;
 
   /* Unpack the configuration */

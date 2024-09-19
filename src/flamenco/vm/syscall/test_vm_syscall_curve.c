@@ -94,8 +94,6 @@ main( int     argc,
       /* syscalls         */ NULL,
       /* trace            */ NULL,
       /* sha              */ sha,
-      /* mem_regions      */ NULL,
-      /* mem_regions_cnt  */ 0UL,
       /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );

@@ -16,20 +16,7 @@
    to the fd_dasm_grow_check function call.  Calls to 'realloc' and
    'free' are removed. */
 
-void fd_dasm_grow_check( void * ptr, ulong  min_sz );
-#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_grow_check( (p), (need) ))
-#define DASM_M_FREE(ctx, p, sz) do{}while(0)
-
-/* Include dynasm headers.  These fail to compile when some strict
-   checks are enabled. */
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
-#pragma GCC diagnostic ignored "-Wsign-conversion"
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #include "dasm_proto.h"
-#include "dasm_x86.h"
-#pragma GCC diagnostic pop
 
 /* FD_DASM_R{...} specify the dynasm register index of x86_64 registers. */
 
@@ -90,10 +77,19 @@ extern FD_TL ulong fd_jit_jmp_buf[8];
 extern FD_TL ulong fd_jit_segfault_vaddr;
 extern FD_TL ulong fd_jit_segfault_rip;
 
+/* Thread-local storage for compile time */
+
 /* fd_jit_compile_abort is a setjmp buffer to quickly abort a JIT
    compile operation without unwinding. */
 
 extern FD_TL jmp_buf fd_jit_compile_abort;
+
+/* fd_jit_code_section points to the code buffer managed by
+   dasm_Section.  This thread-local is used to detect when this
+   area is about to run out of space. */
+
+extern FD_TL void * fd_jit_code_section_base;
+extern FD_TL ulong  fd_jit_code_section_sz;
 
 /* fd_jit_labels is a table of function pointers to 'static' labels in the
    JIT code.  They are indexed by fd_jit_lbl_{...}.  Only used at

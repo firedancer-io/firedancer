@@ -80,15 +80,15 @@ dump_vm_cpi_state(fd_vm_t *vm,
     sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
     fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
 
-    sys_ctx.vm_ctx.input_data_regions_count = vm->input_mem_regions_cnt;
-    sys_ctx.vm_ctx.input_data_regions = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
-    for( ulong i=0UL; i<vm->input_mem_regions_cnt; i++ ) {
-      sys_ctx.vm_ctx.input_data_regions[i].content = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->input_mem_regions[i].region_sz) );
-      sys_ctx.vm_ctx.input_data_regions[i].content->size = (pb_size_t) vm->input_mem_regions[i].region_sz;
-      fd_memcpy( sys_ctx.vm_ctx.input_data_regions[i].content->bytes, (uchar *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
-      sys_ctx.vm_ctx.input_data_regions[i].offset = vm->input_mem_regions[i].vaddr_offset;
-      sys_ctx.vm_ctx.input_data_regions[i].is_writable = vm->input_mem_regions[i].is_writable;
-    }
+    sys_ctx.vm_ctx.input_data_regions_count = 0UL; /* FIXME ripatel broke this */
+    //sys_ctx.vm_ctx.input_data_regions = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
+    // for( ulong i=0UL; i<vm->input_mem_regions_cnt; i++ ) {
+    //   sys_ctx.vm_ctx.input_data_regions[i].content = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->input_mem_regions[i].region_sz) );
+    //   sys_ctx.vm_ctx.input_data_regions[i].content->size = (pb_size_t) vm->input_mem_regions[i].region_sz;
+    //   fd_memcpy( sys_ctx.vm_ctx.input_data_regions[i].content->bytes, (uchar *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
+    //   sys_ctx.vm_ctx.input_data_regions[i].offset = vm->input_mem_regions[i].vaddr_offset;
+    //   sys_ctx.vm_ctx.input_data_regions[i].is_writable = vm->input_mem_regions[i].is_writable;
+    // }
 
     fd_create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
                                                         vm->instr_ctx->txn_ctx,

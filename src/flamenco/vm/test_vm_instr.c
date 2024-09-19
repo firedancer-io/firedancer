@@ -449,8 +449,6 @@ run_input( test_input_t const * input,
       /* syscalls         */ syscalls,
       /* trace            */ NULL,
       /* sha              */ NULL,
-      /* mem_regions      */ input_region,
-      /* mem_regions_cnt  */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
       /* is_deprecated    */ 0
   );
   assert( vm_ok );

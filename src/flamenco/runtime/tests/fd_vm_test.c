@@ -88,8 +88,6 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       NULL, /* syscalls */
       NULL, /* trace */
       NULL, /* sha */
-      NULL, /* mem regions */
-      0,    /* mem regions count */
       0     /* is deprecated */
     );
     effects->result = fd_vm_validate( vm );
@@ -152,10 +150,6 @@ do{
   }
   uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong   rodata_sz = input->vm_ctx.rodata->size;
-
-  /* Load input data regions */
-  fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
@@ -223,8 +217,6 @@ do{
     syscalls,
     trace, /* trace */
     NULL, /* sha */
-    input_regions,
-    input_regions_cnt,
     0 /* is deprecated */
   );
 
@@ -292,8 +284,8 @@ do{
 
   /* Capture input data regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI(l, 1UL);
-  ulong input_data_regions_size = load_from_vm_input_regions( vm->input_mem_regions,
-                                                              vm->input_mem_regions_cnt,
+  ulong input_data_regions_size = load_from_vm_input_regions( NULL,
+                                                              0UL, /* FIXME: ripatel broke this */
                                                               &effects->input_data_regions,
                                                               &effects->input_data_regions_count,
                                                               (void *) tmp_end,

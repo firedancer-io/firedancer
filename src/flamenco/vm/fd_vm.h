@@ -157,13 +157,6 @@ struct fd_vm {
   uint  region_ld_sz[6];
   uint  region_st_sz[6];
 
-  /* fd_vm_input_region_t and fd_vm_acc_to_mem arrays are passed in by the bpf
-     loaders into fd_vm_init.
-     TODO: It might make more sense to allocate space for these in the VM. */
-  fd_vm_input_region_t *    input_mem_regions;               /* An array of input mem regions represent the input region.
-                                                                The virtual addresses of each region are contigiuous and
-                                                                strictly increasing. */
-  uint                      input_mem_regions_cnt;
   uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
                                                                 vm's current instance was initialized by a deprecated program. */
 
@@ -195,7 +188,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (789400UL)
+#define FD_VM_FOOTPRINT (789392UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -253,8 +246,6 @@ fd_vm_init(
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
    fd_sha256_t * sha,
-   fd_vm_input_region_t * mem_regions,
-   uint mem_regions_cnt,
    uchar is_deprecated );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.

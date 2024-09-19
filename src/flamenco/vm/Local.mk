@@ -8,7 +8,7 @@ $(call add-hdrs,test_vm_util.h)
 $(call add-objs,test_vm_util,fd_flamenco)
 
 ifdef FD_HAS_SECP256K1
-$(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+#$(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 $(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 endif
 

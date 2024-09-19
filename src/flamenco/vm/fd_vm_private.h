@@ -166,8 +166,8 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
    for a valid virtual address range to span multiple regions. */
 
 /* fd_vm_mem_cfg configures the vm's tlb arrays.  Assumes vm is valid
-   and vm already has configured the rodata, stack, heap and input
-   regions.  Returns vm. */
+   and vm already has configured the rodata, stack, and heap regions.
+   Returns vm. */
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {
@@ -175,10 +175,8 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
   vm->region_haddr[1] = (ulong)vm->rodata; vm->region_ld_sz[1] = (uint)vm->rodata_sz;   vm->region_st_sz[1] = (uint)0UL;
   vm->region_haddr[2] = (ulong)vm->stack;  vm->region_ld_sz[2] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[2] = (uint)FD_VM_STACK_MAX;
   vm->region_haddr[3] = (ulong)vm->heap;   vm->region_ld_sz[3] = (uint)vm->heap_max;    vm->region_st_sz[3] = (uint)vm->heap_max;
+  vm->region_haddr[4] = 0UL;               vm->region_ld_sz[4] = (uint)0UL;             vm->region_st_sz[4] = (uint)0UL;
   vm->region_haddr[5] = 0UL;               vm->region_ld_sz[5] = (uint)0UL;             vm->region_st_sz[5] = (uint)0UL;
-  vm->region_haddr[4] = vm->input_mem_regions[0].haddr;
-  vm->region_ld_sz[4] = vm->input_mem_regions[0].region_sz;
-  vm->region_st_sz[4] = vm->input_mem_regions[0].region_sz;
   return vm;
 }
 
@@ -214,29 +212,6 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    These assumptions don't hold if direct mapping is enabled since input
    region lookups become O(log(n)). */
 
-
-/* fd_vm_get_input_mem_region_idx returns the index into the input memory
-   region array with the largest region offset that is <= the offset that
-   is passed in.  This function makes NO guarantees about the input being
-   a valid input region offset; the caller is responsible for safely handling
-   it. */
-static inline ulong
-fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
-  uint left  = 0U;
-  uint right = vm->input_mem_regions_cnt - 1U;
-  uint mid   = 0U;
-
-  while( left<right ) {
-    mid = (left+right) / 2U;
-    if( offset>=vm->input_mem_regions[ mid ].vaddr_offset+vm->input_mem_regions[ mid ].region_sz ) {
-      left = mid + 1U;
-    } else {
-      right = mid;
-    }
-  }
-  return left;
-}
-
 static inline ulong
 fd_vm_mem_haddr( ulong              vaddr,
                  ulong              sz,
@@ -248,17 +223,6 @@ fd_vm_mem_haddr( ulong              vaddr,
   ulong offset    = vaddr & 0xffffffffUL;
   ulong region_sz = (ulong)vm_region_sz[ region ];
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
-
-  ///* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
-  //   https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
-  //  */
-  //if( FD_UNLIKELY( ( region == 2 ) && !!( vaddr & 0x1000 ) ) ) {
-  //  return sentinel;
-  //}
-
-  //if( region==4UL ) {
-  //  return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
-  //}
 
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
   if ( FD_LIKELY( sz<=sz_max ) ) {

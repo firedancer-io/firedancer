@@ -6,19 +6,36 @@
 */
 
 #line 1 "fd_jit_compiler.dasc"
-#include "fd_jit_private.h"
-#include "../fd_vm_private.h"
-
 /* WARNING: WORK IN PROGRESS!
    This is an experimental version of the Firedancer JIT compiler.
    It is disabled in production.  There are known security issues in
    this code.  It is not covered by the Firedancer bug bounty policy. */
 
+#include "../../../util/fd_util_base.h"
+
+/* Include dynasm headers.  These fail to compile when some strict
+   checks are enabled. */
+
+void fd_dasm_grow_check( void * ptr, ulong min_sz );
+#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_grow_check( (p), (need) ))
+#define DASM_M_FREE(ctx, p, sz) do{}while(0)
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#include "dasm_proto.h"
+#include "dasm_x86.h"
+#pragma GCC diagnostic pop
+
+#include "fd_jit_private.h"
+#include "../fd_vm_private.h"
+
 //| .arch x64
 #if DASM_VERSION != 10500
 #error "Version mismatch between DynASM and included encoding engine"
 #endif
-#line 10 "fd_jit_compiler.dasc"
+#line 27 "fd_jit_compiler.dasc"
 //| .actionlist actions
 static const unsigned char actions[1604] = {
   254,0,248,10,72,193,231,32,72,9,215,100,72,137,60,37,237,72,139,60,36,100,
@@ -101,7 +118,7 @@ static const unsigned char actions[1604] = {
   245,255,248,22,252,233,244,11,255
 };
 
-#line 11 "fd_jit_compiler.dasc"
+#line 28 "fd_jit_compiler.dasc"
 //| .globals fd_jit_lbl_
 enum {
   fd_jit_lbl_translate_fail,
@@ -119,7 +136,71 @@ enum {
   fd_jit_lbl_overrun,
   fd_jit_lbl__MAX
 };
-#line 12 "fd_jit_compiler.dasc"
+#line 29 "fd_jit_compiler.dasc"
+//| .section code
+#define DASM_SECTION_CODE	0
+#define DASM_MAXSECTION		1
+#line 30 "fd_jit_compiler.dasc"
+
+fd_jit_scratch_layout_t *
+fd_jit_scratch_layout( fd_jit_scratch_layout_t * layout,
+                       ulong                     bpf_sz ) {
+
+  if( FD_UNLIKELY( bpf_sz > (1UL<<24) ) ) return NULL;
+  ulong text_cnt = bpf_sz / 8UL;
+
+  /* These "magic" values are taken from dasm_x86.h */
+
+  ulong dasm_sz     = DASM_PSZ( DASM_MAXSECTION );       /* dasm_x86.h(89) */
+  ulong lglabels_sz = (10+fd_jit_lbl__MAX)*sizeof(int);  /* dasm_x86.h(119) */
+  ulong pclabels_sz = text_cnt*sizeof(int);              /* dasm_x86.h(127) */
+  ulong code_sz     = fd_jit_est_code_sz( bpf_sz );
+
+  memset( layout, 0, sizeof(fd_jit_scratch_layout_t) );
+  FD_SCRATCH_ALLOC_INIT( l, 0 );
+  layout->dasm_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, dasm_sz     );
+  layout->lglabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, lglabels_sz );
+  layout->pclabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, pclabels_sz );
+  layout->code_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, code_sz     );
+  layout->sz           = (ulong)FD_SCRATCH_ALLOC_FINI( l, 16UL );
+  return layout;
+}
+
+dasm_State *
+fd_jit_prepare( void *                          scratch,
+                fd_jit_scratch_layout_t const * layout,
+                void *                          code_buf,
+                ulong                           code_bufsz ) {
+
+  /* Custom dasm_init */
+  dasm_State * d = (void *)( (ulong)scratch + layout->dasm_off );
+  fd_memset( d, 0, layout->dasm_sz );
+  d->psize      = layout->dasm_sz;
+  d->maxsection = DASM_MAXSECTION;
+
+  /* Custom dasm_setupglobal */
+  d->globals  = fd_jit_labels;
+  d->lglabels = (void *)( (ulong)scratch + layout->lglabels_off );
+
+  /* Custom dasm_growpc */
+  d->pcsize   = layout->pclabels_sz;
+  d->pclabels = (void *)( (ulong)scratch + layout->pclabels_off );
+
+  /* Setup encoder. Zeros lglabels and pclabels. */
+  dasm_setup( &d, actions );
+
+  /* Preallocate space for .code section
+     See dasm_x86.h(172) */
+  dasm_Section * code = d->sections + 0;
+  code->buf   = code_buf;
+  code->bsize = code_bufsz;
+  code->pos   = DASM_SEC2POS( 0 );
+  code->rbuf  = code->buf - DASM_POS2BIAS( (uint)code->pos );
+  code->epos  = (int)( ((ulong)code->bsize / sizeof(int)) - DASM_MAXSECPOS + (ulong)DASM_POS2BIAS( (uint)code->pos ) );
+  code->ofs   = 0;
+
+  return d;
+}
 
 /* Compile time thread locals */
 
@@ -180,13 +261,9 @@ fd_jit_compile( struct dasm_State **       Dst,
                 fd_sbpf_program_t const *  prog,
                 fd_sbpf_syscalls_t const * syscalls ) {
 
-  //| .section code
-#define DASM_SECTION_CODE	0
-#define DASM_MAXSECTION		1
-#line 73 "fd_jit_compiler.dasc"
   //| .code
   dasm_put(Dst, 0);
-#line 74 "fd_jit_compiler.dasc"
+#line 151 "fd_jit_compiler.dasc"
 
   /* Derive offsets of thread locals in FS "segment" */
 
@@ -269,7 +346,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| mov [fd_jit_segfault_rip_tpoff], rdi
   //| jmp ->vm_fault
   dasm_put(Dst, 2, fd_jit_segfault_vaddr_tpoff, fd_jit_segfault_rip_tpoff);
-#line 155 "fd_jit_compiler.dasc"
+#line 232 "fd_jit_compiler.dasc"
 
   //|->fd_jit_vm_translate_rw:
   //| gen_scalar_translate, fd_jit_mem_rw_sz_tpoff
@@ -277,7 +354,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| gen_scalar_translate, fd_jit_mem_ro_sz_tpoff
   dasm_put(Dst, 32, fd_jit_segment_cnt_tpoff, fd_jit_mem_rw_sz_tpoff, fd_jit_mem_base_tpoff, fd_jit_segment_cnt_tpoff);
   dasm_put(Dst, 120, fd_jit_mem_ro_sz_tpoff, fd_jit_mem_base_tpoff);
-#line 160 "fd_jit_compiler.dasc"
+#line 237 "fd_jit_compiler.dasc"
 
   //|.macro translate_rw_1
   //| xor ebp, ebp
@@ -335,7 +412,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| mov [rax + offsetof(fd_vm_t, reg[10])], bpf_r10
   //| ret
   dasm_put(Dst, 138, fd_jit_vm_tpoff, offsetof(fd_vm_t, reg[ 0]), offsetof(fd_vm_t, reg[ 1]), offsetof(fd_vm_t, reg[ 2]), offsetof(fd_vm_t, reg[ 3]), offsetof(fd_vm_t, reg[ 4]), offsetof(fd_vm_t, reg[ 5]), offsetof(fd_vm_t, reg[ 6]), offsetof(fd_vm_t, reg[ 7]), offsetof(fd_vm_t, reg[ 8]), offsetof(fd_vm_t, reg[ 9]), offsetof(fd_vm_t, reg[10]));
-#line 216 "fd_jit_compiler.dasc"
+#line 293 "fd_jit_compiler.dasc"
 
   //|->restore_regs:
   //| fs
@@ -353,7 +430,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| mov bpf_r10, [rax + offsetof(fd_vm_t, reg[10])]
   //| ret
   dasm_put(Dst, 192, fd_jit_vm_tpoff, offsetof(fd_vm_t, reg[ 0]), offsetof(fd_vm_t, reg[ 1]), offsetof(fd_vm_t, reg[ 2]), offsetof(fd_vm_t, reg[ 3]), offsetof(fd_vm_t, reg[ 4]), offsetof(fd_vm_t, reg[ 5]), offsetof(fd_vm_t, reg[ 6]), offsetof(fd_vm_t, reg[ 7]), offsetof(fd_vm_t, reg[ 8]), offsetof(fd_vm_t, reg[ 9]), offsetof(fd_vm_t, reg[10]));
-#line 232 "fd_jit_compiler.dasc"
+#line 309 "fd_jit_compiler.dasc"
 
   /* Generate setjmp/longjmp subroutines.  These can be called from any
      execution state with a valid stack.  The JIT uses them to restore a
@@ -387,7 +464,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| xor edx, edx
   //| ret
   dasm_put(Dst, 246, (unsigned int)((ulong)fd_jit_jmp_buf), (unsigned int)(((ulong)fd_jit_jmp_buf)>>32), 0, 8);
-#line 264 "fd_jit_compiler.dasc"
+#line 341 "fd_jit_compiler.dasc"
 
   //|->longjmp:
   //| mov rax, rdi // move first argument to first output register
@@ -404,7 +481,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| push qword [rdi+56]
   //| ret // retpoline
   dasm_put(Dst, 299, (unsigned int)((ulong)fd_jit_jmp_buf), (unsigned int)(((ulong)fd_jit_jmp_buf)>>32), 0, 8);
-#line 279 "fd_jit_compiler.dasc"
+#line 356 "fd_jit_compiler.dasc"
 
   /* The emulate_syscall function switches from a JIT to an interpreter (C)
      execution context and invokes a syscall handler.  Register edi is
@@ -441,7 +518,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| jnz ->vm_fault
   //| ret
   dasm_put(Dst, 348, fd_jit_vm_tpoff, fd_jit_syscalls_tpoff + offsetof(fd_sbpf_syscalls_t, func), offsetof(fd_vm_t, reg[1]), offsetof(fd_vm_t, reg[2]), offsetof(fd_vm_t, reg[3]), offsetof(fd_vm_t, reg[4]), offsetof(fd_vm_t, reg[5]), offsetof(fd_vm_t, reg[0]));
-#line 314 "fd_jit_compiler.dasc"
+#line 391 "fd_jit_compiler.dasc"
 
   /* The call_stack_push function pushes the current program counter and
      eBPF registers r6, r7, r8, r9 to the shadow stack.  The frame register
@@ -463,7 +540,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| add bpf_r10, 0x2000
   //| jmp rdi
   dasm_put(Dst, 426, fd_jit_vm_tpoff, offsetof(fd_vm_t, frame_cnt));
-#line 334 "fd_jit_compiler.dasc"
+#line 411 "fd_jit_compiler.dasc"
 
   /* The call_stack_pop function undoes the effects of call_stack_push. */
 
@@ -481,7 +558,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| sub bpf_r10, 0x2000
   //| jmp rdi
   dasm_put(Dst, 457, fd_jit_vm_tpoff, offsetof(fd_vm_t, frame_cnt));
-#line 350 "fd_jit_compiler.dasc"
+#line 427 "fd_jit_compiler.dasc"
 
 # undef REG
   /* Exception handlers */
@@ -490,13 +567,13 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| mov edi, FD_VM_ERR_ABORT
   //| jmp ->longjmp
   dasm_put(Dst, 489, FD_VM_ERR_ABORT);
-#line 357 "fd_jit_compiler.dasc"
+#line 434 "fd_jit_compiler.dasc"
 
   /* JIT entrypoint from C code */
 
   //|->entrypoint:
   dasm_put(Dst, 498);
-#line 361 "fd_jit_compiler.dasc"
+#line 438 "fd_jit_compiler.dasc"
 
   /* Create setjmp anchor used to return from JIT */
 
@@ -504,7 +581,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //| test edx, edx
   //| jnz >1
   dasm_put(Dst, 501);
-#line 367 "fd_jit_compiler.dasc"
+#line 444 "fd_jit_compiler.dasc"
 
   /* Enter JIT execution context */
 
@@ -515,7 +592,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //|1:
   //| ret
   dasm_put(Dst, 511);
-#line 376 "fd_jit_compiler.dasc"
+#line 453 "fd_jit_compiler.dasc"
 
   /* Start translating user code */
 
@@ -558,7 +635,7 @@ fd_jit_compile( struct dasm_State **       Dst,
     int next_label = (int)cur_pc;
     //|=>next_label:
     dasm_put(Dst, 528, next_label);
-#line 417 "fd_jit_compiler.dasc"
+#line 494 "fd_jit_compiler.dasc"
 
     /* Translate instruction */
 
@@ -569,31 +646,31 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x04:  /* FD_SBPF_OP_ADD_IMM */
       //| add dst32, imm
       dasm_put(Dst, 530, (x86_dst), imm);
-#line 426 "fd_jit_compiler.dasc"
+#line 503 "fd_jit_compiler.dasc"
       break;
 
     case 0x05:  /* FD_SBPF_OP_JA */
       //| jmp =>jmp_dst_lbl
       dasm_put(Dst, 537, jmp_dst_lbl);
-#line 430 "fd_jit_compiler.dasc"
+#line 507 "fd_jit_compiler.dasc"
       break;
 
     case 0x07:  /* FD_SBPF_OP_ADD64_IMM */
       //| add dst64, imm
       dasm_put(Dst, 541, (x86_dst), imm);
-#line 434 "fd_jit_compiler.dasc"
+#line 511 "fd_jit_compiler.dasc"
       break;
 
     case 0x0c:  /* FD_SBPF_OP_ADD_REG */
       //| add dst32, src32
       dasm_put(Dst, 548, (x86_src), (x86_dst));
-#line 438 "fd_jit_compiler.dasc"
+#line 515 "fd_jit_compiler.dasc"
       break;
 
     case 0x0f:  /* FD_SBPF_OP_ADD64_REG */
       //| add dst64, src64
       dasm_put(Dst, 556, (x86_src), (x86_dst));
-#line 442 "fd_jit_compiler.dasc"
+#line 519 "fd_jit_compiler.dasc"
       break;
 
     /* 0x10 - 0x1f ******************************************************/
@@ -601,23 +678,23 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x14:  /* FD_SBPF_OP_SUB_IMM */
       //| sub dst32, imm
       dasm_put(Dst, 564, (x86_dst), imm);
-#line 448 "fd_jit_compiler.dasc"
+#line 525 "fd_jit_compiler.dasc"
       break;
 
     case 0x15:  /* FD_SBPF_OP_JEQ_IMM */
       //| cmp dst64, imm
       dasm_put(Dst, 571, (x86_dst), imm);
-#line 452 "fd_jit_compiler.dasc"
+#line 529 "fd_jit_compiler.dasc"
       /* pre branch check here ... branchless cu update? */
       //| je =>jmp_dst_lbl
       dasm_put(Dst, 579, jmp_dst_lbl);
-#line 454 "fd_jit_compiler.dasc"
+#line 531 "fd_jit_compiler.dasc"
       break;
 
     case 0x17:  /* FD_SBPF_OP_SUB64_IMM */
       //| sub dst64, imm
       dasm_put(Dst, 583, (x86_dst), imm);
-#line 458 "fd_jit_compiler.dasc"
+#line 535 "fd_jit_compiler.dasc"
       break;
 
     case 0x18:  /* FD_SBPF_OP_LDQ */
@@ -626,11 +703,11 @@ fd_jit_compile( struct dasm_State **       Dst,
       if( imm64==0 ) {
         //| xor dst32, dst32
         dasm_put(Dst, 590, (x86_dst), (x86_dst));
-#line 465 "fd_jit_compiler.dasc"
+#line 542 "fd_jit_compiler.dasc"
       } else {
         //| mov dst64, imm64
         dasm_put(Dst, 598, (x86_dst), imm64);
-#line 467 "fd_jit_compiler.dasc"
+#line 544 "fd_jit_compiler.dasc"
       }
       break;
     }
@@ -638,20 +715,20 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x1c:  /* FD_SBPF_OP_SUB_REG */
       //| sub dst32, src32
       dasm_put(Dst, 605, (x86_src), (x86_dst));
-#line 473 "fd_jit_compiler.dasc"
+#line 550 "fd_jit_compiler.dasc"
       break;
 
     case 0x1d:  /* FD_SBPF_OP_JEQ_REG */
       //| cmp dst64, src64
       //| je =>jmp_dst_lbl
       dasm_put(Dst, 613, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 478 "fd_jit_compiler.dasc"
+#line 555 "fd_jit_compiler.dasc"
       break;
 
     case 0x1f:  /* FD_SBPF_OP_SUB64_REG */
       //| sub dst64, src64
       dasm_put(Dst, 624, (x86_src), (x86_dst));
-#line 482 "fd_jit_compiler.dasc"
+#line 559 "fd_jit_compiler.dasc"
       break;
 
     /* 0x20 - 0x2f ******************************************************/
@@ -660,40 +737,40 @@ fd_jit_compile( struct dasm_State **       Dst,
       /* TODO strength reduction? */
       //| imul dst32, imm
       dasm_put(Dst, 632, (x86_dst), (x86_dst), imm);
-#line 489 "fd_jit_compiler.dasc"
+#line 566 "fd_jit_compiler.dasc"
       break;
 
     case 0x25:  /* FD_SBPF_OP_JGT_IMM */
       //| cmp dst64, imm
       //| ja =>jmp_dst_lbl
       dasm_put(Dst, 641, (x86_dst), imm, jmp_dst_lbl);
-#line 494 "fd_jit_compiler.dasc"
+#line 571 "fd_jit_compiler.dasc"
       break;
 
     case 0x27:  /* FD_SBPF_OP_MUL64_IMM */
       /* TODO strength reduction? */
       //| imul dst64, imm
       dasm_put(Dst, 652, (x86_dst), (x86_dst), imm);
-#line 499 "fd_jit_compiler.dasc"
+#line 576 "fd_jit_compiler.dasc"
       break;
 
     case 0x2c:  /* FD_SBPF_OP_MUL_REG */
       //| imul dst32, src32
       dasm_put(Dst, 661, (x86_dst), (x86_src));
-#line 503 "fd_jit_compiler.dasc"
+#line 580 "fd_jit_compiler.dasc"
       break;
 
     case 0x2d:  /* FD_SBPF_OP_JGT_REG */
       //| cmp dst64, src64
       //| ja =>jmp_dst_lbl
       dasm_put(Dst, 670, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 508 "fd_jit_compiler.dasc"
+#line 585 "fd_jit_compiler.dasc"
       break;
 
     case 0x2f:  /* FD_SBPF_OP_MUL64_REG */
       //| imul dst64, src64
       dasm_put(Dst, 681, (x86_dst), (x86_src));
-#line 512 "fd_jit_compiler.dasc"
+#line 589 "fd_jit_compiler.dasc"
       break;
 
     /* 0x30 - 0x3f ******************************************************/
@@ -702,7 +779,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->vm_fault
         dasm_put(Dst, 27);
-#line 519 "fd_jit_compiler.dasc"
+#line 596 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -711,21 +788,21 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div edi
       //| xchg eax, dst32
       dasm_put(Dst, 690, (x86_dst), imm, (x86_dst));
-#line 526 "fd_jit_compiler.dasc"
+#line 603 "fd_jit_compiler.dasc"
       break;
 
     case 0x35:  /* FD_SBPF_OP_JGE_IMM */
       //| cmp dst64, imm
       //| jae =>jmp_dst_lbl
       dasm_put(Dst, 707, (x86_dst), imm, jmp_dst_lbl);
-#line 531 "fd_jit_compiler.dasc"
+#line 608 "fd_jit_compiler.dasc"
       break;
 
     case 0x37:  /* FD_SBPF_OP_DIV64_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->vm_fault
         dasm_put(Dst, 27);
-#line 536 "fd_jit_compiler.dasc"
+#line 613 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -734,18 +811,18 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div rdi
       //| xchg rax, dst64
       dasm_put(Dst, 718, (x86_dst), imm, (x86_dst));
-#line 543 "fd_jit_compiler.dasc"
+#line 620 "fd_jit_compiler.dasc"
       break;
 
     case 0x3c:  /* FD_SBPF_OP_DIV_REG */
       //| test src32, src32
       //| jz ->vm_fault
       dasm_put(Dst, 738, (x86_src), (x86_src));
-#line 548 "fd_jit_compiler.dasc"
+#line 625 "fd_jit_compiler.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 1
         dasm_put(Dst, 750, (x86_dst));
-#line 550 "fd_jit_compiler.dasc"
+#line 627 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -753,25 +830,25 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div src32
       //| xchg eax, dst32
       dasm_put(Dst, 759, (x86_dst), (x86_src), (x86_dst));
-#line 556 "fd_jit_compiler.dasc"
+#line 633 "fd_jit_compiler.dasc"
       break;
 
     case 0x3d:  /* FD_SBPF_OP_JGE_REG */
       //| cmp dst64, src64
       //| jae =>jmp_dst_lbl
       dasm_put(Dst, 777, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 561 "fd_jit_compiler.dasc"
+#line 638 "fd_jit_compiler.dasc"
       break;
 
     case 0x3f:  /* FD_SBPF_OP_DIV64_REG */
       //| test src64, src64
       //| jz ->vm_fault
       dasm_put(Dst, 788, (x86_src), (x86_src));
-#line 566 "fd_jit_compiler.dasc"
+#line 643 "fd_jit_compiler.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 1
         dasm_put(Dst, 750, (x86_dst));
-#line 568 "fd_jit_compiler.dasc"
+#line 645 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -779,7 +856,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div src64
       //| xchg rax, dst64
       dasm_put(Dst, 800, (x86_dst), (x86_src), (x86_dst));
-#line 574 "fd_jit_compiler.dasc"
+#line 651 "fd_jit_compiler.dasc"
       break;
 
     /* 0x40 - 0x4f ******************************************************/
@@ -787,39 +864,39 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x44:  /* FD_SBPF_OP_OR_IMM */
       //| or dst32, imm
       dasm_put(Dst, 818, (x86_dst), imm);
-#line 580 "fd_jit_compiler.dasc"
+#line 657 "fd_jit_compiler.dasc"
       break;
 
     case 0x45:  /* FD_SBPF_OP_JSET_IMM */
       //| test dst64, imm
       //| jnz =>jmp_dst_lbl
       dasm_put(Dst, 825, (x86_dst), imm, jmp_dst_lbl);
-#line 585 "fd_jit_compiler.dasc"
+#line 662 "fd_jit_compiler.dasc"
       break;
 
     case 0x47:  /* FD_SBPF_OP_OR64_IMM */
       //| or dst64, imm
       dasm_put(Dst, 836, (x86_dst), imm);
-#line 589 "fd_jit_compiler.dasc"
+#line 666 "fd_jit_compiler.dasc"
       break;
 
     case 0x4c:  /* FD_SBPF_OP_OR_REG */
       //| or dst32, src32
       dasm_put(Dst, 843, (x86_src), (x86_dst));
-#line 593 "fd_jit_compiler.dasc"
+#line 670 "fd_jit_compiler.dasc"
       break;
 
     case 0x4d:  /* FD_SBPF_OP_JSET_REG */
       //| test dst64, src64
       //| jnz =>jmp_dst_lbl
       dasm_put(Dst, 851, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 598 "fd_jit_compiler.dasc"
+#line 675 "fd_jit_compiler.dasc"
       break;
 
     case 0x4f:  /* FD_SBPF_OP_OR64_REG */
       //| or dst64, src64
       dasm_put(Dst, 862, (x86_src), (x86_dst));
-#line 602 "fd_jit_compiler.dasc"
+#line 679 "fd_jit_compiler.dasc"
       break;
 
     /* 0x50 - 0x5f ******************************************************/
@@ -827,39 +904,39 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x54:  /* FD_SBPF_OP_AND_IMM */
       //| and dst32, imm
       dasm_put(Dst, 870, (x86_dst), imm);
-#line 608 "fd_jit_compiler.dasc"
+#line 685 "fd_jit_compiler.dasc"
       break;
 
     case 0x55:  /* FD_SBPF_OP_JNE_IMM */
       //| cmp dst64, imm
       //| jne =>jmp_dst_lbl
       dasm_put(Dst, 877, (x86_dst), imm, jmp_dst_lbl);
-#line 613 "fd_jit_compiler.dasc"
+#line 690 "fd_jit_compiler.dasc"
       break;
 
     case 0x57:  /* FD_SBPF_OP_AND64_IMM */
       //| and dst64, imm
       dasm_put(Dst, 888, (x86_dst), imm);
-#line 617 "fd_jit_compiler.dasc"
+#line 694 "fd_jit_compiler.dasc"
       break;
 
     case 0x5c:  /* FD_SBPF_OP_AND_REG */
       //| and dst32, src32
       dasm_put(Dst, 895, (x86_src), (x86_dst));
-#line 621 "fd_jit_compiler.dasc"
+#line 698 "fd_jit_compiler.dasc"
       break;
 
     case 0x5d:  /* FD_SBPF_OP_JNE_REG */
       //| cmp dst64, src64
       //| jne =>jmp_dst_lbl
       dasm_put(Dst, 903, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 626 "fd_jit_compiler.dasc"
+#line 703 "fd_jit_compiler.dasc"
       break;
 
     case 0x5f:  /* FD_SBPF_OP_AND64_REG */
       //| and dst64, src64
       dasm_put(Dst, 914, (x86_src), (x86_dst));
-#line 630 "fd_jit_compiler.dasc"
+#line 707 "fd_jit_compiler.dasc"
       break;
 
     /* 0x60 - 0x6f ******************************************************/
@@ -869,7 +946,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_ro_4
       //| mov dst32, [translate_out]
       dasm_put(Dst, 922, (x86_src), offset, (x86_dst));
-#line 638 "fd_jit_compiler.dasc"
+#line 715 "fd_jit_compiler.dasc"
       break;
 
     case 0x62:  /* FD_SBPF_OP_STW */
@@ -877,7 +954,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_4
       //| mov dword [translate_out], imm
       dasm_put(Dst, 943, (x86_dst), offset, imm);
-#line 644 "fd_jit_compiler.dasc"
+#line 721 "fd_jit_compiler.dasc"
       break;
 
     case 0x63:  /* FD_SBPF_OP_STXW */
@@ -885,26 +962,26 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_4
       //| mov [translate_out], src32
       dasm_put(Dst, 962, (x86_dst), offset, (x86_src));
-#line 650 "fd_jit_compiler.dasc"
+#line 727 "fd_jit_compiler.dasc"
       break;
 
     case 0x64:  /* FD_SBPF_OP_LSH_IMM */
       //| shl dst32, imm
       dasm_put(Dst, 983, (x86_dst), imm);
-#line 654 "fd_jit_compiler.dasc"
+#line 731 "fd_jit_compiler.dasc"
       break;
 
     case 0x65:  /* FD_SBPF_OP_JSGT_IMM */
       //| cmp dst64, imm
       //| jg =>jmp_dst_lbl
       dasm_put(Dst, 990, (x86_dst), imm, jmp_dst_lbl);
-#line 659 "fd_jit_compiler.dasc"
+#line 736 "fd_jit_compiler.dasc"
       break;
 
     case 0x67:  /* FD_SBPF_OP_LSH64_IMM */
       //| shl dst64, imm
       dasm_put(Dst, 1001, (x86_dst), imm);
-#line 663 "fd_jit_compiler.dasc"
+#line 740 "fd_jit_compiler.dasc"
       break;
 
     case 0x69:  /* FD_SBPF_OP_LDXH */
@@ -913,7 +990,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| xor dst32, dst32
       //| mov Rw(x86_dst), [translate_out]
       dasm_put(Dst, 1008, (x86_src), offset, (x86_dst), (x86_dst), (x86_dst));
-#line 670 "fd_jit_compiler.dasc"
+#line 747 "fd_jit_compiler.dasc"
       break;
 
     case 0x6a:  /* FD_SBPF_OP_STH */
@@ -921,7 +998,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_2
       //| mov word [translate_out], imm
       dasm_put(Dst, 1037, (x86_dst), offset, imm);
-#line 676 "fd_jit_compiler.dasc"
+#line 753 "fd_jit_compiler.dasc"
       break;
 
     case 0x6b:  /* FD_SBPF_OP_STXH */
@@ -929,28 +1006,28 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_2
       //| mov [translate_out], src32
       dasm_put(Dst, 1057, (x86_dst), offset, (x86_src));
-#line 682 "fd_jit_compiler.dasc"
+#line 759 "fd_jit_compiler.dasc"
       break;
 
     case 0x6c:  /* FD_SBPF_OP_LSH_REG */
       //| mov cl, src8
       //| shl dst32, cl
       dasm_put(Dst, 1078, (x86_src), (x86_dst));
-#line 687 "fd_jit_compiler.dasc"
+#line 764 "fd_jit_compiler.dasc"
       break;
 
     case 0x6d:  /* FD_SBPF_OP_JSGT_REG */
       //| cmp dst64, src64
       //| jg =>jmp_dst_lbl
       dasm_put(Dst, 1089, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 692 "fd_jit_compiler.dasc"
+#line 769 "fd_jit_compiler.dasc"
       break;
 
     case 0x6f:  /* FD_SBPF_OP_LSH64_REG */
       //| mov cl, src8
       //| shl dst64, cl
       dasm_put(Dst, 1100, (x86_src), (x86_dst));
-#line 697 "fd_jit_compiler.dasc"
+#line 774 "fd_jit_compiler.dasc"
       break;
 
     /* 0x70 - 0x7f ******************************************************/
@@ -959,12 +1036,12 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| lea translate_in, [src64+offset]
       //| translate_ro_1
       dasm_put(Dst, 1111, (x86_src), offset);
-#line 704 "fd_jit_compiler.dasc"
+#line 781 "fd_jit_compiler.dasc"
       /* TODO is there a better way to zero upper and mov byte? */
       //| xor dst32, dst32
       //| mov Rb(x86_dst), [translate_out]
       dasm_put(Dst, 1125, (x86_dst), (x86_dst), (x86_dst));
-#line 707 "fd_jit_compiler.dasc"
+#line 784 "fd_jit_compiler.dasc"
       break;
 
     case 0x72:  /* FD_SBPF_OP_STB */
@@ -972,7 +1049,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_1
       //| mov byte [translate_out], imm
       dasm_put(Dst, 1138, (x86_src), offset, imm);
-#line 713 "fd_jit_compiler.dasc"
+#line 790 "fd_jit_compiler.dasc"
       break;
 
     case 0x73:  /* FD_SBPF_OP_STXB */
@@ -980,26 +1057,26 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_1
       //| mov byte [translate_out], Rb(x86_src)
       dasm_put(Dst, 1155, (x86_dst), offset, (x86_src));
-#line 719 "fd_jit_compiler.dasc"
+#line 796 "fd_jit_compiler.dasc"
       break;
 
     case 0x74:  /* FD_SBPF_OP_RSH_IMM */
       //| shr dst32, imm
       dasm_put(Dst, 1174, (x86_dst), imm);
-#line 723 "fd_jit_compiler.dasc"
+#line 800 "fd_jit_compiler.dasc"
       break;
 
     case 0x75:  /* FD_SBPF_OP_JSGE_IMM */
       //| cmp dst64, imm
       //| jge =>jmp_dst_lbl
       dasm_put(Dst, 1181, (x86_dst), imm, jmp_dst_lbl);
-#line 728 "fd_jit_compiler.dasc"
+#line 805 "fd_jit_compiler.dasc"
       break;
 
     case 0x77:  /* FD_SBPF_OP_RSH64_IMM */
       //| shr dst64, imm
       dasm_put(Dst, 1192, (x86_dst), imm);
-#line 732 "fd_jit_compiler.dasc"
+#line 809 "fd_jit_compiler.dasc"
       break;
 
     case 0x79:  /* FD_SBPF_OP_LDXQ */
@@ -1007,7 +1084,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_ro_8
       //| mov dst64, [translate_out]
       dasm_put(Dst, 1199, (x86_src), offset, (x86_dst));
-#line 738 "fd_jit_compiler.dasc"
+#line 815 "fd_jit_compiler.dasc"
       break;
 
     case 0x7a:  /* FD_SBPF_OP_STQ */
@@ -1016,7 +1093,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| mov rax, imm
       //| mov [translate_out], rax
       dasm_put(Dst, 1220, (x86_dst), offset, imm);
-#line 745 "fd_jit_compiler.dasc"
+#line 822 "fd_jit_compiler.dasc"
       break;
 
     case 0x7b:  /* FD_SBPF_OP_STXQ */
@@ -1024,28 +1101,28 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| translate_rw_8
       //| mov [translate_out], src64
       dasm_put(Dst, 1243, (x86_dst), offset, (x86_src));
-#line 751 "fd_jit_compiler.dasc"
+#line 828 "fd_jit_compiler.dasc"
       break;
 
     case 0x7c:  /* FD_SBPF_OP_RSH_REG */
       //| mov cl, src8
       //| shr dst32, cl
       dasm_put(Dst, 1264, (x86_src), (x86_dst));
-#line 756 "fd_jit_compiler.dasc"
+#line 833 "fd_jit_compiler.dasc"
       break;
 
     case 0x7d:  /* FD_SBPF_OP_JSGE_REG */
       //| cmp dst64, src64
       //| jge =>jmp_dst_lbl
       dasm_put(Dst, 1275, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 761 "fd_jit_compiler.dasc"
+#line 838 "fd_jit_compiler.dasc"
       break;
 
     case 0x7f:  /* FD_SBPF_OP_RSH64_REG */
       //| mov cl, src8
       //| shr dst64, cl
       dasm_put(Dst, 1286, (x86_src), (x86_dst));
-#line 766 "fd_jit_compiler.dasc"
+#line 843 "fd_jit_compiler.dasc"
       break;
 
     /* 0x80-0x8f ********************************************************/
@@ -1053,7 +1130,7 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x84:  /* FD_SBPF_OP_NEG */
       //| neg dst32
       dasm_put(Dst, 1297, (x86_dst));
-#line 772 "fd_jit_compiler.dasc"
+#line 849 "fd_jit_compiler.dasc"
       break;
 
     case 0x85: { /* FD_SBPF_OP_CALL_IMM */
@@ -1063,14 +1140,14 @@ fd_jit_compile( struct dasm_State **       Dst,
         //| call ->call_stack_push
         //| call =>target_pc
         dasm_put(Dst, 1304, target_pc);
-#line 780 "fd_jit_compiler.dasc"
+#line 857 "fd_jit_compiler.dasc"
       } else {
         /* Optimize for code footprint: Generate an offset into the
            syscall table (32-bit) instead of the syscall address (64-bit) */
         //| mov rdi, (uint)( (ulong)syscall - (ulong)syscalls );
         //| call ->emulate_syscall
         dasm_put(Dst, 1310, (uint)( (ulong)syscall - (ulong)syscalls ));
-#line 785 "fd_jit_compiler.dasc"
+#line 862 "fd_jit_compiler.dasc"
       }
       break;
     }
@@ -1078,7 +1155,7 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0x87:  /* FD_SBPF_OP_NEG64 */
       //| neg dst64
       dasm_put(Dst, 1318, (x86_dst));
-#line 791 "fd_jit_compiler.dasc"
+#line 868 "fd_jit_compiler.dasc"
       break;
 
     case 0x8d:  /* FD_SBPF_OP_CALL_REG */
@@ -1091,7 +1168,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->vm_fault
         dasm_put(Dst, 27);
-#line 802 "fd_jit_compiler.dasc"
+#line 879 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -1100,21 +1177,21 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div edi
       //| xchg edx, dst32
       dasm_put(Dst, 1325, (x86_dst), imm, (x86_dst));
-#line 809 "fd_jit_compiler.dasc"
+#line 886 "fd_jit_compiler.dasc"
       break;
 
     case 0x95:  /* FD_SBPF_OP_EXIT */
       //| call ->call_stack_pop
       //| ret
       dasm_put(Dst, 1343);
-#line 814 "fd_jit_compiler.dasc"
+#line 891 "fd_jit_compiler.dasc"
       break;
 
     case 0x97:  /* FD_SBPF_OP_MOD64_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->vm_fault
         dasm_put(Dst, 27);
-#line 819 "fd_jit_compiler.dasc"
+#line 896 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -1123,18 +1200,18 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div rdi
       //| xchg rax, dst64
       dasm_put(Dst, 718, (x86_dst), imm, (x86_dst));
-#line 826 "fd_jit_compiler.dasc"
+#line 903 "fd_jit_compiler.dasc"
       break;
 
     case 0x9c:  /* FD_SBPF_OP_MOD_REG */
       //| test src32, src32
       //| jz ->vm_fault
       dasm_put(Dst, 738, (x86_src), (x86_src));
-#line 831 "fd_jit_compiler.dasc"
+#line 908 "fd_jit_compiler.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 0
         dasm_put(Dst, 1348, (x86_dst));
-#line 833 "fd_jit_compiler.dasc"
+#line 910 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -1142,18 +1219,18 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div src32
       //| xchg edx, dst32
       dasm_put(Dst, 1357, (x86_dst), (x86_src), (x86_dst));
-#line 839 "fd_jit_compiler.dasc"
+#line 916 "fd_jit_compiler.dasc"
       break;
 
     case 0x9f:  /* FD_SBPF_OP_MOD64_REG */
       //| test src64, src64
       //| jz ->vm_fault
       dasm_put(Dst, 788, (x86_src), (x86_src));
-#line 844 "fd_jit_compiler.dasc"
+#line 921 "fd_jit_compiler.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 0
         dasm_put(Dst, 1348, (x86_dst));
-#line 846 "fd_jit_compiler.dasc"
+#line 923 "fd_jit_compiler.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -1161,7 +1238,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| div src64
       //| xchg rdx, dst64
       dasm_put(Dst, 1376, (x86_dst), (x86_src), (x86_dst));
-#line 852 "fd_jit_compiler.dasc"
+#line 929 "fd_jit_compiler.dasc"
       break;
 
     /* 0xa0 - 0xaf ******************************************************/
@@ -1169,40 +1246,40 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0xa4:  /* FD_SBPF_OP_XOR_IMM */
       //| xor dst32, imm
       dasm_put(Dst, 1395, (x86_dst), imm);
-#line 858 "fd_jit_compiler.dasc"
+#line 935 "fd_jit_compiler.dasc"
       break;
 
     case 0xa5:  /* FD_SBPF_OP_JLT_IMM */
       //| cmp dst64, imm
       //| jb =>jmp_dst_lbl
       dasm_put(Dst, 1403, (x86_dst), imm, jmp_dst_lbl);
-#line 863 "fd_jit_compiler.dasc"
+#line 940 "fd_jit_compiler.dasc"
       break;
 
     case 0xa7:  /* FD_SBPF_OP_XOR64_IMM */
       // TODO sign extension
       //| xor dst64, imm
       dasm_put(Dst, 1414, (x86_dst), imm);
-#line 868 "fd_jit_compiler.dasc"
+#line 945 "fd_jit_compiler.dasc"
       break;
 
     case 0xac:  /* FD_SBPF_OP_XOR_REG */
       //| xor dst32, src32
       dasm_put(Dst, 590, (x86_src), (x86_dst));
-#line 872 "fd_jit_compiler.dasc"
+#line 949 "fd_jit_compiler.dasc"
       break;
 
     case 0xad:  /* FD_SBPF_OP_JLT_REG */
       //| cmp dst64, src64
       //| jb =>jmp_dst_lbl
       dasm_put(Dst, 1422, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 877 "fd_jit_compiler.dasc"
+#line 954 "fd_jit_compiler.dasc"
       break;
 
     case 0xaf:  /* FD_SBPF_OP_XOR64_REG */
       //| xor dst64, src64
       dasm_put(Dst, 1433, (x86_src), (x86_dst));
-#line 881 "fd_jit_compiler.dasc"
+#line 958 "fd_jit_compiler.dasc"
       break;
 
     /* 0xb0 - 0xbf ******************************************************/
@@ -1210,45 +1287,45 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0xb4:  /* FD_SBPF_OP_MOV_IMM */
       //| mov dst32, imm
       dasm_put(Dst, 1441, (x86_dst), imm);
-#line 887 "fd_jit_compiler.dasc"
+#line 964 "fd_jit_compiler.dasc"
       break;
 
     case 0xb5:  /* FD_SBPF_OP_JLE_IMM */
       //| cmp dst64, imm
       //| jbe =>jmp_dst_lbl
       dasm_put(Dst, 1447, (x86_dst), imm, jmp_dst_lbl);
-#line 892 "fd_jit_compiler.dasc"
+#line 969 "fd_jit_compiler.dasc"
       break;
 
     case 0xb7:  /* FD_SBPF_OP_MOV64_IMM */
       if( imm==0 ) {
         //| xor dst32, dst32
         dasm_put(Dst, 590, (x86_dst), (x86_dst));
-#line 897 "fd_jit_compiler.dasc"
+#line 974 "fd_jit_compiler.dasc"
       } else {
         //| mov dst64, imm
         dasm_put(Dst, 598, (x86_dst), imm);
-#line 899 "fd_jit_compiler.dasc"
+#line 976 "fd_jit_compiler.dasc"
       }
       break;
 
     case 0xbc:  /* FD_SBPF_OP_MOV_REG */
       //| mov dst32, src32
       dasm_put(Dst, 1458, (x86_src), (x86_dst));
-#line 904 "fd_jit_compiler.dasc"
+#line 981 "fd_jit_compiler.dasc"
       break;
 
     case 0xbd:  /* FD_SBPF_OP_JLE_REG */
       //| cmp dst64, src64
       //| jbe =>jmp_dst_lbl
       dasm_put(Dst, 1466, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 909 "fd_jit_compiler.dasc"
+#line 986 "fd_jit_compiler.dasc"
       break;
 
     case 0xbf:  /* FD_SBPF_OP_MOV64_REG */
       //| mov dst64, src64
       dasm_put(Dst, 1477, (x86_src), (x86_dst));
-#line 913 "fd_jit_compiler.dasc"
+#line 990 "fd_jit_compiler.dasc"
       break;
 
     /* 0xc0 - 0xcf ******************************************************/
@@ -1256,41 +1333,41 @@ fd_jit_compile( struct dasm_State **       Dst,
     case 0xc4:  /* FD_SBPF_OP_ARSH_IMM */
       //| sar dst32, imm
       dasm_put(Dst, 1485, (x86_dst), imm);
-#line 919 "fd_jit_compiler.dasc"
+#line 996 "fd_jit_compiler.dasc"
       break;
 
     case 0xc5:  /* FD_SBPF_OP_JSLT_IMM */
       //| cmp dst64, imm
       //| jl =>jmp_dst_lbl
       dasm_put(Dst, 1493, (x86_dst), imm, jmp_dst_lbl);
-#line 924 "fd_jit_compiler.dasc"
+#line 1001 "fd_jit_compiler.dasc"
       break;
 
     case 0xc7:  /* FD_SBPF_OP_ARSH64_IMM */
       //| sar dst64, imm
       dasm_put(Dst, 1504, (x86_dst), imm);
-#line 928 "fd_jit_compiler.dasc"
+#line 1005 "fd_jit_compiler.dasc"
       break;
 
     case 0xcc:  /* FD_SBPF_OP_ARSH_REG */
       //| mov cl, src8
       //| sar dst32, cl
       dasm_put(Dst, 1512, (x86_src), (x86_dst));
-#line 933 "fd_jit_compiler.dasc"
+#line 1010 "fd_jit_compiler.dasc"
       break;
 
     case 0xcd:  /* FD_SBPF_OP_JSLT_REG */
       //| cmp dst64, src64
       //| jl =>jmp_dst_lbl
       dasm_put(Dst, 1524, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 938 "fd_jit_compiler.dasc"
+#line 1015 "fd_jit_compiler.dasc"
       break;
 
     case 0xcf:  /* FD_SBPF_OP_ARSH64_REG */
       //| mov cl, src8
       //| sar dst64, cl
       dasm_put(Dst, 1535, (x86_src), (x86_dst));
-#line 943 "fd_jit_compiler.dasc"
+#line 1020 "fd_jit_compiler.dasc"
       break;
 
     /* 0xd0 - 0xdf ******************************************************/
@@ -1303,7 +1380,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| cmp dst64, imm
       //| jle =>jmp_dst_lbl
       dasm_put(Dst, 1547, (x86_dst), imm, jmp_dst_lbl);
-#line 954 "fd_jit_compiler.dasc"
+#line 1031 "fd_jit_compiler.dasc"
       break;
 
     case 0xdc:  /* FD_SBPF_OP_END_BE */
@@ -1312,17 +1389,17 @@ fd_jit_compile( struct dasm_State **       Dst,
         //| movzx dst32, Rw(x86_dst)
         //| ror Rw(x86_dst), 8
         dasm_put(Dst, 1558, (x86_dst), (x86_dst), (x86_dst));
-#line 961 "fd_jit_compiler.dasc"
+#line 1038 "fd_jit_compiler.dasc"
         break;
       case 32U:
         //| bswap dst32
         dasm_put(Dst, 1574, (x86_dst));
-#line 964 "fd_jit_compiler.dasc"
+#line 1041 "fd_jit_compiler.dasc"
         break;
       case 64U:
         //| bswap dst64
         dasm_put(Dst, 1580, (x86_dst));
-#line 967 "fd_jit_compiler.dasc"
+#line 1044 "fd_jit_compiler.dasc"
         break;
       default:
         break;
@@ -1334,7 +1411,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       //| cmp dst64, src64
       //| jle =>jmp_dst_lbl
       dasm_put(Dst, 1586, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 977 "fd_jit_compiler.dasc"
+#line 1054 "fd_jit_compiler.dasc"
       break;
 
     default:
@@ -1349,66 +1426,6 @@ fd_jit_compile( struct dasm_State **       Dst,
   //|->overrun:
   //| jmp ->vm_fault
   dasm_put(Dst, 1597);
-#line 990 "fd_jit_compiler.dasc"
+#line 1067 "fd_jit_compiler.dasc"
 
-}
-
-fd_jit_scratch_layout_t *
-fd_jit_scratch_layout( fd_jit_scratch_layout_t * layout,
-                       ulong                     bpf_sz ) {
-
-  if( FD_UNLIKELY( bpf_sz > (1UL<<24) ) ) return NULL;
-  ulong text_cnt = bpf_sz / 8UL;
-
-  /* These "magic" values are taken from dasm_x86.h */
-
-  ulong dasm_sz     = DASM_PSZ( DASM_MAXSECTION );       /* dasm_x86.h(89) */
-  ulong lglabels_sz = (10+fd_jit_lbl__MAX)*sizeof(int);  /* dasm_x86.h(119) */
-  ulong pclabels_sz = text_cnt*sizeof(int);              /* dasm_x86.h(127) */
-  ulong code_sz     = fd_jit_est_code_sz( bpf_sz );
-
-  memset( layout, 0, sizeof(fd_jit_scratch_layout_t) );
-  FD_SCRATCH_ALLOC_INIT( l, 0 );
-  layout->dasm_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, dasm_sz     );
-  layout->lglabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, lglabels_sz );
-  layout->pclabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, pclabels_sz );
-  layout->code_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, code_sz     );
-  layout->sz           = (ulong)FD_SCRATCH_ALLOC_FINI( l, 16UL );
-  return layout;
-}
-
-dasm_State *
-fd_jit_prepare( void *                          scratch,
-                fd_jit_scratch_layout_t const * layout,
-                void *                          code_buf,
-                ulong                           code_bufsz ) {
-
-  /* Custom dasm_init */
-  dasm_State * d = (void *)( (ulong)scratch + layout->dasm_off );
-  fd_memset( d, 0, layout->dasm_sz );
-  d->psize      = layout->dasm_sz;
-  d->maxsection = DASM_MAXSECTION;
-
-  /* Custom dasm_setupglobal */
-  d->globals  = fd_jit_labels;
-  d->lglabels = (void *)( (ulong)scratch + layout->lglabels_off );
-
-  /* Custom dasm_growpc */
-  d->pcsize   = layout->pclabels_sz;
-  d->pclabels = (void *)( (ulong)scratch + layout->pclabels_off );
-
-  /* Setup encoder. Zeros lglabels and pclabels. */
-  dasm_setup( &d, actions );
-
-  /* Preallocate space for .code section
-     See dasm_x86.h(172) */
-  dasm_Section * code = d->sections + 0;
-  code->buf   = code_buf;
-  code->bsize = code_bufsz;
-  code->pos   = DASM_SEC2POS( 0 );
-  code->rbuf  = code->buf - DASM_POS2BIAS( (uint)code->pos );
-  code->epos  = (int)( ((ulong)code->bsize / sizeof(int)) - DASM_MAXSECPOS + (ulong)DASM_POS2BIAS( (uint)code->pos ) );
-  code->ofs   = 0;
-
-  return d;
 }

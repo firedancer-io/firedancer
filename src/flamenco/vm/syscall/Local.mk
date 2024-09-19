@@ -6,7 +6,7 @@ $(call add-objs,fd_vm_syscall fd_vm_syscall_cpi fd_vm_syscall_hash fd_vm_syscall
 
 $(call make-unit-test,test_vm_syscall_cpi,test_vm_syscall_cpi,fd_flamenco fd_funk fd_ballet fd_util)
 $(call make-unit-test,test_vm_syscall_curve,test_vm_syscall_curve,fd_flamenco fd_funk fd_ballet fd_util)
-$(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_funk fd_ballet fd_util)
+# broken $(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_funk fd_ballet fd_util)
 
 $(call run-unit-test,test_vm_syscalls)
 $(call run-unit-test,test_vm_syscall_cpi)

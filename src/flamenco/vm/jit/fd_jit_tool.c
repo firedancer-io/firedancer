@@ -14,7 +14,8 @@
 #include "../../runtime/context/fd_exec_slot_ctx.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/sysvar/fd_sysvar_recent_hashes.h"
-#include "../fd_vm_private.h"
+#include "fd_jit.h"
+#include "../fd_vm.h"
 
 #include <assert.h>
 #include <setjmp.h>
@@ -185,12 +186,56 @@ main( int     argc,
   instr_ctx->slot_ctx  = slot_ctx;
   instr_ctx->txn_ctx   = txn_ctx;
 
+  /* Acquire pages to store executable code in */
+
+  ulong  code_bufsz = fd_ulong_align_up( fd_jit_est_code_sz( prog->text_sz ), FD_SHMEM_NORMAL_PAGE_SZ );
+  void * code_buf   = mmap( 0, code_bufsz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+  if( FD_UNLIKELY( code_buf==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed" ));
+
+  /* Compile program */
+
+  ulong  scratch_bufsz = fd_jit_est_scratch_sz( prog->text_sz );
+  void * scratch_buf   = fd_scratch_alloc( 16UL, scratch_bufsz );
+
+  int compile_err;
+  fd_jit_prog_t _jit_prog[1];
+  fd_jit_prog_t * jit_prog = fd_jit_prog_new( _jit_prog, prog, syscalls, code_buf, code_bufsz, scratch_buf, scratch_bufsz, &compile_err );
+  if( FD_UNLIKELY( !jit_prog ) ) {
+    FD_LOG_ERR(( "fd_jit_prog_new failed" ));
+  }
+
+  /* Make code executable */
+
+  mprotect( code_buf, jit_prog->code_sz, PROT_READ | PROT_EXEC );
+
   /* Set up VM */
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_scratch_alloc( fd_vm_align(), fd_vm_footprint() ) ) );
+  FD_TEST( vm );
+  // ulong event_max = 1UL<<20;
+  // ulong event_data_max = 2048UL;
+  //fd_vm_trace_t * trace = fd_vm_trace_new( aligned_alloc( fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
+  FD_TEST( fd_vm_init(
+    vm,
+    instr_ctx,
+    FD_VM_HEAP_DEFAULT,  /* heap_max */
+    txn_ctx->compute_meter, /* entry_cu */
+    rodata, /* rodata */
+    elf_info.rodata_sz, /* rodata_sz */
+    prog->text, /* text */
+    prog->text_cnt, /* text_cnt */
+    prog->text_off, /* text_off */
+    prog->text_sz,  /* text_sz */
+    prog->entry_pc, /* entry_pc */
+    prog->calldests, /* calldests */
+    syscalls,
+    NULL,// trace,
+    sha,
+    0 /* is_deprecated */ ) );
 
-  /* Set up accounts */
+  /* Page in additional virtual memory */
 
 # define ACC1_SZ 0x100000
   uchar * account1 = fd_scratch_alloc( 32, ACC1_SZ );
@@ -215,55 +260,26 @@ main( int     argc,
     }
   };
 
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_scratch_alloc( fd_vm_align(), fd_vm_footprint() ) ) );
-  FD_TEST( vm );
-  // ulong event_max = 1UL<<20;
-  // ulong event_data_max = 2048UL;
-  //fd_vm_trace_t * trace = fd_vm_trace_new( aligned_alloc( fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
-  FD_TEST( fd_vm_init(
-    vm,
-    instr_ctx,
-    FD_VM_HEAP_DEFAULT,  /* heap_max */
-    txn_ctx->compute_meter, /* entry_cu */
-    rodata, /* rodata */
-    elf_info.rodata_sz, /* rodata_sz */
-    prog->text, /* text */
-    prog->text_cnt, /* text_cnt */
-    prog->text_off, /* text_off */
-    prog->text_sz,  /* text_sz */
-    prog->entry_pc, /* entry_pc */
-    prog->calldests, /* calldests */
-    syscalls,
-    NULL,// trace,
-    sha,
-    mem_regions,
-    mem_region_cnt,
-    NULL, /* acc_region_metas */
-    0 /* is_deprecated */ ) );
+  vm->region_haddr[2] = (ulong)metas;
+  vm->region_ld_sz[2] = sizeof(metas);
 
-  vm->reg[ 1] = 2UL<<32; /* account table address */
-  vm->reg[ 2] = 2; /* account count */
-  vm->reg[ 3] = 3UL<<32; /* instruction data address */
-  vm->reg[ 4] = 0; /* instruction data size */
-  vm->reg[10] = (1UL<<32) + 0x1000;
+  vm->region_haddr[3] = (ulong)account1;
+  vm->region_ld_sz[3] = ACC1_SZ;
 
-  /* Finish generating code */
-
-  void * buf = mmap( 0, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
-  if( FD_UNLIKELY( buf==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed" ));
-
-  ulong entry_pc    = prog->entry_pc;
-
-  mprotect( buf, sz, PROT_READ | PROT_EXEC );
+  vm->region_haddr[4] = (ulong)account2;
+  vm->region_ld_sz[4] = sizeof(account2);
+  vm->region_st_sz[4] = sizeof(account2);
 
   /* Execute */
-  long dt = -fd_log_wallclock();
+
   vm->reg[ 1] = 2UL<<32; /* account table address */
   vm->reg[ 2] = 2; /* account count */
   vm->reg[ 3] = 3UL<<32; /* instruction data address */
   vm->reg[ 4] = 0; /* instruction data size */
   vm->reg[10] = (1UL<<32) + 0x1000;
   vm->frame_cnt = 1; /* last exit writes to frame[0] */
+
+  fd_jit_exec( jit_prog, vm );
 
   fd_halt();
   return 0;
