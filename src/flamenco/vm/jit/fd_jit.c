@@ -1,8 +1,6 @@
 #include "fd_jit_private.h"
 #include <math.h>
 
-/* Runtime thread locals **********************************************/
-
 FD_TL fd_vm_t *                  fd_jit_vm;        /* current VM being executed */
 FD_TL fd_sbpf_syscalls_t const * fd_jit_syscalls;  /* current syscall table */
 
@@ -14,6 +12,19 @@ FD_TL ulong fd_jit_jmp_buf[8];
 FD_TL ulong fd_jit_segfault_vaddr;
 FD_TL ulong fd_jit_segfault_rip;
 
+ulong
+fd_jit_est_code_sz( ulong bpf_sz ) {
+  if( FD_UNLIKELY( bpf_sz > (1UL<<24) ) ) return 0UL; /* float32 representation limit */
+  return FD_JIT_BLOAT_BASE + (ulong)ceilf( (float)bpf_sz * FD_JIT_BLOAT_MAX );
+}
+
+ulong
+fd_jit_est_scratch_sz( ulong bpf_sz ) {
+  fd_jit_scratch_layout_t layout[1];
+  if( FD_UNLIKELY( !fd_jit_scratch_layout( layout, bpf_sz ) ) ) return 0UL;
+  return layout->sz;
+}
+
 fd_jit_prog_t *
 fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
                  fd_sbpf_program_t const *  prog,
@@ -24,13 +35,16 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
                  ulong                      scratch_sz,
                  int *                      out_err ) {
 
+  *out_err = FD_VM_ERR_INVAL;
+
   if( FD_UNLIKELY( setjmp( fd_jit_compile_abort ) ) ) {
     /* DASM_M_GROW longjmp() here in case of alloc failure */
     *out_err = FD_VM_ERR_FULL;
     return NULL;
   }
 
-  uint text_cnt = (uint)prog->text_cnt;
+  uint  text_cnt = (uint)prog->text_cnt;
+  ulong bpf_sz   = text_cnt * 8UL;
 
   /* Prepare custom scratch allocator for DynASM.
      Constructors provided by dasm_x86.h heavily rely on realloc() like
@@ -38,44 +52,17 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
      regions out of code_buf and uses the redefined DASM_M_GROW to
      detect out-of-memory conditions. */
 
-  ulong dasm_sz     = DASM_PSZ( DASM_MAXSECTION );
-  ulong lglabels_sz = (10+fd_jit_lbl__MAX)*sizeof(int);
-  ulong pclabels_sz = text_cnt*sizeof(int);
-  ulong code_sz     = fd_jit_est_scratch_sz( (ulong)text_cnt * 8UL );
+  fd_jit_scratch_layout_t layout[1];
+  if( FD_UNLIKELY( !fd_jit_scratch_layout( layout, bpf_sz ) ) ) {
+    *out_err = FD_VM_ERR_FULL;
+    return NULL;
+  }
+  if( FD_UNLIKELY( layout->sz > scratch_sz ) ) {
+    *out_err = FD_VM_ERR_FULL;
+    return NULL;
+  }
 
-  fd_jit_scratch_layout_t layout = fd_jit_scratch_layout( bpf_sz );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  void * dasm_mem = FD_SCRATCH_ALLOC_APPEND( l, 16UL, dasm_sz     );
-  void * lglabels = FD_SCRATCH_ALLOC_APPEND( l, 16UL, lglabels_sz );
-  void * pclabels = FD_SCRATCH_ALLOC_APPEND( l, 16UL, pclabels_sz );
-  void * section  = FD_SCRATCH_ALLOC_APPEND( l, 16UL, code_sz     );
-
-  /* Custom dasm_init */
-  dasm_State * d = (dasm_State *)dasm_mem;
-  fd_memset( d, 0, dasm_sz );
-  d->psize      = dasm_sz;
-  d->maxsection = DASM_MAXSECTION;
-
-  /* Custom dasm_setupglobal */
-  d->globals  = fd_jit_labels;
-  d->lglabels = lglabels;
-
-  /* Custom dasm_growpc */
-  d->pcsize   = text_cnt*sizeof(int);
-  d->pclabels = pclabels;
-
-  /* Setup encoder. Zeros lglabels and pclabels. */
-  dasm_setup( &d, actions );
-
-  /* Preallocate space for .code section */
-  dasm_Section * code = d->sections + 0;
-  sec->buf   = code_buf;
-  sec->bsize = code_bufsz;
-  sec->pos   = DASM_SEC2POS( 0 );
-  sec->rbuf  = sec->buf - DASM_POS2BIAS( sec->pos );
-  sec->epos  = (int)sec->bsize/sizeof(int) - DASM_MAXSECPOS+DASM_POS2BIAS(pos);
-  sec->ofs   = 0;
+  dasm_State * d = fd_jit_prepare( scratch, layout, code_buf, code_bufsz );
 
   fd_jit_compile( &d, prog, syscalls );
 
@@ -97,18 +84,9 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
 }
 
 void *
-fd_jit_prog_delete( void * prog ) {
+fd_jit_prog_delete( fd_jit_prog_t * prog ) {
   (void)prog;
   return NULL;
-}
-
-int
-fd_jit_exec( fd_jit_prog_t * jit_prog,
-             fd_vm_t *       vm ) {
-  fd_jit_vm_attach( vm );
-  int err = jit_prog->entrypoint( jit_prog->first_rip );
-  fd_jit_vm_detach();
-  return err;
 }
 
 int
@@ -141,38 +119,11 @@ fd_jit_vm_detach( void ) {
   fd_jit_segfault_rip   = 0UL;
 }
 
-fd_jit_scratch_layout_t *
-fd_jit_scratch_layout( fd_jit_scratch_layout_t * layout,
-                       ulong                     bpf_sz ) {
-
-  if( FD_UNLIKELY( bpf_sz > (1UL<<24) ) ) return NULL;
-
-  /* These "magic" values are taken from dasm_x86.h */
-
-  ulong dasm_sz     = DASM_PSZ( DASM_MAXSECTION );       /* dasm_x86.h(89) */
-  ulong lglabels_sz = (10+fd_jit_lbl__MAX)*sizeof(int);  /* dasm_x86.h(119) */
-  ulong pclabels_sz = text_cnt*sizeof(int);              /* dasm_x86.h(127) */
-  ulong code_sz     = fd_jit_est_code_sz( bpf_sz );
-
-  memset( layout, 0, sizeof(fd_jit_scratch_layout_t) );
-  FD_SCRATCH_ALLOC_INIT( l, 0 );
-  layout->dasm_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, dasm_sz     );
-  layout->lglabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, lglabels_sz );
-  layout->pclabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, pclabels_sz );
-  layout->code_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, code_sz     );
-  layout->sz           = (ulong)FD_SCRATCH_ALLOC_FINI( l );
-  return layout;
-}
-
-ulong
-fd_jit_est_code_sz( ulong bpf_sz ) {
-  if( FD_UNLIKELY( bpf_sz > (1UL<<24) ) ) return 0UL; /* float32 representation limit */
-  return FD_JIT_BLOAT_BASE + (ulong)ceilf( (float)bpf_sz * FD_JIT_BLOAT_MAX );
-}
-
-ulong
-fd_jit_est_scratch_sz( ulong bpf_sz ) {
-  fd_jit_scratch_layout_t layout[1];
-  if( FD_UNLIKELY( !fd_jit_scratch_layout( layout, bpf_sz ) ) ) return 0UL;
-  return layout->sz;
+int
+fd_jit_exec( fd_jit_prog_t * jit_prog,
+             fd_vm_t *       vm ) {
+  fd_jit_vm_attach( vm );
+  int err = jit_prog->entrypoint( jit_prog->first_rip );
+  fd_jit_vm_detach();
+  return err;
 }

@@ -989,3 +989,63 @@ fd_jit_compile( struct dasm_State **       Dst,
   | jmp ->vm_fault
 
 }
+
+fd_jit_scratch_layout_t *
+fd_jit_scratch_layout( fd_jit_scratch_layout_t * layout,
+                       ulong                     bpf_sz ) {
+
+  if( FD_UNLIKELY( bpf_sz > (1UL<<24) ) ) return NULL;
+  ulong text_cnt = bpf_sz / 8UL;
+
+  /* These "magic" values are taken from dasm_x86.h */
+
+  ulong dasm_sz     = DASM_PSZ( DASM_MAXSECTION );       /* dasm_x86.h(89) */
+  ulong lglabels_sz = (10+fd_jit_lbl__MAX)*sizeof(int);  /* dasm_x86.h(119) */
+  ulong pclabels_sz = text_cnt*sizeof(int);              /* dasm_x86.h(127) */
+  ulong code_sz     = fd_jit_est_code_sz( bpf_sz );
+
+  memset( layout, 0, sizeof(fd_jit_scratch_layout_t) );
+  FD_SCRATCH_ALLOC_INIT( l, 0 );
+  layout->dasm_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, dasm_sz     );
+  layout->lglabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, lglabels_sz );
+  layout->pclabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, pclabels_sz );
+  layout->code_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, code_sz     );
+  layout->sz           = (ulong)FD_SCRATCH_ALLOC_FINI( l, 16UL );
+  return layout;
+}
+
+dasm_State *
+fd_jit_prepare( void *                          scratch,
+                fd_jit_scratch_layout_t const * layout,
+                void *                          code_buf,
+                ulong                           code_bufsz ) {
+
+  /* Custom dasm_init */
+  dasm_State * d = (void *)( (ulong)scratch + layout->dasm_off );
+  fd_memset( d, 0, layout->dasm_sz );
+  d->psize      = layout->dasm_sz;
+  d->maxsection = DASM_MAXSECTION;
+
+  /* Custom dasm_setupglobal */
+  d->globals  = fd_jit_labels;
+  d->lglabels = (void *)( (ulong)scratch + layout->lglabels_off );
+
+  /* Custom dasm_growpc */
+  d->pcsize   = layout->pclabels_sz;
+  d->pclabels = (void *)( (ulong)scratch + layout->pclabels_off );
+
+  /* Setup encoder. Zeros lglabels and pclabels. */
+  dasm_setup( &d, actions );
+
+  /* Preallocate space for .code section
+     See dasm_x86.h(172) */
+  dasm_Section * code = d->sections + 0;
+  code->buf   = code_buf;
+  code->bsize = code_bufsz;
+  code->pos   = DASM_SEC2POS( 0 );
+  code->rbuf  = code->buf - DASM_POS2BIAS( (uint)code->pos );
+  code->epos  = (int)( ((ulong)code->bsize / sizeof(int)) - DASM_MAXSECPOS + (ulong)DASM_POS2BIAS( (uint)code->pos ) );
+  code->ofs   = 0;
+
+  return d;
+}

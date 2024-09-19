@@ -146,6 +146,22 @@ fd_jit_scratch_layout_t *
 fd_jit_scratch_layout( fd_jit_scratch_layout_t * scratch,
                        ulong                     bpf_sz );
 
+/* fd_jit_prepare constructs a dasm_State object in the given scratch
+   memory region.  Calls dasm_init and dasm_setup. */
+
+dasm_State *
+fd_jit_prepare( void *                          scratch,
+                fd_jit_scratch_layout_t const * layout,
+                void *                          code_buf,
+                ulong                           code_bufsz );
+
+/* FIXME documentation for fd_jit_compile. */
+
+void
+fd_jit_compile( struct dasm_State **       Dst,
+                fd_sbpf_program_t const *  prog,
+                fd_sbpf_syscalls_t const * syscalls );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_vm_jit_fd_jit_private_h */
