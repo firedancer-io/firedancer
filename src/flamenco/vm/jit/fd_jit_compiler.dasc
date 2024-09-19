@@ -1,5 +1,6 @@
 #include "fd_jit_private.h"
 #include "../fd_vm_private.h"
+#include <math.h>
 #include <setjmp.h>
 
 /* WARNING: WORK IN PROGRESS!
@@ -11,41 +12,6 @@
    compile operation without unwinding. */
 
 extern FD_TL jmp_buf fd_jit_compile_abort;
-
-/* DynASM code uses realloc.  fd_jit can estimate the number of bytes
-   needed, so we can do better and allocate once on startup.
-
-   DynASM calls realloc in 4 places:  On initialization in dasm_init,
-   dasm_setupglobal, and dasm_growpc.  Then, for every block of code
-   in dasm_put.
-
-   Checks that enough memory was allocated on initialization are moved
-   to test_vm_jit.  Checks during code generation (dasm_put) are moved
-   to the fd_dasm_put_check function call.  Calls to 'realloc' and
-   'free' are removed. */
-
-#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_put_check( (p), (need) ))
-#define DASM_M_FREE(ctx, p, sz) do{}while(0)
-
-static void
-fd_dasm_put_check( void * ptr,
-                   ulong  min_sz ) {
-  (void)ptr; (void)min_sz;
-}
-
-/* Include dynasm headers.  These fail to compile when some strict
-   checks are enabled. */
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
-#pragma GCC diagnostic ignored "-Wsign-conversion"
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
-#include "dasm_proto.h"
-#include "dasm_x86.h"
-#pragma GCC diagnostic pop
-| .arch x64
-| .actionlist actions
-| .globals fd_jit_lbl_
 
 /* Compile time thread locals */
 
@@ -1025,36 +991,4 @@ fd_jit_compile( struct dasm_State **       Dst,
   |->overrun:
   | jmp ->vm_fault
 
-}
-
-
-void *
-fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
-                 fd_sbpf_program_t const *  prog,
-                 fd_sbpf_syscalls_t const * syscalls,
-                 void *                     code_buf,
-                 ulong                      code_bufsz,
-                 void *                     scratch,
-                 ulong                      scratch_sz,
-                 int *                      out_err ) {
-
-  dasm_State * d;
-  dasm_init( &d, DASM_MAXSECTION );
-  dasm_setupglobal( &d, fd_jit_labels, fd_jit_lbl__MAX );
-  dasm_growpc( &d, (uint)prog->text_cnt );
-  dasm_setup( &d, actions );
-
-  fd_jit_compile( &d, prog, syscalls );
-
-  ulong code_sz;
-  dasm_link( &d, &code_sz );
-  if( FD_UNLIKELY( code_sz > code_bufsz ) ) {
-    *out_err = FD_VM_ERR_FULL;
-    return NULL;
-  }
-
-  dasm_encode( &d, code_buf );
-  jit_prog->first_rip = (ulong)code_buf + (ulong)dasm_getpclabel( &d, (uint)prog->entry_pc );
-  dasm_free( &d );
-  return jit_prog;
 }

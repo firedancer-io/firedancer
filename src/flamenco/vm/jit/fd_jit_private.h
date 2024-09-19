@@ -3,6 +3,39 @@
 
 #include "fd_jit.h"
 
+/* DynASM code uses realloc.  fd_jit can estimate the number of bytes
+   needed, so we can do better and allocate once on startup.
+
+   DynASM calls realloc in 4 places:  On initialization in dasm_init,
+   dasm_setupglobal, and dasm_growpc.  Then, for every block of code
+   in dasm_put.
+
+   Checks that enough memory was allocated on initialization are moved
+   to test_vm_jit.  Checks during code generation (dasm_put) are moved
+   to the fd_dasm_put_check function call.  Calls to 'realloc' and
+   'free' are removed. */
+
+#define DASM_M_GROW(ctx, t, p, sz, need) (fd_dasm_put_check( (p), (need) ))
+#define DASM_M_FREE(ctx, p, sz) do{}while(0)
+
+/* Include dynasm headers.  These fail to compile when some strict
+   checks are enabled. */
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#include "dasm_proto.h"
+#include "dasm_x86.h"
+#pragma GCC diagnostic pop
+| .arch x64
+| .actionlist actions
+| .globals fd_jit_lbl_
+
+void
+fd_dasm_put_check( void * ptr,
+                   ulong  min_sz );
+
 /* FD_DASM_R{...} specify the dynasm register index of x86_64 registers. */
 
 #define FD_DASM_RAX  (0)
@@ -70,24 +103,49 @@ extern FD_TL ulong fd_jit_segfault_rip;
 #define FD_JIT_LABEL_CNT 13
 extern FD_TL void * fd_jit_labels[ FD_JIT_LABEL_CNT ];
 
+/* FD_JIT_BLOAT_BASE approximates the number of code bytes that the JIT
+   compiler generates regardless of the BPF instruction count. */
+
+#define FD_JIT_BLOAT_BASE (10000UL)
+
+/* FD_JIT_BLOAT_MAX is the max acceptable JIT code bloat factor
+   (Ratio jit_code_sz / bpf_sz) */
+
+#define FD_JIT_BLOAT_MAX (2.0f) /* FIXME choose value based on mainnet contracts */
+
 FD_PROTOTYPES_END
 
-/* JIT steps **********************************************************/
+/* fd_jit_scratch_layout_t describes the layout of the scratch region.
+   The scratch region contains preallocated objects used by DynASM. */
 
-struct dasm_State;
+struct fd_jit_scratch_layout {
+  ulong dasm_off;
+  ulong dasm_sz;
+
+  ulong lglabels_off;
+  ulong lglabels_off;
+
+  ulong pclabels_off;
+  ulong pclabels_sz;
+
+  ulong code_off;
+  ulong code_sz;
+
+  ulong sz;
+};
+
+typedef struct fd_jit_scratch_layout fd_jit_scratch_layout_t;
 
 FD_PROTOTYPES_BEGIN
 
-void
-fd_jit_compile( struct dasm_State **       dasm,
-                fd_sbpf_program_t const *  prog,
-                fd_sbpf_syscalls_t const * syscalls );
+/* fd_jit_scratch_layout proposes a memory layout for
 
-int
-fd_jit_vm_attach( fd_vm_t * vm );
+   The size of the scratch region is assumed to be
+   fd_jit_est_scratch_sz. */
 
-void
-fd_jit_vm_detach( void );
+fd_jit_scratch_layout_t *
+fd_jit_scratch_layout( fd_jit_scratch_layout_t * scratch,
+                       ulong                     bpf_sz );
 
 FD_PROTOTYPES_END
 
