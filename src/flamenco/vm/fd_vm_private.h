@@ -184,12 +184,12 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
        the load and stores are fragmented. */
-    vm->region_haddr[4] = 0UL; 
-    vm->region_ld_sz[4] = 0U; 
+    vm->region_haddr[4] = 0UL;
+    vm->region_ld_sz[4] = 0U;
     vm->region_st_sz[4] = 0U;
   } else {
-    vm->region_haddr[4] = vm->input_mem_regions[0].haddr;  
-    vm->region_ld_sz[4] = vm->input_mem_regions[0].region_sz;    
+    vm->region_haddr[4] = vm->input_mem_regions[0].haddr;
+    vm->region_ld_sz[4] = vm->input_mem_regions[0].region_sz;
     vm->region_st_sz[4] = vm->input_mem_regions[0].region_sz;
   }
   return vm;
@@ -223,7 +223,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
 
    fd_vm_mem_haddr_fast is when the vaddr is for use when it is already
    known that the vaddr region has a valid mapping.
-   
+
    These assumptions don't hold if direct mapping is enabled since input
    region lookups become O(log(n)). */
 
@@ -251,15 +251,15 @@ fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
 }
 
 /* fd_vm_find_input_mem_region returns the translated haddr for a given
-   offset into the input region.  If an offset/sz is invalid or if an 
+   offset into the input region.  If an offset/sz is invalid or if an
    illegal write is performed, the sentinel value is returned. If the offset
    provided is too large, it will choose the upper-most region as the
    region_idx. However, it will get caught for being too large of an access
    in the multi-region checks. */
 static inline ulong
-fd_vm_find_input_mem_region( fd_vm_t const * vm, 
+fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              ulong           offset,
-                             ulong           sz, 
+                             ulong           sz,
                              uchar           write,
                              ulong           sentinel,
                              uchar *         is_multi_region ) {
@@ -296,7 +296,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   }
 
   ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
-  return adjusted_haddr; 
+  return adjusted_haddr;
 }
 
 
@@ -325,7 +325,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   if( region==4UL ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
   }
-  
+
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
   if ( FD_LIKELY( sz<=sz_max ) ) {
     fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
@@ -335,7 +335,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
 }
 
 FD_FN_PURE static inline ulong
-fd_vm_mem_haddr_fast( fd_vm_t const * vm, 
+fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
@@ -349,7 +349,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
 
 /* fd_vm_mem_ld_N loads N bytes from the host address location haddr,
    zero extends it to a ulong and returns the ulong.  haddr need not be
-   aligned.  fd_vm_mem_ld_multi handles the case where the load spans 
+   aligned.  fd_vm_mem_ld_multi handles the case where the load spans
    multiple input memory regions. */
 
 static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * dst ) {
@@ -372,14 +372,14 @@ static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr,
   }
 }
 
-FD_FN_PURE static inline ulong fd_vm_mem_ld_1( ulong haddr ) { 
-  return (ulong)*(uchar const *)haddr; 
+FD_FN_PURE static inline ulong fd_vm_mem_ld_1( ulong haddr ) {
+  return (ulong)*(uchar const *)haddr;
 }
 
-FD_FN_PURE static inline ulong fd_vm_mem_ld_2( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) { 
-  ushort t; 
+FD_FN_PURE static inline ulong fd_vm_mem_ld_2( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) {
+  ushort t;
   if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( &t, (void const *)haddr, sizeof(ushort) ); 
+    memcpy( &t, (void const *)haddr, sizeof(ushort) );
   } else {
     fd_vm_mem_ld_multi( vm, 2U, vaddr, haddr, (uchar *)&t );
   }
@@ -387,9 +387,9 @@ FD_FN_PURE static inline ulong fd_vm_mem_ld_2( fd_vm_t const * vm, ulong vaddr, 
 }
 
 FD_FN_PURE static inline ulong fd_vm_mem_ld_4( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) {
-  uint t; 
+  uint t;
   if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( &t, (void const *)haddr, sizeof(uint) ); 
+    memcpy( &t, (void const *)haddr, sizeof(uint) );
   } else {
     fd_vm_mem_ld_multi( vm, 4U, vaddr, haddr, (uchar *)&t );
   }
@@ -397,9 +397,9 @@ FD_FN_PURE static inline ulong fd_vm_mem_ld_4( fd_vm_t const * vm, ulong vaddr, 
 }
 
 FD_FN_PURE static inline ulong fd_vm_mem_ld_8( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) {
-  ulong t; 
+  ulong t;
   if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( &t, (void const *)haddr, sizeof(ulong) ); 
+    memcpy( &t, (void const *)haddr, sizeof(ulong) );
   } else {
     fd_vm_mem_ld_multi( vm, 8U, vaddr, haddr, (uchar *)&t );
   }
@@ -430,17 +430,17 @@ static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr,
   }
 }
 
-static inline void fd_vm_mem_st_1( ulong haddr, uchar val ) { 
+static inline void fd_vm_mem_st_1( ulong haddr, uchar val ) {
   *(uchar *)haddr = val;
 }
 
 static inline void fd_vm_mem_st_2( fd_vm_t const * vm,
                                    ulong           vaddr,
-                                   ulong           haddr, 
-                                   ushort          val, 
-                                   uint            is_multi_region ) { 
+                                   ulong           haddr,
+                                   ushort          val,
+                                   uint            is_multi_region ) {
   if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( (void *)haddr, &val, sizeof(ushort) ); 
+    memcpy( (void *)haddr, &val, sizeof(ushort) );
   } else {
     fd_vm_mem_st_multi( vm, 2U, vaddr, haddr, (uchar *)&val );
   }
@@ -448,11 +448,11 @@ static inline void fd_vm_mem_st_2( fd_vm_t const * vm,
 
 static inline void fd_vm_mem_st_4( fd_vm_t const * vm,
                                    ulong           vaddr,
-                                   ulong           haddr, 
-                                   uint            val, 
-                                   uint            is_multi_region ) { 
+                                   ulong           haddr,
+                                   uint            val,
+                                   uint            is_multi_region ) {
   if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( (void *)haddr, &val, sizeof(uint)   ); 
+    memcpy( (void *)haddr, &val, sizeof(uint)   );
   } else {
     fd_vm_mem_st_multi( vm, 4U, vaddr, haddr, (uchar *)&val );
   }
@@ -462,9 +462,9 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
                                    ulong           vaddr,
                                    ulong           haddr,
                                    ulong           val,
-                                   uint            is_multi_region ) { 
+                                   uint            is_multi_region ) {
   if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( (void *)haddr, &val, sizeof(ulong)  ); 
+    memcpy( (void *)haddr, &val, sizeof(ulong)  );
   } else {
     fd_vm_mem_st_multi( vm, 8U, vaddr, haddr, (uchar *)&val );
   }
@@ -494,12 +494,12 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
    These macros intentionally don't support multi region loads/stores.
    The load/store macros are used by vm syscalls and mirror the use
-   of translate_slice{_mut}. However, this check does not allow for 
+   of translate_slice{_mut}. However, this check does not allow for
    multi region accesses. So if there is an attempt at a multi region
-   translation, an error will be returned. 
-   
-   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a 
-   store, but intentionally omits the is_writable checks for the 
+   translation, an error will be returned.
+
+   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a
+   store, but intentionally omits the is_writable checks for the
    input region that are done during memory translation. */
 
 #define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                         \
@@ -555,9 +555,9 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
 /* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
    Agave's translate_slice function returns an empty array if the sz == 0.
-   
+
    Users of this macro should be aware that they should never access the returned value if sz==0.
-   
+
    https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560  */
 #define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
     void const * haddr = 0UL;                                                                                   \
