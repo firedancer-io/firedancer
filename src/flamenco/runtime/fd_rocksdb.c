@@ -438,9 +438,9 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
     if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
+      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txn_gaddr );
       ulong last_txn_off = ULONG_MAX;
-      for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
+      for ( ulong j = 0; j < blk->txn_cnt; ++j ) {
         fd_blockstore_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof(sig) );
         if( txns[j].txn_off != last_txn_off ) {
@@ -567,7 +567,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       fd_blockstore_end_write(blockstore);
       return -1;
     }
-    int rc = fd_buf_shred_insert( blockstore, shred );
+    int rc = fd_blockstore_shred_insert( blockstore, shred );
     if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
       FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
       rocksdb_iter_destroy(iter);

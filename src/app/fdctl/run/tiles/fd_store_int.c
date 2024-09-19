@@ -382,12 +382,12 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
-    fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
+    fd_block_t * block = fd_blockstore_block_data_query( ctx->blockstore, slot );
     if( block == NULL ) {
       FD_LOG_ERR(( "could not find block" ));
     }
 
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
+    fd_block_t * block_map_entry = fd_blockstore_block_query( ctx->blockstore, slot );
     if( block_map_entry == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
@@ -710,7 +710,7 @@ unprivileged_init( fd_topo_t *      topo,
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
+      fd_block_t * block_map_entry = fd_blockstore_block_query( ctx->blockstore, slot );
       block_map_entry->flags       = 0;
       fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }

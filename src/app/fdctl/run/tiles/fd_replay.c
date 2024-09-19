@@ -59,6 +59,7 @@
 #define PACK_IN_IDX    (1UL)
 #define POH_IN_IDX     (2UL)
 #define SIGN_IN_IDX    (3UL)
+#define GOSSIP_IN_IDX  (4UL)
 
 #define POH_OUT_IDX    (0UL)
 #define NOTIF_OUT_IDX  (1UL)
@@ -93,6 +94,11 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
+
+  // Gossip tile input
+  fd_wksp_t * gossip_in_mem;
+  ulong       gossip_in_chunk0;
+  ulong       gossip_in_wmark;
 
   // PoH tile output defs
   fd_frag_meta_t * poh_out_mcache;
@@ -210,6 +216,8 @@ struct fd_replay_tile_ctx {
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
   fd_pubkey_t vote_acct_addr[ 1 ];
+  ulong       gossip_vote_txn_sz;
+  uchar       gossip_vote_txn[FD_TXN_MTU];
 
   fd_txncache_t * status_cache;
   void * bmtree;
@@ -374,6 +382,15 @@ during_frag( void * _ctx,
     }
 
     FD_LOG_DEBUG(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
+  } else if( in_idx == GOSSIP_IN_IDX ) {
+    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>USHORT_MAX ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
+    }
+    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->gossip_in_mem, chunk );
+    /* Incoming packet from gossip tile, a raw vote transaction. */
+    ctx->gossip_vote_txn_sz = sz;
+    memcpy( ctx->gossip_vote_txn, src, sz );
+    return;
   }
 
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -391,7 +408,7 @@ during_frag( void * _ctx,
   // }
 
   fd_blockstore_start_read( ctx->blockstore );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+  fd_block_t * block_map_entry = fd_blockstore_block_query( ctx->blockstore, ctx->curr_slot );
   if( FD_LIKELY( block_map_entry ) ) {
     if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
       FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
@@ -591,6 +608,44 @@ after_frag( void *             _ctx,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+
+
+  if ( in_idx == GOSSIP_IN_IDX ) {
+    /* handle a vote txn from gossip  */
+    ushort recent_blockhash_off;
+    fd_compact_vote_state_update_t vote;
+    FD_TEST( FD_VOTE_TXN_PARSE_OK == fd_vote_txn_parse(ctx->gossip_vote_txn, ctx->gossip_vote_txn_sz, ctx->replay->valloc, &recent_blockhash_off, &vote) );
+
+    if ( !ctx->vote ) return;
+    /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
+    /* later, we should send out our own vote txns through gossip  */
+    ulong MAGIC_TIMESTAMP = 12345678;
+    vote.timestamp = &MAGIC_TIMESTAMP;
+    fd_voter_t voter = {
+      .vote_acct_addr              = ctx->vote_acct_addr,
+      .vote_authority_pubkey       = ctx->validator_identity_pubkey,
+      .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+      .voter_sign_arg              = ctx,
+      .vote_authority_sign_fun     = vote_txn_signer,
+      .validator_identity_sign_fun = vote_txn_signer
+    };
+
+    uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ;
+    uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
+    ulong vote_txn_sz = fd_vote_txn_generate( &voter,
+                                              &vote,
+                                              ctx->gossip_vote_txn + recent_blockhash_off,
+                                              txn_meta_buf,
+                                              msg_to_gossip );
+
+    fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
+      vote_txn_sz, 0UL, 0, 0 );
+    ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
+    ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz,
+                                                    ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+    return;
+  }
+
   ulong curr_slot = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
   ulong flags     = ctx->flags;
@@ -725,8 +780,8 @@ after_frag( void *             _ctx,
     if( res != 0 && !( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
       FD_LOG_WARNING(( "block invalid - slot: %lu", curr_slot ));
 
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+      fd_block_t * block_map_entry = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+      fd_block_t * block_ = fd_blockstore_block_data_query( ctx->blockstore, curr_slot );
 
       fd_blockstore_start_write( ctx->blockstore );
 
@@ -760,8 +815,53 @@ after_frag( void *             _ctx,
         FD_LOG_ERR(("block finalize failed"));
       }
 
+      fd_blockstore_start_read( ctx->blockstore );
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+      fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+
+      // if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, vote_only_on_full_fec_sets ) ) ) {
+      if( FD_LIKELY( 1 ) ) { /* FIXME add feature */
+
+        fd_block_shred_t * shreds = fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->blockstore ), block->shreds_gaddr );
+        for (ulong i = 0; i < block->shreds_cnt; i++) {
+          FD_LOG_NOTICE(( "shred %lu %u %u", shreds[i].hdr.slot, shreds[i].hdr.idx, shreds[i].hdr.fec_set_idx ));
+        }
+
+        // ulong last_fec_set_idx = shreds[block->shreds_cnt].hdr.fec_set_idx;
+        // for( ulong i = 1; i < block->shreds_cnt; i++ ) {
+        //   last_fec_set_idx = fd_ulong_max( shreds[i].hdr.fec_set_idx, last_fec_set_idx );
+        // }
+
+        // for(ulong i = 0; i < block->shreds_cnt; i++) {
+        //   if( FD_UNLIKELY( shreds[i].hdr.fec_set_idx != last_fec_set_idx ) ) {
+        //     FD_LOG_WARNING(( "block %lu is invalid: shreds have different fec_set_idx", curr_slot ));
+        //     return;
+        //   }
+        // }
+
+        // for( ulong i = 0; i < block->shreds_cnt; i++ ) {
+
+        //   /* https://github.com/anza-xyz/agave/blob/master/ledger/src/blockstore.rs#L3786-L3791 */
+
+        //   if( FD_UNLIKELY( !fd_shred_is_resigned( fd_shred_type( shreds[i].hdr.variant ) ) ) ) {
+        //     FD_LOG_WARNING(( "shred %lu %u is not resigned", shreds[i].hdr.slot, shreds[i].hdr.idx ));
+        //     return;
+        //   }
+
+        //   /* Make sure all shreds have the same merkle root. */
+
+        //   if( FD_UNLIKELY( memcmp( shreds[i].merkle, shreds[0].merkle, sizeof(fd_hash_t) ) ) ) {
+        //     FD_LOG_WARNING( ( "shred %lu %u has different merkle root. %32J vs. %32J",
+        //                       shreds[i].hdr.slot,
+        //                       shreds[i].hdr.idx,
+        //                       (fd_hash_t *)shreds[i].merkle,
+        //                       (fd_hash_t *)shreds[0].merkle ) );
+        //     return;
+        //   }
+        // }
+      }
+
+      fd_blockstore_end_read( ctx->blockstore );
 
       // Notify for all the updated accounts
       long notify_time_ns = -fd_log_wallclock();
@@ -816,7 +916,7 @@ after_frag( void *             _ctx,
 
       fd_blockstore_start_write( ctx->blockstore );
 
-      if( FD_LIKELY( block_ ) ) {
+      if( FD_LIKELY( block ) ) {
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         ctx->blockstore->lps   = block_map_entry->slot;
