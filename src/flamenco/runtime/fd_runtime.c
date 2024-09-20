@@ -1395,7 +1395,42 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
   txn_status.has_compute_units_consumed = 1;
   txn_status.compute_units_consumed = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
 
+  ulong readonly_cnt = 0;
+  ulong writable_cnt = 0;
+  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
+    for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
+      fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+      readonly_cnt += addr_lut->readonly_cnt;
+      writable_cnt += addr_lut->writable_cnt;
+    }
+  }
+
+  typedef PB_BYTES_ARRAY_T(32) my_ba_t;
+  typedef union { my_ba_t my; pb_bytes_array_t normal; } union_ba_t;
+  union_ba_t writable_ba[writable_cnt];
+  pb_bytes_array_t * writable_baptr[writable_cnt];
+  txn_status.loaded_writable_addresses_count = (uint)writable_cnt;
+  txn_status.loaded_writable_addresses = writable_baptr;
+  ulong idx2 = txn_ctx->txn_descriptor->acct_addr_cnt;
+  for (ulong idx = 0; idx < writable_cnt; idx++) {
+    pb_bytes_array_t * ba = writable_baptr[ idx ] = &writable_ba[ idx ].normal;
+    ba->size = 32;
+    fd_memcpy(ba->bytes, &txn_ctx->accounts[idx2++], 32);
+  }
+
+  union_ba_t readonly_ba[readonly_cnt];
+  pb_bytes_array_t * readonly_baptr[readonly_cnt];
+  txn_status.loaded_readonly_addresses_count = (uint)readonly_cnt;
+  txn_status.loaded_readonly_addresses = readonly_baptr;
+  for (ulong idx = 0; idx < readonly_cnt; idx++) {
+    pb_bytes_array_t * ba = readonly_baptr[ idx ] = &readonly_ba[ idx ].normal;
+    ba->size = 32;
+    fd_memcpy(ba->bytes, &txn_ctx->accounts[idx2++], 32);
+  }
   ulong acct_cnt = txn_ctx->accounts_cnt;
+  FD_TEST(acct_cnt == idx2);
+
   txn_status.pre_balances_count = txn_status.post_balances_count = (pb_size_t)acct_cnt;
   uint64_t pre_balances[acct_cnt];
   txn_status.pre_balances = pre_balances;

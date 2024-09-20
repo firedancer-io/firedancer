@@ -487,3 +487,51 @@ fd_web_reply_sprintf( fd_webserver_t * ws, const char* format, ... ) {
   ws->quick_size = (uint)r;
   return 0;
 }
+
+int
+fd_web_reply_encode_json_string( fd_webserver_t * ws, const char * str ) {
+  char buf[512];
+  buf[0] = '"';
+  ulong buflen = 1;
+  while( *str ) {
+
+    /* UTF-8 decode */
+    uint c = (uchar)(*str);
+    uint k = (uint)__builtin_clz(~(c << 24U)); // Count # of leading 1 bits.
+    /* k = 0 for one-byte code points; otherwise, k = #total bytes. */
+    uint value = c;
+    if( k ) {
+      value &= (1U << (8U - k)) - 1U;          // All 1s with k+1 leading 0s.
+      for ((c = (uchar)(*(++str))), --k; k > 0; --k, (c = (uchar)(*(++str)))) {
+        /* tests if a char is a continuation byte in utf8. */
+        if( (c & 0xc0U) != 0x80U ) return -1;
+        value <<= 6;
+        value += (c & 0x3FU);
+      }
+    }
+
+    switch( value ) {
+    case (uchar)'\\': buf[buflen++] = '\\'; buf[buflen++] = '\\'; break;
+    case (uchar)'\"': buf[buflen++] = '\\'; buf[buflen++] = '\"'; break;
+    case (uchar)'\n': buf[buflen++] = '\\'; buf[buflen++] = 'n';  break;
+    case (uchar)'\t': buf[buflen++] = '\\'; buf[buflen++] = 't';  break;
+    case (uchar)'\r': buf[buflen++] = '\\'; buf[buflen++] = 'r';  break;
+    default:
+      if( value >= 0x20 && value <= 0x7F ) {
+        buf[buflen++] = (char)value;
+      } else {
+        buflen += (uint)snprintf(buf + buflen, sizeof(buf) - buflen - 1U, "\\u%04x", value);
+      }
+    }
+
+    if( buflen >= sizeof(buf)-10U ) {
+      int err = fd_web_reply_append( ws, buf, buflen );
+      if( err ) return err;
+      buflen = 0;
+    }
+
+    ++str;
+  }
+  buf[buflen++] = '"';
+  return fd_web_reply_append( ws, buf, buflen );
+}

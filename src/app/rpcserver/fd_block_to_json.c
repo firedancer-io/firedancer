@@ -220,8 +220,10 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
       fd_web_reply_sprintf(ws, "%s\"\"", (i == 0 ? "" : ","));
   }
   EMIT_SIMPLE("]},\"logMessages\":[");
-  for (pb_size_t i = 0; i < txn_status.log_messages_count; ++i)
-    fd_web_reply_sprintf(ws, "%s\"%s\"", (i == 0 ? "" : ","), txn_status.log_messages[i]);
+  for (pb_size_t i = 0; i < txn_status.log_messages_count; ++i) {
+    if( i ) EMIT_SIMPLE(",");
+    fd_web_reply_encode_json_string(ws, txn_status.log_messages[i]);
+  }
   EMIT_SIMPLE("],\"postBalances\":[");
   for (pb_size_t i = 0; i < txn_status.post_balances_count; ++i)
     fd_web_reply_sprintf(ws, "%s%lu", (i == 0 ? "" : ","), txn_status.post_balances[i]);
@@ -250,7 +252,7 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
     }
     EMIT_SIMPLE("}");
   }
-  EMIT_SIMPLE(",\"rewards\":null,\"status\":{\"Ok\":null}");
+  EMIT_SIMPLE(",\"rewards\":[],\"status\":{\"Ok\":null}");
   EMIT_SIMPLE("},");
 
   pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
@@ -537,6 +539,30 @@ fd_txn_to_json_full( fd_webserver_t * ws,
       fd_web_reply_sprintf(ws, "%s{\"pubkey\":\"%s\",\"signer\":%s,\"source\":\"transaction\",\"writable\":%s}",
                            (idx == 0 ? "" : ","), buf32, (signer ? "true" : "false"), (writable ? "true" : "false"));
     }
+  }
+
+  EMIT_SIMPLE("],");
+
+  EMIT_SIMPLE("\"addressTableLookups\":[");
+  fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
+  for( ulong i = 0; i < txn->addr_table_lookup_cnt; i++ ) {
+    if( i ) EMIT_SIMPLE(",");
+    fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+    fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(raw + addr_lut->addr_off);
+    fd_base58_encode_32(addr_lut_acc->uc, NULL, buf32);
+    fd_web_reply_sprintf(ws, "{\"accountKey\":\"%s\",\"readonlyIndexes\":[", buf32);
+    uchar const * idxs = raw + addr_lut->readonly_off;
+    for( uchar j = 0; j < addr_lut->readonly_cnt; j++ ) {
+      if( j ) EMIT_SIMPLE(",");
+      fd_web_reply_sprintf(ws, "%u", (uint)idxs[j]);
+    }
+    EMIT_SIMPLE("],\"writableIndexes\":[");
+    idxs = raw + addr_lut->writable_off;
+    for( uchar j = 0; j < addr_lut->writable_cnt; j++ ) {
+      if( j ) EMIT_SIMPLE(",");
+      fd_web_reply_sprintf(ws, "%u", (uint)idxs[j]);
+    }
+    EMIT_SIMPLE("]}");
   }
 
   fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
