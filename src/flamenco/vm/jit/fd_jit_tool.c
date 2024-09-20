@@ -206,7 +206,7 @@ main( int     argc,
 
   /* Make code executable */
 
-  mprotect( code_buf, jit_prog->code_sz, PROT_READ | PROT_EXEC );
+  mprotect( code_buf, fd_ulong_align_up( jit_prog->code_sz, FD_SHMEM_NORMAL_PAGE_SZ ), PROT_READ | PROT_EXEC );
 
   /* Set up VM */
 

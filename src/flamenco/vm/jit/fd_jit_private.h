@@ -147,9 +147,7 @@ fd_jit_scratch_layout( fd_jit_scratch_layout_t * scratch,
 
 dasm_State *
 fd_jit_prepare( void *                          scratch,
-                fd_jit_scratch_layout_t const * layout,
-                void *                          code_buf,
-                ulong                           code_bufsz );
+                fd_jit_scratch_layout_t const * layout );
 
 /* FIXME documentation for fd_jit_compile. */
 
@@ -157,6 +155,9 @@ void
 fd_jit_compile( struct dasm_State **       Dst,
                 fd_sbpf_program_t const *  prog,
                 fd_sbpf_syscalls_t const * syscalls );
+
+fd_jit_entrypoint_t
+fd_jit_get_entrypoint( void );
 
 FD_PROTOTYPES_END
 

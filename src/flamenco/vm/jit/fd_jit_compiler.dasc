@@ -45,18 +45,20 @@ fd_jit_scratch_layout( fd_jit_scratch_layout_t * layout,
   memset( layout, 0, sizeof(fd_jit_scratch_layout_t) );
   FD_SCRATCH_ALLOC_INIT( l, 0 );
   layout->dasm_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, dasm_sz     );
+  layout->dasm_sz      = dasm_sz;
   layout->lglabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, lglabels_sz );
+  layout->lglabels_sz  = lglabels_sz;
   layout->pclabels_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, pclabels_sz );
+  layout->pclabels_sz  = pclabels_sz;
   layout->code_off     = (ulong)FD_SCRATCH_ALLOC_APPEND( l, 16UL, code_sz     );
+  layout->code_sz      = code_sz;
   layout->sz           = (ulong)FD_SCRATCH_ALLOC_FINI( l, 16UL );
   return layout;
 }
 
 dasm_State *
 fd_jit_prepare( void *                          scratch,
-                fd_jit_scratch_layout_t const * layout,
-                void *                          code_buf,
-                ulong                           code_bufsz ) {
+                fd_jit_scratch_layout_t const * layout ) {
 
   /* Custom dasm_init */
   dasm_State * d = (void *)( (ulong)scratch + layout->dasm_off );
@@ -67,6 +69,7 @@ fd_jit_prepare( void *                          scratch,
   /* Custom dasm_setupglobal */
   d->globals  = fd_jit_labels;
   d->lglabels = (void *)( (ulong)scratch + layout->lglabels_off );
+  d->lgsize   = layout->lglabels_sz;
 
   /* Custom dasm_growpc */
   d->pcsize   = layout->pclabels_sz;
@@ -78,11 +81,11 @@ fd_jit_prepare( void *                          scratch,
   /* Preallocate space for .code section
      See dasm_x86.h(172) */
   dasm_Section * code = d->sections + 0;
-  code->buf   = code_buf;
-  code->bsize = code_bufsz;
-  code->pos   = DASM_SEC2POS( 0 );
-  code->rbuf  = code->buf - DASM_POS2BIAS( (uint)code->pos );
-  code->epos  = (int)( ((ulong)code->bsize / sizeof(int)) - DASM_MAXSECPOS + (ulong)DASM_POS2BIAS( (uint)code->pos ) );
+  code->buf   = (void *)( (ulong)scratch + layout->code_off );
+  code->bsize = layout->code_sz;
+  code->pos   = 0;
+  code->rbuf  = code->buf;
+  code->epos  = (int)( ((ulong)code->bsize / sizeof(int)) - DASM_MAXSECPOS );
   code->ofs   = 0;
 
   return d;
@@ -445,6 +448,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   /* Enter JIT execution context */
 
   | call ->restore_regs
+  | sub rsp, 0x20 // balance call_stack_push
   | call rdi
   | mov rdi, bpf_r0
   | call ->longjmp
@@ -1065,4 +1069,9 @@ fd_jit_compile( struct dasm_State **       Dst,
   |->overrun:
   | jmp ->vm_fault
 
+}
+
+fd_jit_entrypoint_t
+fd_jit_get_entrypoint( void ) {
+  return (fd_jit_entrypoint_t)(ulong)fd_jit_labels[ fd_jit_lbl_entrypoint ];
 }

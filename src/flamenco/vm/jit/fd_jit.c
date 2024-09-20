@@ -40,6 +40,7 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
                  ulong                      scratch_sz,
                  int *                      out_err ) {
 
+  memset( jit_prog, 0, sizeof(fd_jit_prog_t) );
   *out_err = FD_VM_ERR_INVAL;
 
   if( FD_UNLIKELY( setjmp( fd_jit_compile_abort ) ) ) {
@@ -69,9 +70,10 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
     return NULL;
   }
 
-  dasm_State * d = fd_jit_prepare( scratch, layout, code_buf, code_bufsz );
+  dasm_State * d = fd_jit_prepare( scratch, layout );
 
   fd_jit_compile( &d, prog, syscalls );
+  /* above longjmp()'s to fd_jit_compile_abort on failure */
 
   ulong code_sz;
   dasm_link( &d, &code_sz );
@@ -81,7 +83,10 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
   }
 
   dasm_encode( &d, code_buf );
-  jit_prog->first_rip = (ulong)code_buf + (ulong)dasm_getpclabel( &d, (uint)prog->entry_pc );
+  jit_prog->entrypoint = fd_jit_get_entrypoint();
+  jit_prog->first_rip  = (ulong)code_buf + (ulong)dasm_getpclabel( &d, (uint)prog->entry_pc );
+  jit_prog->code_buf   = code_buf;
+  jit_prog->code_sz    = code_sz;
 
   /* Would ordinarily call dasm_free here, but no need, since all
      memory was allocated in scratch and is released on function return.  */

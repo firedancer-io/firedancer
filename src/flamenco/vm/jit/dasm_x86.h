@@ -79,6 +79,11 @@ struct dasm_State {
 /* The size of the core structure depends on the max. number of sections. */
 #define DASM_PSZ(ms)	(sizeof(dasm_State)+(ms-1)*sizeof(dasm_Section))
 
+#ifndef FD_DASM_HEADER_ONLY
+#define FD_DASM_HEADER_ONLY 0
+#endif
+
+#if !FD_DASM_HEADER_ONLY
 
 /* Initialize DynASM state. */
 void dasm_init(Dst_DECL, int maxsection)
@@ -521,3 +526,4 @@ int dasm_checkstep(Dst_DECL, int secmatch)
 }
 #endif
 
+#endif /* !FD_DASM_HEADER_ONLY */
