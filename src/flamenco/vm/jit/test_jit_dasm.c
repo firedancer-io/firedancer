@@ -11,8 +11,9 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  static uchar scratch[ 16384 ];
   ulong scratch_bufsz = fd_jit_est_scratch_sz( 8UL );
-  void * scratch = malloc( scratch_bufsz ); FD_TEST( scratch ); /* FIXME malloc */
+  FD_TEST( scratch_bufsz<=sizeof(scratch) );
 
   fd_jit_scratch_layout_t layout[1];
   fd_jit_scratch_layout( layout, 8UL );
@@ -32,8 +33,6 @@ main( int     argc,
   FD_TEST( PTR_WITHIN( state->lglabels, scratch, scratch_bufsz ) );
   FD_TEST( PTR_WITHIN( state->pclabels, scratch, scratch_bufsz ) );
   FD_TEST( PTR_WITHIN( state->sections[0].rbuf, scratch, scratch_bufsz ) );
-
-  free( scratch );
 
   fd_halt();
   return 0;

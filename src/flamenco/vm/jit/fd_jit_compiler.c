@@ -202,6 +202,9 @@ fd_jit_prepare( void *                          scratch,
   code->epos  = (int)( ((ulong)code->bsize / sizeof(int)) - DASM_MAXSECPOS );
   code->ofs   = 0;
 
+  fd_jit_code_section_base = code->buf;
+  fd_jit_code_section_sz   = code->bsize;
+
   return d;
 }
 

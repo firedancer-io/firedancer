@@ -106,7 +106,7 @@ extern FD_TL void * fd_jit_labels[ FD_JIT_LABEL_CNT ];
 /* FD_JIT_BLOAT_MAX is the max acceptable JIT code bloat factor
    (Ratio jit_code_sz / bpf_sz) */
 
-#define FD_JIT_BLOAT_MAX (2.0f) /* FIXME choose value based on mainnet contracts */
+#define FD_JIT_BLOAT_MAX (3.0f) /* FIXME choose value based on mainnet contracts */
 
 FD_PROTOTYPES_END
 
