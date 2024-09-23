@@ -478,7 +478,7 @@ test_xsk_aio( void ) {
 
   /* Create new XSK aio */
 
-  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==480UL            );
+  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==512UL            );
   FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )<=sizeof(_xsk_aio) );
   void * shxsk_aio = fd_xsk_aio_new( _xsk_aio, 8UL, 8UL );
   FD_TEST( shxsk_aio );
