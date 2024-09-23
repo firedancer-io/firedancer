@@ -22,7 +22,7 @@
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<20)
 /* Max number of sticky repair peers */
-#define FD_REPAIR_STICKY_MAX   128
+#define FD_REPAIR_STICKY_MAX   1024
 /* Max number of validator identities in stake weights */
 #define FD_STAKE_WEIGHTS_MAX (1<<14)
 /* Max number of validator clients that we ping */
