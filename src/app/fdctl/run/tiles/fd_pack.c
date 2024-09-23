@@ -249,6 +249,8 @@ metrics_write( void * _ctx ) {
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
+
+  fd_pack_metrics_write( ctx->pack );
 }
 
 static inline void
