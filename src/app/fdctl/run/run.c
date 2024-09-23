@@ -340,7 +340,7 @@ main_pid_namespace( void * _args ) {
   while( 1 ) {
     if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    for( ulong i=0; i<1+child_cnt; i++ ) {
+    for( ulong i=0UL; i<1UL+child_cnt; i++ ) {
       if( FD_UNLIKELY( fds[ i ].revents ) ) {
         /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
         if( FD_UNLIKELY( i==child_cnt ) ) {
@@ -349,13 +349,15 @@ main_pid_namespace( void * _args ) {
         }
 
         char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+        ulong  tile_idx = 0UL;
+        if( FD_LIKELY( i>0UL ) ) tile_idx = config->development.no_agave ? i : i-1UL;
+        ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
         /* Child process died, reap it to figure out exit code. */
         int wstatus;
         int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
         if( FD_UNLIKELY( -1==exited_pid ) ) {
-          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[i].revents ));
+          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[ i ].revents ));
         } else if( FD_UNLIKELY( !exited_pid ) ) {
           /* Spurious wakeup, no child actually dead yet. */
           continue;
