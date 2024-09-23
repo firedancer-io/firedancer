@@ -31,6 +31,14 @@
 | stem_&#8203;fragment_&#8203;filtered_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was filtered and not processed by the tile. |
 | stem_&#8203;fragment_&#8203;handled_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was processed (not filtered) by the tile. |
 
+## Net Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| net_&#8203;tile_&#8203;received_&#8203;packets | `counter` | Number of IP packets received. |
+| net_&#8203;tile_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP headers). |
+| net_&#8203;tile_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
+| net_&#8203;tile_&#8203;sent_&#8203;bytes | `counter` | Total bytes sent (including IP, UDP headers). |
+
 ## Quic Tile
 | Metric | Type | Description |
 |--------|------|-------------|

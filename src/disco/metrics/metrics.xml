@@ -196,6 +196,13 @@ metric introduced.
     </histogram>
 </group>
 
+<group name="NetTile" tile="net">
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP headers)." />
+</group>
+
 <group name="QuicTile" tile="quic">
     <counter name="NonQuicReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a non-QUIC UDP transaction." />
     <counter name="NonQuicReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a non-QUIC UDP transaction." />
