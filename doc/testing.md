@@ -67,8 +67,8 @@ detection.
 Example `Local.mk` configuration:
 ```make
 ifdef FD_HAS_HOSTED
-# call make-fuzz-test,name,         object list,  dependencies
-$(call make-fuzz-test,fuzz_mymodule,fuzz_mymodule,fd_ballet fd_util)
+# call make-fuzz-test,name,         object list,  dependencies,     link flags (optional)
+$(call make-fuzz-test,fuzz_mymodule,fuzz_mymodule,fd_ballet fd_util,-lfoo)
 endif
 ```
 
