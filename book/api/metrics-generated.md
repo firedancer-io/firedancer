@@ -50,6 +50,7 @@
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Oversize message) |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Out-of-order data within QUIC stream) |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Unexpected slot state) |
+| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;aborted | `counter` | Reassembly slot was aborted before it was notified. |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;clobbered | `counter` | Reassembly slot was clobbered before it was notified. |
 | quic_&#8203;tile_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
