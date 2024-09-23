@@ -33,6 +33,14 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_verify_ctx_t ) );
 }
 
+static inline void
+metrics_write( void * _ctx ) {
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  FD_MCNT_SET( VERIFY, TRANSACTION_PARSE_FAILURE,  ctx->metrics.parse_fail_cnt );
+  FD_MCNT_SET( VERIFY, TRANSACTION_DEDUP_FAILURE,  ctx->metrics.dedup_fail_cnt );
+  FD_MCNT_SET( VERIFY, TRANSACTION_VERIFY_FAILURE, ctx->metrics.verify_fail_cnt );
+}
+
 static void
 before_frag( void * _ctx,
              ulong  in_idx,
@@ -116,6 +124,7 @@ after_frag( void *             _ctx,
 
   ulong txn_t_sz = fd_txn_parse( txn, payload_sz, txn_t, NULL );
   if( FD_UNLIKELY( !txn_t_sz ) ) {
+    ctx->metrics.parse_fail_cnt++;
     *opt_filter = 1; /* Invalid txn fails to parse. */
     return;
   }
@@ -138,6 +147,9 @@ after_frag( void *             _ctx,
   ulong txn_sig;
   int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t, &txn_sig );
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
+    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.dedup_fail_cnt++;
+    else                                        ctx->metrics.verify_fail_cnt++;
+
     *opt_filter = 1; /* Signature verification failed. */
     return;
   }
@@ -234,6 +246,7 @@ fd_topo_run_tile_t fd_tile_verify = {
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_metrics_write        = metrics_write,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
