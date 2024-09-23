@@ -135,7 +135,7 @@ if __name__ == '__main__':
     os.makedirs('generated', exist_ok=True)  # Ensure the directory exists
 
     max_offset = 0
-    for tile in ['all', 'net', 'quic', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred', 'replay', 'storei']:
+    for tile in ['all', 'net', 'quic', 'verify', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred', 'replay', 'storei']:
         tile_metrics = [x for x in metrics if x.tile == tile]
         max_offset = max(max_offset, sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' or x.tile == tile]))
 
@@ -231,7 +231,7 @@ if __name__ == '__main__':
             if metric.link:
                 f.write(f'| {metric.full_name().lower().replace("_", "_&#8203;")} | `{metric.type}` | {metric.summary} |\n')
 
-        for tile in ['all', 'net', 'quic', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred']:
+        for tile in ['all', 'net', 'quic', 'verify', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred']:
             tile_metrics = [x for x in metrics if x.tile == tile]
             if tile == 'all':
                 f.write('\n## All Tiles\n<!--@include: ./metrics-tile-preamble.md-->\n')

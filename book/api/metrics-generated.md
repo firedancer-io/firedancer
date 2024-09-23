@@ -92,6 +92,13 @@
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
 
+## Verify Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| verify_&#8203;transaction_&#8203;parse_&#8203;failure | `counter` | Count of transactions that failed to parse |
+| verify_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
+| verify_&#8203;transaction_&#8203;verify_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
+
 ## Dedup Tile
 | Metric | Type | Description |
 |--------|------|-------------|
