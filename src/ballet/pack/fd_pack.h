@@ -383,6 +383,12 @@ void fd_pack_end_block( fd_pack_t * pack );
 void fd_pack_clear_all( fd_pack_t * pack );
 
 
+/* fd_pack_metrics_write writes period metric values to the metrics
+   system.  pack must be a valid local join. */
+void
+fd_pack_metrics_write( fd_pack_t const * pack );
+
+
 /* fd_pack_leave leaves a local join of a pack object.  Returns pack. */
 void * fd_pack_leave(  fd_pack_t * pack );
 /* fd_pack_delete unformats a memory region used to store a pack object
