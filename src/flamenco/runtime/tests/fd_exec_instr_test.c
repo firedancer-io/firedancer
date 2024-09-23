@@ -263,7 +263,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
+  txn_ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -1728,7 +1728,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     }
   }
 
-  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+  if( input->vm_ctx.heap_max > FD_VM_HEAP_MAX ) {
     goto error;
   }
 
