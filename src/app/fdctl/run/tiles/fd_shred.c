@@ -205,7 +205,7 @@ typedef struct {
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
-   microblocks until either the slot ends or we excede the watermark.
+   microblocks until either the slot ends or we exceed the watermark.
    We know that if we're <= watermark, we can always accept a message of
    maximum size. */
 #define PENDING_BATCH_WMARK (63679UL - 8UL - FD_POH_SHRED_MTU)

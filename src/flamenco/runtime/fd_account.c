@@ -2,7 +2,7 @@
 #include "context/fd_exec_instr_ctx.h"
 
 /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L740-L767 */
-/* Assignes the owner of this account (transaction wide) */
+/* Assigns the owner of this account (transaction wide) */
 int
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
                       ulong                       instr_acc_idx,
@@ -68,7 +68,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  /* An account not owned by the program cannot have its blanace decrease */
+  /* An account not owned by the program cannot have its balance decrease */
   if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &&
                    ( lamports < account->const_meta->info.lamports ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
@@ -252,7 +252,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }
 
-  /* Only the owner can set the exectuable flag */
+  /* Only the owner can set the executable flag */
   if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }

@@ -303,7 +303,7 @@ struct fd_gossip {
     fd_rng_t rng[1];
     /* RNG seed */
     ulong seed;
-    /* Total number of packeets received */
+    /* Total number of packets received */
     ulong recv_pkt_cnt;
     /* Total number of duplicate values received */
     ulong recv_dup_cnt;
