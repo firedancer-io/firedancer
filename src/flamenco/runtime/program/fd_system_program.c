@@ -39,7 +39,9 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( 0!=memcmp( actual->uc, expected->uc, sizeof(fd_pubkey_t) ) ) ) {
     /* Log msg_sz can be more or less than 127 bytes */
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Create: address %32J does not match derived address %32J", expected, actual );
+      "Create: address %s does not match derived address %s",
+      FD_BASE58_ENCODE_32( expected ),
+      FD_BASE58_ENCODE_32( actual ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -119,9 +121,9 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L222-L232 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx ) ) ) {
-    /* Max msg_sz: 39 - 4 + 45 = 80 < 127 => we can use printf */
+    /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: `from` account %32J must sign", &ctx->instr->acct_pubkeys[ from_acct_idx ] );
+      "Transfer: `from` account %s must sign", FD_BASE58_ENCODE_32( &ctx->instr->acct_pubkeys[ from_acct_idx ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -148,9 +150,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
-    /* Max msg_sz: 37 - 4 + 45 = 78 < 127 => we can use printf */
+    /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: 'to' account %32J must sign", authority );
+      "Allocate: 'to' account %s must sign", FD_BASE58_ENCODE_32( authority ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -158,9 +160,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( ( account->const_meta->dlen != 0UL ) |
                    ( 0!=memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, 32UL ) ) ) ) {
-    /* Max msg_sz: 37 - 4 + 45 = 78 < 127 => we can use printf */
+    /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: account %32J already in use", account->pubkey );
+      "Allocate: account %s already in use", FD_BASE58_ENCODE_32( account->pubkey ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -210,9 +212,9 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
-    /* Max msg_sz: 30 - 4 + 45 = 71 < 127 => we can use printf */
+    /* Max msg_sz: 28 - 2 + 45 = 71 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Assign: account %32J must sign", authority );
+      "Assign: account %s must sign", FD_BASE58_ENCODE_32( authority ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -265,9 +267,9 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
 
   if( FD_UNLIKELY( to->const_meta->info.lamports ) ) {
-    /* Max msg_sz: 43 - 4 + 45 = 84 < 127 => we can use printf */
+    /* Max msg_sz: 41 - 2 + 45 = 84 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Create Account: account %32J already in use", to->pubkey );
+      "Create Account: account %s already in use", FD_BASE58_ENCODE_32( to->pubkey ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -570,9 +572,9 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L272-L282 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx ) ) ) {
-    /* Max msg_sz: 39 - 4 + 45 = 80 < 127 => we can use printf */
+    /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: 'from' account %32J must sign", &ctx->instr->acct_pubkeys[ from_base_idx ] );
+      "Transfer: 'from' account %s must sign", FD_BASE58_ENCODE_32( &ctx->instr->acct_pubkeys[ from_base_idx ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -597,7 +599,9 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
                               sizeof(fd_pubkey_t) ) ) ) {
     /* Log msg_sz can be more or less than 127 bytes */
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Transfer: 'from' address %32J does not match derived address %32J", &ctx->instr->acct_pubkeys[ from_idx ], address_from_seed );
+      "Transfer: 'from' address %s does not match derived address %s",
+      FD_BASE58_ENCODE_32( &ctx->instr->acct_pubkeys[ from_idx ] ),
+      FD_BASE58_ENCODE_32( address_from_seed ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
