@@ -12,8 +12,7 @@ src/ballet/http/fd_picohttpparser.c: src/ballet/http/picohttpparser.c src/ballet
 $(OBJDIR)/obj/ballet/http/fd_picohttpparser.o: src/ballet/http/fd_picohttpparser.c
 
 $(call make-unit-test,test_sha1,test_sha1,fd_ballet fd_util)
-# todo: flakes, fix
-# $(call run-unit-test,test_sha1)
+$(call run-unit-test,test_sha1)
 
 $(call make-unit-test,test_http_server,test_http_server,fd_ballet fd_util)
 
