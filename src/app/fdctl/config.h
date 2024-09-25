@@ -67,6 +67,8 @@ typedef struct {
     uint  limit_size;
     ulong account_indexes_cnt;
     char  account_indexes[ 4 ][ 32 ];
+    ulong account_index_include_keys_cnt;
+    char  account_index_include_keys[ 32 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
     int   require_tower;
@@ -118,7 +120,11 @@ typedef struct {
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
+    uint minimum_snapshot_download_speed;
+    uint maximum_full_snapshots_to_retain;
+    uint maximum_incremental_snapshots_to_retain;
     char path[ PATH_MAX ];
+    char incremental_path[ PATH_MAX ];
   } snapshots;
 
   struct {
