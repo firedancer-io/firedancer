@@ -3807,36 +3807,30 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             .first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u
           };
 
-          /* calc size of ack frame */
-          frame_sz  = fd_quic_encode_footprint_ack_frame( &ack_frame );
+          frame_sz = fd_quic_encode_ack_frame( payload_ptr,
+              (ulong)( payload_end - payload_ptr ),
+              &ack_frame );
+          if( frame_sz == FD_QUIC_ENCODE_FAIL ) break; /* packet full */
 
-          if( payload_ptr + frame_sz < payload_end ) {
-            frame_sz = fd_quic_encode_ack_frame( payload_ptr,
-                (ulong)( payload_end - payload_ptr ),
-                &ack_frame );
-            if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
-              /* shouldn't happen */
-              FD_LOG_WARNING(( "failed to encode ack" ));
-            } else {
-              payload_ptr  += frame_sz;
-              tot_frame_sz += frame_sz;
+          payload_ptr  += frame_sz;
+          tot_frame_sz += frame_sz;
 
-              /* must add acks to packet metadata */
-              /* attributes on ack */
-              ack_head->tx_pkt_number = pkt_number;
-              ack_head->flags        |= FD_QUIC_ACK_FLAGS_SENT;
-              ack_head->tx_time       = now; /* ensure ack isn't sent again unnecessarily */
+          /* must add acks to packet metadata */
+          /* attributes on ack */
+          ack_head->tx_pkt_number = pkt_number;
+          ack_head->flags        |= FD_QUIC_ACK_FLAGS_SENT;
+          ack_head->tx_time       = now; /* ensure ack isn't sent again unnecessarily */
 
-              pkt_meta->flags        |= FD_QUIC_PKT_META_FLAGS_ACK;
-
-              /* ack frames don't really expire, but we still want to reclaim the pkt_meta */
-              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + (ulong)1e9 );
-            }
-          }
+          /* Move ACK to free list and advance */
+          conn->acks_tx[enc_level] = ack_head->next;
+          ack_head->next           = conn->acks_free;
+          conn->acks_free          = ack_head;
+          ack_head                 = conn->acks_tx[enc_level];
         }
 
-        ack_head = ack_head->next;
       }
+
+      if( !conn->acks_tx[enc_level] ) conn->acks_tx_end[enc_level] = NULL;
     }
 
     /* closing? */
@@ -5171,8 +5165,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       continue;
     }
 
-    ulong pkt_number = pkt_meta->pkt_number;
-
     /* set the data to retry */
     uint flags = pkt_meta->flags;
     if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA            ) {
@@ -5259,23 +5251,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
       }
     }
-    if( flags & FD_QUIC_PKT_META_FLAGS_ACK                ) {
-      /* iterate thru the acks */
-      fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
-      while( cur_ack ) {
-        if( cur_ack->tx_pkt_number == pkt_number ) {
-          reclaimed_acks |= 1U << enc_level;
-          cur_ack->tx_pkt_number = FD_QUIC_PKT_NUM_UNUSED;
-          cur_ack->tx_time       = now + 1u;
-
-          /* mark as unsent, and add mandatory flag */
-          cur_ack->flags         = (uchar)( ( cur_ack->flags & ~FD_QUIC_ACK_FLAGS_SENT )
-                                                             |  FD_QUIC_ACK_FLAGS_MANDATORY );
-        }
-
-        cur_ack = cur_ack->next;
-      }
-    }
     if( flags & FD_QUIC_PKT_META_FLAGS_CLOSE              ) {
       conn->flags &= ~FD_QUIC_CONN_FLAGS_CLOSE_SENT;
       conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
@@ -5311,12 +5286,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level ) {
 
-  /* flag for whether acks have been reclaimed */
-  int             reclaimed_acks = 0;
-
-  uint            flags      = pkt_meta->flags;
-  ulong           pkt_number = pkt_meta->pkt_number;
-  fd_quic_range_t range      = pkt_meta->range;
+  uint            flags = pkt_meta->flags;
+  fd_quic_range_t range = pkt_meta->range;
 
   if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
     /* what key phase was used for packet? */
@@ -5600,56 +5571,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
         }
       }
     }
-  }
-
-  /* acks */
-  if( flags & FD_QUIC_PKT_META_FLAGS_ACK ) {
-    /* remove all acks with given packet number */
-    fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
-    while( FD_LIKELY( cur_ack ) ) {
-      fd_quic_ack_t * next_ack = cur_ack->next;
-      if( FD_LIKELY( next_ack ) ) {
-        if( FD_LIKELY( next_ack->tx_pkt_number == pkt_number ) ) {
-          reclaimed_acks = 1;
-
-          /* remove next_ack */
-          if( next_ack->next == NULL ) {
-            /* next_ack is last, so update end */
-            conn->acks_tx_end[enc_level] = cur_ack;
-          }
-          cur_ack->next = next_ack->next;
-
-          /* put in free list */
-          next_ack->next  = conn->acks_free;
-          conn->acks_free = next_ack;
-        }
-      } else {
-        break;
-      }
-      cur_ack = cur_ack->next;
-    }
-
-    /* head treated separately */
-    cur_ack = conn->acks_tx[enc_level];
-    if( cur_ack && cur_ack->tx_pkt_number == pkt_number ) {
-      reclaimed_acks = 1;
-
-      /* remove cur_ack */
-      if( cur_ack->next == NULL ) {
-        /* cur_ack is last, so update end */
-        conn->acks_tx_end[enc_level] = NULL;
-      }
-      conn->acks_tx[enc_level] = cur_ack->next;
-
-      /* add to free list */
-      cur_ack->next   = conn->acks_free;
-      conn->acks_free = cur_ack;
-    }
-  }
-
-  if( FD_LIKELY( reclaimed_acks ) ) {
-    /* perform a merge on unsent acks before transmitting */
-    fd_quic_ack_merge( conn, enc_level );
   }
 }
 /* process lost packets
