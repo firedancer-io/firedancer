@@ -246,6 +246,7 @@ guess_packet_size( uchar const * data,
   } else {  /* short header */
 
     fd_quic_one_rtt_t one_rtt[1];
+    one_rtt->dst_conn_id_len = 8;
     rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, cur_sz );
     if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
     cur_ptr += rc; cur_sz -= rc;
