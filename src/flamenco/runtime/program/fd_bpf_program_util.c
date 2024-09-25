@@ -24,8 +24,8 @@ fd_sbpf_validated_program_align( void ) {
 ulong
 fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
-  assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), offsetof( fd_sbpf_validated_program_t, calldests_pad ) );
+  /* NOTE: fd_sbpf_calldests_footprint includes the private header that sits above the actual set in memory */
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
   l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
   l = FD_LAYOUT_FINI( l, 128UL );
@@ -177,7 +177,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       return -1;
     }
 
-    fd_memcpy( validated_prog->calldests, prog->calldests, fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
+    fd_sbpf_calldests_clone( validated_prog->calldests, prog->calldests );
 
     validated_prog->entry_pc = prog->entry_pc;
     validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;
