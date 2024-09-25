@@ -1008,7 +1008,12 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       /* TODO where does Agave do this? */
       for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
         if( FD_UNLIKELY( txn_ctx->borrowed_accounts[j].refcnt_excl ) ) {
-          FD_LOG_ERR(( "Txn %64J: Program %32J didn't release lock (%u) on %32J with %u refcnt", fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0], instr->program_id_pubkey.uc, *(uint *)(instr->data), txn_ctx->borrowed_accounts[j].pubkey->uc, txn_ctx->borrowed_accounts[j].refcnt_excl ));
+          FD_LOG_ERR(( "Txn %s: Program %s didn't release lock (%u) on %s with %u refcnt",
+                       FD_BASE58_ENCODE_64( fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0] ),
+                       FD_BASE58_ENCODE_32( instr->program_id_pubkey.uc ),
+                       *(uint *)(instr->data),
+                       FD_BASE58_ENCODE_32( txn_ctx->borrowed_accounts[j].pubkey->uc ),
+                       txn_ctx->borrowed_accounts[j].refcnt_excl ));
         }
       }
 
@@ -1697,7 +1702,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG
-      FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+      FD_LOG_WARNING(( "Start of transaction for %d for %s", i, FD_BASE58_ENCODE_64( sig ) ));
 #endif
 
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -1716,7 +1721,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       int exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
-      FD_LOG_WARNING(( "fd_execute_instr result (%d) for %64J", exec_result, sig ));
+      FD_LOG_WARNING(( "fd_execute_instr result (%d) for %s", exec_result, FD_BASE58_ENCODE_64( sig ) ));
 #endif
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if ( txn_ctx->instr_err_idx == INT_MAX )
@@ -1728,11 +1733,17 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   #endif
           if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
   #ifdef VLOG
-            FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
+            FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %s",
+                             exec_result,
+                             txn_ctx->custom_err,
+                             FD_BASE58_ENCODE_64( sig ) ));
   #endif
           } else {
   #ifdef VLOG
-            FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %64J", exec_result, i, sig ));
+            FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %s",
+              exec_result,
+              i,
+              FD_BASE58_ENCODE_64( sig ) ));
   #endif
           }
   #ifdef VLOG

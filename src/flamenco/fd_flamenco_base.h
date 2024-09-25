@@ -22,18 +22,25 @@
 */
 #define FD_DEFAULT_AGAVE_CLUSTER_VERSION (2000)
 
-/* FD_BASE58_ENCODE_32 is a shorthand for fd_base58_encode_32, including
-   defining a temp buffer.  Useful for printf-like functions.  Example:
+/* FD_BASE58_ENCODE_{32,64} is a shorthand for fd_base58_encode_{32,64},
+   including defining a temp buffer.  Useful for printf-like functions.
+   Example:
 
     fd_pubkey_t pk = ... ;
     printf("%s", FD_BASE58_ENCODE_32( pk ) );
 
    The temp buffer is allocated on the stack and therefore invalidated
    when the function this is used in returns. */
-#define FD_BASE58_ENCODE_32(x) (__extension__({            \
-  char * _out = (char *)alloca( FD_BASE58_ENCODED_32_SZ ); \
+#define FD_BASE58_ENCODE_32( x ) __extension__({           \
+  char *_out = (char *)alloca( FD_BASE58_ENCODED_32_SZ );  \
   fd_base58_encode_32( (uchar const *)(x), NULL, _out );   \
-  }))
+})
+
+#define FD_BASE58_ENCODE_64( x ) __extension__({           \
+  char *_out = (char *)alloca( FD_BASE58_ENCODED_64_SZ );  \
+  fd_base58_encode_64( (uchar const *)(x), NULL, _out );   \
+})
+
 
 /* Forward declarations */
 
