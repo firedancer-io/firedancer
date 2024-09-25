@@ -430,11 +430,11 @@ if ( verbose < 3 )
   }
 
   printf(
-    "    - txn_sig:        '%64J'\n"
+    "    - txn_sig:        '%s'\n"
     "      txn_err:         %d\n"
     "      cus_used:        %lu\n"
     "      instr_err_idx:   %d\n",
-    meta.txn_sig,
+    FD_BASE58_ENCODE_64( meta.txn_sig ),
     meta.fd_txn_err,
     meta.fd_cus_used,
     meta.instr_err_idx);
@@ -456,12 +456,12 @@ if ( verbose < 3 )
   }
 
   printf(
-    "      explorer:       'https://explorer.solana.com/tx/%64J'\n"
-    "      solscan:        'https://solscan.io/tx/%64J'\n"
-    "      solanafm:       'https://solana.fm/tx/%64J'\n",
-    meta.txn_sig,
-    meta.txn_sig,
-    meta.txn_sig );
+    "      explorer:       'https://explorer.solana.com/tx/%s'\n"
+    "      solscan:        'https://solscan.io/tx/%s'\n"
+    "      solanafm:       'https://solana.fm/tx/%s'\n",
+    FD_BASE58_ENCODE_64( meta.txn_sig ),
+    FD_BASE58_ENCODE_64( meta.txn_sig ),
+    FD_BASE58_ENCODE_64( meta.txn_sig ) );
 
   return meta.slot;
 }

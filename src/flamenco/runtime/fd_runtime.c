@@ -737,7 +737,10 @@ fd_runtime_execute_txn_task(void *tpool,
   fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
 #ifdef VLOG
-  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
+  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %s",
+                   task_info->txn_ctx->slot_ctx->slot_bank.slot,
+                   m0,
+                   FD_BASE58_ENCODE_64( (uchar *)raw_txn->raw + txn->signature_off )));
 #endif
 
   // Leave this here for debugging...
@@ -753,7 +756,12 @@ fd_runtime_execute_txn_task(void *tpool,
   }
   fd_txn_reclaim_accounts( task_info->txn_ctx );
 
-  // FD_LOG_WARNING(("Transaction result %d for %64J %lu %lu %lu", task_info->exec_res, (uchar *)raw_txn->raw + txn->signature_off, task_info->txn_ctx->compute_meter, task_info->txn_ctx->compute_unit_limit, task_info->txn_ctx->num_instructions));
+  // FD_LOG_WARNING(( "Transaction result %d for %s %lu %lu %lu",
+  //                  task_info->exec_res,
+  //                  FD_BASE58_ENCODE_64( (uchar *)raw_txn->raw + txn->signature_off ),
+  //                  task_info->txn_ctx->compute_meter,
+  //                  task_info->txn_ctx->compute_unit_limit,
+  //                  task_info->txn_ctx->num_instructions ));
 }
 
 int
@@ -837,7 +845,7 @@ fd_txn_sigverify_task( void *tpool,
 
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
-    FD_LOG_WARNING(("sigverify failed: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+    FD_LOG_WARNING(("sigverify failed: %s", FD_BASE58_ENCODE_64( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
     task_info->txn->flags = 0U;
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
@@ -1202,7 +1210,7 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
     if ( meta != NULL ) {
       pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
       if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
-        FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
+        FD_LOG_WARNING(("no txn_status decoding found sig=%s (%s)", FD_BASE58_ENCODE_64( sig ), PB_GET_ERROR(&stream)));
       }
       if ( txn_status.has_compute_units_consumed ) {
         solana_cus_consumed = txn_status.compute_units_consumed;

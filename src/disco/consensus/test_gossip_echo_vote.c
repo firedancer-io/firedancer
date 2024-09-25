@@ -343,13 +343,13 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           uint   dst_ip   = 0x0100007f; /* localhost */
           ushort dst_port = 1029;       /* vote udp port */
           send_udp_pkt( udp_pkt.buf, udp_pkt.buf_sz, arg_->wksp, dst_ip, dst_port );
-          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu -> %lu\nOld sig1: %64J\nOld sig2: %64J\nNew sig1: %64J\nNew sig2: %64J",
+          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu -> %lu\nOld sig1: %s\nOld sig2: %s\nNew sig1: %s\nNew sig2: %s",
                          old_timestamp,
                          new_timestamp,
-                         vote->txn.raw + parsed_txn->signature_off,
-                         vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ,
-                         echo_data.inner.vote.txn.raw + parsed_txn->signature_off,
-                         echo_data.inner.vote.txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ));
+                         FD_BASE58_ENCODE_64( vote->txn.raw + parsed_txn->signature_off ),
+                         FD_BASE58_ENCODE_64( vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ),
+                         FD_BASE58_ENCODE_64( echo_data.inner.vote.txn.raw + parsed_txn->signature_off ),
+                         FD_BASE58_ENCODE_64( echo_data.inner.vote.txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ) ));
           FD_LOG_ERR(( "Finish." ));
 
        } else {
