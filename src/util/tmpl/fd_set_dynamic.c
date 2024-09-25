@@ -434,6 +434,17 @@ SET_(copy)( SET_(t) *       z,
   return z;
 }
 
+static inline SET_(t) *
+SET_(clone)( SET_(t) *     z,
+             SET_(t) const * x ){
+  SET_(private_t)       * hdr = SET_(private_hdr_from_set)( z );
+  SET_(private_t) const * xhdr = SET_(private_hdr_from_set_const)( x );
+  hdr->word_cnt       = xhdr->word_cnt;
+  hdr->full_last_word = xhdr->full_last_word;
+  hdr->max            = xhdr->max;
+  return SET_(copy)( z, x );
+}
+
 FD_FN_UNUSED static SET_(t) * /* Work around -Winline */
 SET_(complement)( SET_(t) *       z,
                   SET_(t) const * x ) {
