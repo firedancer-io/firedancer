@@ -223,6 +223,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   ledger.accounts_path                             );
   CFG_POP      ( uint,   ledger.limit_size                                );
   CFG_POP_ARRAY( cstr,   ledger.account_indexes                           );
+  CFG_POP_ARRAY( cstr,   ledger.account_index_include_keys                );
   CFG_POP_ARRAY( cstr,   ledger.account_index_exclude_keys                );
   CFG_POP      ( bool,   ledger.require_tower                             );
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
@@ -260,7 +261,11 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   snapshots.incremental_snapshots                  );
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
+  CFG_POP      ( uint,   snapshots.minimum_snapshot_download_speed        );
+  CFG_POP      ( uint,   snapshots.maximum_full_snapshots_to_retain       );
+  CFG_POP      ( uint,   snapshots.maximum_incremental_snapshots_to_retain);
   CFG_POP      ( cstr,   snapshots.path                                   );
+  CFG_POP      ( cstr,   snapshots.incremental_path                       );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
@@ -376,6 +381,7 @@ fdctl_cfg_validate( config_t * cfg ) {
 
   CFG_HAS_NON_ZERO( snapshots.full_snapshot_interval_slots );
   CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
+  CFG_HAS_NON_ZERO( snapshots.minimum_snapshot_download_speed );
 
   CFG_HAS_NON_EMPTY( layout.affinity );
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
