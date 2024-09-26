@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_bplus.c fd_deque.c fd_deque_dynamic.c fd_dlist.c fd_heap.c fd_map.c fd_map_chain.c fd_map_dynamic.c fd_map_giant.c fd_pool.c fd_prq.c fd_queue.c fd_queue_dynamic.c fd_redblack.c fd_set.c fd_set_dynamic.c fd_smallset.c fd_sort.c fd_stack.c fd_treap.c fd_vec.c fd_voff.c)
+$(call add-hdrs,fd_bplus.c fd_deque.c fd_deque_dynamic.c fd_dlist.c fd_heap.c fd_map.c fd_map_chain.c fd_map_dynamic.c fd_map_giant.c fd_pool.c fd_prq.c fd_queue.c fd_queue_dynamic.c fd_redblack.c fd_set.c fd_set_dynamic.c fd_slist.c fd_smallset.c fd_sort.c fd_stack.c fd_treap.c fd_vec.c fd_voff.c)
 $(call make-unit-test,test_bplus,test_bplus,fd_util)
 $(call make-unit-test,test_deque,test_deque,fd_util)
 $(call make-unit-test,test_deque_dynamic,test_deque_dynamic,fd_util)
