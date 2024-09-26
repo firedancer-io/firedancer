@@ -312,11 +312,13 @@ test_new_formats( void ) {
   int   fec_done = 0;
   while( !fd_ar_read_next( file, meta ) ) {
     uchar shred[ 2048 ];
+    ulong shred_sz = (ulong)meta->filesz;
     fd_fec_set_t const * out_fec[1];
     fd_shred_t   const * out_shred[1];
-    FD_TEST( 1==fread( shred, (ulong)meta->filesz, 1UL, file ) );
-    fd_shred_t const * parsed = fd_shred_parse( shred, 2048UL );
-    int retval = fd_fec_resolver_add_shred( resolver, parsed, 2048UL, pubkey, out_fec, out_shred );
+    FD_TEST( 1==fread( shred, shred_sz, 1UL, file ) );
+    fd_msan_unpoison( shred, shred_sz );
+    fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz );
+    int retval = fd_fec_resolver_add_shred( resolver, parsed, shred_sz, pubkey, out_fec, out_shred );
     if( FD_UNLIKELY( retval==FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
       fec_sets++;
       fec_done = 1;
@@ -341,11 +343,13 @@ test_new_formats( void ) {
   fec_sets = 0UL;
   while( !fd_ar_read_next( file, meta ) ) {
     uchar shred[ 2048 ];
+    ulong shred_sz = (ulong)meta->filesz;
     fd_fec_set_t const * out_fec[1];
     fd_shred_t   const * out_shred[1];
-    FD_TEST( 1==fread( shred, (ulong)meta->filesz, 1UL, file ) );
-    fd_shred_t const * parsed = fd_shred_parse( shred, 2048UL );
-    int retval = fd_fec_resolver_add_shred( resolver, parsed, 2048UL, pubkey, out_fec, out_shred );
+    FD_TEST( 1==fread( shred, shred_sz, 1UL, file ) );
+    fd_msan_unpoison( shred, shred_sz );
+    fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz );
+    int retval = fd_fec_resolver_add_shred( resolver, parsed, shred_sz, pubkey, out_fec, out_shred );
     if( FD_UNLIKELY( retval==FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
       fec_sets++;
       fec_done = 1;
