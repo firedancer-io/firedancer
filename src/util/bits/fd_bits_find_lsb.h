@@ -27,7 +27,7 @@ FD_FN_CONST static inline int fd_ulong_find_lsb ( ulong  x ) { return __builtin_
 
 #if FD_HAS_INT128
 
-#if FD_HAS_X86
+#if FD_HAS_X86 && !FD_HAS_MSAN
 
 FD_FN_CONST static inline int
 fd_uint128_find_lsb( uint128 x ) {
@@ -58,7 +58,7 @@ fd_uint128_find_lsb( uint128 x ) {
 
 /* find_lsb_w_default */
 
-#if FD_HAS_X86
+#if FD_HAS_X86 && !FD_HAS_MSAN
 
 /* FIXME: WHY UINT -> INT CAST THROUGH UNION? */
 
@@ -153,7 +153,7 @@ FD_FN_CONST static inline int fd_ulong_find_lsb_w_default ( ulong   x, int d ) {
 
 #if FD_HAS_INT128
 
-#if FD_HAS_X86
+#if FD_HAS_X86 && !FD_HAS_MSAN
 
 FD_FN_CONST static inline int
 fd_uint128_find_lsb_w_default( uint128 x,

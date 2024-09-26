@@ -2,7 +2,8 @@
 #define HEADER_fd_src_util_fd_util_h
 
 //#include "fd_util_base.h"         /* includes stdalign.h, string.h, limits.h, float.h */
-//#include "bits/fd_bits.h"         /* includes fd_util_base.h */
+//#include "sanitize/fd_msan.h"     /* includes fd_util_base.h */
+//#include "bits/fd_bits.h"         /* includes sanitize/fd_msan.h */
 //#include "sanitize/fd_asan.h"     /* includes fd_util_base.h" */
 //#include "sanitize/fd_sanitize.h" /* includes sanitize/fd_asan.h */
 //#include "wksp/fd_wksp.h"         /* includes sanitize/fd_asan.h */
