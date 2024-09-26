@@ -34,7 +34,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-#if FD_HAS_ASAN
+#if FD_HAS_MSAN
 
 /* These are for internal use only */
 
