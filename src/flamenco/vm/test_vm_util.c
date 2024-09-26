@@ -22,16 +22,11 @@ test_vm_minimal_exec_instr_ctx(
   /* Keep slot_ctx and epoch_ctx initialization simple. We only want features ATM.
      Feel free to change this to use actual init semantics (*_new and *_join),
      but remember to update the cleanup function below :) */
-  void *    _slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
-  fd_exec_slot_ctx_t  * slot_ctx  = (fd_exec_slot_ctx_t *)( _slot_ctx );
+  fd_exec_slot_ctx_t  * slot_ctx  = fd_valloc_malloc( valloc, FD_EXEC_SLOT_CTX_ALIGN,    FD_EXEC_SLOT_CTX_FOOTPRINT );
+  fd_exec_epoch_ctx_t * epoch_ctx = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align(), sizeof(fd_exec_epoch_ctx_t) );
+  fd_exec_txn_ctx_t *   txn_ctx   = fd_valloc_malloc( valloc, FD_EXEC_TXN_CTX_ALIGN,     FD_EXEC_TXN_CTX_FOOTPRINT );
 
-  void *    _epoch_ctx = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align() , sizeof(fd_exec_epoch_ctx_t) );
-  fd_exec_epoch_ctx_t * epoch_ctx = (fd_exec_epoch_ctx_t *) _epoch_ctx;
-
-  void *    _txn_ctx = fd_valloc_malloc( valloc, FD_EXEC_TXN_CTX_ALIGN , FD_EXEC_TXN_CTX_FOOTPRINT );
-  fd_exec_txn_ctx_t * txn_ctx = (fd_exec_txn_ctx_t *) _txn_ctx;
-
-  if ( !epoch_ctx || !slot_ctx || !_txn_ctx ) {
+  if ( !epoch_ctx || !slot_ctx || !txn_ctx ) {
     return NULL;
   }
 
@@ -40,6 +35,7 @@ test_vm_minimal_exec_instr_ctx(
   ctx->txn_ctx   = txn_ctx;
 
   slot_ctx->epoch_ctx = epoch_ctx;
+  slot_ctx->slot_bank.slot = 1UL;
 
   /* Setup feature flags */
   fd_features_disable_all( &epoch_ctx->features );
