@@ -13,5 +13,10 @@ $(call run-unit-test,test_stake_ci,)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_shredder,test_shredder,fd_disco fd_flamenco fd_ballet fd_util fd_reedsol)
 $(call run-unit-test,test_shredder,)
+$(call make-fuzz-test,fuzz_shred_sanitize,fuzz_shred_sanitize,fd_ballet fd_util solana_ledger)
+
+# Just manually run ./cargo build --profile=release-with-debug --lib -p solana-ledger
+$(OBJDIR)/lib/libsolana_ledger.a: agave/target/$(RUST_PROFILE)/libsolana_ledger.a
+	$(MKDIR) $(dir $@) && cp agave/target/$(RUST_PROFILE)/libsolana_ledger.a $@
 endif
 endif
