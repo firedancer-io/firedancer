@@ -522,7 +522,7 @@ FD_PROTOTYPES_END
 
 /* FD_DEBUG_MODE: set to enable debug-only code
    TODO move to util? */
-#ifdef FD_DEBUG_MODE
+#ifndef FD_DEBUG_MODE
 #define FD_DEBUG(...) __VA_ARGS__
 #else
 #define FD_DEBUG(...)
