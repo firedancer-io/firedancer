@@ -63,7 +63,7 @@ fd_restore_private_lz4( LZ4_streamDecode_t * lz4,
   /* Small ubuf scatter optimization.  See note in
      fd_checkpt_private_lz4 for details. */
 
-  int is_small = ubuf_usz<sbuf_thresh;
+  int is_small = ubuf_usz<=sbuf_thresh;
   if( is_small ) { /* app dependent branch prob */
     ulong sbuf_cursor = *_sbuf_cursor;
     if( (sbuf_sz-sbuf_cursor)<ubuf_usz ) sbuf_cursor = 0UL; /* cmov */
@@ -120,6 +120,24 @@ fd_restore_init_stream( void * mem,
     return NULL;
   }
 
+  /* Get the position and size of the checkpt.  If we can't (e.g. we are
+     restoring from a non-seekable stream / pipe), treat the start of
+     the checkpt as the fd's current position and the size as
+     (practically) infinite. */
+
+  ulong sz;
+  ulong off;
+
+  int err = fd_io_sz( fd, &sz );
+  if( FD_LIKELY( !err ) ) err = fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &off );
+  if( FD_UNLIKELY( err ) ) { /* fd does not appear seekable */
+    off = 0L;
+    sz  = ULONG_MAX;
+  } else if( FD_UNLIKELY( !((off<=sz) & (sz<=(ulong)LONG_MAX)) ) ) { /* fd claimed to be seekable but parameters are weird */
+    FD_LOG_WARNING(( "sz too large or unexpected file position" ));
+    return NULL;
+  }
+
   /* Create decompressor */
 
 # if FD_HAS_LZ4
@@ -140,6 +158,8 @@ fd_restore_init_stream( void * mem,
   restore->frame_style = 0;  /* not in frame */
   restore->lz4         = (void *)lz4;
   restore->sbuf_cursor = 0UL;
+  restore->sz          = sz;
+  restore->off         = off;
   restore->rbuf.mem    = (uchar *)rbuf;
   restore->rbuf.sz     = rbuf_sz;
   restore->rbuf.lo     = 0UL;
@@ -170,6 +190,11 @@ fd_restore_init_mmio( void *       mem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( mmio_sz>(ulong)LONG_MAX ) ) {
+    FD_LOG_WARNING(( "bad mmio_sz" ));
+    return NULL;
+  }
+
   /* Create decompressor */
 
 # if FD_HAS_LZ4
@@ -189,9 +214,10 @@ fd_restore_init_mmio( void *       mem,
   restore->fd          = -1; /* mmio mode */
   restore->frame_style = 0;  /* not in frame */
   restore->lz4         = (void *)lz4;
+  restore->sbuf_cursor = 0UL;
+  restore->sz          = mmio_sz;
+  restore->off         = 0UL;
   restore->mmio.mem    = (uchar const *)mmio;
-  restore->mmio.sz     = mmio_sz;
-  restore->mmio.off    = 0UL;
 
   return restore;
 }
@@ -204,7 +230,7 @@ fd_restore_fini( fd_restore_t * restore ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_restore_private_in_frame( restore ) ) ) {
+  if( FD_UNLIKELY( fd_restore_in_frame( restore ) ) ) {
     FD_LOG_WARNING(( "in a frame" ));
     restore->frame_style = -1; /* failed */
     return NULL;
@@ -225,16 +251,23 @@ fd_restore_fini( fd_restore_t * restore ) {
 }
 
 int
-fd_restore_frame_open( fd_restore_t * restore,
-                       int            frame_style ) {
+fd_restore_open_advanced( fd_restore_t * restore,
+                          int            frame_style,
+                          ulong *        _off ) {
 
   if( FD_UNLIKELY( !restore ) ) {
     FD_LOG_WARNING(( "NULL restore" ));
     return FD_CHECKPT_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( !fd_restore_private_can_open( restore ) ) ) {
+  if( FD_UNLIKELY( !fd_restore_can_open( restore ) ) ) {
     FD_LOG_WARNING(( "in a frame or failed" ));
+    restore->frame_style = -1; /* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
+  if( FD_UNLIKELY( !_off ) ) {
+    FD_LOG_WARNING(( "NULL _off" ));
     restore->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
   }
@@ -268,38 +301,137 @@ fd_restore_frame_open( fd_restore_t * restore,
   }
 
   restore->frame_style = frame_style;
+
+  *_off = restore->off;
   return FD_CHECKPT_SUCCESS;
 }
 
 int
-fd_restore_frame_close( fd_restore_t * restore ) {
+fd_restore_close_advanced( fd_restore_t * restore,
+                           ulong *        _off ) {
 
   if( FD_UNLIKELY( !restore ) ) {
     FD_LOG_WARNING(( "NULL restore" ));
     return FD_CHECKPT_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( !fd_restore_private_in_frame( restore ) ) ) {
+  if( FD_UNLIKELY( !fd_restore_in_frame( restore ) ) ) {
     FD_LOG_WARNING(( "not in a frame" ));
     restore->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
   }
 
+  if( FD_UNLIKELY( !_off ) ) {
+    FD_LOG_WARNING(( "NULL _off" ));
+    restore->frame_style = -1; /* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
   restore->frame_style = 0;
+
+  *_off = restore->off;
   return FD_CHECKPT_SUCCESS;
 }
 
 int
-fd_restore_buf( fd_restore_t * restore,
-                void *         buf,
-                ulong          sz ) {
+fd_restore_seek( fd_restore_t * restore,
+                 ulong          off ) {
 
   if( FD_UNLIKELY( !restore ) ) {
     FD_LOG_WARNING(( "NULL restore" ));
     return FD_CHECKPT_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( !fd_restore_private_in_frame( restore ) ) ) {
+  if( FD_UNLIKELY( !fd_restore_can_open( restore ) ) ) {
+    FD_LOG_WARNING(( "restore in frame or failed" ));
+    restore->frame_style = -1;/* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
+  ulong sz = restore->sz;
+  if( FD_UNLIKELY( sz>(ulong)LONG_MAX ) ) {
+    FD_LOG_WARNING(( "restore not seekable" ));
+    restore->frame_style = -1;/* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
+  if( FD_UNLIKELY( off>sz ) ) {
+    FD_LOG_WARNING(( "bad off" ));
+    restore->frame_style = -1;/* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
+  /* Note: off<=sz<=LONG_MAX here */
+
+  if( fd_restore_is_mmio( restore ) ) { /* mmio mode, app dependent branch prob */
+
+    restore->off = off;
+
+  } else {
+
+    /* Compute the fd offset range [off0,off1) currently buffered at
+       rbuf [0,lo+ready).  If off is in this range, update lo and ready
+       accordingly.  Otherwise, seek the underlying fd to off and flush
+       rbuf.  Note: though this theoretically could be used to support
+       limited seeking within streams / pipes, we don't expose this as
+       the API semantics would be tricky to make well defined, robust,
+       predictable and easy to use. */
+
+    /* Note: minimizing I/O seeks currently disabled because it is not a
+       very important opt and it has no test coverage currently.  Set
+       this to 1 to enable. */
+#   if 0
+    ulong off_old = restore->off;
+    ulong off0    = off_old - restore->rbuf.lo;
+    ulong off1    = off_old + restore->rbuf.ready;
+    if( FD_UNLIKELY( (off0<=off) & (off<off1) ) ) {
+
+      restore->off        = off;
+      restore->rbuf.lo    = off  - off0;
+      restore->rbuf.ready = off1 - off;
+
+    } else
+#   endif
+
+    {
+
+      ulong idx;
+      int   err = fd_io_seek( restore->fd, (long)off, FD_IO_SEEK_TYPE_SET, &idx );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "fd_io_seek failed (%i-%s)", err, fd_io_strerror( err ) ));
+        restore->frame_style = -1; /* failed */
+        return FD_CHECKPT_ERR_IO;
+      }
+
+      if( FD_UNLIKELY( idx!=off ) ) {
+        FD_LOG_WARNING(( "unexpected fd_io_seek result" ));
+        restore->frame_style = -1; /* failed */
+        return FD_CHECKPT_ERR_IO;
+      }
+
+      restore->off        = off;
+      restore->rbuf.lo    = 0UL;
+      restore->rbuf.ready = 0UL;
+
+    }
+
+  }
+
+  return FD_CHECKPT_SUCCESS;
+}
+
+static int
+fd_restore_private_buf( fd_restore_t * restore,
+                        void *         buf,
+                        ulong          sz,
+                        ulong          max ) {
+
+  if( FD_UNLIKELY( !restore ) ) {
+    FD_LOG_WARNING(( "NULL restore" ));
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_restore_in_frame( restore ) ) ) {
     FD_LOG_WARNING(( "not in a frame" ));
     restore->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
@@ -307,30 +439,35 @@ fd_restore_buf( fd_restore_t * restore,
 
   if( FD_UNLIKELY( !sz ) ) return FD_CHECKPT_SUCCESS; /* nothing to do */
 
+  if( FD_UNLIKELY( sz>max ) ) {
+    FD_LOG_WARNING(( "sz too large" ));
+    restore->frame_style = -1; /* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
+
   if( FD_UNLIKELY( !buf ) ) {
     FD_LOG_WARNING(( "NULL buf with non-zero sz" ));
     restore->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
   }
 
+  ulong off = restore->off;
+
   switch( restore->frame_style ) {
 
   case FD_CHECKPT_FRAME_STYLE_RAW: {
 
-    if( fd_restore_private_is_mmio( restore ) ) { /* mmio mode, app dependent branch prob */
+    if( fd_restore_is_mmio( restore ) ) { /* mmio mode, app dependent branch prob */
 
-      ulong mmio_sz  = restore->mmio.sz;
-      ulong mmio_off = restore->mmio.off;
+      ulong mmio_sz = restore->sz;
 
-      if( FD_UNLIKELY( sz > (mmio_sz-mmio_off) ) ) {
+      if( FD_UNLIKELY( sz > (mmio_sz-off) ) ) {
         FD_LOG_WARNING(( "sz overflow" ));
         restore->frame_style = -1; /* failed */
         return FD_CHECKPT_ERR_IO;
       }
 
-      memcpy( buf, restore->mmio.mem + mmio_off, sz );
-
-      restore->mmio.off = mmio_off + sz; /* at most mmio.sz */
+      memcpy( buf, restore->mmio.mem + off, sz );
 
     } else { /* streaming mode */
 
@@ -345,6 +482,7 @@ fd_restore_buf( fd_restore_t * restore,
 
     }
 
+    off += sz; /* at most mmio_sz */
     break;
   }
 
@@ -353,18 +491,17 @@ fd_restore_buf( fd_restore_t * restore,
 
     LZ4_streamDecode_t * lz4 = (LZ4_streamDecode_t *)restore->lz4;
 
-    if( fd_restore_private_is_mmio( restore ) ) { /* mmio mode */
+    if( fd_restore_is_mmio( restore ) ) { /* mmio mode */
 
       uchar const * mmio    = restore->mmio.mem;
-      ulong         mmio_sz = restore->mmio.sz;
-      ulong         off     = restore->mmio.off;
+      ulong         mmio_sz = restore->sz;
 
       uchar * chunk = (uchar *)buf;
       do {
         ulong chunk_usz = fd_ulong_min( sz, FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX );
 
         ulong chunk_csz = fd_restore_private_lz4( lz4, chunk, chunk_usz, mmio + off, mmio_sz - off,
-                                                  restore->sbuf, FD_RESTORE_PRIVATE_SBUF_SZ, FD_RESTORE_PRIVATE_SBUF_THRESH,
+                                                  restore->sbuf, FD_RESTORE_PRIVATE_SBUF_SZ, FD_RESTORE_META_MAX,
                                                   &restore->sbuf_cursor ); /* logs details */
         if( FD_UNLIKELY( !chunk_csz ) ) {
           restore->frame_style = -1; /* failed */
@@ -376,8 +513,6 @@ fd_restore_buf( fd_restore_t * restore,
         chunk += chunk_usz;
         sz    -= chunk_usz;
       } while( sz );
-
-      restore->mmio.off = off;
 
     } else { /* streaming mode */
 
@@ -458,7 +593,7 @@ fd_restore_buf( fd_restore_t * restore,
         /* Decompress the compressed chunk in rbuf */
 
         ulong res = fd_restore_private_lz4( lz4, chunk, chunk_usz, rbuf + rbuf_lo, rbuf_ready,
-                                            restore->sbuf, FD_RESTORE_PRIVATE_SBUF_SZ, FD_RESTORE_PRIVATE_SBUF_THRESH,
+                                            restore->sbuf, FD_RESTORE_PRIVATE_SBUF_SZ, FD_RESTORE_META_MAX,
                                             &restore->sbuf_cursor ); /* logs details */
         if( FD_UNLIKELY( !res ) ) {
           restore->frame_style = -1; /* failed */
@@ -475,6 +610,8 @@ fd_restore_buf( fd_restore_t * restore,
 
         rbuf_lo    += chunk_csz;
         rbuf_ready -= chunk_csz;
+
+        off += chunk_csz;
 
         chunk += chunk_usz;
         sz    -= chunk_usz;
@@ -497,5 +634,20 @@ fd_restore_buf( fd_restore_t * restore,
 
   }
 
+  restore->off = off;
   return FD_CHECKPT_SUCCESS;
+}
+
+int
+fd_restore_meta( fd_restore_t * restore,
+                 void *         buf,
+                 ulong          sz ) {
+  return fd_restore_private_buf( restore, buf, sz, FD_CHECKPT_META_MAX );
+}
+
+int
+fd_restore_data( fd_restore_t * restore,
+                 void *         buf,
+                 ulong          sz ) {
+  return fd_restore_private_buf( restore, buf, sz, ULONG_MAX );
 }

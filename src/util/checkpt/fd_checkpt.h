@@ -67,6 +67,11 @@
 
 #define FD_CHECKPT_FRAME_STYLE_DEFAULT FD_CHECKPT_FRAME_STYLE_RAW
 
+/* FD_CHECKPT_META_MAX is the maximum size buffer supported by
+   fd_checkpt_meta.  64 KiB is recommended. */
+
+#define FD_CHECKPT_META_MAX (65536UL)
+
 /* FD_CHECKPT_WBUF_MIN is the minimum write buffer size needed by a
    fd_checkpt_t in streaming mode.  Must be at least 65813 ~
      FD_CHECKPT_PRIVATE_CSZ_MAX( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX ) */
@@ -85,6 +90,11 @@
 
 struct fd_checkpt_private;
 typedef struct fd_checkpt_private fd_checkpt_t;
+
+/* FD_RESTORE_META_MAX is the maximum size buffer supported by
+   fd_restore_meta.  Must match FD_CHECKPT_META_MAX currently. */
+
+#define FD_RESTORE_META_MAX FD_CHECKPT_META_MAX
 
 /* FD_RESTORE_RBUF_MIN is the minimum read buffer size needed by a
    fd_restore_t in streaming mode.  Must be at least
@@ -112,7 +122,7 @@ typedef struct fd_restore_private fd_restore_t;
 /* FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX is the maximum amount of checkpt
    data fed into the underlying compressor at a time.  Should be much
    less than LZ4_MAX_INPUT_SIZE (and probably much less than 2^24-1).
-   64 KiB is recommended. */
+   Must be at least FD_CHECKPT_BUF_META_MAX.  64 KiB recommended. */
 
 #define FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX (65536UL)
 
@@ -129,27 +139,19 @@ FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX <= (1UL<<30), adjust_buf_limi
 FD_STATIC_ASSERT( FD_CHECKPT_WBUF_MIN >= FD_CHECKPT_PRIVATE_CSZ_MAX( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX ), adjust_buf_limits );
 FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN >= FD_CHECKPT_WBUF_MIN, adjust_buf_limits );
 
-/* FD_CHECKPT_PRIVATE_GBUF_THRESH is the byte size at which a data
-   buffer is considered too large for checkpt gather optimizations.
-   Should be at most FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX.  Set to 0 to
-   disable checkpt small gather optimization. */
-
-#define FD_CHECKPT_PRIVATE_GBUF_THRESH FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX
-
 /* FD_CHECKPT_PRIVATE_GBUF_SZ is the size of the checkpt gather buffer.
-   Must be at least 2*THRESH + 65536 - 3 (the 64KiB is from LZ4). */
+   Must be at least 2*META_MAX + 65536 - 1 (the 64KiB is from LZ4). */
 
-#define FD_CHECKPT_PRIVATE_GBUF_SZ (2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65536UL)
+#define FD_CHECKPT_PRIVATE_GBUF_SZ (2UL*FD_CHECKPT_META_MAX + 65536UL)
 
-FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_THRESH <= FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX,             adjust_buf_limits );
-FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_SZ     >= 2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65533UL, adjust_buf_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_META_MAX        <= FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX,  adjust_buf_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_SZ >= 2UL*FD_CHECKPT_META_MAX + 65535UL, adjust_buf_limits );
 
-/* FD_RESTORE_PRIVATE_SBUF_{THRESH,SZ} similarly give the configuration
-   for restore scatter optimizations.  These currently need to match the
+/* FD_RESTORE_PRIVATE_SBUF_SZ similarly gives the configuration for
+   restore scatter optimizations.  This currently need to match the
    gather configuration. */
 
-#define FD_RESTORE_PRIVATE_SBUF_THRESH FD_CHECKPT_PRIVATE_GBUF_THRESH
-#define FD_RESTORE_PRIVATE_SBUF_SZ     FD_CHECKPT_PRIVATE_GBUF_SZ
+#define FD_RESTORE_PRIVATE_SBUF_SZ FD_CHECKPT_PRIVATE_GBUF_SZ
 
 /* fd_checkpt_t internals */
 
@@ -163,8 +165,8 @@ struct fd_checkpt_private_wbuf { /* very similar to fd_io_buffered_ostream */
 typedef struct fd_checkpt_private_wbuf fd_checkpt_private_wbuf_t;
 
 struct fd_checkpt_private_mmio {
-  uchar * mem; /* Checkpoint memory region */
-  ulong   sz;  /* Checkpoint memory region byte size */
+  uchar * mem; /* Checkpoint memory region, indexed [0,sz) */
+  ulong   sz;  /* Checkpoint memory region size in bytes */
 };
 
 typedef struct fd_checkpt_private_mmio fd_checkpt_private_mmio_t;
@@ -194,9 +196,7 @@ struct fd_restore_private_rbuf { /* very similar to fd_io_buffered_istream */
 typedef struct fd_restore_private_rbuf fd_restore_private_rbuf_t;
 
 struct fd_restore_private_mmio {
-  uchar const * mem; /* Checkpoint memory region */
-  ulong         sz;  /* Checkpoint memory region size in bytes */
-  ulong         off; /* Offset of next byte to process relative to mmio, in [0,mmio_sz) */
+  uchar const * mem; /* Checkpoint memory region, indexed [0,sz) */
 };
 
 typedef struct fd_restore_private_mmio fd_restore_private_mmio_t;
@@ -206,33 +206,16 @@ struct fd_restore_private {
   int    frame_style; /* FD_CHECKPT_FRAME_STYLE_* (>0), 0: not in frame (valid), -1: not in frame (failed) */
   void * lz4;         /* Handle of the underlying decompressor used */
   ulong  sbuf_cursor; /* Cursor for small buffer scatter optimizations, in [0,FD_RESTORE_PRIVATE_SBUF_SZ] */
+  ulong  sz;          /* (stream) if seekable, file size, otherwise ULONG_MAX, (mmio) mmio region size */
+  ulong  off;         /* Offset of the next byte to read.  In [0,sz].  Relative to:
+                         (stream) first byte of file if seekable, fd position when initialized otherwise,
+                         (mmio) first byte of mmio region. */
   union {
     fd_restore_private_rbuf_t rbuf; /* used in streaming mode */
     fd_restore_private_mmio_t mmio; /* used in mmio mode */
   };
   uchar sbuf[ FD_RESTORE_PRIVATE_SBUF_SZ ]; /* scatter optimization buffer */
 };
-
-FD_PROTOTYPES_BEGIN
-
-/* fd_{checkpt,restore}_private_is_mmio returns 0/1 if in streaming/mmio
-   mode.  Assumes {checkpt,restore} is valid. */
-
-FD_FN_PURE static inline int fd_checkpt_private_is_mmio( fd_checkpt_t const * checkpt ) { return checkpt->fd<0; }
-FD_FN_PURE static inline int fd_restore_private_is_mmio( fd_restore_t const * restore ) { return restore->fd<0; }
-
-/* fd_checkpt_private_{can_open,in_frame} returns 1 if {a frame can be
-   opened,the checkpt is in a frame} and 0 otherwise.  A failed checkpt
-   is not in a frame but cannot open a new frame.  Assumes checkpt is
-   valid.  Similarly for restore. */
-
-FD_FN_PURE static inline int fd_checkpt_private_can_open( fd_checkpt_t const * checkpt ) { return !checkpt->frame_style; }
-FD_FN_PURE static inline int fd_restore_private_can_open( fd_restore_t const * restore ) { return !restore->frame_style; }
-
-FD_FN_PURE static inline int fd_checkpt_private_in_frame( fd_checkpt_t const * checkpt ) { return checkpt->frame_style>0; }
-FD_FN_PURE static inline int fd_restore_private_in_frame( fd_restore_t const * restore ) { return restore->frame_style>0; }
-
-FD_PROTOTYPES_END
 
 /* End internal use only **********************************************/
 
@@ -286,9 +269,35 @@ fd_checkpt_init_mmio( void * mem,
 void *
 fd_checkpt_fini( fd_checkpt_t * checkpt );
 
-/* fd_checkpt_frame_open_advanced opens a new frame.  Different frames
-   in a checkpoint can be restored in parallel.  frame_style is a
-   FD_CHECKPT_FRAME_STYLE_* that specifies the style of frame to output
+/* fd_checkpt_is_mmio returns 0/1 if checkpt is in streaming/mmio mode.
+   Assumes checkpt is valid. */
+
+FD_FN_PURE static inline int fd_checkpt_is_mmio( fd_checkpt_t const * checkpt ) { return checkpt->fd<0; }
+
+/* fd_checkpt_{fd,wbuf,wbuf_sz} return the values used to initialize a
+   streaming checkpt.  Assumes checkpt is valid and in streaming mode.  */
+
+FD_FN_PURE static inline int    fd_checkpt_fd     ( fd_checkpt_t const * checkpt ) { return checkpt->fd;       }
+FD_FN_PURE static inline void * fd_checkpt_wbuf   ( fd_checkpt_t       * checkpt ) { return checkpt->wbuf.mem; }
+FD_FN_PURE static inline ulong  fd_checkpt_wbuf_sz( fd_checkpt_t const * checkpt ) { return checkpt->wbuf.sz;  }
+
+/* fd_checkpt_{mmio,mmio_sz} return the values used to initialzie a
+   mmio checkpt.  Assumes checkpt is valid and in mmio mode. */
+
+FD_FN_PURE static inline void * fd_checkpt_mmio   ( fd_checkpt_t       * checkpt ) { return checkpt->mmio.mem; }
+FD_FN_PURE static inline ulong  fd_checkpt_mmio_sz( fd_checkpt_t const * checkpt ) { return checkpt->mmio.sz;  }
+
+/* fd_checkpt_{can_open,in_frame} returns 1 if {a frame can be
+   opened,the checkpt is in a frame} and 0 otherwise.  A failed checkpt
+   is not in a frame but cannot open a new frame.  Assumes checkpt is
+   valid. */
+
+FD_FN_PURE static inline int fd_checkpt_can_open( fd_checkpt_t const * checkpt ) { return !checkpt->frame_style; }
+FD_FN_PURE static inline int fd_checkpt_in_frame( fd_checkpt_t const * checkpt ) { return checkpt->frame_style>0; }
+
+/* fd_checkpt_open_advanced opens a new frame.  Different frames in a
+   checkpoint can be restored in parallel.  frame_style is a
+   FD_CHECKPT_FRAME_STYLE_* that specifies the style of frame to write
    (0 indicates to use FD_CHECKPT_FRAME_STYLE_DEFAULT).  checkpt should
    be valid and openable (not currently in a frame or failed).
 
@@ -318,27 +327,27 @@ fd_checkpt_fini( fd_checkpt_t * checkpt );
    be optimized by putting similar items into the same frame and then
    putting more similar items near each other sequentially.
 
-   fd_checkpt_frame_open is a convenience for when the frame offset
-   isn't needed (makes API exactly symmetric with fd_restore). */
+   fd_checkpt_open is a convenience for when the frame offset isn't
+   needed. */
 
 int
-fd_checkpt_frame_open_advanced( fd_checkpt_t * checkpt,
-                                int            frame_style,
-                                ulong *        _off );
+fd_checkpt_open_advanced( fd_checkpt_t * checkpt,
+                          int            frame_style,
+                          ulong *        _off );
 
 static inline int
-fd_checkpt_frame_open( fd_checkpt_t * checkpt,
-                       int            frame_style ) {
+fd_checkpt_open( fd_checkpt_t * checkpt,
+                 int            frame_style ) {
   ulong off;
-  return fd_checkpt_frame_open_advanced( checkpt,frame_style, &off );
+  return fd_checkpt_open_advanced( checkpt, frame_style, &off );
 }
 
-/* fd_checkpt_frame_close_advanced closes the current frame.  checkpt
-   should be valid and in a frame.
+/* fd_checkpt_close_advanced closes the current frame.  checkpt should
+   be valid and in a frame.
 
    On success, returns FD_CHECKPT_SUCCESS (0).  On return, *_off will
    contain the offset of one past the last byte of the just closed
-   frame.  That is, [off_open,off_close) specify the range bytes
+   frame.  That is, [off_open,off_close) specify the range of bytes
    relative to the start of the checkpoint used by this frame and
    off_close-off_open is the frame byte size.  This is to facilitate
    parallel checkpoint writing and then concatentating results from
@@ -354,30 +363,53 @@ fd_checkpt_frame_open( fd_checkpt_t * checkpt,
    interest in checkpointed data and the user should only fini checkpt,
    close fd in streaming mode and discard the failed checkpoint).
 
-   fd_checkpt_frame_close is a convenience for when the frame offset
-   isn't needed. */
+   fd_checkpt_close is a convenience for when the frame offset isn't
+   needed. */
 
 int
-fd_checkpt_frame_close_advanced( fd_checkpt_t * checkpt,
-                                 ulong *        _off );
+fd_checkpt_close_advanced( fd_checkpt_t * checkpt,
+                           ulong *        _off );
 
 static inline int
-fd_checkpt_frame_close( fd_checkpt_t * checkpt ) {
+fd_checkpt_close( fd_checkpt_t * checkpt ) {
   ulong off;
-  return fd_checkpt_frame_close_advanced( checkpt, &off );
+  return fd_checkpt_close_advanced( checkpt, &off );
 }
 
-/* fd_checkpt_buf checkpoints the sz byte memory region whose first byte
-   in the caller's local address space is pointed to by buf.  checkpt
-   should be valid and in a frame.  sz==0 is fine (and buf==NULL if
-   sz==0 is also fine).
+/* fd_checkpt_meta checkpoints the sz byte memory region whose first
+   byte in the caller's local address space is pointed to by buf.
+   checkpt should be valid and in a frame.  sz should be at most
+   FD_CHECKPT_META_MAX.  sz==0 is fine (and buf==NULL if sz==0 is also
+   fine).
 
-   On success, returns FD_CHECKPT_SUCCESS (0).  IMPORTANT SAFETY TIP!
-   checkpt retains an interest in buf until the frame is closed (e.g.
-   buf should continue to exist unchanged until the frame is closed).
-   AMONG OTHER THINGS, THIS MEANS IT IS UNSAFE TO GATHER DATA INTO A
-   TEMP BUFFER, CHECKPT THE TEMP BUFFER AND THEN FREE / REUSE THAT TEMP
-   BUFFER BEFORE THE FRAME IS CLOSED!
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, checkpt
+   retains no interest in buf.
+
+   On failure, logs details and returns a FD_CHECKPT_ERR (negative).
+   Reasons for failure include INVAL (NULL checkpt, not in a frame, NULL
+   buf with a non-zero sz, too large sz), IO (write failed, too many
+   bytes written) and COMP (compressor error).  The checkpt (and
+   underlying fd in streaming mode) should be considered failed (i.e.
+   should only fini checkpt, close fd in streaming mode and discard the
+   failed checkpoint). */
+
+int
+fd_checkpt_meta( fd_checkpt_t * checkpt,
+                 void const *   buf,
+                 ulong          sz );
+
+/* fd_checkpt_data checkpoints the sz byte memory region whose first
+   byte in the caller's local address space is pointed to by buf.
+   checkpt should be valid and in a frame.  There is no practical limit
+   on sz.  sz==0 is fine (and buf==NULL if sz==0 is also fine).
+
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, checkpt
+   retains an interest in buf until the frame is closed (e.g. buf should
+   continue to exist unchanged until the frame is closed).  IMPORTANT
+   SAFETY TIP!  AMONG OTHER THINGS, THIS MEANS IT IS UNSAFE TO GATHER
+   DATA INTO A TEMP BUFFER, CHECKPT THE TEMP BUFFER AND THEN FREE /
+   REUSE THAT TEMP BUFFER BEFORE THE FRAME IS CLOSED!  USE
+   FD_CHECKPT_META FOR THAT.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
    Reasons for failure include INVAL (NULL checkpt, not in a frame, NULL
@@ -388,17 +420,17 @@ fd_checkpt_frame_close( fd_checkpt_t * checkpt ) {
    checkpoint). */
 
 int
-fd_checkpt_buf( fd_checkpt_t * checkpt,
-                void const *   buf,
-                ulong          sz );
+fd_checkpt_data( fd_checkpt_t * checkpt,
+                 void const *   buf,
+                 ulong          sz );
 
 /* Restore APIs *******************************************************/
 
 /* fd_restore_init_stream formats a memory region, mem, with suitable
    alignment and footprint into a fd_restore_t in streaming mode (a
    pointer to a stack declared fd_restore_t is fine).  fd is an open
-   normal-ish file descriptor positioned at the start of the first
-   checkpoint frame to read.  rbuf points to the first byte in the
+   normal-ish file descriptor usually positioned at the start of the
+   first checkpoint frame to read.  rbuf points to the first byte in the
    caller's address space of an unused rbuf_sz byte size memory region
    to use for read buffering.  rbuf_sz should be at least
    FD_RESTORE_RBUF_MIN (it does _not_ need to match the wbuf_sz used to
@@ -442,69 +474,191 @@ fd_restore_init_mmio( void *       mem,
 void *
 fd_restore_fini( fd_restore_t * restore );
 
-/* fd_restore_frame_open opens a new checkpoint frame.  Different frames
-   in a checkpoint can be restored in parallel.  frame_style is a
-   FD_CHECKPT_FRAME_STYLE_* that specifies the style of frame to read
-   (0 indicates to use FD_CHECKPT_FRAME_STYLE_DEFAULT).  restore should
-   be valid and not currently in a frame.
+/* fd_restore_is_mmio returns 0/1 if restore is in streaming/mmio mode.
+   Assumes restore is valid. */
 
-   On success, returns FD_CHECKPT_SUCCESS (0).
+FD_FN_PURE static inline int fd_restore_is_mmio( fd_restore_t const * restore ) { return restore->fd<0; }
+
+/* fd_restore_{fd,rbuf,rbuf_sz} return the values used to initialize a
+   streaming restore.  Assumes restore is valid and in streaming mode.  */
+
+FD_FN_PURE static inline int    fd_restore_fd     ( fd_restore_t const * restore ) { return restore->fd;       }
+FD_FN_PURE static inline void * fd_restore_rbuf   ( fd_restore_t       * restore ) { return restore->rbuf.mem; }
+FD_FN_PURE static inline ulong  fd_restore_rbuf_sz( fd_restore_t const * restore ) { return restore->rbuf.sz;  }
+
+/* fd_restore_{mmio,mmio_sz} return the values used to initialzie a
+   mmio restore.  Assumes restore is valid and in mmio mode. */
+
+FD_FN_PURE static inline void const * fd_restore_mmio   ( fd_restore_t const * restore ) { return restore->mmio.mem; }
+FD_FN_PURE static inline ulong        fd_restore_mmio_sz( fd_restore_t const * restore ) { return restore->sz;       }
+
+/* fd_restore_{can_open,in_frame} returns 1 if {a frame can be
+   opened,the restore is in a frame} and 0 otherwise.  A failed restore
+   is not in a frame but cannot open a new frame.  Assumes restore is
+   valid. */
+
+FD_FN_PURE static inline int fd_restore_can_open( fd_restore_t const * restore ) { return !restore->frame_style; }
+FD_FN_PURE static inline int fd_restore_in_frame( fd_restore_t const * restore ) { return restore->frame_style>0; }
+
+/* fd_restore_sz returns the size of the checkpt (mmio mode == mmio_sz
+   <= LONG_MAX, streaming mode with seekable file == fd_io_sz <=
+   LONG_MAX, streaming mode with a non-seekable file == ULONG_MAX).
+   Assumes restore is valid. */
+
+FD_FN_PURE static inline ulong fd_restore_sz( fd_restore_t const * restore ) { return restore->sz; }
+
+/* fd_restore_open_advanced opens a new frame.  Different frames in a
+   checkpoint can be restored in parallel.  frame_style is a
+   FD_CHECKPT_FRAME_STYLE_* that specifies the style of frame to read (0
+   indicates to use FD_CHECKPT_FRAME_STYLE_DEFAULT).  restore should be
+   valid and openable (not currently in a frame or failed).
+
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, *_off will
+   contain the offset of this frame from the beginning of the
+   checkpoint.  Retains no interest in _off.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
-   Reasons for failure include INVAL (NULL restore, in a frame, failed),
-   UNSUP (unsupported frame style on this target), IO (an i/o error) and
-   COMP (a decompressor error).  The restore (and underlying fd in
-   streaming mode) should be considered failed (i.e. the restore no
-   longer has any interest in restored data and the user should only
-   fini restore and close fd in streaming mode).
+   *_off will be untouched.  Retains no interest in _off.  Reasons for
+   failure include INVAL (NULL restore, in a frame, failed), UNSUP
+   (unsupported frame style on this target), IO (an i/o error) and COMP
+   (a decompressor error).  The restore (and underlying fd in streaming
+   mode) should be considered failed (i.e. the restore no longer has any
+   interest in restored data and the user should only fini restore and
+   close fd in streaming mode).
+
+   IMPORTANT SAFETY TIP!  The returned offset is relative to the start
+   first byte of the mmio region (mmio mode), first byte of the file
+   (seekable file descriptor) or the stream position when the restore
+   was initialized (unseekable file descriptor).  These are often the
+   same as the first byte of the checkpt but do not have to be (e.g.
+   restoring from a file where data was prepended to the file).
 
    IMPORTANT SAFETY TIP!  frame_style should match the frame_style used
    when the frame was written.
 
-   IMPORTANT SAFETY TIP!  The sequence of restore_frame_open /
-   restore_buf / restore_frame_close calls should _exactly_ match the
-   sequence of checkpt_frame_open / checkpt_buf / checkpt_frame_close
-   used when the frame was created. */
+   IMPORTANT SAFETY TIP!  The sequence of restore_open / restore_meta /
+   restore_data / restore_close calls should _exactly_ match the
+   sequence of checkpt_open / checkpt_meta / checkpt_data /
+   checkpt_close used when the frame was created.
+
+   fd_restore_open is a convenience for when the frame offset isn't
+   needed. */
 
 int
-fd_restore_frame_open( fd_restore_t * restore,
-                       int            frame_style );
+fd_restore_open_advanced( fd_restore_t * restore,
+                          int            frame_style,
+                          ulong *        _off );
 
-/* fd_restore_frame_close closes the current frame.  restore should be
-   valid and in a frame.
+static inline int
+fd_restore_open( fd_restore_t * restore,
+                 int            frame_style ) {
+  ulong off;
+  return fd_restore_open_advanced( restore, frame_style, &off );
+}
 
-   On success, returns FD_CHECKPT_SUCCESS (0).  The restore will no
-   longer have any interest in restored data.
+/* fd_restore_close_advanced closes the current frame.  restore should
+   be valid and in a frame.
+
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, *_off will
+   contain the offset of one past the last byte of the just closed
+   frame.  That is, [off_open,off_close) specify the range of bytes
+   relative to the first byte of the mmio region (mmio mode), file
+   (streaming mode with a seekable file descriptor) or stream when the
+   restore was initialized (streaming mode with unseekable file
+   descriptor).  The restore will no longer have any interest in
+   restored data or in _off.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
    Reasons for failure include INVAL (NULL restore, not in a frame), IO
    (an i/o error) and COMP (a decompressor error).  The restore (and
    underlying fd in streaming mode) should be considered failed (i.e.
+   the restore no longer has any interest in restored data or _off and
+   the user should only fini restore and close fd in streaming mode).
+
+   IMPORTANT SAFETY TIP!  The sequence of restore_open / restore_meta /
+   restore_data / restore_close calls should _exactly_ match the
+   sequence of checkpt_open / checkpt_meta / checkpt_data /
+   checkpt_close used when the frame was created.
+
+   fd_restore_close is a convenience for when the frame offset isn't
+   needed. */
+
+int
+fd_restore_close_advanced( fd_restore_t * restore,
+                           ulong *        _off );
+
+static inline int
+fd_restore_close( fd_restore_t * restore ) {
+  ulong off;
+  return fd_restore_close_advanced( restore, &off );
+}
+
+/* fd_restore_seek sets the restore to the position offset.  restore
+   should be valid, openable and seekable, offset should be in [0,sz].
+   In streaming mode, seeking may flush underlying read-ahead-buffering
+   and thus should be minimized.
+
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, the restore
+   will be ready to open the frame at off.
+
+   On failure, logs details and returns a FD_CHECKPT_ERR (negative).
+   Reasons for failure include INVAL (NULL restore, not openable, not
+   seekable, offset past end of file), IO (underlying error seeking the
+   descriptor) The restore (and underlying fd in streaming mode) should
+   be considered failed (i.e. the restore no longer has any interest in
+   restored data and the user should only fini restore and close fd in
+   streaming mode).
+
+   IMPORTANT SAFETY TIP!  This offset is relative to the first byte of
+   the mmio region (mmio mode) or the file (streaming mode with a
+   seekable file descriptor). */
+
+int
+fd_restore_seek( fd_restore_t * restore,
+                 ulong          off );
+
+/* fd_restore_meta restores sz bytes to the memory region whose first
+   byte in the caller's local address space is pointed to by buf.
+   restore should be valid and in a frame.  sz should be at most
+   FD_RESTORE_META_MAX.  sz==0 is fine (and buf==NULL if sz==0 is also
+   fine).
+
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, the restored
+   data will be in buf and the restore retains no interest in buf.
+
+   On failure, logs details and returns a FD_CHECKPT_ERR (negative).
+   Reasons for failure include INVAL (NULL restore, not in a frame, NULL
+   buf with a non-zero sz, too large sz), IO (read failed, too many
+   bytes read) and COMP (a decompressor error).  The restore (and
+   underlying fd in streaming mode) should be considered failed (i.e.
    the restore no longer has any interest in restored data and the user
    should only fini restore and close fd in streaming mode).
 
-   IMPORTANT SAFETY TIP!  The sequence of restore_frame_open /
-   restore_buf / restore_frame_close calls should _exactly_ match the
-   sequence of checkpt_frame_open / checkpt_buf / checkpt_frame_close
-   used when the frame was created. */
+   IMPORTANT SAFETY TIP!  The sequence of restore_open / restore_meta /
+   restore_data / restore_close calls should _exactly_ match the
+   sequence of checkpt_open / checkpt_meta / checkpt_data /
+   checkpt_close used when the frame was created. */
 
 int
-fd_restore_frame_close( fd_restore_t * restore );
+fd_restore_meta( fd_restore_t * restore,
+                 void *         buf,
+                 ulong          sz );
 
-/* fd_restore_buf restores sz bytes to the memory region whose first
+/* fd_restore_data restores sz bytes to the memory region whose first
    byte in the caller's local address space is pointed to by buf.
-   restore should be valid and in a frame.  sz==0 is fine (and buf==NULL
-   if sz==0 is also fine).
+   restore should be valid and in a frame.  There is no practical
+   limitation on sz.  sz==0 is fine (and buf==NULL if sz==0 is also
+   fine).
 
-   On success, returns FD_CHECKPT_SUCCESS (0).  On return, buf will
-   contain the restored data (FIXME: consider not guaranteeing
-   availability of the restored buf until the frame is closed).
-   IMPORTANT SAFETY TIP!  restore retains an interest in buf until the
-   frame is closed (e.g. buf should continue to exist unchanged until
-   the frame is closed).  AMONG OTHER THINGS, THIS IMPLIES RESTORE
-   MEMORY REGIONS SHOULD NOT OVERLAP AND THAT IT IS UNSAFE TO RESTORE TO
-   A TEMP BUFFER, SCATTER DATA FROM THE TEMP BUFFER AND THEN FREE /
-   REUSE THAT TEMP BUFFER BEFORE THE FRAME IS CLOSED!
+   On success, returns FD_CHECKPT_SUCCESS (0).  On return, the restore
+   retains an interest in buf until the frame close (e.g. buf should
+   continue to exist and be untouched until the frame close) and the
+   data in it may not be available until frame close.  IMPORTANT SAFETY
+   TIP!  AMONG OTHER THINGS, THIS IMPLIES RESTORED DATA REGIONS SHOULD
+   NOT OVERLAP AND THAT IT IS UNSAFE TO RESTORE DATA TO A TEMP BUFFER,
+   SCATTER DATA FROM THE TEMP BUFFER AND THEN FREE / REUSE THAT TEMP
+   BUFFER BEFORE THE FRAME IS CLOSED!  USE FD_RESTORE_META FOR THIS
+   CASE.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
    Reasons for failure include INVAL (NULL restore, not in a frame, NULL
@@ -514,17 +668,22 @@ fd_restore_frame_close( fd_restore_t * restore );
    longer has any interest in restored data and the user should only
    fini restore and close fd in streaming mode).
 
-   IMPORTANT SAFETY TIP!  The sequence of restore_frame_open /
-   restore_buf / restore_frame_close calls should _exactly_ match the
-   sequence of checkpt_frame_open / checkpt_buf / checkpt_frame_close
-   used when the frame was created. */
+   IMPORTANT SAFETY TIP!  The sequence of restore_open / restore_meta /
+   restore_data / restore_close calls should _exactly_ match the
+   sequence of checkpt_open / checkpt_meta / checkpt_data /
+   checkpt_close used when the frame was created. */
 
 int
-fd_restore_buf( fd_restore_t * restore,
-                void *         buf,
-                ulong          sz );
+fd_restore_data( fd_restore_t * restore,
+                 void *         buf,
+                 ulong          sz );
 
 /* Misc APIs **********************************************************/
+
+/* fd_checkpt_frame_style_is_supported returns 1 if the given
+   frame_style is supported on this target and 0 otherwise. */
+
+FD_FN_CONST int fd_checkpt_frame_style_is_supported( int frame_style );
 
 /* fd_checkpt_strerror converts a FD_CHECKPT_SUCCESS / FD_CHECKPT_ERR_*
    code into a human readable cstr.  The lifetime of the returned
