@@ -16,9 +16,9 @@
 //#include "checkpt/fd_checkpt.h"   /* includes log/fd_log.h */
 //#include "shmem/fd_shmem.h"       /* includes log/fd_log.h */
 //#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
-//#include "wksp/fd_wksp.h"         /* includes pod/fd_pod.h shmem/shmem.h checkpt/fd_checkpt.h sanitize/fd_sanitize.h */
 //#include "scratch/fd_scratch.h"   /* includes tile/fd_tile.h sanitize/fd_sanitize.h valloc/fd_valloc.h */
-#include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h scratch/fd_scratch.h */
+//#include "tpool/fd_tpool.h"       /* includes tile/fd_tile.h scratch/fd_scratch.h */
+//#include "wksp/fd_wksp.h"         /* includes pod/fd_pod.h tpool/fd_tpool.h checkpt/fd_checkpt.h sanitize/fd_sanitize.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h valloc/fd_valloc.h */
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
 

@@ -142,7 +142,7 @@ main( int     argc,
     cstr2[0] = '\0'; FD_TEST( !fd_wksp_cstr_laddr( laddr1,      NULL  )        );
     cstr2[0] = '\0'; FD_TEST(  fd_wksp_cstr_laddr( laddr1,      cstr2 )==cstr2 );
     FD_TEST( !strcmp( cstr1, cstr2 ) );
- 
+
     /* Test fd_wksp_unmap */
 
     fd_wksp_unmap( NULL   );
@@ -153,7 +153,7 @@ main( int     argc,
     fd_wksp_cstr_free( NULL  );
     fd_wksp_cstr_free( cstr1 );
     fd_wksp_cstr_free( cstr1 );
-  
+
     FD_TEST( fd_wksp_cstr_tag( cstr1 )==0UL );
     fd_wksp_cstr_memset( NULL, 255 );
 
@@ -197,4 +197,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

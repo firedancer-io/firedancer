@@ -458,7 +458,7 @@ fd_topob_finish( fd_topo_t * topo,
       loose_sz += loose( topo, obj );
     }
 
-    ulong part_max = 1UL + (loose_sz / (64UL << 10));
+    ulong part_max = 3UL + (loose_sz / (64UL << 10)); /* 3 for initial alignment + actual alloc + residual padding */
     ulong offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() );
 
     for( ulong j=0UL; j<topo->obj_cnt; j++ ) {

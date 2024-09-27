@@ -690,18 +690,16 @@ fd_topo_initialize( config_t * config ) {
     /* Make the status cache workspace match the parameters used to create the
        checkpoint. This is a bit nonintuitive because of the way
        fd_topo_create_workspace works. */
-    uint seed;
-    ulong part_max;
-    ulong data_max;
-    int err = fd_wksp_restore_preview( status_cache, &seed, &part_max, &data_max );
-    if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", status_cache, err ));
+    fd_wksp_preview_t preview[1];
+    int err = fd_wksp_preview( status_cache, preview );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "unable to preview %s: error %d", status_cache, err ));
     fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ txncache_obj->id ].wksp_id ];
-    wksp->part_max = part_max;
+    wksp->part_max = preview->part_max;
     wksp->known_footprint = 0;
-    wksp->total_footprint = data_max;
+    wksp->total_footprint = preview->data_max;
     ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
     wksp->page_sz = page_sz;
-    ulong footprint = fd_wksp_footprint( part_max, data_max );
+    ulong footprint = fd_wksp_footprint( preview->part_max, preview->data_max );
     wksp->page_cnt = footprint / page_sz;
   }
 
