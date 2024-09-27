@@ -34,6 +34,9 @@ fi
 PREFIX="$(pwd)/opt"
 
 DEVMODE=0
+_CC="${CC:=gcc}"
+_CXX="${CXX:=g++}"
+EXTRA_CPPFLAGS=""
 
 help () {
 cat <<EOF
@@ -54,43 +57,43 @@ cat <<EOF
     nuke
     - Get rid of dependency checkouts
     - Get rid of all third party dependency files
-    - Same as 'rm -rf $(pwd)/opt'
+    - Same as 'rm -rf $PREFIX'
 
     fetch
-    - Fetches dependencies from Git repos into $(pwd)/opt/git
+    - Fetches dependencies from Git repos into $PREFIX/git
 
     install
     - Builds dependencies
-    - Installs all project dependencies into prefix $(pwd)/opt
+    - Installs all project dependencies into prefix $PREFIX
 
 EOF
   exit 0
 }
 
 nuke () {
-  rm -rf ./opt
-  echo "[-] Nuked $(pwd)/opt"
+  rm -rf "$PREFIX"
+  echo "[-] Nuked $PREFIX"
   exit 0
 }
 
 checkout_repo () {
   # Skip if dir already exists
-  if [[ -d ./opt/git/"$1" ]]; then
-    echo "[~] Skipping $1 fetch as \"$(pwd)/opt/git/$1\" already exists"
+  if [[ -d "$PREFIX/git/$1" ]]; then
+    echo "[~] Skipping $1 fetch as \"$PREFIX/git/$1\" already exists"
   else
     echo "[+] Cloning $1 from $2"
-    git -c advice.detachedHead=false clone "$2" "./opt/git/$1" --branch "$3" --depth=1
+    git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" --branch "$3" --depth=1
     echo
   fi
 
   # Skip if tag already correct
-  if [[ "$(git -C ./opt/git/"$1" describe --tags --abbrev=0)" == "$3" ]]; then
+  if [[ "$(git -C "$PREFIX/git/$1" describe --tags --abbrev=0)" == "$3" ]]; then
     return
   fi
 
   echo "[~] Checking out $1 $3"
   (
-    cd ./opt/git/"$1"
+    cd "$PREFIX/git/$1"
     git fetch origin "$3" --tags --depth=1
     git -c advice.detachedHead=false checkout "$3"
   )
@@ -100,14 +103,13 @@ checkout_repo () {
 fetch () {
   git submodule update --init
 
-  mkdir -pv ./opt/git
+  mkdir -pv "$PREFIX/git"
 
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.6"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.9.4"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo zlib      https://github.com/madler/zlib            "v1.3.1"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
     checkout_repo luajit    https://github.com/LuaJIT/LuaJIT          "v2.0.5"
@@ -272,41 +274,24 @@ check () {
   fi
 }
 
-install_zlib () {
-  cd ./opt/git/zlib
-
-  echo "[+] Configuring zlib"
-  ./configure \
-    --prefix="$PREFIX"
-  echo "[+] Configured zlib"
-
-  echo "[+] Building zlib"
-  "${MAKE[@]}" libz.a
-  echo "[+] Successfully built zlib"
-
-  echo "[+] Installing zlib to $PREFIX"
-  make install -j
-  echo "[+] Successfully installed zlib"
-}
-
 install_zstd () {
-  cd ./opt/git/zstd/lib
+  cd "$PREFIX/git/zstd/lib"
 
   echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC" install-pc install-static install-includes
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC $EXTRA_CPPFLAGS" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
 }
 
 install_lz4 () {
-  cd ./opt/git/lz4/lib
+  cd "$PREFIX/git/lz4/lib"
 
   echo "[+] Installing lz4 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC" install
+  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC $EXTRA_CPPFLAGS" install
   echo "[+] Successfully installed lz4"
 }
 
 install_secp256k1 () {
-  cd ./opt/git/secp256k1
+  cd "$PREFIX/git/secp256k1"
 
   echo "[+] Configuring secp256k1"
   rm -rf build
@@ -327,7 +312,8 @@ install_secp256k1 () {
     -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
     -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
     -DCMAKE_C_FLAGS_RELEASE="-O3" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_C_FLAGS="$EXTRA_CPPFLAGS"
 
   echo "[+] Building secp256k1"
   "${MAKE[@]}"
@@ -339,7 +325,7 @@ install_secp256k1 () {
 }
 
 install_openssl () {
-  cd ./opt/git/openssl
+  cd "$PREFIX/git/openssl"
 
   echo "[+] Configuring OpenSSL"
   ./config \
@@ -417,7 +403,7 @@ install_openssl () {
 }
 
 install_rocksdb () {
-  cd ./opt/git/rocksdb
+  cd "$PREFIX/git/rocksdb"
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
@@ -427,7 +413,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread" \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread $EXTRA_CPPFLAGS" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
@@ -436,7 +422,7 @@ install_rocksdb () {
 }
 
 install_snappy () {
-  cd ./opt/git/snappy
+  cd "$PREFIX/git/snappy"
 
   echo "[+] Configuring snappy"
   mkdir -p build
@@ -449,7 +435,8 @@ install_snappy () {
     -DBUILD_SHARED_LIBS=OFF \
     -DSNAPPY_BUILD_TESTS=OFF \
     -DSNAPPY_BUILD_BENCHMARKS=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_CXX_FLAGS="$EXTRA_CPPFLAGS"
   echo "[+] Configured snappy"
 
   echo "[+] Building snappy"
@@ -462,43 +449,36 @@ install_snappy () {
 }
 
 install () {
-  _CC="${CC:=gcc}"
   CC="$(command -v $_CC)"
   cc="$CC"
   export CC
   export cc
 
-  _CXX="${CXX:=g++}"
   CXX="$(command -v $_CXX)"
   cxx="$CXX"
   export CXX
   export cxx
 
-  mkdir -p ./opt/{include,lib}
+  mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
   ( install_zstd      )
   ( install_lz4       )
   ( install_secp256k1 )
   #( install_openssl   )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_zlib      )
     ( install_snappy    )
     ( install_rocksdb   )
   fi
 
-  # Remove cmake and pkgconfig files, so we don't accidentally
-  # depend on them.
-  rm -rf ./opt/lib/cmake ./opt/lib/pkgconfig ./opt/lib64/pkgconfig
-
   # Merge lib64 with lib
-  if [[ -d ./opt/lib64 ]]; then
-    find ./opt/lib64/ -mindepth 1 -exec mv -t ./opt/lib/ {} +
-    rm -rf ./opt/lib64
+  if [[ -d "$PREFIX/lib64" ]]; then
+    find "$PREFIX/lib64/" -mindepth 1 -exec mv -t "$PREFIX/lib/" {} +
+    rm -rf "$PREFIX/lib64"
   fi
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.
-  rm -rf ./opt/lib/cmake ./opt/lib/pkgconfig
+  rm -rf "$PREFIX/lib/cmake" "$PREFIX/lib/pkgconfig"
 
   echo "[~] Done!"
 }
@@ -508,6 +488,14 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -h|--help|help)
       help
+      ;;
+    "+msan")
+      shift
+      MSAN=1
+      PREFIX="$(pwd)/opt-msan"
+      _CC=clang
+      _CXX=clang++
+      EXTRA_CPPFLAGS="-fsanitize=memory -fno-omit-frame-pointer"
       ;;
     "+dev")
       shift
@@ -541,7 +529,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $ACTION == 0 ]]; then
-  echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
+  echo "[~] This will fetch, build, and install Firedancer's dependencies into $PREFIX"
   echo "[~] For help, run: $0 help"
   echo
   echo "[~] Running $0 fetch check install"
