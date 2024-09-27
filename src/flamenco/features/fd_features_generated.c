@@ -478,7 +478,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x68\x0b\x04\x8f\x62\x8e\xa5\x3c\x7f\xfa\x04\x93\xa4\xd2\x90\xa0\xba\xc9\xbe\xa5\x4a\x03\xa8\x63\x01\xd7\xea\x4f\xa7\x0c\x9e\xdc"},
                   /* 8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b */
     .name       = "error_on_syscall_bpf_function_hash_collisions",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 11} },
 
   { .index      = offsetof(fd_features_t, reject_callx_r10)>>3,
     .id         = {"\x23\x2d\x66\x6d\x5c\x7d\x78\x7e\xf9\x05\x90\x7b\x5c\x5b\xfe\x99\xd2\x8a\x96\xc4\x37\xaa\x40\x2a\x06\x26\x72\x4e\xdd\x3c\x7a\x10"},
