@@ -1,7 +1,7 @@
-ifneq (,$(wildcard opt/lib/libzstd.a))
+ifneq (,$(wildcard $(OPT)/lib/libzstd.a))
 FD_HAS_ZSTD:=1
 CFLAGS+=-DFD_HAS_ZSTD=1
-LDFLAGS+=opt/lib/libzstd.a
+LDFLAGS+=$(OPT)/lib/libzstd.a
 else
 $(warning "zstd not installed, skipping")
 endif
