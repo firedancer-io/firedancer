@@ -92,39 +92,39 @@ test_inclusion( ulong leaf_cnt ) {
   uchar * root = fd_bmtree_commit_fini( tree );
 
   fd_bmtree_node_t proof_root[1];
-  fd_bmtree_node_t root2[1];
 
   ulong depth = fd_bmtree_depth( leaf_cnt );
   for( ulong i=0UL; i<leaf_cnt; i++ ) {
-    FD_STORE( ulong, leaf->hash, i );
+    fd_bmtree_node_t root2[1];
+    FD_STORE(ulong, leaf->hash, i);
     FD_TEST( (int)depth-1==fd_bmtree_get_proof( tree, inc_proof, i ) );
     FD_TEST( proof_root==fd_bmtree_from_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
-    FD_TEST( fd_memeq( root, proof_root, 32UL ) );
+    FD_TEST( fd_memeq( root, proof_root, 20UL ) );
     FD_TEST( fd_bmtree_commitp_insert_with_proof( ptree, i, leaf, inc_proof, depth-1, root2 ) );
-    FD_TEST( fd_memeq( root, root2, 32UL ) );
+    FD_TEST( fd_memeq( root, root2, 20UL ) );
 
     if( FD_LIKELY( leaf_cnt>1UL ) ) {
       inc_proof[ 1 ]++; /* Corrupt the proof */
       FD_TEST( proof_root==fd_bmtree_from_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
-      FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
+      FD_TEST( !fd_memeq( root, proof_root, 20UL ) );
       FD_TEST( !fd_bmtree_commitp_insert_with_proof( ptree, i, leaf, inc_proof, depth-1, NULL ) );
       inc_proof[ 1 ]--;
     } /* Otherwise the proof is empty, so there's nothing to corrupt */
 
     root[ 1 ]++; /* Corrupt the root */
     FD_TEST( proof_root==fd_bmtree_from_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
-    FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
+    FD_TEST( !fd_memeq( root, proof_root, 20UL ) );
     root[ 1 ]--;
 
     leaf->hash[ 1 ]++; /* Corrupt the leaf */
     FD_TEST( proof_root==fd_bmtree_from_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
-    FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
+    FD_TEST( !fd_memeq( root, proof_root, 20UL ) );
     FD_TEST( !fd_bmtree_commitp_insert_with_proof( ptree, i, leaf, inc_proof, depth-1, NULL ) );
     leaf->hash[ 1 ]--;
   }
   uchar * root3 = fd_bmtree_commitp_fini( ptree, leaf_cnt );
   FD_TEST( root3 );
-  FD_TEST( fd_memeq( root, root3, 32UL ) );
+  FD_TEST( fd_memeq( root, root3, 20UL ) );
   FD_TEST( !fd_bmtree_from_proof( leaf, 1234567UL, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
 
 }
