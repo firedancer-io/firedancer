@@ -2,7 +2,7 @@
 #define HEADER_fd_src_util_wksp_fd_wksp_h
 
 #include "../pod/fd_pod.h"
-#include "../shmem/fd_shmem.h"
+#include "../tpool/fd_tpool.h"
 #include "../checkpt/fd_checkpt.h"
 #include "../sanitize/fd_sanitize.h"
 
@@ -142,14 +142,25 @@
 /* FD_WKSP_CHECKPT_STYLE_* specifies the streaming format to use for
    a workspace checkpoint.  These are non-zero.
 
-     RAW - the stream will have extensively workspace metadata followed
-           by the used workspace partitions.  No compression or
-           hashing is done of the workspace partitions.
+     V1 - the stream will have extensive workspace metadata followed by
+          the used workspace partitions.  No compression or hashing is
+          done of the workspace partitions.
 
-     DEFAULT - the style to use when not specified by user. */
+     V2 - similar to V1 in functionality but will be written such that
+          checkpt and restore are parallelizable.
 
-#define FD_WKSP_CHECKPT_STYLE_RAW     (1)
-#define FD_WKSP_CHECKPT_STYLE_DEFAULT FD_WKSP_CHECKPT_STYLE_RAW
+     V3 - This is actually V2 but compressed frames will be enabled.
+
+     DEFAULT - the style to use when not specified by user.  0 indicates
+     to use V3 if the target supports it and V2 if not. */
+
+#define FD_WKSP_CHECKPT_STYLE_V1      (1)
+#define FD_WKSP_CHECKPT_STYLE_V2      (2)
+#define FD_WKSP_CHECKPT_STYLE_V3      (3)
+
+#define FD_WKSP_CHECKPT_STYLE_DEFAULT (0)
+
+#define FD_WKSP_CHECKPT_STYLE_RAW     FD_WKSP_CHECKPT_STYLE_V1 /* backward compat */
 
 /* A fd_wksp_t * is an opaque handle of a workspace */
 
@@ -965,32 +976,49 @@ fd_wksp_pod_unmap( void * obj );
 
 /* io APIs ************************************************************/
 
-/* fd_wksp_checkpt will write the wksp's state to a file.  The file
-   will be located at path with UNIX style permissions given by mode.
-   style specifies the checkpt style and should be a
-   FD_WKSP_CHECKPT_STYLE_* value or 0 (0 indicates to use
-   FD_WKSP_CHECKPT_STYLE_DEFAULT).  uinfo points to a cstr with optional
-   additional user context (NULL will be treated as the empty string ""
-   ... if the strlen is longer than 16384 bytes, the info will be
-   truncated to a strlen of 16383).
+/* fd_wksp_checkpt_tpool will write the wksp's state to a file using
+   tpool threads [t0,t1).  Assumes the caller is thread t0 and threads
+   (t0,t1) are available.  The file will be located at path with UNIX
+   style permissions given by mode.  style specifies the checkpt style
+   and should be a FD_WKSP_CHECKPT_STYLE_* value or 0 (0 indicates to
+   use FD_WKSP_CHECKPT_STYLE_DEFAULT).  uinfo points to a cstr with
+   optional additional user context (NULL will be treated as the empty
+   string "" ... if the strlen is longer than 16384 bytes, the info will
+   be truncated to a strlen of 16383).
 
    Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
    (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
    path, bad mode, unsupported style), CORRUPT (wksp memory corruption
    detected), FAIL (fail already exists, I/O error).  On failure, this
    will make a best effort to clean up after any partially written
-   checkpt file. */
+   checkpt file.
+
+   fd_wksp_checkpt is a convenience wrapper for serial checkpts. */
 
 int
+fd_wksp_checkpt_tpool( fd_tpool_t * tpool,
+                       ulong        t0,
+                       ulong        t1,
+                       fd_wksp_t *  wksp,
+                       char const * path,
+                       ulong        mode,
+                       int          style,
+                       char const * uinfo );
+
+static inline int
 fd_wksp_checkpt( fd_wksp_t *  wksp,
                  char const * path,
                  ulong        mode,
                  int          style,
-                 char const * uinfo );
+                 char const * uinfo ) {
+  return fd_wksp_checkpt_tpool( NULL, 0UL, 1UL, wksp, path, mode, style, uinfo );
+}
 
-/* fd_wksp_restore will replace all allocations in the current workspace
-   with the allocations from the checkpt at path.  The restored
-   workspace will use the given seed.
+/* fd_wksp_restore_tpool will replace all allocations in the current
+   workspace with the allocations from the checkpt at path.  The
+   restored workspace will use the given seed.  Tpool threads [t0,t1)
+   will be used for the restore.  Assumes the caller is thread t0 and
+   threads (t0,t1) are available.
 
    IMPORTANT!  It is okay for wksp to have a different size, backing
    page sz and/or numa affinity than the original wksp.  The only
@@ -998,7 +1026,9 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
    are in the checkpt and that these partitions can be restored to their
    original positions in wksp's global address space.  If wksp has
    part_max in checkpt's [alloc_cnt,part_max] and a data_max>=checkpt's
-   data_max, this is guaranteed.
+   data_max, this is guaranteed.  Likewise, the number and range of
+   threads used on restore does _not_ need to match the range used on
+   checkpt.
 
    Returns FD_WKSP_SUCCESS (0) on success or a FD_WKSP_ERR_* on failure
    (logs details).  Reasons for failure include INVAL (NULL wksp, NULL
@@ -1008,20 +1038,68 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
    untouched.  For the CORRUPT case, original workspace allocations were
    removed because the checkpt issues were detected after the restore
    process began (a best effort to reset wksp to the empty state was
-   done before return). */
+   done before return).
+
+   fd_wksp_restore is a convenience wrapper for serial restores. */
 
 int
+fd_wksp_restore_tpool( fd_tpool_t * tpool,
+                       ulong        t0,
+                       ulong        t1,
+                       fd_wksp_t *  wksp,
+                       char const * path,
+                       uint         seed );
+
+static inline int
 fd_wksp_restore( fd_wksp_t *  wksp,
                  char const * path,
-                 uint         seed );
+                 uint         seed ) {
+  return fd_wksp_restore_tpool( NULL, 0UL, 1UL, wksp, path, seed );
+}
 
-/* fd_wksp_restore_preview extracts key parameters from a checkpoint
-   file. These can be used with fd_funk_new for a correct restore. */
+/* fd_wksp_preview previews the wksp checkpt at path.  On success,
+   returns FD_WKSP_SUCCESS (0), path seems to contain a supported wksp
+   checkpt and, if opt_preview was non-NULL, *opt_preview will contain,
+   at a minimum, the info needed to create a new wksp with the same
+   parameters as the wksp at path.  On failure, returns a FD_WKSP_ERR
+   (negative, silent) and *_opt_preview is unchanged.  Returns for
+   failure include INVAL (NULL path), FAIL (unable to read checkpt
+   header at path), CORRUPT (the leading bytes at path don't appear to
+   be a wksp checkpt). */
+
+struct fd_wksp_preview {
+  int   style;
+  uint  seed;
+  ulong part_max;
+  ulong data_max;
+  char  name[ FD_SHMEM_NAME_MAX ]; /* cstr holding the original wksp name */
+};
+
+typedef struct fd_wksp_preview fd_wksp_preview_t;
+
 int
-fd_wksp_restore_preview( char const * path,
-                         uint *       out_seed,
-                         ulong *      out_part_max,
-                         ulong *      out_data_max );
+fd_wksp_preview( char const *        path,
+                 fd_wksp_preview_t * _opt_preview );
+
+/* fd_wksp_printf pretty prints to fd (e.g. fileno(stdout)) information
+   about the wksp checkpt at path.  verbose specifies the verbosity
+   level.  Typical verbose levels are:
+
+     <0 - do not print
+      0 - preview info
+      1 - verbose 0 + metadata
+      2 - verbose 1 + build and user info
+      3 - verbose 2 + partition summary info
+      4 - verbose 3 + individual allocated partition metdata
+     >4 - verbose 4 + hex dumps of allocated partition data
+
+   but this can vary for different checkpt styles.  The return value has
+   the same interpretation as printf. */
+
+int
+fd_wksp_printf( int          fd,
+                char const * path,
+                int          verbose );
 
 /* fd_wksp_mprotect marks all the memory in a workspace as read-only
    (flag==1) or read-write (flag==0). Accessing read-only memory produces

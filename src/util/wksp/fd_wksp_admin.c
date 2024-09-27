@@ -211,7 +211,7 @@ fd_wksp_new( void *       shmem,
   void * wksp_data = (void*)((ulong)wksp + fd_wksp_private_pinfo_off());
   fd_asan_poison( wksp_data, footprint - fd_wksp_private_pinfo_off() );
   fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
-  for( ulong i=0; i<part_max; i++ ) { 
+  for( ulong i=0; i<part_max; i++ ) {
     fd_asan_unpoison( &pinfo[ i ], FD_WKSP_PRIVATE_PINFO_FOOTPRINT );
   }
   #endif

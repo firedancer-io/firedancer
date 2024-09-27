@@ -97,7 +97,7 @@ main( int     argc,
   FD_TEST(  fd_wksp_leave( wksp )==shwksp );
 
   /* Test delete */
-  
+
   FD_TEST( !fd_wksp_delete( NULL        )     );
   FD_TEST( !fd_wksp_delete( scratch+1UL )     );
   FD_TEST(  fd_wksp_delete( shwksp )==scratch );
@@ -118,4 +118,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
