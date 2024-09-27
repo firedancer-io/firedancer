@@ -1,4 +1,5 @@
 #include "fd_executor.h"
+
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
@@ -27,6 +28,8 @@
 #include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/pack/fd_pack_cost.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+
+#include "../harness/fd_harness.h"
 
 #define SORT_NAME        sort_uint64_t
 #define SORT_KEY_T       uint64_t
@@ -917,6 +920,7 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
+
     ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? FD_MAX_INSTRUCTION_TRACE_LENGTH : ULONG_MAX;
     if( txn_ctx->num_instructions >= max_num_instructions ) {
       return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
@@ -938,6 +942,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
 
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz++ ];
+
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
@@ -959,8 +964,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     };
 
     // defense in depth
-    if( instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt ) {
-      FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
+    if( instr->program_id >= txn_ctx->accounts_cnt ) {
+      FD_LOG_WARNING(( "Invalid program id, runtime bug program_id=%lu acc_cnt=%lu", instr->program_id, txn_ctx->accounts_cnt ));
       int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       txn_ctx->instr_stack_sz--;
 
@@ -970,6 +975,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
     fd_pubkey_t const * program_id     = &txn_accs[ instr->program_id ];
+    FD_LOG_NOTICE(("program id %32J", program_id));
 
     /* TODO: this is a hack because the programs should've been verified already
        if we reach this point that means the transaction was succesful. */
@@ -1713,6 +1719,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         dump_instr_to_protobuf(txn_ctx, &txn_ctx->instr_infos[i], i);
       }
 
+      if( false ) {
+        FD_LOG_NOTICE(("TRYING TO DUMP"));
+        fd_harness_dump_instr( txn_ctx, &txn_ctx->instr_infos[i], i );
+      }
 
       int exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG

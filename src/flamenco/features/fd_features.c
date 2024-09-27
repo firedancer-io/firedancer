@@ -46,3 +46,15 @@ fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint on
     }
   }
 }
+
+void
+fd_features_enable_decoded_one_off( fd_features_t * f, fd_pubkey_t * pubkey, ulong slot ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+        !fd_feature_iter_done( id );
+        id = fd_feature_iter_next( id ) ) {
+    if( !memcmp( &id->id, pubkey, sizeof(fd_pubkey_t) ) ) {
+      fd_features_set( f, id, slot );
+      break;
+    }
+  }
+}

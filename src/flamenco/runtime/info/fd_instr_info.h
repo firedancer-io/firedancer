@@ -4,6 +4,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
 #include "../fd_borrowed_account.h"
+#include "../context/fd_capture_ctx.h"
 
 // TODO: rename to _MASK
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)

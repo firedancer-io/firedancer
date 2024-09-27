@@ -261,16 +261,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->txn_ctx    = txn_ctx;
   txn_ctx->valloc = slot_ctx->valloc;
 
-  /* Initial variables */
-  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
-
-  /* Set up epoch context */
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  epoch_bank->rent.lamports_per_uint8_year = 3480;
-  epoch_bank->rent.exemption_threshold = 2;
-  epoch_bank->rent.burn_percent = 50;
-
   /* Create account manager */
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
@@ -292,40 +282,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* TODO: Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
-
-  txn_ctx->epoch_ctx               = epoch_ctx;
-  txn_ctx->slot_ctx                = slot_ctx;
-  txn_ctx->funk_txn                = funk_txn;
-  txn_ctx->acc_mgr                 = acc_mgr;
-  txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
-  txn_ctx->compute_unit_price      = 0;
-  txn_ctx->compute_meter           = test_ctx->cu_avail;
-  txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
-  txn_ctx->custom_err              = UINT_MAX;
-  txn_ctx->instr_stack_sz          = 0;
-  txn_ctx->executable_cnt          = 0;
-  txn_ctx->paid_fees               = 0;
-  txn_ctx->num_instructions        = 0;
-  txn_ctx->dirty_vote_acc          = 0;
-  txn_ctx->dirty_stake_acc         = 0;
-  txn_ctx->failed_instr            = NULL;
-  txn_ctx->instr_err_idx           = INT_MAX;
-  txn_ctx->capture_ctx             = NULL;
-  txn_ctx->vote_accounts_pool      = NULL;
-  txn_ctx->accounts_resize_delta   = 0;
-  txn_ctx->instr_info_cnt          = 0;
-  txn_ctx->instr_trace_length      = 0;
-
-  memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
-  memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  txn_ctx->return_data.len         = 0;
-
+  fd_exec_txn_ctx_setup( txn_ctx, NULL, NULL );
+  txn_ctx->epoch_ctx           = epoch_ctx;
+  txn_ctx->slot_ctx            = slot_ctx;
+  txn_ctx->funk_txn            = funk_txn;
+  txn_ctx->acc_mgr             = acc_mgr;
+  txn_ctx->compute_unit_limit  = test_ctx->cu_avail;
+  txn_ctx->compute_meter       = test_ctx->cu_avail;
 
   /* Set up instruction context */
 
@@ -342,32 +307,12 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
-  if( FD_UNLIKELY( test_ctx->accounts_count > 128 ) ) {
-    /* TODO remove this hardcoded constant */
-    REPORT( NOTICE, "too many accounts" );
-    return 0;
-  }
-
   fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
   for ( uint i = 0; i < test_ctx->accounts_count; i++ ) {
     memcpy( &(txn_ctx->accounts[i]), test_ctx->accounts[i].address, sizeof(fd_pubkey_t) );
   }
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(1, 0) );
-  fd_memset(txn_descriptor, 0, fd_txn_footprint(1, 0) );
-  txn_descriptor->acct_addr_cnt = (ushort) test_ctx->accounts_count;
-  txn_descriptor->addr_table_adtl_cnt = 0;
-  txn_ctx->txn_descriptor = txn_descriptor;
-
-  /* Precompiles are allowed to read data from all instructions.
-     We need to at least set pointers to the current instruction.
-     Note: for simplicity we point the entire raw tx data to the
-     instruction data, this is probably something we can improve. */
-  txn_descriptor->instr_cnt = 1;
-  txn_ctx->_txn_raw->raw = info->data;
-  txn_descriptor->instr[0].data_off = 0;
-  txn_descriptor->instr[0].data_sz = info->data_sz;
 
   /* Load accounts into database */
 
@@ -376,52 +321,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
       return 0;
   }
-
-  /* Load in executable accounts */
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    if ( memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
-    ) {
-      continue;
-    }
-
-    fd_account_meta_t const * meta = borrowed_accts[i].const_meta ? borrowed_accts[i].const_meta : borrowed_accts[i].meta;
-    if (meta == NULL) {
-      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
-      borrowed_accts[i].const_meta        = &sentinel;
-      borrowed_accts[i].starting_lamports = 0UL;
-      borrowed_accts[i].starting_dlen     = 0UL;
-      continue;
-    }
-
-    if( meta->info.executable ) {
-      FD_BORROWED_ACCOUNT_DECL(owner_borrowed_account);
-      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
-      if( FD_UNLIKELY( err ) ) {
-        borrowed_accts[i].starting_owner_dlen = 0;
-      } else {
-        borrowed_accts[i].starting_owner_dlen = owner_borrowed_account->const_meta->dlen;
-      }
-    }
-
-    if ( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
-      fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
-      int err = 0;
-      if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
-        continue;
-      }
-
-      fd_pubkey_t * programdata_acc = &program_loader_state.inner.program.programdata_address;
-      fd_borrowed_account_t * executable_account = fd_borrowed_account_init( &txn_ctx->executable_accounts[txn_ctx->executable_cnt] );
-      fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
-      txn_ctx->executable_cnt++;
-    }
-  }
-
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
@@ -470,9 +369,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
   }
 
-  /* Set slot bank variables */
-  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache )->slot;
-
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
@@ -486,10 +382,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       return 0;
 
     /* Override epoch bank settings */
-    epoch_bank->rent = *rent;
+
+    epoch_ctx->epoch_bank.rent = *rent;
   }
 
   /* Override most recent blockhash if given */
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
+  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
@@ -501,12 +402,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Load instruction accounts */
-
-  if( FD_UNLIKELY( test_ctx->instr_accounts_count > 128 ) ) {
-    /* TODO remove this hardcoded constant */
-    REPORT( NOTICE, "too many instruction accounts" );
-    return 0;
-  }
 
   uchar acc_idx_seen[256] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
@@ -538,9 +433,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
-
-  //  FIXME: Specifically for CPI syscalls, flag guard this?
-  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* This function is used to create context both for instructions and for syscalls,
      however some of the remaining checks are only relevant for program instructions. */

@@ -3,7 +3,10 @@
 
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../funk/fd_funk_base.h"
+#include "../tests/generated/exec_v2.pb.h"
 
+/* TODO: this has been considerably bloated and can likely be split out into 
+   multiple different structs */
 /* Context needed to do solcap capture during execution of transactions */
 #define FD_CAPTURE_CTX_ALIGN (8UL)
 struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
