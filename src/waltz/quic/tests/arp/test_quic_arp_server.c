@@ -16,21 +16,15 @@ extern ulong pkt_full_sz;
 int done = 0;
 
 void
-my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)stream;
-  (void)ctx;
-  (void)type;
-}
-
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
+my_stream_receive_cb(
+    void *             cb_ctx    FD_FN_UNUSED,
+    fd_quic_conn_t *   conn      FD_FN_UNUSED,
+    ulong              stream_id FD_FN_UNUSED,
+    uchar const *      data      FD_FN_UNUSED,
+    ulong              data_sz,
+    ulong              offset    FD_FN_UNUSED,
+    int                fin       FD_FN_UNUSED
+) {
   (void)fin;
 
   FD_LOG_NOTICE(( "SERVER received data from peer. size: %lu offset: %lu\n",
@@ -39,17 +33,6 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
 
   char EXPECTED[] = "request";
   FD_TEST( data_sz >= strlen( EXPECTED ) && strcmp( (char*)data, EXPECTED ) == 0 );
-
-  /* send back "received" */
-  int               send_fin = 0UL; /* do not close stream */
-  char              reply[]  = "received";
-  fd_aio_pkt_info_t batch[1] = {{ .buf = reply, .buf_sz = sizeof( reply ) }};
-  ulong             batch_sz = 1UL;
-
-  int rc = fd_quic_stream_send( stream, batch, batch_sz, send_fin );
-  if( rc != 1 ) {
-    FD_LOG_WARNING(( "SERVER fd_quic_stream_send failed. rc: %d", rc ));
-  }
 
   done = 1;
 }
@@ -123,15 +106,11 @@ main( int argc, char ** argv ) {
   fd_quic_limits_from_env( &argc, &argv, &quic_limits);
 #else
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt           = 10,
-    .conn_id_cnt        = 10,
-    .conn_id_sparsity   = 4.0,
-    .handshake_cnt      = 10,
-    .stream_cnt         = { 2, 2, 2, 2 },
-    .initial_stream_cnt = { 2, 2, 2, 2 },
-    .stream_pool_cnt    = 100,
-    .inflight_pkt_cnt   = 1024,
-    .tx_buf_sz          = 1<<14,
+    .conn_cnt         = 10,
+    .conn_id_cnt      = 10,
+    .handshake_cnt    = 10,
+    .tx_stream_cnt    = 100,
+    .inflight_pkt_cnt = 1024,
   };
 #endif
 
@@ -144,13 +123,10 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;
-  server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
-
-  server_quic->config.initial_rx_max_stream_data = 1<<14;
 
   fd_quic_udpsock_t _udpsock[1];
   fd_quic_udpsock_t * udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, fd_quic_get_aio_net_rx( server_quic ) );

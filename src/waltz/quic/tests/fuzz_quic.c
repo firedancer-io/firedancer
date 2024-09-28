@@ -157,15 +157,13 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   int shmem_err = fd_shmem_join_anonymous( "wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, mem, 4096UL, wksp_sz/4096UL );
   assert( !shmem_err );
 
-  fd_quic_limits_t const quic_limits = {.conn_cnt = 10,
-                                        .conn_id_cnt = 10,
-                                        .conn_id_sparsity = 4.0,
-                                        .handshake_cnt = 10,
-                                        .stream_cnt = {0, 0, 10, 0},
-                                        .initial_stream_cnt = {0, 0, 10, 0 },
-                                        .stream_pool_cnt = 640,
-                                        .inflight_pkt_cnt = 1024,
-                                        .tx_buf_sz = 1 << 14};
+  fd_quic_limits_t const quic_limits = {
+    .conn_cnt         = 10,
+    .conn_id_cnt      = 10,
+    .handshake_cnt    = 10,
+    .tx_stream_cnt    = 640,
+    .inflight_pkt_cnt = 1024,
+  };
 
   ulong quic_footprint = fd_quic_footprint(&quic_limits);
   assert( quic_footprint );
@@ -182,7 +180,6 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   server_quic->cb.now = test_clock;
   server_quic->cb.now_ctx = NULL;
 
-  server_quic->config.initial_rx_max_stream_data = 1 << 14;
   // server_quic->config.retry = 1;
 
   return 0;

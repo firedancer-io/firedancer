@@ -32,8 +32,7 @@ fd_quic_t *         client_quic = NULL;
 fd_quic_udpsock_t * udpsock     = NULL;
 
 /* client connection and stream */
-fd_quic_conn_t *   client_conn   = NULL;
-fd_quic_stream_t * client_stream = NULL;
+fd_quic_conn_t * client_conn = NULL;
 
 /* fibres */
 fd_fibre_t * service_fibre = NULL;
@@ -98,23 +97,16 @@ send_fibre_main( void * vp_args ) {
       FD_LOG_NOTICE(( "CLIENT Connected" ));
     }
 
-    if( !client_stream ) {
-      client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
-      FD_TEST( client_stream );
+    /* attempt to send to server */
+    static char const request[] = "request";
+
+    int rc = fd_quic_stream_uni_send( client_conn, request, sizeof(request) );
+    if( rc==FD_QUIC_SEND_ERR_QUOTA ) {
       fd_fibre_yield();
       continue;
     }
 
-    /* attempt to send to server */
-    int               fin       = 0;
-    char              request[] = "request";
-    fd_aio_pkt_info_t batch[1]  = {{ .buf = request, .buf_sz = sizeof( request ) }};
-    ulong             batch_sz  = 1UL;
-
-    int rc = fd_quic_stream_send( client_stream, batch, batch_sz, fin );
-
     FD_LOG_WARNING(( "CLIENT fd_quic_stream_send returned %d", rc ));
-
     FD_TEST( rc == 1 );
 
     ulong DURATION = (ulong)100e6;
@@ -144,22 +136,15 @@ send_fibre_main( void * vp_args ) {
 uchar fail = 0;
 
 void
-my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)stream;
-  (void)ctx;
-  (void)type;
-  client_stream = NULL;
-}
-
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
+my_stream_receive_cb(
+    void *             cb_ctx    FD_FN_UNUSED,
+    fd_quic_conn_t *   conn      FD_FN_UNUSED,
+    ulong              stream_id FD_FN_UNUSED,
+    uchar const *      data      FD_FN_UNUSED,
+    ulong              data_sz,
+    ulong              offset    FD_FN_UNUSED,
+    int                fin       FD_FN_UNUSED
+) {
   (void)fin;
 
   /* We received data on a stream. Verify */
@@ -241,15 +226,11 @@ main( int argc, char ** argv ) {
   fd_quic_limits_from_env( &argc, &argv, &quic_limits);
 #else
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt           = 10,
-    .conn_id_cnt        = 10,
-    .conn_id_sparsity   = 4.0,
-    .handshake_cnt      = 10,
-    .stream_cnt         = { 2, 2, 2, 2 },
-    .initial_stream_cnt = { 2, 2, 2, 2 },
-    .stream_pool_cnt    = 100,
-    .inflight_pkt_cnt   = 1024,
-    .tx_buf_sz          = 1<<14,
+    .conn_cnt         = 10,
+    .conn_id_cnt      = 10,
+    .handshake_cnt    = 10,
+    .tx_stream_cnt    = 100,
+    .inflight_pkt_cnt = 1024,
   };
 #endif
 
@@ -262,7 +243,6 @@ main( int argc, char ** argv ) {
 
   client_quic->cb.conn_new       = my_connection_new;
   client_quic->cb.stream_receive = my_stream_receive_cb;
-  client_quic->cb.stream_notify  = my_stream_notify_cb;
   client_quic->cb.conn_final     = my_cb_conn_final;
 
   client_quic->cb.now     = test_clock;
@@ -286,7 +266,6 @@ main( int argc, char ** argv ) {
   memcpy( client_config->link.src_mac_addr, udpsock->self_mac, 6UL );
   client_config->net.ip_addr                = udpsock->listen_ip;
   client_config->net.listen_udp_port        = udpsock->listen_port;
-  client_config->initial_rx_max_stream_data = 1<<14;
   client_config->net.ephem_udp_port.lo      = udpsock->listen_port;
   client_config->net.ephem_udp_port.hi      = udpsock->listen_port;
 

@@ -81,7 +81,9 @@
 
 /* TODO provide fd_quic on non-hosted targets */
 
+#include "fd_quic_common.h"
 #include "fd_quic_enum.h"
+#include "fd_quic_conn.h"
 
 #include "../aio/fd_aio.h"
 #include "../tls/fd_tls.h"
@@ -89,38 +91,18 @@
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
 #define FD_QUIC_API
 
-/* Forward declarations */
-
-struct fd_quic_conn;
-typedef struct fd_quic_conn fd_quic_conn_t;
-
-struct fd_quic_stream;
-typedef struct fd_quic_stream fd_quic_stream_t;
-
-struct fd_quic_state_private;
-typedef struct fd_quic_state_private fd_quic_state_t;
-
 /* fd_quic_limits_t defines the memory layout of an fd_quic_t object.
    Limits are immutable and valid for the lifetime of an fd_quic_t
    (i.e. outlasts joins, until fd_quic_delete) */
 
 struct __attribute__((aligned(16UL))) fd_quic_limits {
-  ulong  conn_cnt;              /* instance-wide, max concurrent conn count              */
-  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count         */
+  uint conn_cnt;         /* instance-wide, max concurrent conn count */
+  uint handshake_cnt;    /* instance-wide, max concurrent handshake count */
 
-  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
-  double conn_id_sparsity;      /* per-conn, conn ID hashmap sparsity                    */
+  uint conn_id_cnt;      /* per-conn, max conn ID count (min 4U) */
+  uint inflight_pkt_cnt; /* per-conn, max inflight packet count */
 
-  ulong  stream_cnt[4];         /* per-conn, max concurrent stream count                 */
-  ulong  initial_stream_cnt[4]; /* per-conn, initial target max concurrent stream count  */
-  double stream_sparsity;       /* per-conn, stream hashmap sparsity                     */
-
-  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
-
-  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                        */
-  /* the user consumes rx directly from the network buffer */
-
-  ulong  stream_pool_cnt;  /* instance-wide, number of streams in stream pool */
+  uint tx_stream_cnt;    /* instance-wide, number of streams in stream pool */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
@@ -141,12 +123,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
   int role;
 
-  /* service_interval: time interval in ns for background services
-     (sending ACKs).  Caller should introduce additional jitter in
-     event loop. */
-  /* TODO are there any other duties than ACKs? */
-  ulong service_interval;
-
   /* ping_interval: inactivity time in ns before sending a
      ping request to peer. */
   /* TODO unused for now */
@@ -156,8 +132,16 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      Also sent to peer via max_idle_timeout transport param */
   ulong idle_timeout;
 
-   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
   int retry;
+
+  /* ack_delay_mask: bit mask for ACK delays in nanoseconds. in 2^k-1
+     (A value of 0xfffffff means outgoing ACKs are delayed up to 268 ms) */
+  ulong ack_delay_mask;
+
+  /* ack_threshold: immediately send an ACK when the number of
+     unconfirmed stream bytes exceeds this value. */
+  ulong ack_threshold;
 
   /* TLS config ********************************************/
 
@@ -176,7 +160,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 # define FD_QUIC_SNI_LEN (255UL)
   char sni[ FD_QUIC_SNI_LEN+1UL ];
 
-  ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
+  ulong initial_rx_max_stream_cnt;  /* Number of streams the client can send immediately */
 
   /* Network config ****************************************/
 
@@ -208,7 +192,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
     uchar dscp;
   } net;
 };
-typedef struct fd_quic_config fd_quic_config_t;
 
 /* Callback API *******************************************************/
 
@@ -235,45 +218,27 @@ typedef void
 (* fd_quic_cb_conn_final_t)( fd_quic_conn_t * conn,
                              void *           quic_ctx );
 
-/* fd_quic_cb_stream_new_t is called when the peer creates a new stream.
-   Callback should set "context" within the supplied stream object but
-   may not change any other stream fields. quic_ctx is the user-provided
-   QUIC context.  Note that this differs from the stream context. */
-typedef void
-(* fd_quic_cb_stream_new_t)( fd_quic_stream_t * stream,
-                             void *             quic_ctx );
-
-/* fd_quic_cb_stream_notify_t signals a notable stream event.
-   stream_ctx object is the user-provided stream context set in the new
-   callback.
-
-   TODO will only one notify max be served?
-   TODO will stream be deallocated immediately after callback?
-
-   notify_type is in FD_QUIC_NOTIFY_{END,RESET,ABORT} */
-typedef void
-(* fd_quic_cb_stream_notify_t)( fd_quic_stream_t * stream,
-                                void *             stream_ctx,
-                                int                notify_type );
-
 /* fd_quic_cb_stream_receive_t is called when new data is received from
    stream.  Each buffer is received in a separate callback.
 
    args
-     stream_context   is user supplied stream context set in callback
-     stream_id        the quic stream id
+     cb_ctx           QUIC callback context
+     conn             connection that received this stream
+     stream_id
      data             the bytes received
      data_sz          the number of bytes received
      offset           the offset in the stream of the first byte in data
      fin              bool - true if the last byte of data is the last
                       byte on the receive side of the stream */
 typedef void
-(* fd_quic_cb_stream_receive_t)( fd_quic_stream_t * stream,
-                                 void *             stream_ctx,
-                                 uchar const *      data,
-                                 ulong              data_sz,
-                                 ulong              offset,
-                                 int                fin );
+(* fd_quic_cb_stream_receive_t)(
+    void *             cb_ctx,
+    fd_quic_conn_t *   conn,
+    ulong              stream_id,
+    uchar const *      data,
+    ulong              data_sz,
+    ulong              offset,
+    int                fin );
 
 /* fd_quic_cb_tls_keylog_t is called when a new encryption secret
    becomes available.  line is a cstr containing the secret in NSS key
@@ -295,9 +260,7 @@ struct fd_quic_callbacks {
   fd_quic_cb_conn_new_t                conn_new;          /* non-NULL, with quic_ctx   */
   fd_quic_cb_conn_handshake_complete_t conn_hs_complete;  /* non-NULL, with quic_ctx   */
   fd_quic_cb_conn_final_t              conn_final;        /* non-NULL, with quic_ctx   */
-  fd_quic_cb_stream_new_t              stream_new;        /* non-NULL, with stream_ctx */
-  fd_quic_cb_stream_notify_t           stream_notify;     /* non-NULL, with stream_ctx */
-  fd_quic_cb_stream_receive_t          stream_receive;    /* non-NULL, with stream_ctx */
+  fd_quic_cb_stream_receive_t          stream_receive;    /* non-NULL for servers, with stream_ctx */
   fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
 
   /* Clock source */
@@ -322,7 +285,7 @@ union fd_quic_metrics {
     ulong net_tx_byte_cnt; /* total bytes sent */
 
     /* Conn metrics */
-    ulong conn_active_cnt;        /* number of active conns */
+    ulong conn_active_cnt;         /* number of active conns */
     ulong conn_created_cnt;        /* number of conns created */
     ulong conn_closed_cnt;         /* number of conns gracefully closed */
     ulong conn_aborted_cnt;        /* number of conns aborted */
@@ -336,12 +299,12 @@ union fd_quic_metrics {
     ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
 
     /* Stream metrics */
-    ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
-    ulong stream_closed_cnt  [ 4 ]; /* number of streams closed (per type) */
+    ulong stream_opened_cnt;       /* number of streams opened */
+    ulong stream_closed_cnt;       /* number of streams closed */
        /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
-    ulong stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
-    ulong stream_rx_event_cnt;      /* number of stream RX events */
-    ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
+    ulong stream_active_cnt;       /* number of active streams */
+    ulong stream_rx_event_cnt;     /* number of stream RX events */
+    ulong stream_rx_byte_cnt;      /* total stream payload bytes received */
   };
 };
 typedef union fd_quic_metrics fd_quic_metrics_t;
@@ -365,15 +328,8 @@ struct fd_quic {
 
   /* ... private variable-length structures follow ... */
 };
-typedef struct fd_quic fd_quic_t;
 
 FD_PROTOTYPES_BEGIN
-
-/* debugging */
-
-ulong
-fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn );
-
 
 /* Object lifecycle ***************************************************/
 
@@ -535,84 +491,44 @@ fd_quic_get_next_wakeup( fd_quic_t * quic );
 FD_QUIC_API void
 fd_quic_service( fd_quic_t * quic );
 
-/* Stream Send API ****************************************************/
-
-/* fd_quic_conn_new_stream creates a new stream on the given conn.
-   type is one of FD_QUIC_TYPE_{UNI,BI}DIR.  On success, returns the
-   newly created stream.  On failure, returns NULL.  Reasons for failure
-   include invalid conn state or out of stream quota.
-
-   The user does not own the returned pointer: its lifetime is managed
-   by the connection. */
-
-FD_QUIC_API fd_quic_stream_t *
-fd_quic_conn_new_stream( fd_quic_conn_t * conn,
-                         int              type );
-
-/* fd_quic_stream_send sends a vector of buffers on a stream in order.
-
-   Use fd_quic_conn_new_stream to create a new stream for sending
-   or use the new stream callback to obtain a stream for replying.
-
-   args
-     stream         the stream to send on
-     batch          a pointer to an array of buffers
-     batch_sz       the size of the batch
-     fin            final: bool
-                      set to indicate the stream is finalized by the last byte
-                      in the batch
-                      If the last buffer in the batch was rejected, the FIN
-                        flag is not set, and may be applied in a future send
-                        or via the fd_quic_stream_fin(...) function
-
-   returns
-     >=0   number of buffers sent - remaining blocked
-      <0   one of FD_QUIC_SEND_ERR_{INVAL_STREAM,INVAL_CONN,AGAIN} */
-FD_QUIC_API int
-fd_quic_stream_send( fd_quic_stream_t *  stream,
-                     fd_aio_pkt_info_t * batch,
-                     ulong               batch_sz,
-                     int                 fin );
-
-/* fd_quic_stream_fin: finish sending on a stream.  Called to signal
-   no more data will be sent to self-to-peer flow of stream.  Peer may
-   continue sending data on their side of the stream.  Caller should
-   only call stream_fin once per stream, except when fin was already
-   indicated via stream_send. */
-
-FD_QUIC_API void
-fd_quic_stream_fin( fd_quic_stream_t * stream );
+/* fd_quic_process_packet consumes an Ethernet frame.  If it contains a
+   QUIC packet, handles it. */
 
 FD_QUIC_API void
 fd_quic_process_packet( fd_quic_t * quic,
                         uchar *     data,
                         ulong       data_sz );
 
-uint
-fd_quic_tx_buffered_raw( fd_quic_t * quic,
-                         uchar **    tx_ptr_ptr,
-                         uchar *     tx_buf,
-                         ulong       tx_buf_sz,
-                         ulong *     tx_sz,
-                         uchar const dst_mac_addr[ static 6 ],
-                         ushort *    ipv4_id,
-                         uint        dst_ipv4_addr,
-                         ushort      src_udp_port,
-                         ushort      dst_udp_port,
-                         int         flush );
+/* Stream Send API ****************************************************/
+
+/* fd_quic_stream_uni_send sends the given payload as a unidirectional
+   stream.
+
+   args
+     conn           connection to send on
+     data           points to stream data to send
+     data_sz        stream data size
+
+   returns
+       0   queued data for sending
+      <0   one of FD_QUIC_SEND_ERR_{INVAL_STREAM,INVAL_CONN,AGAIN} */
+
+FD_QUIC_API int
+fd_quic_stream_uni_send( fd_quic_conn_t * conn,
+                         void const *     data,
+                         ulong            data_sz );
 
 FD_PROTOTYPES_END
 
-/* Convenience exports for consumers of API */
-#include "fd_quic_conn.h"
-#include "fd_quic_stream.h"
-
 /* FD_DEBUG_MODE: set to enable debug-only code
    TODO move to util? */
-#ifdef FD_DEBUG_MODE
+#ifndef FD_DEBUG_MODE
 #define FD_DEBUG(...) __VA_ARGS__
 #else
 #define FD_DEBUG(...)
 #endif
+
+#define FD_ACK_DEBUG(...)
+//#define FD_ACK_DEBUG(...) __VA_ARGS__
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_h */

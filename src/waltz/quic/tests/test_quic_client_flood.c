@@ -4,42 +4,13 @@
 /* test_quic_client_flood sends a flood of QUIC INITIAL frames. */
 
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
-
-extern uchar pkt_full[];
-extern ulong pkt_full_sz;
-
-fd_quic_stream_t * cur_stream = NULL;
-
-void
-my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)ctx;
-  (void)type;
-  FD_LOG_DEBUG(( "notify_cb" ));
-  if( cur_stream == stream ) {
-    cur_stream = NULL;
-  }
-}
-
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
-
-  FD_LOG_DEBUG(( "received data from peer (size=%lu offset=%lu)", data_sz, offset ));
-  FD_LOG_HEXDUMP_DEBUG(( "stream data", data, data_sz ));
-}
 
 fd_quic_conn_t * client_conn = NULL;
 
@@ -90,14 +61,13 @@ run_quic_client(
 
     quic->cb.conn_hs_complete = my_handshake_complete;
     quic->cb.conn_final       = my_connection_closed;
-    quic->cb.stream_receive   = my_stream_receive_cb;
-    quic->cb.stream_notify    = my_stream_notify_cb;
     quic->cb.now              = test_clock;
     quic->cb.now_ctx          = NULL;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
     fd_quic_set_aio_net_tx( quic, udpsock->aio );
 
+    quic->config.identity_public_key[0] = 1;
     FD_TEST( fd_quic_init( quic ) );
 
     FD_LOG_NOTICE(( "Starting QUIC client" ));
@@ -177,8 +147,6 @@ run_quic_client(
   long  t0     = fd_log_wallclock();
   ulong msg_sz = MSG_SZ_MIN;
 
-  cur_stream = NULL;
-
   /* Continually send data while we have a valid connection */
   while(1) {
     if ( !client_conn ) {
@@ -190,41 +158,28 @@ run_quic_client(
 
     /* obtain a free stream */
     for( ulong j = 0; j < batch_sz; ++j ) {
+      fd_aio_pkt_info_t const * pkt_info = batches[msg_sz - MSG_SZ_MIN];
+      int rc = fd_quic_stream_uni_send( client_conn, pkt_info->buf, pkt_info->buf_sz );
+      FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
 
-      if( cur_stream ) {
-        int rc = fd_quic_stream_send( cur_stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-        FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
-
-        if( rc == 1 ) {
-          sent++;
-          /* successful - stream will begin closing */
-          /* stream and meta will be recycled when quic notifies the stream
-             is closed via my_stream_notify_cb */
-
-          msg_sz++;
-          if ( msg_sz == MSG_SZ_MAX ) {
-            msg_sz = MSG_SZ_MIN;
-          }
-          cur_stream = NULL;
-        } else {
-          /* did not send, did not start finalize, so stream is still available */
-          break;
+      if( rc == 1 ) {
+        sent++;
+        /* successful - stream will begin closing */
+        /* stream and meta will be recycled when quic notifies the stream
+            is closed via my_stream_notify_cb */
+        msg_sz++;
+        if ( msg_sz == MSG_SZ_MAX ) {
+          msg_sz = MSG_SZ_MIN;
         }
       } else {
-        if( client_conn ) {
-          cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
-        }
+        /* did not send, did not start finalize, so stream is still available */
         break;
-      }
-
-      if( client_conn && !cur_stream ) {
-        cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
       }
     }
 
     long t1 = fd_log_wallclock();
     if( t1 >= t0 ) {
-      printf( "streams: %lu  cur_stream: %p\n", sent, (void*)cur_stream ); fflush( stdout );
+      FD_LOG_NOTICE(( "streams: %lu", sent ));
       sent = 0;
       t0 = t1 + (long)1e9;
     }
@@ -278,7 +233,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_limits_t quic_limits = {0};
   fd_quic_limits_from_env( &argc, &argv, &quic_limits );
-  quic_limits.conn_id_sparsity = 4.0;
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );

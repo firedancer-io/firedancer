@@ -10,12 +10,10 @@
 
 FD_IMPORT_BINARY(transaction, "src/waltz/quic/tests/quic_txn.bin");
 
-fd_quic_conn_t *   gbl_conn   = NULL;
-fd_quic_stream_t * gbl_stream = NULL;
+fd_quic_conn_t * gbl_conn   = NULL;
 
 int g_handshake_complete = 0;
 int g_conn_final = 0;
-int g_stream_notify = 0;
 
 /* track txns sent */
 ulong sent_cnt = 0UL;
@@ -45,47 +43,18 @@ cb_conn_final( fd_quic_conn_t * conn,
   g_conn_final = 1;
 
   gbl_conn = NULL;
-  gbl_stream = NULL;
 }
 
 void
-cb_stream_new( fd_quic_stream_t * stream,
-               void *             quic_ctx ) {
-  (void)stream;
-  (void)quic_ctx;
-  FD_LOG_NOTICE(( "cb_stream_new" ));
-}
-
-void
-cb_stream_notify( fd_quic_stream_t * stream,
-                  void *             stream_ctx,
-                  int                notify_type ) {
-  (void)stream;
-  (void)stream_ctx;
-
-  stream = NULL;
-
-  if( notify_type == FD_QUIC_NOTIFY_END ) {
-    sent_cnt++;
-  } else {
-    FD_LOG_WARNING(( "stream ended in failure: %d", (int)notify_type ));
-  }
-}
-
-void
-cb_stream_receive( fd_quic_stream_t * stream,
-                   void *             stream_ctx,
-                   uchar const *      data,
-                   ulong              data_sz,
-                   ulong              offset,
-                   int                fin ) {
-  (void)stream;
-  (void)stream_ctx;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
-}
+cb_stream_receive(
+    void *             cb_ctx    FD_FN_UNUSED,
+    fd_quic_conn_t *   conn      FD_FN_UNUSED,
+    ulong              stream_id FD_FN_UNUSED,
+    uchar const *      data      FD_FN_UNUSED,
+    ulong              data_sz   FD_FN_UNUSED,
+    ulong              offset    FD_FN_UNUSED,
+    int                fin       FD_FN_UNUSED )
+{}
 
 ulong
 cb_now( void * context ) {
@@ -128,12 +97,10 @@ run_quic_client( fd_quic_t *         quic,
   #define MSG_SZ_MAX (1232UL-64UL-32UL)
   #define MSG_SIZE_RANGE (MSG_SZ_MAX - MSG_SZ_MIN + 1UL)
 
-  quic->cb.conn_new = cb_conn_new;
+  quic->cb.conn_new         = cb_conn_new;
   quic->cb.conn_hs_complete = cb_conn_handshake_complete;
-  quic->cb.conn_final = cb_conn_final;
-  quic->cb.stream_new = cb_stream_new;
-  quic->cb.stream_notify = cb_stream_notify;
-  quic->cb.stream_receive = cb_stream_receive;
+  quic->cb.conn_final       = cb_conn_final;
+  quic->cb.stream_receive   = cb_stream_receive;
   quic->cb.now = cb_now;
   quic->cb.now_ctx = NULL;
 
@@ -160,12 +127,6 @@ run_quic_client( fd_quic_t *         quic,
       continue;
     }
 
-    if( !gbl_stream ) {
-      gbl_stream = fd_quic_conn_new_stream( gbl_conn, FD_QUIC_TYPE_UNIDIR );
-
-      continue;
-    }
-
     if( pkt.buf_sz == 0UL ) {
       ulong out_buf_sz = 0UL;
       if( read_pkt( pkt.buf, &out_buf_sz ) ) {
@@ -181,16 +142,11 @@ run_quic_client( fd_quic_t *         quic,
       pkt.buf_sz = (ushort)out_buf_sz;
     }
 
-    /* have gbl_conn, gbl_stream and input, so try sending a transaction */
-    int rc = fd_quic_stream_send( gbl_stream, &pkt, 1 /* num chunks */, 1 /* FIN flag */ );
-    if( rc == 1 ) {
-      /* we sent 1 chunk */
-
+    /* have gbl_conn and input, so try sending a transaction */
+    int rc = fd_quic_stream_uni_send( gbl_conn, pkt.buf, pkt.buf_sz );
+    if( rc == FD_QUIC_SUCCESS ) {
       /* set buf_sz to zero to indicate more input needed */
       pkt.buf_sz = 0UL;
-
-      /* we used this gbl_stream, so set to NULL */
-      gbl_stream = NULL;
     }
   }
 
@@ -259,22 +215,11 @@ main( int argc,
   FD_TEST( wksp );
 
   fd_quic_limits_t quic_limits = {
-     .conn_cnt           = 1024UL,
-     .handshake_cnt      = 256UL,
-     .conn_id_cnt        = 16UL,
-     .conn_id_sparsity   = 4.0,
-     .stream_cnt         = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-     .initial_stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-     .stream_pool_cnt    = 2048UL,
-     .stream_sparsity    = 4.0,
-     .inflight_pkt_cnt   = 64UL,
-     .tx_buf_sz          = 1UL<<15UL
+     .conn_cnt         = 1024UL,
+     .handshake_cnt    = 256UL,
+     .conn_id_cnt      = 16UL,
+     .tx_stream_cnt    = 2048UL,
+     .inflight_pkt_cnt = 64UL,
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
@@ -299,7 +244,6 @@ main( int argc,
   client_cfg->net.ip_addr         = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
-  client_cfg->initial_rx_max_stream_data = 1<<15;
   client_cfg->idle_timeout = (ulong)10000e6;
 
   run_quic_client( quic, udpsock );

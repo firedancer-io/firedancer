@@ -1,11 +1,11 @@
-#ifndef HEADER_fd_src_tango_quic_fd_quic_enum_h
-#define HEADER_fd_src_tango_quic_fd_quic_enum_h
+#ifndef HEADER_fd_src_waltz_quic_fd_quic_enum_h
+#define HEADER_fd_src_waltz_quic_fd_quic_enum_h
 
 
 /* FD_QUIC_STREAM_TYPE_* indicate stream type (two least significant
    bits of a stream ID) */
-#define FD_QUIC_STREAM_TYPE_BIDI_CLIENT 0
-#define FD_QUIC_STREAM_TYPE_BIDI_SERVER 1
+#define FD_QUIC_STREAM_TYPE_BIDI_CLIENT 0 /* unsupported */
+#define FD_QUIC_STREAM_TYPE_BIDI_SERVER 1 /* unsupported */
 #define FD_QUIC_STREAM_TYPE_UNI_CLIENT  2
 #define FD_QUIC_STREAM_TYPE_UNI_SERVER  3
 
@@ -13,7 +13,7 @@
 #define FD_QUIC_SUCCESS (0)
 #define FD_QUIC_FAILED  (1)
 
-/* FD_QUIC_TYPE_{UNI,BI}DIR indicate stream type. */
+/* FD_QUIC_TYPE_{UNI,BI}DIR indicate stream direction type. */
 #define FD_QUIC_TYPE_BIDIR  (0)
 #define FD_QUIC_TYPE_UNIDIR (1)
 
@@ -41,7 +41,7 @@
 /* FD_QUIC_MAX_PAYLOAD_SZ is the max byte size of the UDP payload of any
    QUIC packets.  Derived from FD_QUIC_MTU by subtracting the typical
    IPv4 header (no options) and UDP header sizes. */
-#define FD_QUIC_MAX_PAYLOAD_SZ (FD_QUIC_MTU - 20 - 8)
+#define FD_QUIC_MAX_PAYLOAD_SZ (FD_QUIC_MTU - 14 - 20 - 8)
 
 /* FD_QUIC_ROLE_{CLIENT,SERVER} identify the fd_quic_t's role as a
    client or server. */
@@ -50,30 +50,25 @@
 
 /* FD_QUIC_SEND_ERR_* are negative int error codes indicating a stream
    send failure.
-   ...INVAL_STREAM: Not allowed to send for stream ID (e.g. not open)
-   ...INVAL_CONN:   Connection not in valid state for sending
-   ...FIN:          Not allowed to send, stream finished
-   ...STREAM_STATE: Stream is not (yet) in valid state to send */
-#define FD_QUIC_SEND_ERR_INVAL_STREAM (-1)
-#define FD_QUIC_SEND_ERR_INVAL_CONN   (-2)
-#define FD_QUIC_SEND_ERR_STREAM_FIN   (-3)
-#define FD_QUIC_SEND_ERR_STREAM_STATE (-3)
+   ...INVAL_CONN:  Connection not in valid state for sending
+   ...OVERSZ:      Attempted to send more than FD_TXN_MTU data
+   ...QUOTA:       Insufficient quota to send
+   ...OOM:         Insufficient local buffer space */
+#define FD_QUIC_SEND_ERR_INVAL_CONN (-1)
+#define FD_QUIC_SEND_ERR_OVERSZ     (-2)
+#define FD_QUIC_SEND_ERR_QUOTA      (-3)
+#define FD_QUIC_SEND_ERR_OOM        (-4)
 
 /* FD_QUIC_MIN_CONN_ID_CNT: min permitted conn ID count per conn */
 #define FD_QUIC_MIN_CONN_ID_CNT (4UL)
 
-/* FD_QUIC_DEFAULT_SPARSITY: default fd_quic_limits_t->conn_id_sparsity */
-#define FD_QUIC_DEFAULT_SPARSITY (2.5)
+/* max number of connection ids per connection */
+/* NOTE QUINN seems to ignore our active_connection_id_limit transport parameter */
+/*      So setting this to 16 */
+#define FD_QUIC_MAX_CONN_ID_PER_CONN 16
 
-/* FD_QUIC_NOTIFY_* indicate stream notification types.
-   ...END:   Stream lifetime has ended, no more callbacks will be
-             generated for it.  Stream will be freed after event
-             delivery.
-   ...RESET: Peer has reset the stream (will not send)
-   ...ABORT: Peer has aborted the stream (will not receive) */
-#define FD_QUIC_NOTIFY_END   (100)
-#define FD_QUIC_NOTIFY_RESET (101)
-#define FD_QUIC_NOTIFY_ABORT (102)
+/* FD_QUIC_DEFAULT_SPARSITY: multiplier for hash map sizing */
+#define FD_QUIC_DEFAULT_SPARSITY (2.5)
 
 /* defines the packet types */
 #define FD_QUIC_PKT_TYPE_INITIAL   0
@@ -102,5 +97,12 @@
 /* Retry token lifetime in seconds */
 #define FD_QUIC_RETRY_TOKEN_LIFETIME (3)
 
-#endif
+#define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
+
+#define FD_QUIC_STREAM_ID_UNUSED (ULONG_MAX)
+
+#define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
+#define FD_QUIC_PKT_NUM_PENDING (~1ul)
+
+#endif /* HEADER_fd_src_waltz_quic_fd_quic_enum_h */
 

@@ -18,7 +18,7 @@
        ulong prev; // Technically "DLIST_IDX_T DLIST_PREV" (default is ulong prev), do not modify while element is in the dlist
        ulong next; // Technically "DLIST_IDX_T DLIST_NEXT" (default is ulong next), do not modify while element is in the dlist
        ... prev and next can be located arbitrarily in the element and
-       ... can be reused for other purposes when the element is not a in
+       ... can be reused for other purposes when the element is not in a
        ... dlist.  An element should not be moved / released while an
        ... element is in a dlist
      };
@@ -91,7 +91,7 @@
 
      // mydlist_idx_push_{head,tail} pushes the pool element whose index
      // is ele_idx to the dlist's {head,tail} and returns join.  Assumes
-     // ele_idx valid and not already in the dlist.
+     // ele_idx is valid and not already in the dlist.
      /
      // mydlist_idx_pop_{head,tail} pops the pool element at the dlist's
      // {head,tail} and returns its pool index.  Assumes dlist is not
@@ -126,6 +126,14 @@
      // elements to the pool as might be necessary.
 
      mydlist_t * mydlist_remove_all( mydlist_t * join, myele_t * pool );
+
+     // mydlist_merge_head prepends other to the head of list.
+     // mydlist_merge_tail appends other to the tail of list.
+     // Returns list.  On return, other is empty.  U.B. if list and
+     // other share an element in the pool.
+
+     mydlist_t * mydlist_merge_head( mydlist_t * list, mydlist_t * other, myele_t const * pool );
+     mydlist_t * mydlist_merge_tail( mydlist_t * list, mydlist_t * other, myele_t const * pool );
 
      // mydlist_iter_* support fast ordered forward (head to tail) and
      // reverse (tail to head) iteration over all the elements in a
@@ -162,7 +170,7 @@
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
 
      int
-     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.  
+     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.
                      ulong             ele_cnt, // Element storage size, in [0,mydlist_ele_max()]
                      myele_t const *   pool );  // Current local join to element storage, indexed [0,ele_cnt)
 
@@ -196,8 +204,7 @@
    different types of dlists.  Variants exist for making header
    prototypes only and/or implementations only if making a library for
    use across multiple compilation units.  Further, options exist to use
-   different hashing functions, comparison functions, etc as detailed
-   below. */
+   different list link types, names, etc as detailed below. */
 
 /* TODO: DOC CONCURRENCY REQUIREMENTS */
 
@@ -207,7 +214,7 @@
 #error "Define DLIST_NAME"
 #endif
 
-/* DLIST_ELE_T is the dlist element type. */
+/* DLIST_ELE_T is the dlist element type */
 
 #ifndef DLIST_ELE_T
 #error "Define DLIST_ELE_T"
@@ -309,7 +316,7 @@ FD_FN_CONST static inline ulong DLIST_(private_idx_null)( void ) { return (ulong
 
 FD_FN_CONST static inline int DLIST_(private_idx_is_null)( ulong idx ) { return idx==(ulong)(DLIST_IDX_T)~0UL; }
 
-FD_FN_CONST static ulong DLIST_(ele_max)( void ) { return (ulong)(DLIST_IDX_T)~0UL; }
+FD_FN_CONST static inline ulong DLIST_(ele_max)( void ) { return (ulong)(DLIST_IDX_T)~0UL; }
 
 FD_FN_PURE static inline int
 DLIST_(is_empty)( DLIST_(t) const *   join,
@@ -625,6 +632,54 @@ DLIST_(iter_ele_const)( DLIST_(iter_t)      iter,
                         DLIST_ELE_T const * pool ) {
   (void)join; (void)pool;
   return pool + iter;
+}
+
+static inline DLIST_(t) *
+DLIST_(merge_head)( DLIST_(t) *   list,
+                    DLIST_(t) *   other,
+                    DLIST_ELE_T * pool ) {
+
+  DLIST_(private_t) * dst = DLIST_(private)( list  );
+  DLIST_(private_t) * src = DLIST_(private)( other );
+
+  ulong head_idx    = src->head;
+  ulong merge_l_idx = src->tail;
+  ulong merge_r_idx = dst->head;
+
+  *fd_ptr_if( !DLIST_(private_idx_is_null)( merge_r_idx ), &pool[ merge_r_idx ].DLIST_PREV, &dst->tail ) =
+    DLIST_(private_cidx)( merge_l_idx );
+
+  if( !DLIST_(private_idx_is_null)( merge_l_idx ) ) {
+    pool[ merge_l_idx ].DLIST_NEXT = DLIST_(private_cidx)( merge_r_idx );
+    dst->head                      = DLIST_(private_cidx)( head_idx   );
+  }
+
+  src->head = src->tail = DLIST_(private_cidx)( DLIST_(private_idx_null)() );
+  return list;
+}
+
+static inline DLIST_(t) *
+DLIST_(merge_tail)( DLIST_(t) *   list,
+                    DLIST_(t) *   other,
+                    DLIST_ELE_T * pool ) {
+
+  DLIST_(private_t) * dst = DLIST_(private)( list  );
+  DLIST_(private_t) * src = DLIST_(private)( other );
+
+  ulong tail_idx   = src->tail;
+  ulong merge_l_idx = dst->tail;
+  ulong merge_r_idx = src->head;
+
+  *fd_ptr_if( !DLIST_(private_idx_is_null)( merge_l_idx ), &pool[ merge_l_idx ].DLIST_NEXT, &dst->head ) =
+    DLIST_(private_cidx)( merge_r_idx );
+
+  if( !DLIST_(private_idx_is_null)( merge_r_idx ) ) {
+    pool[ merge_r_idx ].DLIST_PREV = DLIST_(private_cidx)( merge_l_idx );
+    dst->tail                      = DLIST_(private_cidx)( tail_idx   );
+  }
+
+  src->head = src->tail = DLIST_(private_cidx)( DLIST_(private_idx_null)() );
+  return list;
 }
 
 FD_PROTOTYPES_END

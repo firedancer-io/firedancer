@@ -42,27 +42,13 @@
 ## Quic Tile
 | Metric | Type | Description |
 |--------|------|-------------|
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;success | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Success) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;oversize | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;skip | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;state | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;success | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Success) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;success | `counter` | Result of fragment reassembly for a QUIC transaction. (Success) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;oversize | `counter` | Result of fragment reassembly for a QUIC transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;skip | `counter` | Result of fragment reassembly for a QUIC transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;state | `counter` | Result of fragment reassembly for a QUIC transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;success | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Success) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;aborted | `counter` | Reassembly slot was aborted before it was notified. |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;clobbered | `counter` | Reassembly slot was clobbered before it was notified. |
+| quic_&#8203;tile_&#8203;quic_&#8203;fragment_&#8203;receive | `counter` | Number of transaction fragments ingested via TPU/QUIC. |
+| quic_&#8203;tile_&#8203;quic_&#8203;fragment_&#8203;drop | `counter` | Number of transaction fragments that failed reassembly via QUIC. |
+| quic_&#8203;tile_&#8203;quic_&#8203;transaction_&#8203;receive | `counter` | Number of transactions reassembled via QUIC. |
 | quic_&#8203;tile_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;large | `counter` | Count of packets received on the non-QUIC port that were too large to be a valid transaction. |
+| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;transaction_&#8203;receive | `counter` | Number of transactions received via TPU/UDP. |
 | quic_&#8203;received_&#8203;packets | `counter` | Number of IP packets received. |
 | quic_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP, QUIC headers). |
 | quic_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
