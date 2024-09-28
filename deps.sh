@@ -313,10 +313,10 @@ install_libcxx () {
     -DLLVM_ENABLE_PIC=ON
 
   echo "[+] Building libcxx"
-  "${MAKE[@]}" cxx cxxabi unwind
+  "${MAKE[@]}" cxx cxxabi
 
   echo "[+] Installing libcxx to $PREFIX"
-  "${MAKE[@]}" install-cxx install-cxxabi install-unwind
+  "${MAKE[@]}" install-cxx install-cxxabi
   echo "[+] Successfully installed libcxx"
 }
 
@@ -550,7 +550,7 @@ while [[ $# -gt 0 ]]; do
       _CXX=clang++
       EXTRA_CFLAGS+="-fsanitize=memory -fno-omit-frame-pointer"
       EXTRA_CXXFLAGS+="$EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
-      EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a $PREFIX/lib/libunwind.a"
+      EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;
     "+dev")
       shift
