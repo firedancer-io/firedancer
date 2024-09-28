@@ -123,18 +123,24 @@ runtime checks.  Using sanitizers is not recommended for production.
 Sanitizers can be combined with fuzzers.  (You can specify multiple
 extras like `make EXTRAS="fuzz asan"`)
 
-| Sanitizer                  | Compile command     |
-|----------------------------|---------------------|
-| AddressSanitizer           | `make EXTRAS=asan`  |
-| UndefinedBehaviorSanitizer | `make EXTRAS=ubsan` |
+| Sanitizer                  | Compile command              |
+|----------------------------|------------------------------|
+| AddressSanitizer           | `make CC=clang EXTRAS=asan`  |
+| UndefinedBehaviorSanitizer | `make CC=clang EXTRAS=ubsan` |
+| MemorySanitizer            | `make CC=clang EXTRAS=msan`  |
 
 **[AddressSanitizer]** helps detect invalid memory accesses.
 
 **[UndefinedBehaviorSanitizer]** detects various kinds of hardware and
 linguistic U.B.
 
+**[MemorySanitizer]** detects reads of uninitialized memory.
+MSan is special because it requires all dependencies to be recompiled.
+This is done by running `deps.sh +msan`.
+
   [AddressSanitizer](https://github.com/google/sanitizers/wiki/AddressSanitizer)
   [UndefinedBehaviorSanitizer](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html)
+  [MemorySanitizer](https://clang.llvm.org/docs/MemorySanitizer.html)
 
 ## Best Practices
 
