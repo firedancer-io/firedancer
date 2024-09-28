@@ -148,9 +148,7 @@ struct fd_quic_conn {
   fd_quic_ack_gen_t ack_gen[1];
 
   uint                 flags;
-# define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
 # define FD_QUIC_CONN_FLAGS_CLOSE_SENT         (1u<<1u)
-# define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
 # define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
 # define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
 
@@ -174,25 +172,32 @@ struct fd_quic_conn {
 
   /* Stream related (server only) *************************************/
 
+    /* rx_limit_pktnum is the newest inflight packet number in which
+       the current rx_{sup_stream_id,max_data} values were sent to the
+       peer.  (via MAX_STREAMS and MAX_DATA quota frames)
+
+       FD_QUIC_PKT_NUM_UNUSED indicates that the peer ACked the latest
+       quota update, and thus is in sync with the server.
+
+       FD_QUIC_PKT_NUM_PENDING indicates that no packet with the current
+       rx_{sup_stream_id,max_data} value was sent yet.  Will trigger a
+       send attempt at the next fd_quic_conn_tx call. */
+    ulong rx_limit_pktnum;
+
     /* rx_sup_stream_id: smallest stream ID greater than all allowed
-       stream IDs. Sent to peer via MAX_STREAMS. Never decreases. */
+       stream IDs. Never decreases.  When modified, rx_limit_pktnum
+       should be set to FD_QUIC_PKT_NUM_PENDING. */
     ulong rx_sup_stream_id;
 
-    /* rx_max_streams_unidir_ackd: peer-acknowledged value of MAX_STREAMS */
-    ulong rx_max_streams_unidir_ackd;
+    /* rx_max_data: limit on the number of bytes the peer is allowed to
+       send to us.  If a high offset is received on a stream, all prior
+       bytes count towards this limit, even those that were not yet
+       received due to reordering.  When modified, rx_limit_pktnum
+       should be set to FD_QUIC_PKT_NUM_PENDING. */
+    ulong rx_max_data;
 
     /* fin_streams: bit set of RX streams that were completed */
     fd_rollset_t fin_streams;
-
-    /* rx_max_data: limit on the number of bytes the peer is allowed to
-       send to us. If a high offset is received on a stream, all prior
-       bytes count towards this limit, even those that were not yet
-       received due to reordering. */
-    ulong rx_max_data;
-
-    /* rx_max_data_ackd: The value of rx_max_data acknowledged by the
-       peer. */
-    ulong rx_max_data_ackd;
 
   /* Stream related (client only) *************************************/
 
