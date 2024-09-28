@@ -66,6 +66,7 @@ main( int     argc,
   FD_TEST( fd_ulong_is_pow2   ( align            ) );
   FD_TEST( fd_ulong_is_aligned( footprint, align ) );
 
+  fd_msan_poison( mem, sizeof(mem) );
   void   * shmap = map_new ( mem, LG_SLOT_CNT ); FD_TEST( shmap );
   pair_t * map   = map_join( shmap );            FD_TEST( map   );
 
