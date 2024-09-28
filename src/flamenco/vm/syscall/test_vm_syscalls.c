@@ -74,7 +74,14 @@ test_vm_syscall_sol_memcmp( char const * test_case_name,
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
 
-  if( !ret && !err ) FD_TEST( memcmp( (void *)haddr_1, (void *)haddr_2, sz )==*(int *)(host_cmp_result_addr) );
+  int actual = *(int *)(host_cmp_result_addr);
+  if( !ret && !err ) {
+    /* Some libc memcmp return normalized {-1,1} instead of x-y. */
+    int expected = memcmp( (void *)haddr_1, (void *)haddr_2, sz );
+    FD_TEST( (expected<0) == (actual<0) );
+    FD_TEST( (expected>0) == (actual>0) );
+    FD_TEST( (!expected ) == (!actual ) );
+  }
 
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
