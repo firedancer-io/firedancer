@@ -988,18 +988,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
-
-static inline void *
-fd_memcpy( void       * FD_RESTRICT d,
-           void const * FD_RESTRICT s,
-           ulong                    sz ) {
-  void * p = d;
-  __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
-  return d;
-}
-
-#elif FD_HAS_MSAN
+#if FD_HAS_MSAN
 
 void * __msan_memcpy( void * dest, void const * src, ulong n );
 
@@ -1008,6 +997,17 @@ fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
   return __msan_memcpy( d, s, sz );
+}
+
+#elif FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN
+
+static inline void *
+fd_memcpy( void       * FD_RESTRICT d,
+           void const * FD_RESTRICT s,
+           ulong                    sz ) {
+  void * p = d;
+  __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
+  return d;
 }
 
 #else
@@ -1033,7 +1033,18 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
+#if FD_HAS_MSAN
+
+void * __msan_memset( void * d, int c, ulong sz );
+
+static inline void *
+fd_memset( void  * d,
+           int     c,
+           ulong   sz ) {
+  return __msan_memset( d, c, sz );
+}
+
+#elif FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN
 
 static inline void *
 fd_memset( void  * d,

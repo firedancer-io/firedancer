@@ -307,7 +307,6 @@ fd_scratch_push( void ) {
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
 # endif
-  fd_msan_poison( (void*)fd_scratch_private_free, fd_scratch_private_free - fd_scratch_private_start );
 }
 
 /* fd_scratch_pop frees all allocations in the current scratch frame,
@@ -327,7 +326,9 @@ fd_scratch_pop( void ) {
   if( FD_UNLIKELY( !fd_scratch_private_frame_cnt ) ) FD_LOG_ERR(( "unmatched pop" ));
   fd_scratch_in_prepare = 0;
 # endif
+  ulong old_free          = fd_scratch_private_free;
   fd_scratch_private_free = fd_scratch_private_frame[ --fd_scratch_private_frame_cnt ];
+  fd_msan_poison( (void *)old_free, fd_scratch_private_free - old_free );
 
 # if FD_HAS_DEEPASAN
   /* On a pop() operation, the entire range from fd_scratch_private_free to the
@@ -337,7 +338,6 @@ fd_scratch_pop( void ) {
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
 # endif
-  fd_msan_poison( (void*)fd_scratch_private_free, fd_scratch_private_free - fd_scratch_private_stop );
 }
 
 /* fd_scratch_prepare starts an allocation of unknown size and known
