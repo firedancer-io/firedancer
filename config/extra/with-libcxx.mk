@@ -13,7 +13,6 @@ ifndef LIBCXX
 $(error LIBCXX is not set)
 endif
 
-CPPFLAGS+=-nostdinc++
-CPPFLAGS+=-isystem $(LIBCXX)/include
-CPPFLAGS+=-isystem $(LIBCXX)/include/c++/v1
-LDFLAGS+=-Wl,--rpath=$(LIBCXX)/lib
+CXXFLAGS+=-nostdinc++ -nostdlib++
+CXXFLAGS+=-isystem $(LIBCXX)/include/c++/v1
+LDFLAGS+=$(LIBCXX)/lib/libc++.a $(LIBCXX)/lib/libc++abi.a $(LIBCXX)/lib/libunwind.a
