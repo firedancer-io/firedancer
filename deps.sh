@@ -34,9 +34,12 @@ fi
 PREFIX="$(pwd)/opt"
 
 DEVMODE=0
+MSAN=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
-EXTRA_CPPFLAGS=""
+EXTRA_CFLAGS=""
+EXTRA_CXXFLAGS=""
+EXTRA_LDFLAGS=""
 
 help () {
 cat <<EOF
@@ -100,11 +103,30 @@ checkout_repo () {
   echo
 }
 
+checkout_llvm () {
+  if [[ -d "$PREFIX/git/llvm" ]]; then
+    echo "[~] Skipping LLVM download; already exists"
+    return
+  fi
+
+  echo "[+] Downloading LLVM"
+  (
+    cd "$PREFIX/git"
+    curl --proto '=https' -sSLf https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/llvm-project-19.1.0.src.tar.xz \
+    | tar -xJ
+    mv llvm-project-19.1.0.src llvm
+  )
+  cd -
+}
+
 fetch () {
   git submodule update --init
 
   mkdir -pv "$PREFIX/git"
 
+  if [[ $MSAN == 1 ]]; then
+    checkout_llvm
+  fi
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.6"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.9.4"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
@@ -274,11 +296,35 @@ check () {
   fi
 }
 
+install_libcxx () {
+  cd "$PREFIX/git/llvm"
+
+  echo "[+] Configuring libcxx"
+  rm -rf build
+  mkdir build
+  cd build
+  cmake ../runtimes \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
+    -DLLVM_USE_SANITIZER=Memory \
+    -DLLVM_ENABLE_PIC=ON
+
+  echo "[+] Building libcxx"
+  "${MAKE[@]}" cxx cxxabi unwind
+
+  echo "[+] Installing libcxx to $PREFIX"
+  "${MAKE[@]}" install-cxx install-cxxabi install-unwind
+  echo "[+] Successfully installed libcxx"
+}
+
 install_zstd () {
   cd "$PREFIX/git/zstd/lib"
 
   echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC $EXTRA_CPPFLAGS" install-pc install-static install-includes
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC $EXTRA_CFLAGS" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
 }
 
@@ -286,7 +332,7 @@ install_lz4 () {
   cd "$PREFIX/git/lz4/lib"
 
   echo "[+] Installing lz4 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC $EXTRA_CPPFLAGS" install
+  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC $EXTRA_CFLAGS" install
   echo "[+] Successfully installed lz4"
 }
 
@@ -313,7 +359,8 @@ install_secp256k1 () {
     -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
     -DCMAKE_C_FLAGS_RELEASE="-O3" \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_C_FLAGS="$EXTRA_CPPFLAGS"
+    -DCMAKE_C_FLAGS="$EXTRA_CFLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS_RELEASE="$EXTRA_LDFLAGS"
 
   echo "[+] Building secp256k1"
   "${MAKE[@]}"
@@ -413,7 +460,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread $EXTRA_CPPFLAGS" \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread $EXTRA_CXXFLAGS" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
@@ -436,7 +483,9 @@ install_snappy () {
     -DSNAPPY_BUILD_TESTS=OFF \
     -DSNAPPY_BUILD_BENCHMARKS=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_CXX_FLAGS="$EXTRA_CPPFLAGS"
+    -DCMAKE_CXX_FLAGS="$EXTRA_CXXFLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$EXTRA_LDFLAGS" \
+    -DCMAKE_CXX_COMPILER_WORKS=1 # Workaround for CMake bug
   echo "[+] Configured snappy"
 
   echo "[+] Building snappy"
@@ -461,6 +510,10 @@ install () {
 
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
+  if [[ $MSAN == 1 ]]; then
+    ( install_libcxx    )
+  echo
+  fi
   ( install_zstd      )
   ( install_lz4       )
   ( install_secp256k1 )
@@ -495,7 +548,9 @@ while [[ $# -gt 0 ]]; do
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
       _CXX=clang++
-      EXTRA_CPPFLAGS="-fsanitize=memory -fno-omit-frame-pointer"
+      EXTRA_CFLAGS+="-fsanitize=memory -fno-omit-frame-pointer"
+      EXTRA_CXXFLAGS+="$EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
+      EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a $PREFIX/lib/libunwind.a"
       ;;
     "+dev")
       shift
