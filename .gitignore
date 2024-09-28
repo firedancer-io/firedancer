@@ -23,6 +23,7 @@ compile_commands.json
 
 # Dependencies
 opt/
+opt-msan/
 deps-bundle.tar.zst
 
 # Nix
