@@ -2408,27 +2408,21 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
 }
 
 /* process v1 quic packets
-   only called for packets with long header
-   returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error
-   assumes cur_sz >= FD_QUIC_SHORTEST_PKT */
+   returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
 ulong
 fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 fd_quic_pkt_t * pkt,
                                 uchar *         cur_ptr,
                                 ulong           cur_sz ) {
 
-  /* do not respond to packets over 1500 bytes */
-  if( FD_UNLIKELY( cur_sz > 1500 ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
+  /* bounds check packet size */
+  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( cur_sz > 1500                 ) ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_state_t *    state = fd_quic_get_state( quic );
   fd_quic_conn_map_t * entry = NULL;
   fd_quic_conn_t *     conn  = NULL;
 
-  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
 
   /* keep end */
   uchar * orig_ptr = cur_ptr;
