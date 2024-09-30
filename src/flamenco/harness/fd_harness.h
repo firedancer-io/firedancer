@@ -33,7 +33,9 @@ int
 fd_harness_exec_instr( uchar const * file_buf, ulong file_sz );
 
 int
-fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz );
+fd_harness_convert_legacy_instr( uchar const * file_buf, 
+                                 ulong         file_sz,
+                                 char  const * filename );
 
 int
 fd_harness_dump_txn( fd_exec_txn_ctx_t * txn_ctx );

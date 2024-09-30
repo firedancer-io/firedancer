@@ -971,7 +971,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
     fd_pubkey_t const * program_id     = &txn_accs[ instr->program_id ];
-    FD_LOG_NOTICE(("program id %32J", program_id));
+    //FD_LOG_NOTICE(("program id %32J", program_id));
 
     /* TODO: this is a hack because the programs should've been verified already
        if we reach this point that means the transaction was succesful. */

@@ -15,7 +15,8 @@ main( int argc, char ** argv ) {
 
   FD_LOG_WARNING(("HELLO"));
 
-  char path[312] = "/data/ibhatt/instr-2xU5THh2NBRq9hVpAGzEEeCtcP2xWA8voKRjHdDQ2EYX8JRw5rX87Vo9hGRzxbTjM3PvuCBmEwwXdk7CmXEviBB4-00.pb.bin";
+  //char path[312] = "/data/ibhatt/instr-2xU5THh2NBRq9hVpAGzEEeCtcP2xWA8voKRjHdDQ2EYX8JRw5rX87Vo9hGRzxbTjM3PvuCBmEwwXdk7CmXEviBB4-00.pb.bin";
+  char path[312] = "/data/ibhatt/dump/test-vectors/instr/fixtures/vote/0003df063191c78a383cbd0e3723b1e6d1917653_3247128.fix";
 
   int file = open( path, O_RDONLY );
   struct stat st;
@@ -32,7 +33,9 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  fd_harness_exec_instr( buf, file_sz );
+  //fd_harness_exec_instr( buf, file_sz );
+
+  fd_harness_convert_legacy_instr( buf, file_sz, "ishan1234.pb.bin" );
 
   return 0;
 

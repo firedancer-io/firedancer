@@ -11,26 +11,34 @@
 void
 fd_harness_dump_file( fd_v2_exec_env_t  const * exec_env,
                       fd_exec_txn_ctx_t const * txn_ctx,
-                      ushort                    instr_idx ) {
+                      ushort                    instr_idx,
+                      char              const * file_override ) {
 
   /* Create a filename. TODO: This should be moved to a utils file. */
 
   char filename[256] = {0};
   char txn_sig[128];
-  uchar * sig        = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
-  FD_LOG_WARNING(("sig %64J", sig));
-  fd_base58_encode_64( sig, NULL, txn_sig );
+  uchar * sig = NULL;
+  if( txn_ctx ) {
+    sig =(uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+    FD_LOG_WARNING(("sig %64J", sig));
+    fd_base58_encode_64( sig, NULL, txn_sig );
+  }
 
   /* TODO: Replace this with the capture_ctx directory*/
   char proto_output_dir[64] = "/data/ibhatt/";
   
   char * position = fd_cstr_init( filename );
   position        = fd_cstr_append_cstr( position, proto_output_dir );
-  position        = fd_cstr_append_cstr( position, "/instr-" );
-  position        = fd_cstr_append_cstr_safe( position, txn_sig, 88UL ); /* Length of decoded tx signature */
-  position        = fd_cstr_append_cstr( position, "-" );
-  position        = fd_cstr_append_ushort_as_text( position, '0', 0, instr_idx, 2UL );
-  position        = fd_cstr_append_cstr(position, ".pb.bin" );
+  if( !file_override ) {
+    position      = fd_cstr_append_cstr( position, "/instr-" );
+    position      = fd_cstr_append_cstr_safe( position, txn_sig, 88UL ); /* Length of decoded tx signature */
+    position      = fd_cstr_append_cstr( position, "-" );
+    position      = fd_cstr_append_ushort_as_text( position, '0', 0, instr_idx, 2UL );
+    position      = fd_cstr_append_cstr(position, ".pb.bin" );
+  } else {
+    position      = fd_cstr_append_cstr( position, file_override ); 
+  }
   fd_cstr_fini( position );
 
   /* Encode the protobuf and output to file */
@@ -97,8 +105,7 @@ fd_harness_dump_features( fd_features_t const * features, fd_v2_feature_t * outp
       fd_memcpy( &output_features[idx++].feature_id, &(id->id), sizeof(fd_pubkey_t) );
     }
   }
-} 
- 
+}
 
 /* Execute instruction helpers ************************************************/
 
@@ -299,12 +306,10 @@ fd_harness_exec_write_effects( fd_exec_txn_ctx_t * txn_ctx,
 
   fwrite( out, 1, stream.bytes_written, file );
   fclose( file );
-
-
 }
 
 
-/* Instruction API start*/
+/* Instruction API start */
 
 int
 fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx, 
@@ -441,7 +446,7 @@ fd_harness_dump_instr( fd_exec_txn_ctx_t const * txn_ctx,
   /* Now that the protobuf struct has been populated, dump the struct into
     a file with the format {dump dir}/instr_{tx signature}_{instr idx}.pb. */
 
-  fd_harness_dump_file( &exec_env, txn_ctx, instr_idx );
+  fd_harness_dump_file( &exec_env, txn_ctx, instr_idx, NULL );
 
   return 0;
 
@@ -540,8 +545,8 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
   /* The instruciton at this point should be fully set up. */
 
   int res = fd_execute_instr( ctx.txn_ctx, &instr );
-  FD_LOG_NOTICE(("res %d", res));
-  FD_LOG_NOTICE(("instr data %lx data sz %lu", instr.data, instr.data_sz));
+  // FD_LOG_NOTICE(("res %d", res));
+  // FD_LOG_NOTICE(("instr data %lx data sz %lu", instr.data, instr.data_sz));
 
   /* Now that the instruction has been executed, the execution effects can be
      derived from the transaction context. */
@@ -552,11 +557,15 @@ fd_harness_exec_instr( uchar const * file_buf, ulong file_sz ) {
 }
 
 int
-fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
+fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz, char const * filename ) {
 
   /* TODO: FACTOR WKSP AND ALLOCATOR CODE OUT TO COMMON FUNCTION */
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>=fd_shmem_cpu_cnt() ) {
+    cpu_idx = 0UL;
+  }
+  FD_LOG_WARNING(("CPU IDX %lu", cpu_idx));
 
   /* Declare a wksp. */
 
@@ -575,10 +584,10 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
   fd_scratch_attach( smem, fmem, 1<<30, 64UL );
   fd_scratch_push();
 
-  fd_exec_test_instr_context_t legacy_instr = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
+  fd_exec_test_instr_fixture_t legacy_fixture = FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT;
 
   pb_istream_t istream = pb_istream_from_buffer( file_buf, file_sz );
-  if( FD_UNLIKELY( !pb_decode( &istream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &legacy_instr ) ) ) {
+  if( FD_UNLIKELY( !pb_decode( &istream, FD_EXEC_TEST_INSTR_FIXTURE_FIELDS, &legacy_fixture ) ) ) {
     FD_LOG_ERR(( "Failed to decode exec env pb" ));
   }
 
@@ -587,6 +596,7 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
   fd_v2_txn_env_t   FD_FN_UNUSED txn_env   = FD_V2_TXN_ENV_INIT_DEFAULT;
   fd_v2_instr_env_t FD_FN_UNUSED instr_env = FD_V2_INSTR_ENV_INIT_DEFAULT;
 
+  fd_exec_test_instr_context_t legacy_instr = legacy_fixture.input;
 
   /* Populate the account states, and add in the missing sysvars required for
      program execution. */
@@ -601,17 +611,23 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
     fd_sysvar_rent_id,
     fd_sysvar_recent_block_hashes_id,
   };
-  ulong num_sysvar_entries                       = sizeof(fd_relevant_sysvar_ids)/sizeof(fd_pubkey_t);
+  ulong num_sysvar_entries        = sizeof(fd_relevant_sysvar_ids)/sizeof(fd_pubkey_t);
   uchar seen_sysvar_accounts[4UL] = {0};
   
   /* First copy over the existing account state. */
 
+  FD_LOG_WARNING(("accoutns count %lu", legacy_instr.accounts_count));
+
   for( uint i=0U; i<legacy_instr.accounts_count; i++ ) {
+    FD_LOG_NOTICE(("bru %32J", legacy_instr.accounts[i].address));
     fd_memcpy( exec_env.acct_states[i].address, legacy_instr.accounts[i].address, sizeof(fd_pubkey_t) );
-    exec_env.acct_states[i].lamports      = legacy_instr.accounts[i].lamports;
-    exec_env.acct_states[i].data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( legacy_instr.accounts[i].data->size ) );
-    exec_env.acct_states[i].data->size    = legacy_instr.accounts[i].data->size;
-    fd_memcpy( exec_env.acct_states[i].data->bytes, legacy_instr.accounts[i].data->bytes, legacy_instr.accounts[i].data->size );
+    exec_env.acct_states[i].lamports = legacy_instr.accounts[i].lamports;
+    if( legacy_instr.accounts[i].data ) {
+      exec_env.acct_states[i].data       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( legacy_instr.accounts[i].data->size ) );
+      exec_env.acct_states[i].data->size = legacy_instr.accounts[i].data->size;
+      fd_memcpy( exec_env.acct_states[i].data->bytes, legacy_instr.accounts[i].data->bytes, legacy_instr.accounts[i].data->size );
+    }
+    
     exec_env.acct_states[i].executable    = legacy_instr.accounts[i].executable;
     exec_env.acct_states[i].rent_epoch    = legacy_instr.accounts[i].rent_epoch;
     fd_memcpy( exec_env.acct_states[i].owner, legacy_instr.accounts[i].owner, sizeof(fd_pubkey_t) );
@@ -629,6 +645,8 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
      defaults as what is used in the v1 instr harness. First, bincode encode
      the default into a buffer then write it into the set of account states.  */
 
+  ulong num_extra_accs = 0UL;
+
   if( !seen_sysvar_accounts[0] ) { /* Clock */
   
     uchar clock_data[ 40UL ];
@@ -641,17 +659,31 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
       .unix_timestamp        = 0UL
     };
 
+    ulong sz = fd_sol_sysvar_clock_size( &sysvar_clock );
     fd_bincode_encode_ctx_t ctx = {
       .data    = clock_data,
-      .dataend = clock_data + sizeof(fd_sol_sysvar_clock_t)
+      .dataend = clock_data + sz
     };
 
     fd_sol_sysvar_clock_encode( &sysvar_clock, &ctx );
+
+    exec_env.acct_states_count++;
+    fd_v2_acct_state_t * acct_state = &exec_env.acct_states[legacy_instr.accounts_count + num_extra_accs];
+    fd_memcpy( acct_state->address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) );
+    acct_state->lamports = 1000000;
+
+    acct_state->data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sz ) );
+    acct_state->data->size    = (uint)sz;
+    fd_memcpy( acct_state->data->bytes, clock_data, sz );
+    acct_state->executable    = 0;
+    acct_state->rent_epoch    = ULONG_MAX;
+    fd_memcpy( acct_state->owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
+    acct_state->has_seed_addr = false;
   }
 
   if( !seen_sysvar_accounts[1] ) { /* Epoch Schedule */
 
-    uchar epoch_schedule_data[ 20UL ];
+    uchar epoch_schedule_data[ 256UL ];
 
     fd_epoch_schedule_t sysvar_epoch_schedule = {
       .slots_per_epoch             = 432000UL,
@@ -661,12 +693,27 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
       .first_normal_slot           = 524256UL
     };
 
+    ulong sz = fd_epoch_schedule_size( &sysvar_epoch_schedule );
+
     fd_bincode_encode_ctx_t ctx = {
       .data    = epoch_schedule_data,
-      .dataend = epoch_schedule_data + sizeof(fd_epoch_schedule_t)
+      .dataend = epoch_schedule_data + sz
     };
 
     fd_epoch_schedule_encode( &sysvar_epoch_schedule, &ctx );
+
+    exec_env.acct_states_count++;
+    fd_v2_acct_state_t * acct_state = &exec_env.acct_states[legacy_instr.accounts_count + num_extra_accs];
+    fd_memcpy( acct_state->address, &sysvar_epoch_schedule, sizeof(fd_pubkey_t) );
+    acct_state->lamports = 1000000;
+
+    acct_state->data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sz ) );
+    acct_state->data->size    = (uint)sz;
+    fd_memcpy( acct_state->data->bytes, epoch_schedule_data, sz );
+    acct_state->executable    = 0;
+    acct_state->rent_epoch    = ULONG_MAX;
+    fd_memcpy( acct_state->owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
+    acct_state->has_seed_addr = false;
   }
 
   if( !seen_sysvar_accounts[2] ) { /* Rent */
@@ -693,19 +740,92 @@ fd_harness_convert_legacy_instr( uchar const * file_buf, ulong file_sz ) {
     fd_memset( recent_block_hashes, 0, sizeof(fd_block_block_hash_entry_t) );
     fd_recent_block_hashes_t rbh = { .hashes = recent_block_hashes };
 
-    uchar * buf = fd_scratch_alloc( 1UL, FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE );
     ulong   sz  = fd_recent_block_hashes_size( &rbh );
+    uchar * rent_data = fd_scratch_alloc( 1UL, FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE );
+
     if( sz<FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE ) {
       sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
     }
   
     fd_bincode_encode_ctx_t ctx = {
-      .data    = buf,
-      .dataend = buf + sz
+      .data    = rent_data,
+      .dataend = rent_data + sz
     };
     
     fd_recent_block_hashes_encode( &rbh, &ctx );
+
+    exec_env.acct_states_count++;
+    fd_v2_acct_state_t * acct_state = &exec_env.acct_states[legacy_instr.accounts_count + num_extra_accs];
+    fd_memcpy( acct_state->address, &fd_sysvar_rent_id, sizeof(fd_pubkey_t) );
+    acct_state->lamports = 1000000;
+
+    acct_state->data          = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sz ) );
+    acct_state->data->size    = (uint)sz;
+    fd_memcpy( acct_state->data->bytes, rent_data, sz );
+    acct_state->executable    = 0;
+    acct_state->rent_epoch    = ULONG_MAX;
+    fd_memcpy( acct_state->owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
+    acct_state->has_seed_addr = false;
   }
+
+  exec_env.slots_count = 1;
+  exec_env.slots = &slot_env;
+
+  slot_env.slot_number = legacy_instr.slot_context.slot;
+  slot_env.txns_count  = 1U;
+  slot_env.txns       = &txn_env;
+
+  txn_env.has_header = true;
+  
+
+  txn_env.is_legacy = false;
+  txn_env.account_keys_count = legacy_instr.instr_accounts_count;
+  txn_env.account_keys       = fd_scratch_alloc( alignof(pb_bytes_array_t*), 
+                                                 PB_BYTES_ARRAY_T_ALLOCSIZE( legacy_instr.instr_accounts_count * sizeof(pb_bytes_array_t*) ) );
+
+  for( uint i=0U; i<legacy_instr.instr_accounts_count; i++ ) {
+    txn_env.account_keys[i]       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_pubkey_t) ) );
+    txn_env.account_keys[i]->size = sizeof(fd_pubkey_t);
+  }
+
+  /* Current index */
+  uint curr_idx = 0U;
+  for( uint i=0U; i<legacy_instr.instr_accounts_count; i++ ) {
+    if( legacy_instr.instr_accounts[i].is_writable && legacy_instr.instr_accounts[i].is_signer ) {
+      fd_pubkey_t * pubkey = (fd_pubkey_t*)exec_env.acct_states[i].address;
+      fd_memcpy( txn_env.account_keys[curr_idx]->bytes, pubkey, sizeof(fd_pubkey_t) );
+      curr_idx++;
+    }
+  }
+
+  for( uint i=0U; i<legacy_instr.instr_accounts_count; i++ ) {
+    if( !legacy_instr.instr_accounts[i].is_writable && legacy_instr.instr_accounts[i].is_signer ) {
+      fd_pubkey_t * pubkey = (fd_pubkey_t*)exec_env.acct_states[i].address;
+      fd_memcpy( txn_env.account_keys[curr_idx]->bytes, pubkey, sizeof(fd_pubkey_t) );
+      curr_idx++;
+    }
+  }
+
+  for( uint i=0U; i<legacy_instr.instr_accounts_count; i++ ) {
+    if( legacy_instr.instr_accounts[i].is_writable && !legacy_instr.instr_accounts[i].is_signer ) {
+      fd_pubkey_t * pubkey = (fd_pubkey_t*)exec_env.acct_states[i].address;
+      fd_memcpy( txn_env.account_keys[curr_idx]->bytes, pubkey, sizeof(fd_pubkey_t) );
+      curr_idx++;
+    }
+  }
+
+  for( uint i=0U; i<legacy_instr.instr_accounts_count; i++ ) {
+    if( !legacy_instr.instr_accounts[i].is_writable && !legacy_instr.instr_accounts[i].is_signer ) {
+      fd_pubkey_t * pubkey = (fd_pubkey_t*)exec_env.acct_states[i].address;
+      fd_memcpy( txn_env.account_keys[curr_idx]->bytes, pubkey, sizeof(fd_pubkey_t) );
+      curr_idx++;
+    }
+  }
+
+  txn_env.instrs_count = 1U;
+  txn_env.instrs       = &instr_env;
+
+  fd_harness_dump_file( &exec_env, NULL, 0, filename );
 
   return 0;
 }
