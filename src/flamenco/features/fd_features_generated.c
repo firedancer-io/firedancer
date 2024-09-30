@@ -182,13 +182,13 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x70\x98\xf0\x2f\xdb\x58\x69\x1a\xba\xa2\xec\x86\xb4\x8a\xcf\x96\xea\x49\x69\xd6\x97\xe7\x06\xfa\x9b\x08\x12\x54\xf9\x3e\x27\x92"},
                   /* 8aXvSuopd1PUj7UhehfXJRg6619RHp8ZvwTyyJHdUYsj */
     .name       = "libsecp256k1_fail_on_bad_count",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 10} },
 
   { .index      = offsetof(fd_features_t, libsecp256k1_fail_on_bad_count2)>>3,
     .id         = {"\x3c\x48\x08\xa9\xa9\x6b\x76\x15\x09\x65\x48\xc5\x3b\x5c\x2d\x94\xac\x24\xba\x3d\xe3\x96\xb4\xda\x47\x43\xf0\xfe\x52\xe3\xdb\x01"},
                   /* 54KAoNiUERNoWWUhTWWwXgym94gzoXFVnHyQwPA18V9A */
     .name       = "libsecp256k1_fail_on_bad_count2",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 10} },
 
   { .index      = offsetof(fd_features_t, instructions_sysvar_owned_by_sysvar)>>3,
     .id         = {"\xee\x6e\xf9\xea\xd9\x55\x5c\x4b\x5b\x67\xec\x20\x84\x44\xe4\xfb\x95\x77\xbc\x1e\x0e\xb2\xba\x54\x3f\xe7\x19\x5e\x90\xb3\x10\x9a"},
