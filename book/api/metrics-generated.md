@@ -31,6 +31,14 @@
 | stem_&#8203;fragment_&#8203;filtered_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was filtered and not processed by the tile. |
 | stem_&#8203;fragment_&#8203;handled_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was processed (not filtered) by the tile. |
 
+## Net Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| net_&#8203;tile_&#8203;received_&#8203;packets | `counter` | Number of IP packets received. |
+| net_&#8203;tile_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP headers). |
+| net_&#8203;tile_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
+| net_&#8203;tile_&#8203;sent_&#8203;bytes | `counter` | Total bytes sent (including IP, UDP headers). |
+
 ## Quic Tile
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -50,6 +58,7 @@
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Oversize message) |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Out-of-order data within QUIC stream) |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Unexpected slot state) |
+| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;aborted | `counter` | Reassembly slot was aborted before it was notified. |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;clobbered | `counter` | Reassembly slot was clobbered before it was notified. |
 | quic_&#8203;tile_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
@@ -82,6 +91,13 @@
 | quic_&#8203;stream_&#8203;active_&#8203;uni_&#8203;server | `gauge` | Number of active streams. (Unidirectional server) |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
+
+## Verify Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| verify_&#8203;transaction_&#8203;parse_&#8203;failure | `counter` | Count of transactions that failed to parse |
+| verify_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
+| verify_&#8203;transaction_&#8203;verify_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
 
 ## Dedup Tile
 | Metric | Type | Description |

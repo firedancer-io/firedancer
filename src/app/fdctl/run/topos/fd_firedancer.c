@@ -77,7 +77,6 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "voter_gossip" );
   fd_topob_wksp( topo, "voter_dedup"  );
   fd_topob_wksp( topo, "poh_replay"   );
-  fd_topob_wksp( topo, "bank_poh"   );
 
   fd_topob_wksp( topo, "net"        );
   fd_topob_wksp( topo, "quic"       );
@@ -147,7 +146,6 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "pack_replay",  "pack_replay",  0,        65536UL,                                  USHORT_MAX,                    1UL   );
   /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   0,        128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
   /**/                 fd_topob_link( topo, "poh_replay",   "poh_replay",   0,        128UL,                                    USHORT_MAX,                    1UL   ); /* TODO: not properly sized yet */
-  /**/                 fd_topob_link( topo, "bank_poh",   "bank_poh",   0,        128UL,                                    USHORT_MAX,                    1UL   ); /* TODO: not properly sized yet */
 
   /**/                 fd_topob_link( topo, "replay_voter", "replay_voter", 0,        128UL,                                    FD_TPU_DCACHE_MTU,             1UL   );
   /**/                 fd_topob_link( topo, "voter_gossip", "voter_gossip", 0,        128UL,                                    FD_TXN_MTU,                    1UL   );
@@ -369,9 +367,6 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_in(  topo, "repair",   0UL,          "metric_in", "sign_repair",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_repair",  0UL                                                  );
 
-  /**/                 fd_topob_tile_out( topo, "bhole",  0UL,                        "bank_poh",    0UL                                                  );
-  /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "bank_poh",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-
 
   /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */
   fd_topo_obj_t * net0_pid_obj = fd_topob_obj( topo, "fseq", "net" );
@@ -430,11 +425,12 @@ fd_topo_firedancer( config_t * _config ) {
       fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
-      tile->shred.depth                  = topo->links[ tile->out_link_id_primary ].depth;
-      tile->shred.ip_addr                = config->tiles.net.ip_addr;
-      tile->shred.fec_resolver_depth     = config->tiles.shred.max_pending_shred_sets;
-      tile->shred.expected_shred_version = config->consensus.expected_shred_version;
-      tile->shred.shred_listen_port      = config->tiles.shred.shred_listen_port;
+      tile->shred.depth                         = topo->links[ tile->out_link_id_primary ].depth;
+      tile->shred.ip_addr                       = config->tiles.net.ip_addr;
+      tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
+      tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
+      tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
+      tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
       strncpy( tile->store_int.blockstore_restore, config->tiles.store_int.blockstore_restore, sizeof(tile->store_int.blockstore_restore) );
@@ -523,6 +519,8 @@ fd_topo_firedancer( config_t * _config ) {
       tile->pack.bank_tile_count               = config->layout.bank_tile_count;
       tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+      tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
+      if( FD_UNLIKELY( tile->pack.use_consumed_cus ) ) FD_LOG_ERR(( "Firedancer does not support CU rebating yet.  [tiles.pack.use_consumed_cus] must be false" ));
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pohi" ) ) ) {
       strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
 

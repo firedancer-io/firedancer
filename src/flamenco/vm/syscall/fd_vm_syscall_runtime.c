@@ -30,7 +30,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_CLOCK_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SOL_SYSVAR_CLOCK_ALIGN, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_CLOCK, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_sol_sysvar_clock_t clock[1];
@@ -66,7 +66,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_EPOCH_SCHEDULE_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_EPOCH_SCHEDULE_ALIGN, FD_EPOCH_SCHEDULE_FOOTPRINT );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE, FD_EPOCH_SCHEDULE_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_epoch_schedule_t schedule[1];
@@ -102,7 +102,7 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_FEES_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SYSVAR_FEES_ALIGN, FD_SYSVAR_FEES_FOOTPRINT );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_FEES, FD_SYSVAR_FEES_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_sysvar_fees_t fees[1];
@@ -138,7 +138,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_RENT_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_RENT_ALIGN, FD_RENT_FOOTPRINT );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_RENT, FD_RENT_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_rent_t rent[1];
@@ -166,7 +166,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT ) );
 
   fd_sol_sysvar_last_restart_slot_t * out = 
-    FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
+    FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
   if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out, vm->instr_ctx->slot_ctx ) == NULL ) ) {
     return FD_VM_ERR_ABORT;
   }
@@ -409,7 +409,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       fd_vm_rust_account_meta_t * result_accounts_haddr = FD_VM_MEM_SLICE_HADDR_ST(
         vm,
         result_accounts_vaddr,
-        FD_VM_RUST_ACCOUNT_META_ALIGN, //TODO: sync FD_VM_ALIGN_RUST_* and FD_VM_RUST_*
+        FD_VM_RUST_ACCOUNT_META_ALIGN,
         accounts_meta_total_size);
 
       /* Check for memory overlaps

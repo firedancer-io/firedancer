@@ -100,8 +100,13 @@ agave_boot( config_t * config ) {
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
   for( ulong i=0UL; i<config->ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->ledger.account_indexes[ i ] );
-  for( ulong i=0UL; i<config->ledger.account_index_exclude_keys_cnt; i++ )
-    ADD( "--account-index-exclude-key", config->ledger.account_index_exclude_keys[ i ] );
+  if( FD_LIKELY( !config->ledger.account_index_include_keys_cnt ) ) {
+    for( ulong i=0UL; i<config->ledger.account_index_exclude_keys_cnt; i++ )
+      ADD( "--account-index-exclude-key", config->ledger.account_index_exclude_keys[ i ] );
+  } else {
+    for( ulong i=0UL; i<config->ledger.account_index_include_keys_cnt; i++ )
+      ADD( "--account-index-include-key", config->ledger.account_index_include_keys[ i ] );
+  }
 
   /* gossip */
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
@@ -134,6 +139,10 @@ agave_boot( config_t * config ) {
   ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
   ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
   ADD( "--snapshots", config->snapshots.path );
+  if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshots", config->snapshots.incremental_path );
+  ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );
+  ADDU( "--maximum-incremental-snapshots-to-retain", config->snapshots.maximum_incremental_snapshots_to_retain );
+  ADDU( "--minimal-snapshot-download-speed", config->snapshots.minimum_snapshot_download_speed );
 
   argv[ idx ] = NULL;
 

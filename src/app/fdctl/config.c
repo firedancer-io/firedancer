@@ -423,6 +423,7 @@ parse_log_level( char const * level ) {
   return -1;
 }
 
+#ifdef FD_HAS_NO_AGAVE
 FD_FN_CONST static char *
 cluster_to_cstr( ulong cluster ) {
   switch( cluster ) {
@@ -435,6 +436,7 @@ cluster_to_cstr( ulong cluster ) {
     default:                             return "unknown";
   }
 }
+#endif
 
 static char *
 default_user( void ) {
@@ -644,6 +646,7 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.authorized_voter_paths[ i ], "{name}", config->name );
   }
 
+#ifdef FD_HAS_NO_AGAVE
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -652,6 +655,7 @@ fdctl_cfg_from_env( int *      pargc,
                  "can start against the testnet cluster by specifying the testnet "
                  "entrypoints from https://docs.solana.com/clusters under "
                  "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
+#endif
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )
@@ -664,8 +668,8 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.bench.disable_blockstore ) )
-      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_blockstore] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
     if( FD_UNLIKELY( !config->development.bench.disable_status_cache ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }

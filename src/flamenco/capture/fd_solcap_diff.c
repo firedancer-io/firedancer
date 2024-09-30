@@ -172,11 +172,11 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff, ulong start_slot, ulong end_sl
     /* Handle cases where slot is skipped in one or the other */
     if ( FD_UNLIKELY( prev_slot0 < slot1 && slot0 > slot1 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n",
-                      diff->file_paths[0], prev_slot0, slot0));
+                      prev_slot0, slot0, diff->file_paths[0]));
     }
     else if ( FD_UNLIKELY( prev_slot1 < slot0 && slot1 > slot0 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n",
-                      diff->file_paths[1], prev_slot1, slot1));
+                      prev_slot1, slot1, diff->file_paths[1]));
     }
 
     if( slot0 == slot1 ) {
@@ -771,9 +771,9 @@ fd_solcap_transaction_fd_diff( fd_solcap_txn_differ_t * txn_differ ) {
     if ( diff_txns || diff_cus ) {
       printf(
         "\nslot:             %lu\n"
-        "txn_sig:         '%64J'\n",
+        "txn_sig:         '%s'\n",
         txn_differ->transaction[0].slot,
-        txn_differ->transaction[0].txn_sig );
+        FD_BASE58_ENCODE_64( txn_differ->transaction[0].txn_sig) );
     }
     if ( diff_txns ) {
       printf(
@@ -823,25 +823,25 @@ fd_solcap_transaction_solana_diff( fd_solcap_Transaction * transaction,
        transaction->fd_cus_used != transaction->solana_cus_used ) {
     printf(
       "slot:                    %lu\n"
-      "txn_sig:                '%64J'\n"
+      "txn_sig:                '%s'\n"
       "    (+) txn_err:         %d\n"
       "    (-) solana_txn_err:  %lu\n"
       "    (+) cus_used:        %lu\n"
       "    (-) solana_cus_used: %lu\n"
       "    instr_err_idx:       %d\n"
-      "    explorer:           'https://explorer.solana.com/tx/%64J'\n"
-      "    solscan:            'https://solscan.io/tx/%64J'\n"
-      "    solanafm:           'https://solana.fm/tx/%64J'\n",
+      "    explorer:           'https://explorer.solana.com/tx/%s'\n"
+      "    solscan:            'https://solscan.io/tx/%s'\n"
+      "    solanafm:           'https://solana.fm/tx/%s'\n",
       transaction->slot,
-      transaction->txn_sig,
+      FD_BASE58_ENCODE_64( transaction->txn_sig ),
       transaction->fd_txn_err,
       transaction->solana_txn_err,
       transaction->fd_cus_used,
       transaction->solana_cus_used,
       transaction->instr_err_idx,
-      transaction->txn_sig,
-      transaction->txn_sig,
-      transaction->txn_sig );
+      FD_BASE58_ENCODE_64( transaction->txn_sig ),
+      FD_BASE58_ENCODE_64( transaction->txn_sig ),
+      FD_BASE58_ENCODE_64( transaction->txn_sig ) );
   }
 }
 

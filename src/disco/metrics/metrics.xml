@@ -196,12 +196,20 @@ metric introduced.
     </histogram>
 </group>
 
+<group name="NetTile" tile="net">
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP headers)." />
+</group>
+
 <group name="QuicTile" tile="quic">
     <counter name="NonQuicReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a non-QUIC UDP transaction." />
     <counter name="NonQuicReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a non-QUIC UDP transaction." />
     <counter name="ReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a QUIC transaction." />
     <counter name="ReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a QUIC transaction." />
 
+    <counter name="ReassemblyNotifyAborted" summary="Reassembly slot was aborted before it was notified." />
     <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
 
     <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
@@ -258,6 +266,12 @@ metric introduced.
 
     <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+</group>
+
+<group name="Verify" tile="verify">
+    <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
+    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
+    <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
 </group>
 
 <group name="Dedup" tile="dedup">

@@ -67,4 +67,6 @@ int fd_web_reply_encode_hex( fd_webserver_t * ws,
 int fd_web_reply_sprintf( fd_webserver_t * ws, const char* format, ... )
   __attribute__ ((format (printf, 2, 3)));
 
+int fd_web_reply_encode_json_string( fd_webserver_t * ws, const char* str );
+
 #endif /* HEADER_fd_src_tango_webserver_fd_webserver_h */

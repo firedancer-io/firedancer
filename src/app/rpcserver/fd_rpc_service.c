@@ -569,6 +569,7 @@ static int
 method_getBlockCommitment(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getBlockCommitment is not implemented" ));
   fd_method_error(ctx, -1, "getBlockCommitment is not implemented");
   return 0;
 }
@@ -592,6 +593,7 @@ static int
 method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getBlockProduction is not implemented" ));
   fd_method_error(ctx, -1, "getBlockProduction is not implemented");
   return 0;
 }
@@ -738,6 +740,7 @@ static int
 method_getClusterNodes(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getClusterNodes is not implemented" ));
   fd_method_error(ctx, -1, "getClusterNodes is not implemented");
   return 0;
 }
@@ -890,6 +893,7 @@ static int
 method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getHighestSnapshotSlot is not implemented" ));
   fd_method_error(ctx, -1, "getHighestSnapshotSlot is not implemented");
   return 0;
 }
@@ -914,6 +918,7 @@ static int
 method_getInflationGovernor(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getInflationGovernor is not implemented" ));
   fd_method_error(ctx, -1, "getInflationGovernor is not implemented");
   return 0;
 }
@@ -925,6 +930,7 @@ static int
 method_getInflationRate(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   (void)ctx;
+  FD_LOG_WARNING(( "getInflationRate is not implemented" ));
   fd_method_error(ctx, -1, "getInflationRate is not implemented");
   return 0;
   /* FIXME!
@@ -947,6 +953,7 @@ static int
 method_getInflationReward(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getInflationReward is not implemented" ));
   fd_method_error(ctx, -1, "getInflationReward is not implemented");
   return 0;
 }
@@ -956,6 +963,7 @@ static int
 method_getLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getLargestAccounts is not implemented" ));
   fd_method_error(ctx, -1, "getLargestAccounts is not implemented");
   return 0;
 }
@@ -984,6 +992,7 @@ static int
 method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getLeaderSchedule is not implemented" ));
   fd_method_error(ctx, -1, "getLeaderSchedule is not implemented");
   return 0;
 }
@@ -993,6 +1002,7 @@ static int
 method_getMaxRetransmitSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getMaxRetransmitSlot is not implemented" ));
   fd_method_error(ctx, -1, "getMaxRetransmitSlot is not implemented");
   return 0;
 }
@@ -1120,6 +1130,7 @@ static int
 method_getProgramAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getProgramAccounts is not implemented" ));
   fd_method_error(ctx, -1, "getProgramAccounts is not implemented");
   return 0;
 }
@@ -1167,6 +1178,7 @@ static int
 method_getRecentPrioritizationFees(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getRecentPrioritizationFees is not implemented" ));
   fd_method_error(ctx, -1, "getRecentPrioritizationFees is not implemented");
   return 0;
 }
@@ -1176,6 +1188,7 @@ static int
 method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSignaturesForAddress is not implemented" ));
   fd_method_error(ctx, -1, "getSignaturesForAddress is not implemented");
   return 0;
 }
@@ -1250,6 +1263,7 @@ static int
 method_getSlotLeader(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSlotLeader is not implemented" ));
   fd_method_error(ctx, -1, "getSlotLeader is not implemented");
   /* FIXME!
      fd_webserver_t * ws = &ctx->global->ws;
@@ -1267,6 +1281,7 @@ static int
 method_getSlotLeaders(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSlotLeaders is not implemented" ));
   fd_method_error(ctx, -1, "getSlotLeaders is not implemented");
   return 0;
 }
@@ -1276,6 +1291,7 @@ static int
 method_getStakeActivation(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getStakeActivation is not implemented" ));
   fd_method_error(ctx, -1, "getStakeActivation is not implemented");
   return 0;
 }
@@ -1285,6 +1301,7 @@ static int
 method_getStakeMinimumDelegation(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getStakeMinimumDelegation is not implemented" ));
   fd_method_error(ctx, -1, "getStakeMinimumDelegation is not implemented");
   return 0;
 }
@@ -1295,6 +1312,7 @@ static int
 method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getSupply is not implemented" ));
   fd_method_error(ctx, -1, "getSupply is not implemented");
   return 0;
 }
@@ -1304,6 +1322,7 @@ static int
 method_getTokenAccountBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenAccountBalance is not implemented" ));
   fd_method_error(ctx, -1, "getTokenAccountBalance is not implemented");
   return 0;
 }
@@ -1313,6 +1332,7 @@ static int
 method_getTokenAccountsByDelegate(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenAccountsByDelegate is not implemented" ));
   fd_method_error(ctx, -1, "getTokenAccountsByDelegate is not implemented");
   return 0;
 }
@@ -1322,6 +1342,7 @@ static int
 method_getTokenAccountsByOwner(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenAccountsByOwner is not implemented" ));
   fd_method_error(ctx, -1, "getTokenAccountsByOwner is not implemented");
   return 0;
 }
@@ -1331,6 +1352,7 @@ static int
 method_getTokenLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenLargestAccounts is not implemented" ));
   fd_method_error(ctx, -1, "getTokenLargestAccounts is not implemented");
   return 0;
 }
@@ -1340,6 +1362,7 @@ static int
 method_getTokenSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "getTokenSupply is not implemented" ));
   fd_method_error(ctx, -1, "getTokenSupply is not implemented");
   return 0;
 }
@@ -1465,7 +1488,7 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_web_reply_sprintf( ws,
-                          "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                          "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                           slot_bank->transaction_count,
                           ctx->call_id );
     fd_readwrite_end_read( &glob->lock );
@@ -1609,6 +1632,7 @@ static int
 method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "minimumLedgerSlot is not implemented" ));
   fd_method_error(ctx, -1, "minimumLedgerSlot is not implemented");
   return 0;
 }
@@ -1618,6 +1642,7 @@ static int
 method_requestAirdrop(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "requestAirdrop is not implemented" ));
   fd_method_error(ctx, -1, "requestAirdrop is not implemented");
   return 0;
 }
@@ -1707,6 +1732,7 @@ static int
 method_simulateTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
+  FD_LOG_WARNING(( "simulateTransaction is not implemented" ));
   fd_method_error(ctx, -1, "simulateTransaction is not implemented");
   return 0;
 }

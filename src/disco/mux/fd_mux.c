@@ -191,13 +191,12 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
       this_in->mcache = in_mcache[ in_idx ];
       this_in->fseq   = in_fseq  [ in_idx ];
-      ulong const * this_in_sync = fd_mcache_seq_laddr_const( this_in->mcache );
 
       ulong depth    = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, depth );
       if( FD_UNLIKELY( depth > UINT_MAX ) ) { FD_LOG_WARNING(( "in_mcache[%lu] too deep", in_idx )); return 1; }
       this_in->depth = (uint)depth;
       this_in->idx   = (uint)in_idx;
-      this_in->seq   = fd_mcache_seq_query( this_in_sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION? */
+      this_in->seq   = 0UL;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
 
       this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;

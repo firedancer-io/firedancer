@@ -36,7 +36,7 @@ dump_vm_cpi_state(fd_vm_t *vm,
                   ulong   signers_seeds_cnt ) {
   char filename[100];
   fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%hu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
 
   // Check if file exists
   if( access (filename, F_OK) != -1 ) {
@@ -503,14 +503,6 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                     || (instruction_data_len != 0 && instruction_data[0] == 5))) /* is_close_instruction */
             || fd_vm_syscall_cpi_is_precompile(program_id));
 }
-
-/*
-TODO: check_align is set wrong in the runtime, ensure that it is set correctly:
-https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L869-L881.
-- Programs owned by the bpf_loader_deprecated should set this to false.
-- All other programs should set this to true.
-*/
-
 
 /**********************************************************************
   CROSS PROGRAM INVOCATION (C ABI)

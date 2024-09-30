@@ -9,6 +9,7 @@
 #include <printf.h>
 #include "../ballet/base58/fd_base58.h"
 
+/* Deprecated, use FD_BASE58_ENCODE_{32,64} instead */
 FD_FN_NO_MSAN static int
 fd_printf_specifier_base58( FILE *                     stream,
                             struct printf_info const * info,

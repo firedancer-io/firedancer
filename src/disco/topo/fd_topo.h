@@ -173,6 +173,7 @@ typedef struct {
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
+      int   use_consumed_cus;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
@@ -188,11 +189,12 @@ typedef struct {
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
+      int    larger_shred_limits_per_block;
       ulong  expected_shred_version;
     } shred;
 
     struct {
-      int disable_blockstore;
+      ulong disable_blockstore_from_slot;
     } store;
 
     struct {

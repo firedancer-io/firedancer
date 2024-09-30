@@ -263,7 +263,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
+  txn_ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -698,7 +698,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Provde default slot hashes of size 1 if not provided */
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
     fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_scratch_virtual(), 1 );
-    memset( &slot_hashes[0], 0, sizeof(fd_slot_hash_t) );
+    fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
+    memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
     fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };
     fd_sysvar_slot_hashes_init( slot_ctx, &default_slot_hashes );
   }
@@ -761,6 +762,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = test_ctx->max_age;
+  slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
   slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
@@ -1726,7 +1728,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     }
   }
 
-  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+  if( input->vm_ctx.heap_max > FD_VM_HEAP_MAX ) {
     goto error;
   }
 
@@ -1753,7 +1755,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     input_regions,
     input_regions_count,
     NULL,
-    (uchar)false );
+    input->vm_ctx.check_align );
 
   // Setup the vm state for execution
   if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
@@ -1774,9 +1776,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   vm->reg[9] = input->vm_ctx.r9;
   vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
-
-  vm->check_align = input->vm_ctx.check_align;
-  vm->check_size = input->vm_ctx.check_size;
 
   // Override initial part of the heap, if specified the syscall fuzzer input
   if( input->syscall_invocation.heap_prefix ) {

@@ -45,7 +45,6 @@ struct test_input {
   ushort        off;
   ulong         imm;
   ulong         reg[REG_CNT];
-  int           reject_callx_r10;
   uint          region_boundary[16]; /* This can be changed */
   uint          region_boundary_cnt;
 };
@@ -326,11 +325,6 @@ parse_token( test_parser_t *  p,
     ulong * out = p->state == PARSE_STATE_ASSERT ? p->effects.reg : p->input.reg;
     out[ reg ] = parse_hex_int( p );
 
-  } else if( 0==strncmp( word, "reject_callx_r10", word_len ) ) {
-
-    parse_assign_sep( p );
-    p->input.reject_callx_r10 = !!parse_hex_int( p );
-
   } else {
 
     FD_LOG_ERR(( "Unexpected token '%.*s' at %s(%lu)", (int)word_len, word, p->path, p->line ));
@@ -437,7 +431,7 @@ run_input( test_input_t const * input,
       fd_sbpf_syscalls_new(
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) ) );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), input->reject_callx_r10 );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   int vm_ok = !!fd_vm_init(
       /* vm               */ vm,

@@ -163,6 +163,7 @@ typedef struct {
   ulong    bank_cnt;
   ulong    bank_idle_bitset; /* bit i is 1 if we've observed *bank_current[i]==bank_expect[i] */
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
+  int      use_consumed_cus;
   long     skip_cnt;
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
@@ -284,11 +285,18 @@ after_credit( void *             _ctx,
   (void)opt_poll_in;
 
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
-  if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return;
+
+  if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
 
   ulong bank_cnt = ctx->bank_cnt;
+
+  /* If we're using CU rebates, then we have one in for each bank in
+     addition to the two normal ones.  That means that after_credit will
+     be called about (bank_cnt/2) times more frequently per transaction
+     we receive. */
+  fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(bank_cnt/2UL) );
 
   /* If any banks are busy, check one of the busy ones see if it is
      still busy. */
@@ -386,7 +394,7 @@ after_credit( void *             _ctx,
        helps with account locality. */
     fd_pack_microblock_complete( ctx->pack, (ulong)i );
 
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
     FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -411,7 +419,7 @@ after_credit( void *             _ctx,
       ctx->slot_microblock_cnt++;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
-      ctx->skip_cnt         = (long)schedule_cnt;
+      ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
     }
   }
 
@@ -513,6 +521,7 @@ during_frag( void * _ctx,
   }
 
   if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
+    FD_TEST( ctx->use_consumed_cus );
     if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) {
       /* For a previous slot */
       *opt_filter = 1;
@@ -531,7 +540,7 @@ during_frag( void * _ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   long now = fd_tickcount();
-  ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+  ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
   FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
   if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
@@ -621,7 +630,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX+tile->pack.bank_tile_count ||
+  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX+fd_ulong_if( tile->pack.use_consumed_cus, tile->pack.bank_tile_count, 0UL ) ||
                    strcmp( topo->links[ tile->in_link_id[ DEDUP_IN_IDX ] ].name, "dedup_pack" ) ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX   ] ].name, "poh_pack"   ) ) ) {
     FD_LOG_ERR(( "pack tile has none or unexpected input links %lu %s %s",
@@ -629,10 +638,12 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt>=1 ? topo->links[ tile->in_link_id[ 0 ] ].name : "NULL",
                  tile->in_cnt>=2 ? topo->links[ tile->in_link_id[ 1 ] ].name : "NULL" ));
   }
-  for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
-    if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
-      FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
-            topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
+  if( FD_LIKELY( tile->pack.use_consumed_cus ) ) {
+    for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
+      if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
+        FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
+              topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
+      }
     }
   }
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many bank tiles" ));
@@ -680,6 +691,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->transaction_lifetime_ticks    = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)TRANSACTION_LIFETIME_NS + 0.5);
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
   ctx->insert_to_extra               = 0;
+  ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
 
   ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
   for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {

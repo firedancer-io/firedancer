@@ -188,12 +188,16 @@ fd_calculate_stake_weighted_timestamp(
   fd_sysvar_clock_read( &clock, slot_ctx );
   // get the unique timestamps
   /* stake per timestamp */
-  stake_ts_treap_t _treap[1];
-  void * shmem = (void *)_treap;
-  void * shtreap = stake_ts_treap_new( shmem, 10240UL );
-  stake_ts_treap_t * treap = stake_ts_treap_join( shtreap );
-  uchar * scratch = fd_scratch_alloc( stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
-  stake_ts_ele_t * pool = stake_ts_pool_join( stake_ts_pool_new( scratch, 10240UL ) );
+
+  /* Set up a temporary treap, pool, and rng (required for treap prio) */
+  /* FIXME Hardcoded constant */
+  stake_ts_treap_t   _treap[1];
+  stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, 10240UL ) );
+  uchar *            pool_mem = fd_scratch_alloc( stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
+  stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, 10240UL ) );
+  fd_rng_t           _rng[1];
+  fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, (uint)slot_ctx->slot_bank.transaction_count, 0UL ) );
+
   ulong total_stake = 0;
 
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_ctx->slot_bank.timestamp_votes.votes_root;
@@ -208,7 +212,7 @@ fd_calculate_stake_weighted_timestamp(
 
     /* get timestamp */
     fd_pubkey_t const * vote_pubkey = &n->elem.key;
-    
+
     if( timestamp_votes_pool == NULL ) {
       continue;
     } else {
@@ -243,8 +247,9 @@ fd_calculate_stake_weighted_timestamp(
           FD_LOG_ERR(( "stake_ts_pool is empty" ));
         }
         ulong idx = stake_ts_pool_idx_acquire( pool );
+        pool[ idx ].prio_cidx = fd_rng_ulong( rng );
         pool[ idx ].timestamp = estimate;
-        pool[ idx ].stake = n->elem.stake;
+        pool[ idx ].stake     = n->elem.stake;
         stake_ts_treap_idx_insert( treap, idx, pool );
       }
     }

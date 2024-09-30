@@ -43,13 +43,20 @@
       }
     ``` */
 
-#define FD_VM_ALIGN_RUST_U8           (1UL)
-#define FD_VM_ALIGN_RUST_U32          (4UL)
-#define FD_VM_ALIGN_RUST_U64          (8UL)
-#define FD_VM_ALIGN_RUST_U128        (16UL)
-#define FD_VM_ALIGN_RUST_SLICE_U8_REF (8UL)
-#define FD_VM_ALIGN_RUST_POD_U8_ARRAY (1UL)
-#define FD_VM_ALIGN_RUST_PUBKEY       (1UL)
+#define FD_VM_ALIGN_RUST_U8                       (1UL)
+#define FD_VM_ALIGN_RUST_U32                      (4UL)
+#define FD_VM_ALIGN_RUST_I32                      (4UL)
+#define FD_VM_ALIGN_RUST_U64                      (8UL)
+#define FD_VM_ALIGN_RUST_U128                     (16UL)
+#define FD_VM_ALIGN_RUST_SLICE_U8_REF             (8UL)
+#define FD_VM_ALIGN_RUST_POD_U8_ARRAY             (1UL)
+#define FD_VM_ALIGN_RUST_PUBKEY                   (1UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_CLOCK             (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE    (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_FEES              (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_RENT              (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT (8UL)
+#define FD_VM_ALIGN_RUST_STABLE_INSTRUCTION       (8UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
    Equal in layout to the Rust slice header &[_] and various vector
@@ -499,7 +506,7 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
     if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) {                                                  \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
@@ -520,7 +527,7 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
     if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi) ) {                                                   \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
@@ -533,7 +540,7 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
     if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) {                                                  \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \

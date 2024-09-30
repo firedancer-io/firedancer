@@ -178,7 +178,7 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
 
 fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
-                     fd_quic_conn_id_t const * our_conn_id,
+                     ulong                     our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
@@ -363,8 +363,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
    incoming QUIC frames.  {quic,conn,pkt} identify the frame context.
    Memory region [frame_ptr,frame_ptr+frame_sz) contains the serialized
    QUIC frame (may contain arbitrary zero padding at the beginning).
-   frame_scratch is used as scratch space for deserialization and frame
-   handling.
 
    Returns value in (0,buf_sz) if the frame was successfully processed.
    Returns FD_QUIC_PARSE_FAIL if the frame was inherently malformed.
@@ -377,8 +375,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_pkt_t *   pkt,
                          uint              pkt_type,
                          uchar const *     frame_ptr,
-                         ulong             frame_sz,
-                         fd_quic_frame_u * frame_scratch );
+                         ulong             frame_sz );
 
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause

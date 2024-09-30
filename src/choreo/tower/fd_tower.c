@@ -1031,11 +1031,12 @@ void
 fd_tower_to_tower_sync( fd_tower_t const *               tower,
                         fd_hash_t const *                bank_hash,
                         fd_compact_vote_state_update_t * tower_sync ) {
-  tower_sync->root         = tower->root;
-  long ts                  = fd_log_wallclock();
-  tower_sync->timestamp    = &ts;
-  tower_sync->lockouts_len = (ushort)fd_tower_votes_cnt( tower->votes );
-  tower_sync->lockouts     = (fd_lockout_offset_t *)
+  tower_sync->root          = tower->root;
+  long ts                   = fd_log_wallclock();
+  tower_sync->has_timestamp = 1;
+  tower_sync->timestamp     = ts;
+  tower_sync->lockouts_len  = (ushort)fd_tower_votes_cnt( tower->votes );
+  tower_sync->lockouts      = (fd_lockout_offset_t *)
       fd_scratch_alloc( alignof( fd_lockout_offset_t ),
                         tower_sync->lockouts_len * sizeof( fd_lockout_offset_t ) );
 

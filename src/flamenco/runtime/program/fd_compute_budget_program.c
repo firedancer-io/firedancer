@@ -77,7 +77,8 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
         updated_requested_heap_size = instruction.inner.request_heap_frame;
 
         if( FD_UNLIKELY( !sanitize_requested_heap_size( updated_requested_heap_size ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+          FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
+          return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
         } 
         break;
       }

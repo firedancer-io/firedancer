@@ -737,7 +737,10 @@ fd_runtime_execute_txn_task(void *tpool,
   fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
 #ifdef VLOG
-  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
+  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %s",
+                   task_info->txn_ctx->slot_ctx->slot_bank.slot,
+                   m0,
+                   FD_BASE58_ENCODE_64( (uchar *)raw_txn->raw + txn->signature_off )));
 #endif
 
   // Leave this here for debugging...
@@ -753,7 +756,12 @@ fd_runtime_execute_txn_task(void *tpool,
   }
   fd_txn_reclaim_accounts( task_info->txn_ctx );
 
-  // FD_LOG_WARNING(("Transaction result %d for %64J %lu %lu %lu", task_info->exec_res, (uchar *)raw_txn->raw + txn->signature_off, task_info->txn_ctx->compute_meter, task_info->txn_ctx->compute_unit_limit, task_info->txn_ctx->num_instructions));
+  // FD_LOG_WARNING(( "Transaction result %d for %s %lu %lu %lu",
+  //                  task_info->exec_res,
+  //                  FD_BASE58_ENCODE_64( (uchar *)raw_txn->raw + txn->signature_off ),
+  //                  task_info->txn_ctx->compute_meter,
+  //                  task_info->txn_ctx->compute_unit_limit,
+  //                  task_info->txn_ctx->num_instructions ));
 }
 
 int
@@ -837,7 +845,7 @@ fd_txn_sigverify_task( void *tpool,
 
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
-    FD_LOG_WARNING(("sigverify failed: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+    FD_LOG_WARNING(("sigverify failed: %s", FD_BASE58_ENCODE_64( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
     task_info->txn->flags = 0U;
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
@@ -1202,7 +1210,7 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
     if ( meta != NULL ) {
       pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
       if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
-        FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
+        FD_LOG_WARNING(("no txn_status decoding found sig=%s (%s)", FD_BASE58_ENCODE_64( sig ), PB_GET_ERROR(&stream)));
       }
       if ( txn_status.has_compute_units_consumed ) {
         solana_cus_consumed = txn_status.compute_units_consumed;
@@ -1395,7 +1403,42 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
   txn_status.has_compute_units_consumed = 1;
   txn_status.compute_units_consumed = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
 
+  ulong readonly_cnt = 0;
+  ulong writable_cnt = 0;
+  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
+    for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
+      fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+      readonly_cnt += addr_lut->readonly_cnt;
+      writable_cnt += addr_lut->writable_cnt;
+    }
+  }
+
+  typedef PB_BYTES_ARRAY_T(32) my_ba_t;
+  typedef union { my_ba_t my; pb_bytes_array_t normal; } union_ba_t;
+  union_ba_t writable_ba[writable_cnt];
+  pb_bytes_array_t * writable_baptr[writable_cnt];
+  txn_status.loaded_writable_addresses_count = (uint)writable_cnt;
+  txn_status.loaded_writable_addresses = writable_baptr;
+  ulong idx2 = txn_ctx->txn_descriptor->acct_addr_cnt;
+  for (ulong idx = 0; idx < writable_cnt; idx++) {
+    pb_bytes_array_t * ba = writable_baptr[ idx ] = &writable_ba[ idx ].normal;
+    ba->size = 32;
+    fd_memcpy(ba->bytes, &txn_ctx->accounts[idx2++], 32);
+  }
+
+  union_ba_t readonly_ba[readonly_cnt];
+  pb_bytes_array_t * readonly_baptr[readonly_cnt];
+  txn_status.loaded_readonly_addresses_count = (uint)readonly_cnt;
+  txn_status.loaded_readonly_addresses = readonly_baptr;
+  for (ulong idx = 0; idx < readonly_cnt; idx++) {
+    pb_bytes_array_t * ba = readonly_baptr[ idx ] = &readonly_ba[ idx ].normal;
+    ba->size = 32;
+    fd_memcpy(ba->bytes, &txn_ctx->accounts[idx2++], 32);
+  }
   ulong acct_cnt = txn_ctx->accounts_cnt;
+  FD_TEST(acct_cnt == idx2);
+
   txn_status.pre_balances_count = txn_status.post_balances_count = (pb_size_t)acct_cnt;
   uint64_t pre_balances[acct_cnt];
   txn_status.pre_balances = pre_balances;
@@ -1404,9 +1447,10 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
 
   for (ulong idx = 0; idx < acct_cnt; idx++) {
     fd_borrowed_account_t const * acct = &txn_ctx->borrowed_accounts[idx];
-    pre_balances[idx] = acct->starting_lamports;
+    ulong pre = ( acct->starting_lamports == ULONG_MAX ? 0UL : acct->starting_lamports );
+    pre_balances[idx] = pre;
     post_balances[idx] = ( acct->meta ? acct->meta->info.lamports :
-                           ( acct->orig_meta ? acct->orig_meta->info.lamports : acct->starting_lamports ) );
+                           ( acct->orig_meta ? acct->orig_meta->info.lamports : pre ) );
   }
 
   if( txn_ctx->return_data.len ) {

@@ -171,8 +171,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
 
     /* Translate and get the account data */
-    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, 
-                                                        sizeof(ulong), caller_acc_data_len ); 
+    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len ); 
 
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
         fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
@@ -237,7 +236,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
            smartly look up the right region and don't need to worry about 
            multiple region access.We just need to load in the bytes from 
            (original len, post_len]. */
-        uchar const * realloc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(ulong), realloc_bytes_used );
+        uchar const * realloc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(uchar), realloc_bytes_used );
 
         uchar * data = NULL;
         ulong   dlen = 0UL;
@@ -628,7 +627,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   uchar const * data = FD_VM_MEM_SLICE_HADDR_LD( 
     vm, VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
-    alignof(uchar),
+    FD_VM_ALIGN_RUST_U8,
     VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ));
 
   /* Authorized program check *************************************************/
@@ -702,7 +701,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   *_ret = instr_exec_res;
 
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
+  if( FD_UNLIKELY( err_exec ) ) return err_exec;
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/syscalls/cpi.rs#L1128-L1145 */
   /* Update all account permissions before updating the account data updates.

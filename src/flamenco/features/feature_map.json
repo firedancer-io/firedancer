@@ -78,7 +78,7 @@
   {"name":"stake_split_uses_rent_sysvar","pubkey": "FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV","cleaned_up":1180},
   {"name":"add_get_minimum_delegation_instruction_to_stake_program","pubkey": "St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT","cleaned_up":1180},
   {"name":"error_on_syscall_bpf_function_hash_collisions","pubkey": "8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b"},
-  {"name":"reject_callx_r10","pubkey": "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX"},
+  {"name":"reject_callx_r10","pubkey": "3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX","cleaned_up":2010},
   {"name":"drop_redundant_turbine_path","pubkey": "4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU","cleaned_up":1180},
   {"name":"executables_incur_cpi_data_cost","pubkey": "7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829","cleaned_up":1180},
   {"name":"fix_recent_blockhashes","pubkey": "6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo","cleaned_up":1180},

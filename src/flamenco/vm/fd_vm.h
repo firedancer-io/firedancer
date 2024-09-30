@@ -49,8 +49,6 @@ struct fd_vm {
      non-trivial use of instr_ctx). */
 
   fd_exec_instr_ctx_t * instr_ctx;   /* FIXME: DOCUMENT */
-  int                   check_align; /* If non-zero, the vm does alignment checks where necessary (syscalls) */
-  int                   check_size;  /* If non-zero, the vm does size checks where necessary (syscalls) */
 
   /* FIXME: frame_max should be run time configurable by compute budget.
      If there is no reasonable upper bound on this, shadow and stack
@@ -198,7 +196,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (789416UL)
+#define FD_VM_FOOTPRINT (789408UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -284,6 +282,20 @@ fd_vm_delete( void * shmem );
 
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
+
+/* fd_vm_is_check_align_enabled returns 1 if the vm should check alignment
+   when doing memory translation. */
+FD_FN_PURE static inline int
+fd_vm_is_check_align_enabled( fd_vm_t const * vm ) {
+   return !vm->is_deprecated;
+}
+
+/* fd_vm_is_check_size_enabled returns 1 if the vm should check size
+   when doing memory translation. */
+FD_FN_PURE static inline int
+fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
+   return !vm->is_deprecated;
+}
 
 /* FIXME: make this trace-aware, and move into fd_vm_init
    This is a temporary hack to make the fuzz harness work. */

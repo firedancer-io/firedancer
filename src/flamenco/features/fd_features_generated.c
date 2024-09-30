@@ -470,7 +470,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, reject_callx_r10)>>3,
     .id         = {"\x23\x2d\x66\x6d\x5c\x7d\x78\x7e\xf9\x05\x90\x7b\x5c\x5b\xfe\x99\xd2\x8a\x96\xc4\x37\xaa\x40\x2a\x06\x26\x72\x4e\xdd\x3c\x7a\x10"},
                   /* 3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX */
-    .name       = "reject_callx_r10" },
+    .name       = "reject_callx_r10",
+    .cleaned_up = 2010 },
 
   { .index      = offsetof(fd_features_t, drop_redundant_turbine_path)>>3,
     .id         = {"\x2f\xd4\x72\x78\xb4\x96\xc4\xff\x58\x4b\x74\x4b\xfc\xec\x33\x90\x63\xd1\x91\xe8\xd1\xa7\xad\x65\xd2\xe2\x5d\xb1\x03\x6f\xd7\x8f"},
