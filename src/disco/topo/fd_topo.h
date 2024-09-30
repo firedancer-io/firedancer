@@ -223,7 +223,7 @@ typedef struct {
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
-      uint  cluster_version;
+      char  cluster_version[ 32 ];
 
       /* not specified by [tiles.replay] */
 

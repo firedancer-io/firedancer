@@ -2405,7 +2405,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   ulong eah_interval;
   fd_hash_t genesis_hash;
   uint cluster_type;
-  uint cluster_version;
+  uint cluster_version[3];
   fd_vote_accounts_t next_epoch_stakes;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
