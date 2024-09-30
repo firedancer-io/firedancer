@@ -1057,14 +1057,10 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
-    /* An account writable iff it is writable AND it is not being demoted.
-        If this criteria is not met, the account should not be marked as touched
-        via updating its most recent slot. */
+    /* An account is writable if it is writable AND it is not being demoted. */
     if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
       continue;
     }
-
-    acc_rec->meta->slot = txn_ctx->slot_ctx->slot_bank.slot;
 
     if( acc_rec->meta->info.lamports == 0 ) {
       acc_rec->meta->dlen = 0;

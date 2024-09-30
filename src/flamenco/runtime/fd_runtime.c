@@ -1147,7 +1147,7 @@ fd_runtime_copy_accounts_to_pruned_funk( fd_funk_t * pruned_funk,
                                          fd_exec_slot_ctx_t * slot_ctx,
                                          fd_exec_txn_ctx_t * txn_ctx ) {
   /* This function is only responsible for copying over the account ids that are
-     touched. The account data is copied over after execution is complete. */
+     modified. The account data is copied over after execution is complete. */
 
   /* Copy over ALUTs */
   fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables( (fd_txn_t *) txn_ctx->txn_descriptor );
