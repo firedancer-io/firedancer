@@ -6,9 +6,6 @@
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
@@ -254,10 +251,10 @@ slot_ctx_restore( ulong                 slot,
   // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
   // hash calculation and not needed when restoring parent
 
-  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
+  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%s poh_hash %s",
                    slot_ctx_out->slot_bank.slot,
-                   slot_ctx_out->slot_bank.banks_hash.hash,
-                   slot_ctx_out->slot_bank.poh.hash ));
+                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.banks_hash.hash ),
+                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.poh.hash ) ));
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot_bank.slot                     = slot;

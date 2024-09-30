@@ -35,9 +35,6 @@
 
 #include "../../../../util/net/fd_net_headers.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define SCRATCH_MAX    (4UL /*KiB*/ << 10)
 #define SCRATCH_DEPTH  (4UL) /* 4 scratch frames */
 

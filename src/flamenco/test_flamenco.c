@@ -1,8 +1,5 @@
 #include "fd_flamenco.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 int
 main( int     argc,
       char ** argv ) {
@@ -18,18 +15,20 @@ main( int     argc,
         0xb9,0x79,0x02,0x2e,0x4c,0xf6,0x2a,0x04,0x26,0x4e,0xef,0x55,0x94,0x0e,0xc8,0x57,
         0xb3,0x46,0xf1,0xa4,0x11,0x5b,0xaa,0x1a,0xc8,0x3d,0x3b,0x05,0xca,0xa8,0x23,0x00 };
 
-  static const char format[] = "%32J %64J %3J %J %32J ...";
+  static const char format[] = "%s %s %s %s";
   static const char expected[] =
       "Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24 "
       "5eQS44iKV8B4b4gTt4tPZLPSHtD7F78fFDhbHDknsrAE1vUipnDf3pK6h5eZ8CqWqFgZPoYY6XHKUuvyt7BLWHpb "
-      "<unsupported Base58 width> "
-      "<unsupported Base58 width> "
       "<NULL> "
-      "...";
+      "<NULL>";
 
   ulong len;
   char buf[ 256UL ];
-  fd_cstr_printf( buf, 256UL, &len, format, buf32, buf64, buf32, buf32, NULL );
+  fd_cstr_printf( buf, 256UL, &len, format,
+                  FD_BASE58_ENC_32_ALLOCA( buf32 ),
+                  FD_BASE58_ENC_64_ALLOCA( buf64 ),
+                  FD_BASE58_ENC_32_ALLOCA( NULL ),
+                  FD_BASE58_ENC_64_ALLOCA( NULL ) );
   FD_TEST( 0==strcmp( buf, expected ) );
   FD_TEST( len==strlen( expected ) );
 
