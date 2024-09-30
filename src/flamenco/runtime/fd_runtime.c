@@ -1756,27 +1756,16 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       return -1;
     }
 
-    for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-
+    for( ulong txn_idx=0UL; txn_idx<txn_cnt; ++txn_idx ) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
 
-      /* Transaction was skipped due to preparation failure. */
-
-      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-        fd_valloc_free( fd_scratch_virtual(), txn_ctx );
-        continue;
-      }
-
-      for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+      for( ulong i=0UL; i<txn_ctx->accounts_cnt; ++i ) {
         fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
         void * acc_rec_data = fd_borrowed_account_destroy( acc_rec );
         if( acc_rec_data != NULL ) {
           fd_valloc_free( txn_ctx->valloc, acc_rec_data );
         }
       }
-
-      fd_valloc_free( fd_scratch_virtual(), txn_ctx );
-
     }
 
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
