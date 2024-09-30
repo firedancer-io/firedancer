@@ -449,7 +449,7 @@ if ( verbose < 3 )
 
   if ( meta.solana_txn_err != ULONG_MAX || meta.solana_cus_used != ULONG_MAX ) {
     printf(
-      "      solana_txn_err:  %d\n"
+      "      solana_txn_err:  %lu\n"
       "      solana_cus_used: %lu\n",
       meta.solana_txn_err,
       meta.solana_cus_used );
