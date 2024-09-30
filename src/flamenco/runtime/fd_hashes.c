@@ -13,9 +13,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
 static int
@@ -70,7 +67,10 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
     ulong pairs_len               = lists[k].pairs_len;
     for( ulong i = 0; i < pairs_len; ++i ) {
 #ifdef VLOG
-      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->key, pairs[i].hash->hash));
+      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },",
+                      i,
+                      FD_BASE58_ENC_32_ALLOCA( pairs[i].pubkey->key ),
+                      FD_BASE58_ENC_32_ALLOCA( pairs[i].hash->hash ) ));
 #endif
 
       if( prev_pair ) FD_TEST(fd_pubkey_hash_pair_compare(prev_pair, &pairs[i]) > 0);
@@ -287,21 +287,19 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
         slot_ctx->signature_cnt );
   }
 
-  //FD_LOG_NOTICE(( "[Replay] slot: %lu bank hash: %32J parent bank hash: %32J accounts_delta: %32J signature_count: %ld last_blockhash: %32J",
-  //                slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
-  FD_LOG_NOTICE( ( "\n\n[Replay]\n"
-                   "slot:             %lu\n"
-                   "bank hash:        %32J\n"
-                   "parent bank hash: %32J\n"
-                   "accounts_delta:   %32J\n"
-                   "signature_count:  %ld\n"
-                   "last_blockhash:   %32J\n",
-                   slot_ctx->slot_bank.slot,
-                   hash->hash,
-                   slot_ctx->prev_banks_hash.hash,
-                   slot_ctx->account_delta_hash.hash,
-                   slot_ctx->signature_cnt,
-                   slot_ctx->slot_bank.poh.hash ) );
+  FD_LOG_NOTICE(( "\n\n[Replay]\n"
+                  "slot:             %lu\n"
+                  "bank hash:        %s\n"
+                  "parent bank hash: %s\n"
+                  "accounts_delta:   %s\n"
+                  "signature_count:  %ld\n"
+                  "last_blockhash:   %s\n",
+                  slot_ctx->slot_bank.slot,
+                  FD_BASE58_ENC_32_ALLOCA( hash->hash ),
+                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->prev_banks_hash.hash ),
+                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->account_delta_hash.hash ),
+                  slot_ctx->signature_cnt,
+                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 }
 
 struct fd_accounts_hash_task_info {
@@ -486,17 +484,22 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     dirty_entry->rec = task_info->rec;
     dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
 
-    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
+    char acc_key_string[ FD_BASE58_ENCODED_32_SZ ];
+    fd_acct_addr_cstr( acc_key_string, (uchar const*)acc_key );
+    char owner_string[ FD_BASE58_ENCODED_32_SZ ];
+    fd_acct_addr_cstr( owner_string, acc_rec->meta->info.owner );
+
+    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
         "slot: %ld "
         "lamports: %ld  "
-        "owner: %32J  "
+        "owner: %s "
         "executable: %s,  "
         "rent_epoch: %ld, "
         "data_len: %ld",
-        acc_key,
+        acc_key_string,
         slot_ctx->slot_bank.slot,
         acc_rec->meta->info.lamports,
-        acc_rec->meta->info.owner,
+        owner_string,
         acc_rec->meta->info.executable ? "true" : "false",
         acc_rec->meta->info.rent_epoch,
         acc_rec->meta->dlen ));
@@ -602,7 +605,10 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
 
 #ifdef VLOG
   for( ulong i = 0; i < dirty_key_cnt; ++i ) {
-    FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, dirty_keys[i].pubkey->key, dirty_keys[i].hash->hash));
+    FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },",
+                    i,
+                    FD_BASE58_ENC_32_ALLOCA( dirty_keys[i].pubkey->key ),
+                    FD_BASE58_ENC_32_ALLOCA( dirty_keys[i].hash->hash) ));
 
     /*
       pubkey
@@ -638,8 +644,15 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
         *acc_data_str_cursor = 0;
       }
 
-      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%32J) slot: (%lu) lamports: (%lu), owner: (%32J), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%32J) ",  dirty_keys[i].pubkey->uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, dirty_keys[i].hash->hash ));
-      fprintf(stderr, "account_delta_hash pubkey: %32J, slot: (%lu), lamports: %lu, owner: %32J, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %32J\n",  dirty_keys[i].pubkey->uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, dirty_keys[i].hash->hash );
+      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",
+                      FD_BASE58_ENC_32_ALLOCA( dirty_keys[i].pubkey->uc ),
+                      slot_ctx->slot_bank.slot,
+                      metadata->info.lamports,
+                      FD_BASE58_ENC_32_ALLOCA( metadata->info.owner ),
+                      metadata->info.executable,
+                      metadata->info.rent_epoch,
+                      metadata->dlen,
+                      FD_BASE58_ENC_32_ALLOCA( dirty_keys[i].hash->hash ) ));
 
       fd_valloc_free(slot_ctx->valloc, acc_data_str);
     }
@@ -728,7 +741,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
       } else {
         continue;
       }
-      // FD_LOG_DEBUG(("Acc hash no change %32J for account %32J", acc_meta->hash, acc_key->uc));
     }
 
     /* Upgrade to writable record */
@@ -747,18 +759,18 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     memcpy( acc_rec->meta->hash, acc_hash->hash, sizeof(fd_hash_t) );
     acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
-    // /* Logging ... */
-    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
+    /* Logging ... */
+    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
         "slot: %ld "
         "lamports: %ld  "
-        "owner: %32J  "
+        "owner: %s  "
         "executable: %s,  "
         "rent_epoch: %ld, "
         "data_len: %ld",
-        acc_key,
+        FD_BASE58_ENC_32_ALLOCA( acc_key ),
         slot_ctx->slot_bank.slot,
         acc_rec->meta->info.lamports,
-        acc_rec->meta->info.owner,
+        FD_BASE58_ENC_32_ALLOCA( acc_rec->meta->info.owner ),
         acc_rec->meta->info.executable ? "true" : "false",
         acc_rec->meta->info.rent_epoch,
         acc_rec->meta->dlen ));
@@ -944,7 +956,7 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
       else
         fd_hash_account_v0( hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot );
       if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
-        FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+        FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
       }
     }
 
@@ -1023,7 +1035,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
     }
   }
 
-  FD_LOG_INFO(("accounts_hash %32J", accounts_hash->hash));
+  FD_LOG_INFO(("accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
 
   return 0;
 }
@@ -1077,19 +1089,13 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
         fd_hash_account_current( (uchar *) &hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
         slot_ctx->slot_bank.slot = old_slot;
         if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
-          FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+          FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
         }
       }
     }
 
     if ((metadata->info.executable & ~1) != 0)
       continue;
-
-    // FD_LOG_DEBUG(( "including %s account %32J => %32J (modified at slot %lu)",
-    //                is_dead ? "dead" : "live",
-    //                rec->pair.key->uc,
-    //                metadata->hash,
-    //                metadata->slot ));
 
     pairs[num_pairs].rec = rec;
     pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
@@ -1103,7 +1109,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
   fd_valloc_free( slot_ctx->valloc, pairs );
   fd_scratch_pop();
 
-  FD_LOG_INFO(("accounts_hash %32J", accounts_hash->hash));
+  FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
 
   return 0;
 }

@@ -7,9 +7,6 @@
 #include <assert.h>
 
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 fd_sbpf_validated_program_t *
 fd_sbpf_validated_program_new( void * mem ) {
   return (fd_sbpf_validated_program_t *)mem;

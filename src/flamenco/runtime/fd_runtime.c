@@ -191,9 +191,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 
       fd_vote_accounts_pair_t_map_insert(vacc_pool, &vacc_root, node);
 
-      FD_LOG_INFO(("Adding genesis vote account: key=%32J stake=%lu",
-                   node->elem.key.key,
-                   node->elem.stake));
+      FD_LOG_INFO(( "Adding genesis vote account: key=%s stake=%lu",
+                   FD_BASE58_ENC_32_ALLOCA( node->elem.key.key ),
+                   node->elem.stake ));
     } else if (0 == memcmp(acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t))) {
       /* stake program account */
       fd_stake_state_v2_t stake_state = {0};
@@ -244,10 +244,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
           int err = fd_feature_decode( &feature, &decode );
           FD_TEST( err==FD_BINCODE_SUCCESS );
           if( feature.has_activated_at ) {
-            FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, feature.activated_at ));
+            FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature.activated_at ));
             fd_features_set( &slot_ctx->epoch_ctx->features, found, feature.activated_at);
           } else {
-            FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, feature.activated_at ));
+            FD_LOG_DEBUG(( "Feature %s not activated (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ) ));
             fd_features_set( &slot_ctx->epoch_ctx->features, found, ULONG_MAX);
           }
         } FD_SCRATCH_SCOPE_END;
@@ -837,7 +837,7 @@ fd_runtime_execute_txn_task(void *tpool,
   FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %s",
                    task_info->txn_ctx->slot_ctx->slot_bank.slot,
                    m0,
-                   FD_BASE58_ENCODE_64( (uchar *)raw_txn->raw + txn->signature_off )));
+                   FD_BASE58_ENC_64_ALLOCA( (uchar *)raw_txn->raw + txn->signature_off )));
 #endif
 
   // Leave this here for debugging...
@@ -855,7 +855,7 @@ fd_runtime_execute_txn_task(void *tpool,
 
   // FD_LOG_WARNING(( "Transaction result %d for %s %lu %lu %lu",
   //                  task_info->exec_res,
-  //                  FD_BASE58_ENCODE_64( (uchar *)raw_txn->raw + txn->signature_off ),
+  //                  FD_BASE58_ENC_64_ALLOCA( (uchar *)raw_txn->raw + txn->signature_off ),
   //                  task_info->txn_ctx->compute_meter,
   //                  task_info->txn_ctx->compute_unit_limit,
   //                  task_info->txn_ctx->num_instructions ));
@@ -942,7 +942,7 @@ fd_txn_sigverify_task( void *tpool,
 
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
-    FD_LOG_WARNING(("sigverify failed: %s", FD_BASE58_ENCODE_64( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
+    FD_LOG_WARNING(("sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
     task_info->txn->flags = 0U;
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
@@ -985,7 +985,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
                                     load_accounts --> load_transaction_accounts
                                           v
                               general transaction execution
-                                      
+
   */
   err = fd_executor_verify_precompiles( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1159,7 +1159,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   if( task_info->exec_res==0 ) {
     fd_txn_reclaim_accounts( task_info->txn_ctx );
   }
-  
+
   ulong curr = slot_ctx->slot_bank.collected_execution_fees;
   FD_COMPILER_MFENCE();
   while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_execution_fees, curr, curr + task_info->txn_ctx->execution_fee ) != curr ) ) {
@@ -1297,10 +1297,9 @@ fd_runtime_copy_accounts_to_pruned_funk( fd_funk_t * pruned_funk,
     fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
     fd_pubkey_t program_pubkey = instrs[i].program_id_pubkey;
     fd_funk_rec_key_t program_rec_key = fd_acc_funk_key( &program_pubkey );
-    fd_funk_rec_t * new_rec;
-    new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &program_rec_key, 0, 1, NULL, NULL );
+    fd_funk_rec_t *new_rec = fd_funk_rec_write_prepare(pruned_funk, prune_txn, &program_rec_key, 0, 1, NULL, NULL);
     if ( !new_rec ) {
-      FD_LOG_NOTICE(("fd_funk_rec_write_prepare failed %32J", &program_pubkey));
+      FD_LOG_NOTICE(("fd_funk_rec_write_prepare failed %s", FD_BASE58_ENC_32_ALLOCA( &program_pubkey ) ));
       continue;
     }
 
@@ -1340,7 +1339,7 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
     if ( meta != NULL ) {
       pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
       if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
-        FD_LOG_WARNING(("no txn_status decoding found sig=%s (%s)", FD_BASE58_ENCODE_64( sig ), PB_GET_ERROR(&stream)));
+        FD_LOG_WARNING(("no txn_status decoding found sig=%s (%s)", FD_BASE58_ENC_64_ALLOCA( sig ), PB_GET_ERROR(&stream)));
       }
       if ( txn_status.has_compute_units_consumed ) {
         solana_cus_consumed = txn_status.compute_units_consumed;
@@ -2093,7 +2092,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     for( ulong i=0UL; i<num_batches; i++ ) {
       FD_SCRATCH_SCOPE_BEGIN {
 
-      fd_txn_p_t * txns    = all_txns + (BATCH_SIZE * i); 
+      fd_txn_p_t * txns    = all_txns + (BATCH_SIZE * i);
       ulong        txn_cnt = ((i+1UL==num_batches) && rem) ? rem : BATCH_SIZE;
 
       fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
@@ -2524,7 +2523,7 @@ fd_runtime_poh_verify_task( void *tpool,
   }
 
   if (FD_UNLIKELY(0 != memcmp(microblock_info->microblock_hdr.hash, out_poh_hash.hash, sizeof(fd_hash_t)))) {
-    FD_LOG_WARNING(("poh mismatch (bank: %32J, entry: %32J)", out_poh_hash.hash, microblock_info->microblock_hdr.hash));
+    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s)", FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ), FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock_hdr.hash ) ));
     poh_info->success = -1;
   }
 }
@@ -2582,7 +2581,7 @@ fd_runtime_poh_verify_wide_task( void *tpool,
   }
 
   if (FD_UNLIKELY(0 != memcmp(microblock_info->microblock_hdr.hash, out_poh_hash.hash, sizeof(fd_hash_t)))) {
-    FD_LOG_WARNING(("poh mismatch (bank: %32J, entry: %32J)", out_poh_hash.hash, microblock_info->microblock_hdr.hash));
+    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s)", FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ), FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock_hdr.hash ) ));
     poh_info->success = -1;
   }
 }
@@ -2633,7 +2632,7 @@ int fd_runtime_microblock_wide_verify(fd_microblock_info_t const *microblock_inf
                                       fd_hash_t *out_poh_hash) {
   ulong hash_cnt = microblock_info->microblock_hdr.hash_cnt;
   ulong txn_cnt = microblock_info->microblock_hdr.txn_cnt;
-  FD_LOG_WARNING(("poh input %lu %lu %32J %32J", hash_cnt, txn_cnt, in_poh_hash->hash, microblock_info->microblock_hdr.hash));
+  FD_LOG_WARNING(( "poh input %lu %lu %s %s", hash_cnt, txn_cnt, FD_BASE58_ENC_32_ALLOCA( in_poh_hash->hash ), FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock_hdr.hash ) ));
 
   *out_poh_hash = *in_poh_hash;
 
@@ -2683,7 +2682,7 @@ int fd_runtime_microblock_wide_verify(fd_microblock_info_t const *microblock_inf
 
   if (FD_UNLIKELY(0 != memcmp(microblock_info->microblock_hdr.hash, out_poh_hash->hash, sizeof(fd_hash_t))))
   {
-    FD_LOG_WARNING(("poh mismatch (bank: %32J, entry: %32J)", out_poh_hash->hash, microblock_info->microblock_hdr.hash));
+    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s)", FD_BASE58_ENC_32_ALLOCA( out_poh_hash->hash ), FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock_hdr.hash ) ));
     return -1;
   }
 
@@ -2730,7 +2729,7 @@ int fd_runtime_microblock_verify(fd_microblock_info_t const *microblock_info,
   }
 
   if (FD_UNLIKELY(0 != memcmp(microblock_info->microblock_hdr.hash, out_poh_hash->hash, sizeof(fd_hash_t)))) {
-    FD_LOG_WARNING(("poh mismatch (bank: %32J, entry: %32J)", out_poh_hash->hash, microblock_info->microblock_hdr.hash));
+    FD_LOG_WARNING(("poh mismatch (bank: %s, entry: %s)", FD_BASE58_ENC_32_ALLOCA( out_poh_hash->hash ), FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock_hdr.hash) ));
     return -1;
   }
 
@@ -2841,7 +2840,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     /* TODO: tmp change */
     if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
-      FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
+      FD_LOG_DEBUG(("publishing %s (slot %ld)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
       fd_funk_start_write(funk);
       ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
@@ -2935,7 +2934,14 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   block_eval_time += fd_log_wallclock();
   double block_eval_time_ms = (double)block_eval_time * 1e-6;
   double tps = (double) block_info.txn_cnt / ((double)block_eval_time * 1e-9);
-  FD_LOG_INFO(("evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f, bank_hash: %32J, leader: %32J", slot_ctx->slot_bank.slot, block_eval_time_ms, block_info.signature_cnt, block_info.txn_cnt, tps, slot_ctx->slot_bank.banks_hash.hash, slot_ctx->leader->key ));
+  FD_LOG_INFO(( "evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f, bank_hash: %s, leader: %s",
+                slot_ctx->slot_bank.slot,
+                block_eval_time_ms,
+                block_info.signature_cnt,
+                block_info.txn_cnt,
+                tps,
+                FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
+                FD_BASE58_ENC_32_ALLOCA( slot_ctx->leader->key ) ));
 
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
@@ -3200,7 +3206,7 @@ fd_rent_due( fd_account_meta_t *         acc,
     return FD_RENT_EXEMPT;
   }
 
-  /* Count the number of slots that have passed since last collection 
+  /* Count the number of slots that have passed since last collection
      https://github.com/anza-xyz/agave/blob/v2.0.9/sdk/src/rent_collector.rs#L93-L98 */
   ulong slots_elapsed = 0UL;
   if( FD_UNLIKELY( info->rent_epoch < schedule->first_normal_epoch ) ) {
@@ -3240,7 +3246,7 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *  slot_ctx,
                                  fd_account_meta_t  *  acc,
                                  fd_pubkey_t const  *  key,
                                  ulong                 epoch ) {
-  
+
   // RentCollector::collect_from_existing_account (enter)
   // RentCollector::calculate_rent_result         (enter)
 
@@ -3340,7 +3346,7 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
        rec_ro != NULL;
        rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
     fd_pubkey_t const *key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    FD_LOG_DEBUG(( "Collecting rent from %32J", key ));
+    FD_LOG_DEBUG(( "Collecting rent from %s", FD_BASE58_ENC_32_ALLOCA( key ) ));
     FD_BORROWED_ACCOUNT_DECL( rec );
     int err = fd_acc_mgr_view( acc_mgr, txn, key, rec );
 
@@ -3631,14 +3637,14 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
         if( FD_UNLIKELY(err) ) {
-          FD_LOG_WARNING(( "cannot modify pubkey %32J. fd_acc_mgr_modify failed (%d)", &pubkey, err ));
+          FD_LOG_WARNING(( "cannot modify pubkey %s. fd_acc_mgr_modify failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
           leftover_lamports += rent_to_be_paid;
           continue;
         }
 
         if (validate_fee_collector_account) {
           if (memcmp(rec->meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->meta->info.owner)) != 0) {
-            FD_LOG_WARNING(("cannot pay a non-system-program owned account (%32J)", &pubkey));
+            FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", FD_BASE58_ENC_32_ALLOCA( &pubkey ) ));
             leftover_lamports += rent_to_be_paid;
             continue;
           }
@@ -3649,7 +3655,7 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
           ulong minbal = fd_rent_exempt_minimum_balance2(slot_ctx->sysvar_cache_old.rent, rec->const_meta->dlen);
           if( rec->const_meta->info.lamports + rent_to_be_paid < minbal ) {
-            FD_LOG_WARNING(("cannot pay a rent paying account (%32J)", &pubkey));
+            FD_LOG_WARNING(("cannot pay a rent paying account (%s)", FD_BASE58_ENC_32_ALLOCA( &pubkey ) ));
             leftover_lamports += rent_to_be_paid;
             continue;
           }
@@ -3711,7 +3717,7 @@ fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
 
 void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
-  
+
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L2820-L2821 */
   fd_runtime_collect_rent( slot_ctx );
   // self.collect_fees();
@@ -3728,7 +3734,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
     int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->leader, 0, 0UL, rec );
     if( FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS) ) {
-      FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%32J) failed (%d)", slot_ctx->leader, err));
+      FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( slot_ctx->leader ), err));
       return;
     }
 
@@ -3811,15 +3817,14 @@ fd_feature_activate( fd_exec_slot_ctx_t * slot_ctx,
     };
     int decode_err = fd_feature_decode(feature, &ctx);
     if (FD_UNLIKELY(decode_err != FD_BINCODE_SUCCESS)) {
-      FD_LOG_ERR(("Failed to decode feature account %32J (%d)", acct, decode_err));
-      return;
+      FD_LOG_ERR(( "Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
     }
 
     if( feature->has_activated_at ) {
-      FD_LOG_INFO(( "feature already activated - acc: %32J, slot: %lu", acct, feature->activated_at ));
+      FD_LOG_INFO(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
       fd_features_set(&slot_ctx->epoch_ctx->features, id, feature->activated_at);
     } else {
-      FD_LOG_INFO(( "Feature %32J not activated at %lu, activating", acct, feature->activated_at ));
+      FD_LOG_INFO(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
 
       FD_BORROWED_ACCOUNT_DECL(modify_acct_rec);
       err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, 0, 0UL, modify_acct_rec);
@@ -3835,8 +3840,7 @@ fd_feature_activate( fd_exec_slot_ctx_t * slot_ctx,
       };
       int encode_err = fd_feature_encode(feature, &encode_ctx);
       if (FD_UNLIKELY(encode_err != FD_BINCODE_SUCCESS)) {
-        FD_LOG_ERR(("Failed to encode feature account %32J (%d)", acct, decode_err));
-        return;
+        FD_LOG_ERR(( "Failed to encode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
       }
     }
     /* No need to call destroy, since we are using fd_scratch allocator. */

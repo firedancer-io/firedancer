@@ -15,9 +15,6 @@
 #include "fd_bpf_program_util.h"
 #include "fd_native_cpi.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #include <stdlib.h>
 
 static char * trace_buf;
@@ -895,7 +892,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } FD_BORROWED_ACCOUNT_DROP( programdata );
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", FD_BASE58_ENCODE_32( program_id ) );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L692-L699 */
       /* Update the Program account */
@@ -915,7 +912,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      FD_LOG_INFO(( "Program deployed %s", FD_BASE58_ENCODE_32( program->pubkey ) ));
+      FD_LOG_INFO(( "Program deployed %s", FD_BASE58_ENC_32_ALLOCA( program->pubkey ) ));
 
       } FD_BORROWED_ACCOUNT_DROP( program );
 
@@ -1165,7 +1162,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
       //TODO: this is likely the incorrect program_id, do we have new_program_id?
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", FD_BASE58_ENCODE_32( program_id ) );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
 
       break;
     }
@@ -1238,7 +1235,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENCODE_32( new_authority ) );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENC_32_ALLOCA( new_authority ) );
 
       } FD_BORROWED_ACCOUNT_DROP( account );
 
@@ -1318,7 +1315,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENCODE_32( new_authority_key ) );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENC_32_ALLOCA( new_authority_key ) );
 
       } FD_BORROWED_ACCOUNT_DROP( account );
 
@@ -1366,7 +1363,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
         /* Max msg_sz: 23 - 2 + 45 = 66 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Uninitialized %s", FD_BASE58_ENCODE_32( close_key ) );
+          "Closed Uninitialized %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
 
         } FD_BORROWED_ACCOUNT_DROP( recipient_account );
 
@@ -1385,7 +1382,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
         /* Max msg_sz: 16 - 2 + 45 = 63 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Buffer %s", FD_BASE58_ENCODE_32( close_key ) );
+          "Closed Buffer %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1069-L1129 */
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( &close_account_state ) ) {
@@ -1451,7 +1448,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         /* Max msg_sz: 17 - 2 + 45 = 60 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Program %s", FD_BASE58_ENCODE_32( close_key ) );
+          "Closed Program %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
 
         } FD_BORROWED_ACCOUNT_DROP( program_account );
       } else {

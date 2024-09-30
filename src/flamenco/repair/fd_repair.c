@@ -14,9 +14,6 @@
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<12)
 /* Max number of pending shred requests */
@@ -386,7 +383,7 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
     val->first_request_time = 0;
     val->permanent = 0;
     val->stake = 0UL;
-    FD_LOG_DEBUG( ( "adding repair peer %32J", val->key.uc ) );
+    FD_LOG_DEBUG(( "adding repair peer %s", FD_BASE58_ENC_32_ALLOCA( val->key.uc ) ));
   }
   fd_repair_unlock( glob );
   return 0;
@@ -946,12 +943,12 @@ print_stats( fd_active_elem_t * val ) {
   fd_pubkey_t const * id = &val->key;
   if( FD_UNLIKELY( NULL == val ) ) return;
   if( val->avg_reqs == 0 )
-    FD_LOG_DEBUG(( "repair peer %32J: no requests sent, stake=%lu", id, val->stake / (ulong)1e9 ));
+    FD_LOG_DEBUG(( "repair peer %s: no requests sent, stake=%lu", FD_BASE58_ENC_32_ALLOCA( id ), val->stake / (ulong)1e9 ));
   else if( val->avg_reps == 0 )
-    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, no responses received, stake=%lu", id, val->avg_reqs, val->stake / (ulong)1e9 ));
+    FD_LOG_DEBUG(( "repair peer %s: avg_requests=%lu, no responses received, stake=%lu", FD_BASE58_ENC_32_ALLOCA( id ), val->avg_reqs, val->stake / (ulong)1e9 ));
   else
-    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
-                    id,
+    FD_LOG_DEBUG(( "repair peer %s: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
+                    FD_BASE58_ENC_32_ALLOCA( id ),
                     val->avg_reqs,
                     ((double)val->avg_reps)/((double)val->avg_reqs),
                     1.0e-9*((double)val->avg_lat)/((double)val->avg_reps),
@@ -1106,7 +1103,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
     }
 
     if( !fd_hash_eq( &header->recipient, glob->public_key ) ) {
-      FD_LOG_WARNING(( "received repair request with wrong recipient, %32J instead of %32J", header->recipient.uc, glob->public_key ));
+      FD_LOG_WARNING(( "received repair request with wrong recipient, %s instead of %s", FD_BASE58_ENC_32_ALLOCA( header->recipient.uc ), FD_BASE58_ENC_32_ALLOCA( glob->public_key ) ));
       return 0;
     }
 

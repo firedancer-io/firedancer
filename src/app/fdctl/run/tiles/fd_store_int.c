@@ -35,9 +35,6 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define STAKE_IN_IDX    0
 #define REPAIR_IN_IDX   1
 
@@ -413,12 +410,12 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
-        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, block_hash->uc, block->txns_cnt, block->shreds_cnt, block->data_sz ));
+        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), block->txns_cnt, block->shreds_cnt, block->data_sz ));
       } else {
-        
+
         fd_txn_p_t * txns = fd_type_pun( out_buf );
         FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                        "executed: %lu, caught up: %d",
+                        "executed: %lu, caught up: %lu",
                         ctx->store->first_turbine_slot,
                         ctx->store->curr_turbine_slot,
                         behind,
@@ -454,7 +451,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
           FD_LOG_WARNING(("FINISHED BLOCK %lu", slot ));
           replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
         }
-        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, block_hash->uc, txn_cnt, block->shreds_cnt ));
+        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), txn_cnt, block->shreds_cnt ));
       }
 
       out_buf += sizeof(ulong);

@@ -2,9 +2,6 @@
 #include "fd_exec_txn_ctx.h"
 #include "../fd_acc_mgr.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 void *
 fd_exec_instr_ctx_new( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
@@ -143,7 +140,7 @@ fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
       // TODO: check if writable???
       if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, (uchar)i ) ) ) {
         // FIXME: we should just handle the try_borrow_account semantics correctly
-        FD_LOG_DEBUG(( "unwritable account passed to fd_instr_borrowed_account_modify_idx (idx=%lu, account=%32J)", i, pubkey ));
+        FD_LOG_DEBUG(( "unwritable account passed to fd_instr_borrowed_account_modify_idx (idx=%lu, account=%s)", i, FD_BASE58_ENC_32_ALLOCA( pubkey ) ));
       }
       fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
       if( min_data_sz > instr_account->const_meta->dlen ) {

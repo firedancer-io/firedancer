@@ -1,8 +1,5 @@
 #include "fd_poh_tile.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 ulong
 fd_poh_tile_align( void ) {
   return 128UL;

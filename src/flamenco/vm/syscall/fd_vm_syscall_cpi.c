@@ -329,14 +329,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   }
 
   if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
-    FD_LOG_WARNING(( "Unknown program %32J", &callee_instr->program_id_pubkey ));
+    FD_LOG_WARNING(( "Unknown program %s", FD_BASE58_ENC_32_ALLOCA( &callee_instr->program_id_pubkey ) ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
   if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
-    FD_LOG_WARNING(( "Account %32J is not executable", &callee_instr->program_id_pubkey ));
+    FD_LOG_WARNING(( "Account %s is not executable", FD_BASE58_ENC_32_ALLOCA( &callee_instr->program_id_pubkey ) ));
     return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
   }
 

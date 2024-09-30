@@ -1598,8 +1598,9 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
   /* Verify that client and server's transcripts match */
 
   int match = 0;
-  for( ulong i=0; i<32UL; i++ )
+  for( ulong i=0; i<32UL; i++ ) {
     match |= server_fin.verify[i] ^ server_finished_expected[i];
+  }
   if( FD_UNLIKELY( match!=0 ) )
     return fd_tls_alert( &hs->base, FD_TLS_ALERT_DECRYPT_ERROR, FD_TLS_REASON_FINI_FAIL );
 

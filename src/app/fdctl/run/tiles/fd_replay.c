@@ -405,7 +405,7 @@ during_frag( void * _ctx,
     */
     ctx->curr_slot = fd_disco_poh_sig_slot( sig );
     if( FD_UNLIKELY( ctx->curr_slot < ctx->tower->root ) ) {
-      FD_LOG_WARNING(( "pack sent slot %lu before our root.", ctx->curr_slot, ctx->tower->root ));
+      FD_LOG_WARNING(( "pack sent slot %lu before our root %lu.", ctx->curr_slot, ctx->tower->root ));
     }
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) {
       ulong bank_idx = fd_disco_poh_sig_bank_tile( sig );
@@ -570,7 +570,7 @@ suppress_notify( const fd_pubkey_t * prog ) {
 }
 
 static void
-publish_account_notifications( fd_replay_tile_ctx_t * ctx, 
+publish_account_notifications( fd_replay_tile_ctx_t * ctx,
                                fd_fork_t *            fork,
                                ulong                  curr_slot,
                                fd_txn_p_t const *     txns,
@@ -627,7 +627,7 @@ publish_account_notifications( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-publish_slot_notifications( fd_replay_tile_ctx_t * ctx, 
+publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
                             fd_fork_t *            fork,
                             fd_block_map_t const * block_map_entry,
                             ulong                  curr_slot ) {
@@ -801,14 +801,14 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     FD_LOG_ERR(( "slot history read failed" ));
   }
 
-  FD_LOG_NOTICE(("Current leader: %32J", fork->slot_ctx.leader->uc));
+  FD_LOG_NOTICE(("Current leader: %s", FD_BASE58_ENC_32_ALLOCA( fork->slot_ctx.leader->uc ) ));
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, mux, &fork->slot_ctx );
   }
 
   prepare_time_ns += fd_log_wallclock();
   FD_LOG_DEBUG(("TIMING: prepare_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)prepare_time_ns * 1e-6));
-  
+
   return fork;
 }
 
@@ -1240,7 +1240,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
     fd_runtime_update_leaders(ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot);
-    FD_LOG_WARNING(("Updated leader %32J", ctx->slot_ctx->leader->uc));
+    FD_LOG_WARNING(( "Updated leader %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->leader->uc) ));
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot = 1UL;

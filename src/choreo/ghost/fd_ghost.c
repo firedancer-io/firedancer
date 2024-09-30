@@ -2,9 +2,6 @@
 #include "stdio.h"
 #include <string.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* clang-format off */
 
 void *
@@ -279,7 +276,7 @@ fd_ghost_head( fd_ghost_t const * ghost ) {
 
 fd_ghost_node_t const *
 fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake ) {
-  FD_LOG_DEBUG(( "[%s] slot %lu, pubkey %32J, stake %lu", __func__, slot, pubkey, stake ));
+  FD_LOG_DEBUG(( "[%s] slot %lu, pubkey %s, stake %lu", __func__, slot, FD_BASE58_ENC_32_ALLOCA( pubkey ), stake ));
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( slot < ghost->root->slot ) ) {
@@ -333,16 +330,16 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
 
     if( FD_UNLIKELY( !node ) ) {
 
-      FD_LOG_NOTICE(( "[ghost] %32J's latest vote slot %lu was too old and already pruned.",
-                      pubkey,
+      FD_LOG_NOTICE(( "[ghost] %s's latest vote slot %lu was too old and already pruned.",
+                      FD_BASE58_ENC_32_ALLOCA( pubkey ),
                       latest_vote->slot ));
 
     } else {
 
       /* Subtract pubkey's stake from the prev voted slot hash and propagate. */
 
-      FD_LOG_DEBUG(( "[ghost] removing (%32J, %lu, %lu)",
-                      pubkey,
+      FD_LOG_DEBUG(( "[ghost] removing (%s, %lu, %lu)",
+                      FD_BASE58_ENC_32_ALLOCA( pubkey ),
                       latest_vote->stake,
                       latest_vote->slot ));
 
@@ -394,7 +391,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
   /* Propagate the vote stake up the ancestry, including updating the
      head. */
 
-  FD_LOG_DEBUG(( "[ghost] adding (%32J, %lu, %lu)", pubkey, stake, latest_vote->slot ));
+  FD_LOG_DEBUG(( "[ghost] adding (%s, %lu, %lu)", FD_BASE58_ENC_32_ALLOCA( pubkey ), stake, latest_vote->slot ));
   int cf = __builtin_uaddl_overflow( node->stake, latest_vote->stake, &node->stake );
   if( FD_UNLIKELY( cf ) ) {
     FD_LOG_ERR(( "[%s] add overflow. node->stake %lu latest_vote->stake %lu",
@@ -440,7 +437,7 @@ fd_ghost_gossip_vote( FD_PARAM_UNUSED fd_ghost_t *        ghost,
 
 fd_ghost_node_t const *
 fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong root, fd_pubkey_t const * pubkey, ulong stake ) {
-  FD_LOG_DEBUG(( "[%s] root %lu, pubkey %32J, stake %lu", __func__, root, pubkey, stake ));
+  FD_LOG_DEBUG(( "[%s] root %lu, pubkey %s, stake %lu", __func__, root, FD_BASE58_ENC_32_ALLOCA( pubkey ), stake ));
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( root < ghost->root->slot ) ) {
@@ -462,7 +459,7 @@ fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong root, fd_pubkey_t const * pubkey
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( !node ) ) {
-    FD_LOG_ERR(( "[%s] invariant violation. missing voter %32J's root %lu.", __func__, pubkey, root ));
+    FD_LOG_ERR(( "[%s] invariant violation. missing voter %s's root %lu.", __func__, FD_BASE58_ENC_32_ALLOCA( pubkey ), root ));
   }
 #endif
 
