@@ -15,6 +15,6 @@ struct fd_http_static_file {
 
 typedef struct fd_http_static_file fd_http_static_file_t;
 
-extern fd_http_static_file_t STATIC_FILES[8];
+extern fd_http_static_file_t STATIC_FILES[11];
 
 #endif
