@@ -12,6 +12,9 @@
 #include "../../runtime/tests/generated/vm.pb.h"
 #include "../../runtime/tests/fd_exec_instr_test.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #define STRINGIFY(x) TOSTRING(x)
 #define TOSTRING(x) #x
 

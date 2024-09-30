@@ -1,6 +1,9 @@
 #include "fd_tower.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #define THRESHOLD_DEPTH         ( 8 )
 #define THRESHOLD_PCT           ( 2.0 / 3.0 )
 #define SHALLOW_THRESHOLD_DEPTH ( 4 )

@@ -5,6 +5,7 @@
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -168,5 +169,7 @@ fd_borrowed_account_release_read( fd_borrowed_account_t * rw ) {
 }
 
 FD_PROTOTYPES_END
+
+#pragma GCC diagnostic pop
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h */

@@ -343,6 +343,7 @@
 #include "../forks/fd_forks.h"
 #include "../ghost/fd_ghost.h"
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -782,5 +783,7 @@ void
 fd_tower_to_tower_sync( fd_tower_t const *               tower,
                         fd_hash_t const *                bank_hash,
                         fd_compact_vote_state_update_t * tower_sync );
+
+#pragma GCC diagnostic pop
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */
