@@ -299,7 +299,7 @@ fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx 
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     // Check for max loaded acct size
     fd_borrowed_account_t * acct = NULL;
-    int err        = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
+    int   err      = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
     ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
 
     err = accumulate_and_check_loaded_account_data_size( acc_size, requested_loaded_accounts_data_size, &accumulated_account_size );
@@ -326,8 +326,51 @@ fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx 
     }
 
     // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L397-L400
+    /* This check is extremely hacky as it replicates Agave's logic around
+       creating dummy accounts around its use of the program cache. */
     if( FD_UNLIKELY( !fd_account_is_executable( program_account->const_meta ) ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      /* If a transaction account is not a writable account AND it is not an
+        instruction account, then the borrowed account must promote its executable
+        status for the scope of the transaction. This could have implications with
+        serializing into the VM. However, this value is not saved back to the
+        accounts database because the account is not writable. 
+        https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L334-344 */
+
+      /* Check if it is a program. This can be verified by
+         by checking the account's owner. TODO: Verify that this is sufficient as
+         the firedancer client does not maintain the program cache in the same way. */
+      if( !( memcmp( program_account->const_meta->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ||
+             memcmp( program_account->const_meta->info.owner, &fd_solana_bpf_loader_program_id,             sizeof(fd_pubkey_t) ) ||
+             memcmp( program_account->const_meta->info.owner, &fd_solana_bpf_loader_deprecated_program_id,  sizeof(fd_pubkey_t)) ) ) {
+        return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      }
+
+      /* If it is not writable */
+      if( FD_UNLIKELY( fd_txn_account_is_writable_idx( txn_ctx, instr->program_id ) ) ) {
+        return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      }
+
+      /* If it is not an instruction account */
+      fd_rawtxn_b_t *        txn_raw   = txn_ctx->_txn_raw;
+      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
+
+      for( ushort j=0; j<instr_cnt; j++ ) {
+        uchar const * instr_acc_idxs = fd_txn_get_instr_accts( txn_instr, txn_raw->raw );
+        for( ushort k=0; k<txn_instr->acct_cnt; k++ ) {
+          if( instr_acc_idxs[k]==instr->program_id ) {
+            goto found_insn_acc;
+          }
+        }
+      }
+      if( false ) {
+        found_insn_acc:
+        return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      }
+
+      /* If none of these cases are met, then the executable flag should
+         be updated marking the account as executable. */
+      fd_account_meta_t * acc_meta = (fd_account_meta_t *)program_account->const_meta;
+      acc_meta->info.executable = 1;
     }
 
     // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L402-L405
@@ -596,7 +639,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
         /* Realistically impossible case, but need to make sure we don't cause an OOB data access
            https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
-        if( FD_UNLIKELY( addr_lut_rec->const_meta->dlen < FD_LOOKUP_TABLE_META_SIZE ) ) {
+        if( FD_UNLIKELY( addr_lut_rec->const_meta->dlen<FD_LOOKUP_TABLE_META_SIZE ) ) {
           return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
         }
 
