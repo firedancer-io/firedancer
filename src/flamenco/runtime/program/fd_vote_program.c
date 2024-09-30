@@ -1202,7 +1202,8 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
                         fd_landed_vote_t *          new_state,
                         int                         has_new_root,
                         ulong                       new_root,
-                        long *                      timestamp,
+                        int                         has_timestamp,
+                        long                        timestamp,
                         ulong                       epoch,
                         ulong                       current_slot,
                         fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
@@ -1415,7 +1416,7 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
     increment_credits( vote_state, epoch, earned_credits );
   }
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L750
-  if( FD_LIKELY( timestamp != NULL ) ) {
+  if( FD_LIKELY( has_timestamp ) ) {
     /* new_state asserted nonempty at function beginning */
     if( deq_fd_landed_vote_t_empty( new_state ) ) {
       FD_LOG_ERR(( "solana panic" ));
@@ -1424,9 +1425,9 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
-    rc              = process_timestamp( vote_state, last_slot, *timestamp, ctx );
+    rc              = process_timestamp( vote_state, last_slot, timestamp, ctx );
     if( FD_UNLIKELY( rc ) ) { return rc; }
-    vote_state->last_timestamp.timestamp = *timestamp;
+    vote_state->last_timestamp.timestamp = timestamp;
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L754
@@ -1924,6 +1925,7 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
                                  landed_votes,
                                  vote_state_update->has_root,
                                  vote_state_update->root,
+                                 vote_state_update->has_timestamp,
                                  vote_state_update->timestamp,
                                  epoch,
                                  slot,
@@ -2020,7 +2022,8 @@ do_process_tower_sync( fd_vote_state_t *           vote_state,
       landed_votes_from_lockouts( tower_sync->lockouts, fd_scratch_virtual() ),
       tower_sync->has_root,
       tower_sync->root,
-      tower_sync->has_timestamp ? &tower_sync->timestamp : NULL,
+      tower_sync->has_timestamp,
+      tower_sync->timestamp,
       epoch,
       slot,
       ctx );
@@ -2095,8 +2098,9 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
     elem->confirmation_count = (uint)lock_offset->confirmation_count;
   }
 
-  vote_update->hash      = compact_update->hash;
-  vote_update->timestamp = compact_update->timestamp;
+  vote_update->hash          = compact_update->hash;
+  vote_update->has_timestamp = compact_update->has_timestamp;
+  vote_update->timestamp     = compact_update->timestamp;
 
   return 1;
 }

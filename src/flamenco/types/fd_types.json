@@ -813,7 +813,7 @@
         { "name": "lockouts", "type": "deque", "element": "vote_lockout", "min": 32 },
         { "name": "root", "type": "option", "element": "ulong", "flat": true },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "long" }
+        { "name": "timestamp", "type": "option", "element": "long", "flat": true }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
     },
@@ -824,7 +824,7 @@
           { "name": "root", "type": "ulong" },
           { "name": "lockouts", "type": "vector", "element": "lockout_offset", "modifier": "compact" },
           { "name": "hash", "type": "hash" },
-          { "name": "timestamp", "type": "option", "element": "long" }
+          { "name": "timestamp", "type": "option", "element": "long", "flat": true }
       ]
     },
     {
