@@ -20,7 +20,9 @@
    in the epoch context. This value will foll forward to the
    latest version.
 */
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION (2000)
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR 2
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR 0
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH 0
 
 /* FD_BASE58_ENCODE_{32,64} is a shorthand for fd_base58_encode_{32,64},
    including defining a temp buffer.  Useful for printf-like functions.

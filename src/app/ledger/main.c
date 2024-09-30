@@ -90,7 +90,7 @@ struct fd_ledger_args {
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
-  uint                  cluster_version;         /* What version of solana is the genesis block? */
+  uint                  cluster_version[3];         /* What version of solana is the genesis block? */
   char const *          one_off_features[32];    /* List of one off feature pubkeys to enable for execution agnostic of cluster version */
   uint                  one_off_features_cnt;    /* Number of one off features */
 
@@ -963,7 +963,10 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
 
-  args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
+  args->epoch_ctx->epoch_bank.cluster_version[0] = args->cluster_version[0];
+  args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
+  args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
+
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
@@ -1336,7 +1339,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
-  uint         cluster_version         = fd_env_strip_cmdline_uint ( &argc, &argv, "--cluster-version",         NULL, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
+  char const * cluster_version         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cluster-version",         NULL, "2.0.0"   );
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
   char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
 
@@ -1442,7 +1445,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->checkpt_path            = checkpt_path;
   args->checkpt_freq            = checkpt_freq;
   args->checkpt_mismatch        = checkpt_mismatch;
-  args->cluster_version         = cluster_version;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
   args->on_demand_block_ingest  = on_demand_block_ingest;
@@ -1458,6 +1460,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->one_off_features_cnt    = 0UL;
   parse_one_off_features( args, one_off_features );
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
+
+  if( FD_UNLIKELY( sscanf( cluster_version, "%u.%u.%u", &args->cluster_version[0], &args->cluster_version[1], &args->cluster_version[2] )!=3 ) ) {
+    FD_LOG_ERR(( "failed to decode cluster version" ));;
+  }
 
   if( args->rocksdb_list_cnt==1UL ) {
     FD_LOG_NOTICE(( "rocksdb=%s", args->rocksdb_list[0] ));

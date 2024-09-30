@@ -70,7 +70,7 @@ sol_compat_wksp_init( void ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
 
-    if( current_feature->cleaned_up ) {
+    if( current_feature->cleaned_up[0]!=UINT_MAX ) {
       memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
     } else {
       memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );

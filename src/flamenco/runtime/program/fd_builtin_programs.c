@@ -101,7 +101,7 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   /* Precompiles have empty account data */
-  if (slot_ctx->epoch_ctx->epoch_bank.cluster_version < 2000) {
+  if (slot_ctx->epoch_ctx->epoch_bank.cluster_version[0] < 2) {
     char data[1] = {1};
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
