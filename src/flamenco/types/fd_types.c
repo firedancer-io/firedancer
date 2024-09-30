@@ -10443,11 +10443,10 @@ void fd_vote_state_update_decode_unsafe( fd_vote_state_update_t * self, fd_binco
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
     if( o ) {
-      self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(long) );
-      fd_bincode_int64_decode_unsafe( self->timestamp, ctx );
-    } else
-      self->timestamp = NULL;
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
   }
 }
 int fd_vote_state_update_encode( fd_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx ) {
@@ -10474,13 +10473,10 @@ int fd_vote_state_update_encode( fd_vote_state_update_t const * self, fd_bincode
   }
   err = fd_hash_encode( &self->hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->timestamp != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_int64_encode( self->timestamp[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_timestamp ) {
+    err = fd_bincode_int64_encode( self->timestamp, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -10538,9 +10534,8 @@ void fd_vote_state_update_destroy( fd_vote_state_update_t * self, fd_bincode_des
     self->has_root = 0;
   }
   fd_hash_destroy( &self->hash, ctx );
-  if( self->timestamp ) {
-    fd_valloc_free( ctx->valloc, self->timestamp );
-    self->timestamp = NULL;
+  if( self->has_timestamp ) {
+    self->has_timestamp = 0;
   }
 }
 
@@ -10569,10 +10564,10 @@ void fd_vote_state_update_walk( void * w, fd_vote_state_update_t const * self, f
     fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
   fd_hash_walk( w, &self->hash, fun, "hash", level );
-  if( !self->timestamp ) {
+  if( !self->has_timestamp ) {
     fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "long", level );
   } else {
-    fun( w, self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
+    fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_state_update", level-- );
 }
@@ -10593,7 +10588,7 @@ ulong fd_vote_state_update_size( fd_vote_state_update_t const * self ) {
   }
   size += fd_hash_size( &self->hash );
   size += sizeof(char);
-  if( NULL !=  self->timestamp ) {
+  if( self->has_timestamp ) {
     size += sizeof(long);
   }
   return size;
@@ -10651,11 +10646,10 @@ void fd_compact_vote_state_update_decode_unsafe( fd_compact_vote_state_update_t 
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
     if( o ) {
-      self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(long) );
-      fd_bincode_int64_decode_unsafe( self->timestamp, ctx );
-    } else
-      self->timestamp = NULL;
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
   }
 }
 int fd_compact_vote_state_update_encode( fd_compact_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx ) {
@@ -10672,13 +10666,10 @@ int fd_compact_vote_state_update_encode( fd_compact_vote_state_update_t const * 
   }
   err = fd_hash_encode( &self->hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->timestamp != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_int64_encode( self->timestamp[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_timestamp ) {
+    err = fd_bincode_int64_encode( self->timestamp, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -10726,9 +10717,8 @@ void fd_compact_vote_state_update_destroy( fd_compact_vote_state_update_t * self
     self->lockouts = NULL;
   }
   fd_hash_destroy( &self->hash, ctx );
-  if( self->timestamp ) {
-    fd_valloc_free( ctx->valloc, self->timestamp );
-    self->timestamp = NULL;
+  if( self->has_timestamp ) {
+    self->has_timestamp = 0;
   }
 }
 
@@ -10745,10 +10735,10 @@ void fd_compact_vote_state_update_walk( void * w, fd_compact_vote_state_update_t
     fun( w, NULL, "lockouts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_hash_walk( w, &self->hash, fun, "hash", level );
-  if( !self->timestamp ) {
+  if( !self->has_timestamp ) {
     fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "long", level );
   } else {
-    fun( w, self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
+    fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_compact_vote_state_update", level-- );
 }
@@ -10763,7 +10753,7 @@ ulong fd_compact_vote_state_update_size( fd_compact_vote_state_update_t const * 
   } while(0);
   size += fd_hash_size( &self->hash );
   size += sizeof(char);
-  if( NULL !=  self->timestamp ) {
+  if( self->has_timestamp ) {
     size += sizeof(long);
   }
   return size;

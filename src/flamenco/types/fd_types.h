@@ -1840,7 +1840,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_update {
   ulong root;
   uchar has_root;
   fd_hash_t hash;
-  long* timestamp;
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
@@ -1862,7 +1863,8 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
   ushort lockouts_len;
   fd_lockout_offset_t * lockouts;
   fd_hash_t hash;
-  long* timestamp;
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)

@@ -274,7 +274,7 @@ vote_txn_vote_authority_signer( void *        _keys,
 static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
   gossip_deliver_arg_t * arg_ = (gossip_deliver_arg_t *)arg;
-  if ( data->discriminant == fd_crds_data_enum_vote ) {
+  if( data->discriminant == fd_crds_data_enum_vote ) {
     fd_gossip_vote_t * vote = &data->inner.vote;
     fd_txn_t * parsed_txn = (fd_txn_t *)fd_type_pun( vote->txn.txn );
 
@@ -296,11 +296,12 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       };
       int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
       if( decode_result == FD_BINCODE_SUCCESS) {
-        if  ( vote_instr.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
+        if( vote_instr.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
           /* Replace the timestamp in compact_update_vote_state */
-          long old_timestamp = *vote_instr.inner.compact_update_vote_state.timestamp;
+          /* FIXME What is this random timestamp? */
           long new_timestamp = 19950128L;
-          vote_instr.inner.compact_update_vote_state.timestamp = &new_timestamp;
+          vote_instr.inner.compact_update_vote_state.has_timestamp = 1;
+          vote_instr.inner.compact_update_vote_state.timestamp = new_timestamp;
 
           /* Generate the vote transaction */
           FD_PARAM_UNUSED vote_txn_sign_args_t sign_args = {
@@ -343,8 +344,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           uint   dst_ip   = 0x0100007f; /* localhost */
           ushort dst_port = 1029;       /* vote udp port */
           send_udp_pkt( udp_pkt.buf, udp_pkt.buf_sz, arg_->wksp, dst_ip, dst_port );
-          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu -> %lu\nOld sig1: %s\nOld sig2: %s\nNew sig1: %s\nNew sig2: %s",
-                         old_timestamp,
+          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu\nOld sig1: %s\nOld sig2: %s\nNew sig1: %s\nNew sig2: %s",
                          new_timestamp,
                          FD_BASE58_ENCODE_64( vote->txn.raw + parsed_txn->signature_off ),
                          FD_BASE58_ENCODE_64( vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ),
