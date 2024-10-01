@@ -75,7 +75,7 @@ main( int     argc,
   FD_TEST( funk );
 
   fd_funk_start_write( funk );
-  
+
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_wksp_alloc_laddr( wksp, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT, static_tag ), funk );
   FD_TEST( acc_mgr );
 
@@ -395,7 +395,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL );
+      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( !fd_acc_exists( acc ) );
     } while(0);
@@ -438,7 +438,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL );
+      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( !fd_acc_exists( acc ) );
       FD_TEST( acc->slot == 9UL );
@@ -498,7 +498,7 @@ main( int     argc,
 
       /* Verify key 9 */
       fd_pubkey_t pubkey1[1]; memcpy( pubkey1, hdr1.meta.pubkey, 32 );
-      fd_account_meta_t const * acc1 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey1, NULL, NULL );
+      fd_account_meta_t const * acc1 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey1, NULL, NULL, NULL );
       FD_TEST( acc1 );
       FD_TEST( fd_acc_exists( acc1 ) );
       FD_TEST( acc1->slot == 9UL );
@@ -510,7 +510,7 @@ main( int     argc,
 
       /* Verify key 10 */
       fd_pubkey_t pubkey2[1]; memcpy( pubkey2, hdr2.meta.pubkey, 32 );
-      fd_account_meta_t const * acc2 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey2, NULL, NULL );
+      fd_account_meta_t const * acc2 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey2, NULL, NULL, NULL );
       FD_TEST( acc2 );
       FD_TEST( fd_acc_exists( acc2 ) );
       FD_TEST( acc2->slot == 8UL );
@@ -611,7 +611,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL );
+      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( acc->dlen            ==       2UL );
       FD_TEST( acc->info.lamports   ==    1234UL );

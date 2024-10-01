@@ -44,7 +44,8 @@ fd_funk_rec_query( fd_funk_t *               funk,
 fd_funk_rec_t const *
 fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
-                          fd_funk_rec_key_t const * key ) {
+                          fd_funk_rec_key_t const * key,
+                          fd_funk_txn_t const **    txn_out ) {
 
   if( FD_UNLIKELY( (!funk) | (!key) ) ) return NULL;
 
@@ -67,7 +68,12 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
     do {
       fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
       fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
-      if( FD_LIKELY( rec ) ) return rec;
+      if( FD_LIKELY( rec ) ) {
+        if( FD_UNLIKELY(NULL != txn_out  ) ) {
+          *txn_out = txn;
+        }
+        return rec;
+      }
       txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
     } while( FD_UNLIKELY( txn ) );
 
@@ -603,7 +609,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   fd_funk_rec_t * rec = NULL;
   fd_funk_rec_t const * rec_con = NULL;
   if ( FD_LIKELY (NULL == irec ) )
-    rec_con = fd_funk_rec_query_global( funk, txn, key );
+    rec_con = fd_funk_rec_query_global( funk, txn, key, NULL );
   else
     rec_con = irec;
 

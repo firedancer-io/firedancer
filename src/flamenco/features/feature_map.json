@@ -201,5 +201,6 @@
   {"name":"zk_elgamal_proof_program_enabled","pubkey":"zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv"},
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4"},
   {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
-  {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"}
+  {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"},
+  {"name":"lattice_account_hash","pubkey":"hashCqiEk6jteQkwYrXs9Gs94wDS7NK4ya62TcviULm"}
 ]
