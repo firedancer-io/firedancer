@@ -658,6 +658,11 @@ fd_topo_run_single_process( fd_topo_t * topo,
    The thread will switch to the provided UID and GID without switching
    the other threads in the process.
 
+   If keep_controlling_terminal is set to 0, and the sandbox is enabled
+   the controlling terminal will be detached as an additional sandbox
+   measure, but you will not be able to send Ctrl+C or other signals
+   from the terminal.  See fd_sandbox.h for more information.
+
    The allow_fd argument is only used if sandbox is true, and is a file
    descriptor which will be allowed to exist in the process.  Normally
    the sandbox code rejects and aborts if there is an unexpected file
@@ -679,6 +684,7 @@ void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
+                  int                  keep_controlling_terminal,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
