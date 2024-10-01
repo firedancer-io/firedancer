@@ -95,6 +95,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( FD_LIKELY( sandbox) ) {
     fd_sandbox_enter( uid,
                       gid,
+                      tile_run->keep_host_networking,
                       0,
                       tile_run->rlimit_file_cnt,
                       allow_fds_cnt+allow_fds_offset,

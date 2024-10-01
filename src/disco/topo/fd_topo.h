@@ -338,6 +338,7 @@ typedef struct {
 
   ulong                         mux_flags;
   ulong                         burst;
+  int                           keep_host_networking;
   ulong                         rlimit_file_cnt;
   int                           for_tpool;
   void * (*mux_ctx           )( void * scratch );

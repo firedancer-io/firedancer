@@ -194,6 +194,7 @@ fd_sandbox_private_set_seccomp_filter( ushort               seccomp_filter_cnt,
 void
 fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      uint        desired_gid,
+                                     int         keep_host_networking,
                                      int         keep_controlling_terminal,
                                      ulong       rlimit_file_cnt,
                                      ulong       allowed_file_descriptor_cnt,
