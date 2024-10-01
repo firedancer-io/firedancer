@@ -1928,7 +1928,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     }
 
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = (uchar) enc_level;
+    conn->peer_enc_level = (uchar)enc_level;
   }
 
   /* handle frames */
