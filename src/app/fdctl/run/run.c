@@ -300,6 +300,7 @@ main_pid_namespace( void * _args ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
                       0,
+                      0,
                       1UL+child_cnt, /* RLIMIT_NOFILE needs to be set to the nfds argument of poll() */
                       allow_fds_cnt,
                       allow_fds,
@@ -788,6 +789,7 @@ run_firedancer( config_t * const config,
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
                       0UL,
                       allow_fds_cnt,
