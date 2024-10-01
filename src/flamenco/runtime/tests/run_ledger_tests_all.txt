@@ -63,3 +63,5 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l v203-multi-epoch-per-superfeatu
 src/flamenco/runtime/tests/run_ledger_test.sh -l v203-multi-epoch-per-superfeature-160 -s snapshot-160-9kvex5W9axd5C2Yr4kTEDP6qQBHSkWXS4Rh9hFgKPPQc.tar.zst -p 30 -y 16 -m 5000000 -e 631 -c 2.0.3 -o PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8
 src/flamenco/runtime/tests/run_ledger_test.sh -l v203-multi-epoch-per-superfeature-400 -s snapshot-400-F1ja3hM4JcRzBrxr7U3my1xqNo64fYkcwRgVijm4uux7.tar.zst -p 30 -y 16 -m 5000000 -e 631 -c 2.0.3 -o PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8
 src/flamenco/runtime/tests/run_ledger_test.sh -l v208-zk-sdk-ledger -s snapshot-1-GNxLdkaRgGzZSKj79d7yUXK8Nd7dv87WckoCdzQYH4X2.tar.zst -p 30 -y 16 -m 500000 -e 82 -c 2.0.8
+src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-294739503 -s snapshot-294739500-2Y8hFyTtyMuHCgpe26Y1HostyWMZjFvskV5ZpaX6X62S.tar.zst -p 30 -y 16 -m 5000000 -e 294739505 -c 2.0.3
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-290621930 -s snapshot-290621927-AxDRmQNPmGzo1V7KRXfPXtDXTBU3AZj3MUEM1ns3CgH.tar.zst -p 30 -y 16 -m 5000000 -e 290621932 -c 1.19.0
