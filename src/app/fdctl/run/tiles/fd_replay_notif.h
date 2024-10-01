@@ -6,19 +6,27 @@
 /* Data structure which is passed through replay_notif link */
 
 #define FD_REPLAY_NOTIF_MTU 2048U
-#define FD_REPLAY_NOTIF_ACCT_MAX ((FD_REPLAY_NOTIF_MTU - 128U)/sizeof(fd_pubkey_t))
+#define FD_REPLAY_NOTIF_ACCT_MAX ((FD_REPLAY_NOTIF_MTU - 128U)/sizeof(struct fd_replay_notif_acct))
 #define FD_REPLAY_NOTIF_DEPTH 1024U
 
-#define FD_REPLAY_SAVED_TYPE 0x29FE5131U
+#define FD_REPLAY_ACCTS_TYPE 0x29FE5135U
 #define FD_REPLAY_SLOT_TYPE  0xD1239ACAU
+
+struct __attribute__((aligned(1))) fd_replay_notif_acct {
+  uchar id [ 32U ]; /* Account id */
+  uchar flags;      /* 0=nothing 1=account written */
+};
+#define FD_REPLAY_NOTIF_ACCT_WRITTEN  ((uchar)1)
+#define FD_REPLAY_NOTIF_ACCT_NO_FLAGS ((uchar)0)
 
 struct __attribute__((aligned(64UL))) fd_replay_notif_msg {
   union {
     struct {
-      fd_funk_txn_xid_t funk_xid;
-      fd_pubkey_t       acct_id[FD_REPLAY_NOTIF_ACCT_MAX];
-      uint              acct_id_cnt;
-    } acct_saved;
+      fd_funk_txn_xid_t           funk_xid;
+      uchar                       sig[64U];           /* Transaction signature */
+      struct fd_replay_notif_acct accts[FD_REPLAY_NOTIF_ACCT_MAX];
+      uint                        accts_cnt;
+    } accts;
     struct {
       ulong parent;
       ulong root;

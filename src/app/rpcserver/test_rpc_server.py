@@ -144,6 +144,10 @@ bad_method({"id":3,"jsonrpc":"2.0","method":"sendTransaction","params":[{"encodi
 bad_method({"id":3,"jsonrpc":"2.0","method":"sendTransaction","params":["\x0001ASo+eUIKwuSWNkIUSGYqsCyMl8laigvXBY0voPWtK+spyJ6aoKx6aD92w8debhg4OOtIcLmWcpiczHY0IuMFDwcBAAEDdyLB10ajX5sIZk3tYD6EBxTn7SNadMPcbamf1i/4s5Q5gs3samJ1XGBBSM+gZo2HLoRzniskcYjPZjKIdB2iqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1nrHFeO6WRyL7j0okdIcbRu3jwqxJ7McfyD/5KbTM8wBAgIAAQwCAAAAAACKXXhFYwE=",{"encoding":"base64","maxRetries":None,"minContextSlot":None,"preflightCommitment":"confirmed","skipPreflight":False}]})
 bad_method({"id":3,"jsonrpc":"2.0","method":"sendTransaction","params":["eUIKwuSWNkIUSGYqsCyMl8laigvXBY0voPWtK+spyJ6aoKx6aD92w8debhg4OOtIcLmWcpiczHY0IuMFDwcBAAEDdyLB10ajX5sIZk3tYD6EBxTn7SNadMPcbamf1i/4s5Q5gs3samJ1XGBBSM+gZo2HLoRzniskcYjPZjKIdB2iqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1nrHFeO6WRyL7j0okdIcbRu3jwqxJ7McfyD/5KbTM8wBAgIAAQwCAAAAAACKXXhFYwE=",{"encoding":"base64","maxRetries":None,"minContextSlot":None,"preflightCommitment":"confirmed","skipPreflight":False}]})
 
+good_method({"jsonrpc":"2.0", "id": 1, "method": "getSlotLeader"})
+
+good_method({"jsonrpc":"2.0", "id": 1, "method": "getSlotLeaders", "params": [slot, 10]})
+
 async def hello():
     async with websockets.connect(url.replace('http:','ws:')) as websocket:
         for a in accts:

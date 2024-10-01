@@ -719,6 +719,50 @@ after_frag( void *             _ctx,
                                                     ctx->tpool );
     } FD_SCRATCH_SCOPE_END;
 
+    // Notify for all the updated accounts
+    long notify_time_ns = -fd_log_wallclock();
+#define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
+#define NOTIFY_END                                                      \
+    fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, \
+                       0UL, ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig ); \
+    ctx->notif_out_seq   = fd_seq_inc( ctx->notif_out_seq, 1UL );       \
+    ctx->notif_out_chunk = fd_dcache_compact_next( ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), \
+                                                   ctx->notif_out_chunk0, ctx->notif_out_wmark ); \
+    msg = NULL
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_replay_notif_msg_t * msg = NULL;
+    for( ulong i = 0; i < txn_cnt; ++i ) {
+      uchar * raw = txns[i].payload;
+      fd_txn_t * txn = TXN(txns + i);
+      ushort acct_cnt = txn->acct_addr_cnt;
+      const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
+      FD_TEST((void*)(accts + acct_cnt) <= (void*)(raw + txns[i].payload_sz));
+      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
+      FD_TEST((void*)(sigs + txn->signature_cnt) <= (void*)(raw + txns[i].payload_sz));
+      for( ushort j = 0; j < acct_cnt; ++j ) {
+        if( msg == NULL ) {
+          NOTIFY_START;
+          msg->type = FD_REPLAY_ACCTS_TYPE;
+          msg->accts.funk_xid = fork->slot_ctx.funk_txn->xid;
+          fd_memcpy( msg->accts.sig, sigs, sizeof(fd_ed25519_sig_t) );
+          msg->accts.accts_cnt = 0;
+        }
+        struct fd_replay_notif_acct * out = &msg->accts.accts[ msg->accts.accts_cnt++ ];
+        fd_memcpy( out->id, accts + j, sizeof(out->id) );
+        int writable = ((j < txn->signature_cnt - txn->readonly_signed_cnt) ||
+                        ((j >= txn->signature_cnt) && (j < acct_cnt - txn->readonly_unsigned_cnt)));
+        out->flags = (writable ? FD_REPLAY_NOTIF_ACCT_WRITTEN : FD_REPLAY_NOTIF_ACCT_NO_FLAGS );
+
+        if( msg->accts.accts_cnt == FD_REPLAY_NOTIF_ACCT_MAX ) {
+          NOTIFY_END;
+        }
+      }
+      if( msg ) {
+        NOTIFY_END;
+      }
+    }
+
     execute_time_ns += fd_log_wallclock();
     FD_LOG_DEBUG(("TIMING: execute_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)execute_time_ns * 1e-6));
 
@@ -762,38 +806,6 @@ after_frag( void *             _ctx,
 
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
-
-      // Notify for all the updated accounts
-      long notify_time_ns = -fd_log_wallclock();
-#define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
-#define NOTIFY_END                                                      \
-      fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, \
-                         0UL, ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig ); \
-      ctx->notif_out_seq   = fd_seq_inc( ctx->notif_out_seq, 1UL );     \
-      ctx->notif_out_chunk = fd_dcache_compact_next( ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), \
-                                                     ctx->notif_out_chunk0, ctx->notif_out_wmark ); \
-      msg = NULL
-
-      ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_replay_notif_msg_t * msg = NULL;
-      for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( ctx->funk, fork->slot_ctx.funk_txn );
-           rec != NULL;
-           rec = fd_funk_txn_next_rec( ctx->funk, rec ) ) {
-        if( !fd_funk_key_is_acc( rec->pair.key ) ) continue;
-        if( msg == NULL ) {
-          NOTIFY_START;
-          msg->type = FD_REPLAY_SAVED_TYPE;
-          msg->acct_saved.funk_xid = rec->pair.xid[0];
-          msg->acct_saved.acct_id_cnt = 0;
-        }
-        fd_memcpy( msg->acct_saved.acct_id[ msg->acct_saved.acct_id_cnt++ ].uc, rec->pair.key->uc, sizeof(fd_pubkey_t) );
-        if( msg->acct_saved.acct_id_cnt == FD_REPLAY_NOTIF_ACCT_MAX ) {
-          NOTIFY_END;
-        }
-      }
-      if( msg ) {
-        NOTIFY_END;
-      }
 
       {
         NOTIFY_START;
