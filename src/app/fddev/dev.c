@@ -85,7 +85,12 @@ install_parent_signals( void ) {
 
 void
 update_config_for_dev( config_t * const config ) {
-  /* when starting from a new genesis block, this needs to be off else the
+  /* By default only_known is true for validators to ensure secure
+     snapshot download, but in development it doesn't matter and
+     often the developer does not provide known peers. */
+  config->rpc.only_known = 0;
+
+  /* When starting from a new genesis block, this needs to be off else the
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
