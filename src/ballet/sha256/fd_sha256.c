@@ -213,7 +213,7 @@ fd_sha256_core_ref( uint *        state,
 # undef sigma1
 # undef Ch
 # undef Maj
-
+  fd_msan_unpoison( state, 32UL );
 }
 
 #define fd_sha256_core fd_sha256_core_ref
@@ -226,7 +226,10 @@ fd_sha256_core_shaext( uint *        state,       /* 64-byte aligned, 8 entries 
                        uchar const * block,       /* ideally 128-byte aligned (but not required), 128*block_cnt in size */
                        ulong         block_cnt ); /* positive */
 
-#define fd_sha256_core fd_sha256_core_shaext
+inline void fd_sha256_core( uint * state, uchar const * block, ulong block_cnt ) {
+  fd_sha256_core_shaext( state, block, block_cnt );
+  fd_msan_unpoison( state, 32UL );
+}
 
 #else
 #error "Unsupported FD_SHA256_CORE_IMPL"
