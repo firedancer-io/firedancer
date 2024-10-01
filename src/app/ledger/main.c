@@ -101,10 +101,7 @@ struct fd_ledger_args {
   fd_spad_t *           spads[ 128UL ];          /* scratchpad allocators that are eventually assigned to each txn_ctx */
   ulong                 spad_cnt;                /* number of scratchpads, bounded by number of threads */
 
-  #ifdef _ENABLE_LTHASH
   char const *      lthash;
-  #endif
-
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
@@ -935,13 +932,6 @@ ingest( fd_ledger_args_t * args ) {
     }
   }
 
-  #ifdef _ENABLE_LTHASH
-    if( (NULL != args->lthash) && ( strcmp( args->lthash, "true" ) == 0) ) {
-      fd_accounts_init_lthash( slot_ctx );
-      fd_accounts_check_lthash( slot_ctx );
-    }
-  #endif
-
   checkpt( args, slot_ctx );
 
   cleanup_scratch();
@@ -1212,7 +1202,7 @@ prune( fd_ledger_args_t * args ) {
   for( const fd_funk_rec_t * rec = fd_funk_txn_rec_head( prune_txn, rec_map );
        rec; rec = fd_funk_txn_next_rec( pruned_funk, rec ) ) {
 
-    const fd_funk_rec_t * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, rec->pair.key );
+    const fd_funk_rec_t * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, rec->pair.key, NULL );
     if( original_rec != NULL ) {
       txn_rec_cnt++;
       fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
@@ -1237,7 +1227,7 @@ prune( fd_ledger_args_t * args ) {
 
     fd_pubkey_t const *   pubkey      = (fd_pubkey_t *) id->id.key;
     fd_funk_rec_key_t     feature_id  = fd_acc_funk_key( pubkey );
-    fd_funk_rec_t const * feature_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &feature_id );
+    fd_funk_rec_t const * feature_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &feature_id, NULL );
     if( !feature_rec ) {
       continue;
     }
@@ -1274,7 +1264,7 @@ prune( fd_ledger_args_t * args ) {
                                     slot_hashes, epoch_schedule, epoch_rewards, sysvar_fees, rent,
                                     stake_history, owner, last_restart_slot, instructions, incinerator };
   for( uint i = 0; i < sizeof( records ) / sizeof( fd_funk_rec_key_t ); ++i ) {
-    fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
+    fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i], NULL );
     if( !original_rec ) {
       /* Some sysvars aren't touched during execution. Not a problem. */
       char record[ FD_BASE58_ENCODED_32_SZ ];
@@ -1379,10 +1369,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * cluster_version         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cluster-version",         NULL, "2.0.0"   );
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
   char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
-
-  #ifdef _ENABLE_LTHASH
-  char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
-  #endif
+  char const * lthash                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",                  NULL, "false"   );
 
   // TODO: Add argument validation. Make sure that we aren't including any arguments that aren't parsed for
 
@@ -1510,9 +1497,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
     }
   }
 
-  #ifdef _ENABLE_LTHASH
   args->lthash           = lthash;
-  #endif
 
   return 0;
 }

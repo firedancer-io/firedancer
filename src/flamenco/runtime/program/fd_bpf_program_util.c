@@ -116,9 +116,9 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     uchar const *     program_data     = NULL;
     ulong             program_data_len = 0UL;
 
-    /* For v3 loaders, deserialize the program account and lookup the 
+    /* For v3 loaders, deserialize the program account and lookup the
        programdata account. Deserialize the programdata account. As a note,
-       programs that have invalid programdata accounts are intentionally not 
+       programs that have invalid programdata accounts are intentionally not
        added to the program blacklist. Likewise, for all loaders, if the
        program account can't be deserialized then it is also intentionally not
        added to the program blacklist. */
@@ -144,7 +144,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     }
 
     int funk_err = FD_FUNK_SUCCESS;
-    fd_funk_rec_t const * existing_rec = fd_funk_rec_query_global( funk, funk_txn, &id );
+    fd_funk_rec_t const * existing_rec = fd_funk_rec_query_global( funk, funk_txn, &id, NULL );
     fd_funk_rec_t *       rec          = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, existing_rec, &funk_err );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       return -1;
@@ -200,10 +200,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
       }
       fd_exec_instr_ctx_t dummy_instr_ctx = {0};
       dummy_instr_ctx.slot_ctx = slot_ctx;
-      vm = fd_vm_init( vm, 
+      vm = fd_vm_init( vm,
                        &dummy_instr_ctx,
-                       0UL, 
-                       0UL, 
+                       0UL,
+                       0UL,
                        prog->rodata,
                        prog->rodata_sz,
                        prog->text,
@@ -219,11 +219,11 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
                        0U,
                        NULL,
                        0 );
-            
+
       if( FD_UNLIKELY( !vm ) ) {
         FD_LOG_ERR(( "fd_vm_init() failed" ));
       }
-              
+
       int res = fd_vm_validate( vm );
       if( FD_UNLIKELY( res ) ) {
         /* Remove pending funk record */
@@ -274,7 +274,7 @@ fd_bpf_scan_task( void * tpool,
   }
 
   if( memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) && 
+      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
       memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
       memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
     *is_bpf_program = 0;
@@ -381,7 +381,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_pubkey_t const * program_pubkey = fd_type_pun_const( rec->pair.key[0].uc );
 
-    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, 
+    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx,
                                                                funk_txn,
                                                                program_pubkey,
                                                                update_program_blacklist );
@@ -413,7 +413,7 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) && 
+      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
       memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
       memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
     return -1;
@@ -434,7 +434,7 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t *           slot_ctx,
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   fd_funk_rec_key_t id   = fd_acc_mgr_cache_key( program_pubkey );
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, funk_txn, &id);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, funk_txn, &id, NULL);
 
   if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
     return -1;
@@ -462,7 +462,7 @@ fd_bpf_add_to_program_blacklist( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_bpf_is_in_program_blacklist( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_pubkey_t const  * program_pubkey ) {
-  
+
   for( uint i=0U; i<slot_ctx->program_blacklist_cnt; i++ ) {
     if( FD_UNLIKELY( !memcmp( &slot_ctx->program_blacklist[i], program_pubkey, sizeof(fd_pubkey_t) ) ) ) {
       return 1;
