@@ -294,7 +294,7 @@ dynamic_port_range = "8900-9000"
     # If true, use the RPC service of known validators only.  This
     # option is passed to the Agave client with the
     # `--only-known-rpc` argument.
-    only_known = false
+    only_known = true
 
     # If true, enable the unstable RPC PubSub `blockSubscribe`
     # subscription.  This option is passed to the Agave client
