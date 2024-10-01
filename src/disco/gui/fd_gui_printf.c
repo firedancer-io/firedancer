@@ -6,81 +6,81 @@
 
 #include "fd_gui_printf.h"
 
-#include "../../ballet/http/fd_hcache_private.h"
+#include "../../ballet/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
 
 #define FD_GUI_PRINTF_DEBUG 0
 
 static void
 jsonp_strip_trailing_comma( fd_gui_t * gui ) {
-  if( FD_LIKELY( !gui->hcache->snap_err &&
-                 gui->hcache->snap_len>=1UL &&
-                 fd_hcache_private_data( gui->hcache )[ gui->hcache->snap_off+gui->hcache->snap_len-1UL]==(uchar)',' ) ) {
-    gui->hcache->snap_len--;
+  if( FD_LIKELY( !gui->http->stage_err &&
+                 gui->http->stage_len>=1UL &&
+                 gui->http->oring[ (gui->http->stage_off%gui->http->oring_sz)+gui->http->stage_len-1UL ]==(uchar)',' ) ) {
+    gui->http->stage_len--;
   }
 }
 
 static void
 jsonp_open_object( fd_gui_t *   gui,
                    char const * key ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":{", key );
-  else                   fd_hcache_printf( gui->hcache, "{" );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":{", key );
+  else                   fd_http_server_printf( gui->http, "{" );
 }
 
 static void
 jsonp_close_object( fd_gui_t * gui ) {
   jsonp_strip_trailing_comma( gui );
-  fd_hcache_printf( gui->hcache, "}," );
+  fd_http_server_printf( gui->http, "}," );
 }
 
 static void
 jsonp_open_array( fd_gui_t *   gui,
                   char const * key ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":[", key );
-  else                   fd_hcache_printf( gui->hcache, "[" );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":[", key );
+  else                   fd_http_server_printf( gui->http, "[" );
 }
 
 static void
 jsonp_close_array( fd_gui_t * gui ) {
   jsonp_strip_trailing_comma( gui );
-  fd_hcache_printf( gui->hcache, "]," );
+  fd_http_server_printf( gui->http, "]," );
 }
 
 static void
 jsonp_ulong( fd_gui_t *   gui,
              char const * key,
              ulong        value ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%lu,", key, value );
-  else                   fd_hcache_printf( gui->hcache, "%lu,", value );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":%lu,", key, value );
+  else                   fd_http_server_printf( gui->http, "%lu,", value );
 }
 
 static void
 jsonp_long( fd_gui_t *   gui,
             char const * key,
             long         value ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%lu,", key, value );
-  else                   fd_hcache_printf( gui->hcache, "%ld,", value );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":%lu,", key, value );
+  else                   fd_http_server_printf( gui->http, "%ld,", value );
 }
 
 static void 
 jsonp_double( fd_gui_t *   gui,
               char const * key,
               double       value ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%.2f,", key, value );
-  else                   fd_hcache_printf( gui->hcache, "%.2f,", value );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":%.2f,", key, value );
+  else                   fd_http_server_printf( gui->http, "%.2f,", value );
 }
 
 static void
-jsonp_sanitize_str( fd_hcache_t * hcache,
-                    ulong         start_len ) {
+jsonp_sanitize_str( fd_http_server_t * http,
+                    ulong              start_len ) {
   /* escape quotemark, reverse solidus, and control chars U+0000 through U+001F
      just replace with a space */
-  uchar * data = fd_hcache_private_data( hcache );
-  for( ulong i=start_len; i<hcache->snap_len; i++ ) {
-    if( FD_UNLIKELY( data[ hcache->snap_off+i ] < 0x20 ||
-                     data[ hcache->snap_off+i ] == '"' ||
-                     data[ hcache->snap_off+i ] == '\\' ) ) {
-      data[ hcache->snap_off+i ] = ' ';
+  uchar * data = http->oring;
+  for( ulong i=start_len; i<http->stage_len; i++ ) {
+    if( FD_UNLIKELY( data[ (http->stage_off%http->oring_sz)+i ] < 0x20 ||
+                     data[ (http->stage_off%http->oring_sz)+i ] == '"' ||
+                     data[ (http->stage_off%http->oring_sz)+i ] == '\\' ) ) {
+      data[ (http->stage_off%http->oring_sz)+i ] = ' ';
     }
   }
 }
@@ -126,23 +126,23 @@ jsonp_string( fd_gui_t *   gui,
   }
   if( FD_LIKELY( key ) ) {
     if( FD_LIKELY( val ) ) {
-      fd_hcache_printf( gui->hcache, "\"%s\":\"", key );
-      ulong start_len = gui->hcache->snap_len;
-      fd_hcache_printf( gui->hcache, "%s", val );
-      jsonp_sanitize_str( gui->hcache, start_len );
-      fd_hcache_printf( gui->hcache, "\"," );
+      fd_http_server_printf( gui->http, "\"%s\":\"", key );
+      ulong start_len = gui->http->stage_len;
+      fd_http_server_printf( gui->http, "%s", val );
+      jsonp_sanitize_str( gui->http, start_len );
+      fd_http_server_printf( gui->http, "\"," );
     } else {
-      fd_hcache_printf( gui->hcache, "\"%s\":null,", key );
+      fd_http_server_printf( gui->http, "\"%s\":null,", key );
     }
   } else {
     if( FD_LIKELY( val ) ) {
-      fd_hcache_printf( gui->hcache, "\"" );
-      ulong start_len = gui->hcache->snap_len;
-      fd_hcache_printf( gui->hcache, "%s", val );
-      jsonp_sanitize_str( gui->hcache, start_len );
-      fd_hcache_printf( gui->hcache, "\"," );
+      fd_http_server_printf( gui->http, "\"" );
+      ulong start_len = gui->http->stage_len;
+      fd_http_server_printf( gui->http, "%s", val );
+      jsonp_sanitize_str( gui->http, start_len );
+      fd_http_server_printf( gui->http, "\"," );
     } else {
-      fd_hcache_printf( gui->hcache, "null," );
+      fd_http_server_printf( gui->http, "null," );
     }
   }
 }
@@ -151,15 +151,15 @@ static void
 jsonp_bool( fd_gui_t *   gui,
             char const * key,
             int          value ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%s,", key, value ? "true" : "false" );
-  else                   fd_hcache_printf( gui->hcache, "%s,", value ? "true" : "false" );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":%s,", key, value ? "true" : "false" );
+  else                   fd_http_server_printf( gui->http, "%s,", value ? "true" : "false" );
 }
 
 static void
 jsonp_null( fd_gui_t *   gui,
             char const * key ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\": null,", key );
-  else                   fd_hcache_printf( gui->hcache, "null," );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\": null,", key );
+  else                   fd_http_server_printf( gui->http, "null," );
 }
 
 static void

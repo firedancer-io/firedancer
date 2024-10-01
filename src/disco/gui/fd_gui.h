@@ -4,7 +4,6 @@
 #include "../fd_disco_base.h"
 
 #include "../../ballet/http/fd_http_server.h"
-#include "../../ballet/http/fd_hcache.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 
@@ -181,8 +180,7 @@ struct fd_gui_slot {
 typedef struct fd_gui_slot fd_gui_slot_t;
 
 struct fd_gui {
-  fd_hcache_t * hcache;
-
+  fd_http_server_t * http;
   fd_topo_t * topo;
 
   long next_sample_400millis;
@@ -307,13 +305,13 @@ FD_FN_CONST ulong
 fd_gui_footprint( void );
 
 void *
-fd_gui_new( void *        shmem,
-            fd_hcache_t * hcache,
-            char const *  version,
-            char const *  cluster,
-            uchar const * identity_key,
-            int           is_voting,
-            fd_topo_t *   topo );
+fd_gui_new( void *             shmem,
+            fd_http_server_t * http,
+            char const *       version,
+            char const *       cluster,
+            uchar const *      identity_key,
+            int                is_voting,
+            fd_topo_t *        topo );
 
 fd_gui_t *
 fd_gui_join( void * shmem );

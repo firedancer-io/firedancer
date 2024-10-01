@@ -2,7 +2,7 @@
 
 #include "../topo/fd_topo.h"
 
-#include "../../ballet/http/fd_hcache.h"
+#include "../../ballet/http/fd_http_server.h"
 
 #define PRINT_LINK_IN  (0)
 #define PRINT_LINK_OUT (1)
@@ -39,14 +39,14 @@ find_producer_out_idx( fd_topo_t const *      topo,
 
 static void
 prometheus_print1( fd_topo_t const *         topo,
-                   fd_hcache_t *             hcache,
+                   fd_http_server_t *        http,
                    char const *              tile_name,
                    ulong                     metrics_cnt,
                    fd_metrics_meta_t const * metrics,
                    int                       print_mode ) {
   for( ulong i=0UL; i<metrics_cnt; i++ ) {
     fd_metrics_meta_t const * metric = &metrics[ i ];
-    fd_hcache_printf( hcache, "# HELP %s %s\n# TYPE %s %s\n", metric->name, metric->desc, metric->name, fd_metrics_meta_type_str( metric ) );
+    fd_http_server_printf( http, "# HELP %s %s\n# TYPE %s %s\n", metric->name, metric->desc, metric->name, fd_metrics_meta_type_str( metric ) );
 
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t const * tile = &topo->tiles[ j ];
@@ -55,13 +55,13 @@ prometheus_print1( fd_topo_t const *         topo,
       if( FD_LIKELY( metric->type==FD_METRICS_TYPE_COUNTER || metric->type==FD_METRICS_TYPE_GAUGE ) ) {
         if( FD_LIKELY( print_mode==PRINT_TILE ) ) {
           ulong value = *(fd_metrics_tile( tile->metrics ) + metric->offset);
-          fd_hcache_printf( hcache, "%s{kind=\"%s\",kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, value );
+          fd_http_server_printf( http, "%s{kind=\"%s\",kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, value );
         } else {
           if( FD_LIKELY( print_mode==PRINT_LINK_IN ) ) {
             for( ulong k=0; k<tile->in_cnt; k++ ) {
               fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ k ] ];
               ulong value = *(fd_metrics_link_in( tile->metrics, k ) + metric->offset );
-              fd_hcache_printf( hcache, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
+              fd_http_server_printf( http, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
             }
           } else if( FD_LIKELY( print_mode==PRINT_LINK_OUT ) ) {
             for( ulong k=0; k<tile->in_cnt; k++ ) {
@@ -79,7 +79,7 @@ prometheus_print1( fd_topo_t const *         topo,
               ulong producer_out_idx = find_producer_out_idx( topo, producer, tile, k );
               ulong value = *(fd_metrics_link_out( producer->metrics, producer_out_idx ) + metric->offset );
 
-              fd_hcache_printf( hcache, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
+              fd_http_server_printf( http, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
             }
           }
         }
@@ -111,7 +111,7 @@ prometheus_print1( fd_topo_t const *         topo,
           }
 
           FD_TEST( fd_cstr_printf_check( value_str, sizeof( value_str ), NULL, "%lu", value ));
-          fd_hcache_printf( hcache, "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, tile->name, tile->kind_id, le, value_str );
+          fd_http_server_printf( http, "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, tile->name, tile->kind_id, le, value_str );
         }
 
         char sum_str[ 64 ];
@@ -122,26 +122,26 @@ prometheus_print1( fd_topo_t const *         topo,
           FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%lu", *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) ));
         }
 
-        fd_hcache_printf( hcache, "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, sum_str );
-        fd_hcache_printf( hcache, "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, value_str );
+        fd_http_server_printf( http, "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, sum_str );
+        fd_http_server_printf( http, "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, value_str );
       }
     }
 
-    if( FD_LIKELY( i!=metrics_cnt-1 ) ) fd_hcache_printf( hcache, "\n" );
+    if( FD_LIKELY( i!=metrics_cnt-1 ) ) fd_http_server_printf( http, "\n" );
   }
 }
 
 void
-fd_prometheus_format( fd_topo_t const * topo,
-                      fd_hcache_t *     hcache ) {
-  prometheus_print1( topo, hcache, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
-  fd_hcache_printf( hcache, "\n" );
-  prometheus_print1( topo, hcache, NULL, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
-  fd_hcache_printf( hcache, "\n" );
-  prometheus_print1( topo, hcache, NULL, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
+fd_prometheus_format( fd_topo_t const *  topo,
+                      fd_http_server_t * http ) {
+  prometheus_print1( topo, http, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
+  fd_http_server_printf( http, "\n" );
+  prometheus_print1( topo, http, NULL, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
+  fd_http_server_printf( http, "\n" );
+  prometheus_print1( topo, http, NULL, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
 
   for( ulong i=0UL; i<FD_METRICS_TILE_KIND_CNT; i++ ) {
-    fd_hcache_printf( hcache, "\n" );
-    prometheus_print1( topo, hcache, FD_METRICS_TILE_KIND_NAMES[ i ], FD_METRICS_TILE_KIND_SIZES[ i ], FD_METRICS_TILE_KIND_METRICS[ i ], PRINT_TILE );
+    fd_http_server_printf( http, "\n" );
+    prometheus_print1( topo, http, FD_METRICS_TILE_KIND_NAMES[ i ], FD_METRICS_TILE_KIND_SIZES[ i ], FD_METRICS_TILE_KIND_METRICS[ i ], PRINT_TILE );
   }
 }

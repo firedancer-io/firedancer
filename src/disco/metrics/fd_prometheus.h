@@ -3,14 +3,14 @@
 
 #include "../fd_disco_base.h"
 
+#include "../../ballet/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
-#include "../../ballet/http/fd_hcache.h"
 
 FD_PROTOTYPES_BEGIN
 
 void
-fd_prometheus_format( fd_topo_t const * topo,
-                      fd_hcache_t *     hcache );
+fd_prometheus_format( fd_topo_t const *  topo,
+                      fd_http_server_t * http );
 
 FD_PROTOTYPES_END
 

@@ -408,7 +408,6 @@ parse_log_level( char const * level ) {
   return -1;
 }
 
-#ifdef FD_HAS_NO_AGAVE
 FD_FN_CONST static char *
 cluster_to_cstr( ulong cluster ) {
   switch( cluster ) {
@@ -421,7 +420,6 @@ cluster_to_cstr( ulong cluster ) {
     default:                             return "unknown";
   }
 }
-#endif
 
 static char *
 default_user( void ) {

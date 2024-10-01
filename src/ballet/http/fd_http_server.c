@@ -1,10 +1,12 @@
 #define _GNU_SOURCE
-#include "fd_http_server.h"
+#include "fd_http_server_private.h"
 
 #include "picohttpparser.h"
 #include "fd_sha1.h"
 #include "../base64/fd_base64.h"
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
 #include <poll.h>
@@ -32,7 +34,7 @@
                                                                           implementation to cmp either */
 #define TREAP_IDX_T     ushort
 #define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_LT(e0,e1) ((e0)->send_frames[ (e0)->send_frame_idx ].last_off<(e1)->send_frames[ (e1)->send_frame_idx ].last_off)
+#define TREAP_LT(e0,e1) ((e0)->send_frames[ (e0)->send_frame_idx ].off<(e1)->send_frames[ (e1)->send_frame_idx ].off)
 
 #include "../../util/tmpl/fd_treap.c"
 
@@ -43,7 +45,7 @@
                                                                           implementation to cmp either */
 #define TREAP_IDX_T     ushort
 #define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_LT(e0,e1) ((e0)->response.last_off<(e1)->response.last_off)
+#define TREAP_LT(e0,e1) ((e0)->response._body_off<(e1)->response._body_off)
 
 #include "../../util/tmpl/fd_treap.c"
 
@@ -108,6 +110,7 @@ fd_http_server_footprint( fd_http_server_params_t params ) {
   l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_request_len*params.max_connection_cnt                                                   );
   l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
   l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ),      params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
+  l = FD_LAYOUT_APPEND( l, 1UL,                                            params.outgoing_buffer_sz                                                                          );
   return FD_LAYOUT_FINI( l, fd_http_server_align() );
 }
 
@@ -136,6 +139,12 @@ fd_http_server_new( void *                     shmem,
   char * _request_bytes   = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_request_len*params.max_connection_cnt                                     );
   uchar * _ws_recv_bytes  = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_ws_recv_frame_len*params.max_ws_connection_cnt                            );
   struct fd_http_server_ws_frame * _ws_send_frames = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct fd_http_server_ws_frame), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof(struct fd_http_server_ws_frame) );
+  http->oring             = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.outgoing_buffer_sz                                                            );
+
+  http->oring_sz  = params.outgoing_buffer_sz;
+  http->stage_err = 0;
+  http->stage_off = 0UL;
+  http->stage_len = 0UL;
 
   http->callbacks             = callbacks;
   http->callback_ctx          = callback_ctx;
@@ -245,6 +254,11 @@ fd_http_server_delete( void * shhttp ) {
   return (void *)http;
 }
 
+int
+fd_http_server_fd( fd_http_server_t * http ) {
+  return http->socket_fd;
+}
+
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        ushort             port ) {
@@ -291,7 +305,7 @@ close_conn( fd_http_server_t * http,
   if( FD_UNLIKELY( conn_idx<http->max_conns ) ) {
     struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
     if( FD_LIKELY( (conn->state==FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER || conn->state==FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY)
-                    && conn->response.last_off!=ULONG_MAX ) ) {
+                    && !conn->response.static_body ) ) {
       conn_treap_ele_remove( http->conn_treap, conn, http->conns );
     }
     conn_pool_ele_release( http->conns, conn );
@@ -351,9 +365,9 @@ accept_conns( fd_http_server_t * http ) {
     }
 
     if( FD_UNLIKELY( !conn_pool_free( http->conns ) ) ) {
-      conn_treap_rev_iter_t it = conn_treap_rev_iter_init( http->conn_treap, http->conns );
-      if( FD_LIKELY( !conn_treap_rev_iter_done( it ) ) ) {
-        ulong conn_id = conn_treap_rev_iter_idx( conn_treap_rev_iter_next( it, http->conns ) );
+      conn_treap_rev_iter_t it = conn_treap_fwd_iter_init( http->conn_treap, http->conns );
+      if( FD_LIKELY( !conn_treap_fwd_iter_done( it ) ) ) {
+        ulong conn_id = conn_treap_fwd_iter_idx( it );
         close_conn( http, conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
       } else {
         /* If nobody is slow to read, just evict round robin */
@@ -368,13 +382,6 @@ accept_conns( fd_http_server_t * http ) {
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
-
-    http->conns[ conn_id ].response.body_len          = 0UL;
-    http->conns[ conn_id ].response.content_type      = NULL;
-    http->conns[ conn_id ].response.cache_control     = NULL;
-    http->conns[ conn_id ].response.upgrade_websocket = 0;
-    http->conns[ conn_id ].response.status            = 400;
-    http->conns[ conn_id ].response.last_off          = ULONG_MAX;
 
     if( FD_UNLIKELY( http->callbacks.open ) ) {
       http->callbacks.open( conn_id, fd, http->callback_ctx );
@@ -588,16 +595,13 @@ read_conn_http( fd_http_server_t * http,
 
   fd_http_server_response_t response = http->callbacks.request( &request );
   if( FD_LIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
-
   conn->response = response;
 
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Received %s request \"%s\" from %lu (fd=%d) response code %lu", fd_http_server_method_str( method_enum ), path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
 #endif
 
-  if( FD_LIKELY( conn->response.last_off!=ULONG_MAX ) ) {
-    conn_treap_ele_insert( http->conn_treap, conn, http->conns );
-  }
+  if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_insert( http->conn_treap, conn, http->conns );
 }
 
 static void
@@ -784,12 +788,15 @@ write_conn_http( fd_http_server_t * http,
             ulong encoded_len = fd_base64_encode( sec_websocket_accept_base64, sec_websocket_accept, 20 );
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n", conn->response.body_len ) );
+            ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n", body_len ) );
           }
           break;
-        case 400:
-          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", conn->response.body_len ) );
+        case 400: {
+          ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", body_len ) );
           break;
+        }
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
@@ -822,8 +829,13 @@ write_conn_http( fd_http_server_t * http,
       response = (uchar const *)header_buf;
       break;
     case FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY:
-      response_len = conn->response.body_len;
-      response     = conn->response.body;
+      if( FD_UNLIKELY( conn->response.static_body ) ) {
+        response     = conn->response.static_body;
+        response_len = conn->response.static_body_len;
+      } else {
+        response = http->oring+(conn->response._body_off%http->oring_sz);
+        response_len = conn->response._body_len;
+      }
       break;
     default:
       FD_LOG_ERR(( "invalid server state" ));
@@ -847,7 +859,7 @@ write_conn_http( fd_http_server_t * http,
           http->pollfds[ conn_idx ].fd = -1;
 
           struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
-          if( FD_LIKELY( conn->response.last_off!=ULONG_MAX ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
+          if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
           conn_pool_ele_release( http->conns, conn );
 
           if( FD_UNLIKELY( !ws_conn_pool_free( http->ws_conns ) ) ) {
@@ -950,24 +962,24 @@ write_conn_ws( fd_http_server_t * http,
       uchar header[ 10 ];
       ulong header_len;
       header[ 0 ] = 0x80 | 0x01; /* FIN, 0x1 for text. */
-      if( FD_LIKELY( frame->data_len<126UL ) ) {
-        header[ 1 ] = (uchar)frame->data_len;
+      if( FD_LIKELY( frame->len<126UL ) ) {
+        header[ 1 ] = (uchar)frame->len;
         header_len = 2UL;
-      } else if( FD_LIKELY( frame->data_len<65536UL ) ) {
+      } else if( FD_LIKELY( frame->len<65536UL ) ) {
         header[ 1 ] = 126;
-        header[ 2 ] = (uchar)(frame->data_len>>8);
-        header[ 3 ] = (uchar)(frame->data_len);
+        header[ 2 ] = (uchar)(frame->len>>8);
+        header[ 3 ] = (uchar)(frame->len);
         header_len = 4UL;
       } else {
         header[ 1 ] = 127;
-        header[ 2 ] = (uchar)(frame->data_len>>56);
-        header[ 3 ] = (uchar)(frame->data_len>>48);
-        header[ 4 ] = (uchar)(frame->data_len>>40);
-        header[ 5 ] = (uchar)(frame->data_len>>32);
-        header[ 6 ] = (uchar)(frame->data_len>>24);
-        header[ 7 ] = (uchar)(frame->data_len>>16);
-        header[ 8 ] = (uchar)(frame->data_len>>8);
-        header[ 9 ] = (uchar)(frame->data_len);
+        header[ 2 ] = (uchar)(frame->len>>56);
+        header[ 3 ] = (uchar)(frame->len>>48);
+        header[ 4 ] = (uchar)(frame->len>>40);
+        header[ 5 ] = (uchar)(frame->len>>32);
+        header[ 6 ] = (uchar)(frame->len>>24);
+        header[ 7 ] = (uchar)(frame->len>>16);
+        header[ 8 ] = (uchar)(frame->len>>8);
+        header[ 9 ] = (uchar)(frame->len);
         header_len = 10UL;
       }
 
@@ -987,7 +999,8 @@ write_conn_ws( fd_http_server_t * http,
       break;
     }
     case FD_HTTP_SERVER_SEND_FRAME_STATE_DATA: {
-      long sz = send( http->pollfds[ conn_idx ].fd, frame->data+conn->send_frame_bytes_written, frame->data_len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
+      uchar const * data = http->oring+(frame->off%http->oring_sz);
+      long sz = send( http->pollfds[ conn_idx ].fd, data+conn->send_frame_bytes_written, frame->len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
       if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
       else if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
@@ -996,7 +1009,7 @@ write_conn_ws( fd_http_server_t * http,
       else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
       conn->send_frame_bytes_written += (ulong)sz;
-      if( FD_UNLIKELY( conn->send_frame_bytes_written==frame->data_len ) ) {
+      if( FD_UNLIKELY( conn->send_frame_bytes_written==frame->len ) ) {
         conn->send_frame_state = FD_HTTP_SERVER_SEND_FRAME_STATE_HEADER;
         conn->send_frame_idx   = (conn->send_frame_idx+1UL) % http->max_ws_send_frame_cnt;
         conn->send_frame_cnt--;
@@ -1010,16 +1023,26 @@ write_conn_ws( fd_http_server_t * http,
   }
 }
 
-void
+int
 fd_http_server_ws_send( fd_http_server_t * http,
-                        ulong              ws_conn_id,
-                        fd_http_server_ws_frame_t frame ) {
+                        ulong              ws_conn_id ) {
   struct fd_http_server_ws_connection * conn = &http->ws_conns[ ws_conn_id ];
+
+  if( FD_UNLIKELY( http->stage_err ) ) {
+    http->stage_err = 0;
+    http->stage_len = 0;
+    return -1;
+  }
 
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
     close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
-    return;
+    return 0;
   }
+
+  fd_http_server_ws_frame_t frame = {
+    .off      = http->stage_off,
+    .len      = http->stage_len,
+  };
 
   conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
   conn->send_frame_cnt++;
@@ -1027,16 +1050,47 @@ fd_http_server_ws_send( fd_http_server_t * http,
   if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
     ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
   }
+
+  http->stage_off += http->stage_len;
+  http->stage_len = 0;
+
+  return 0;
 }
 
-void
-fd_http_server_ws_broadcast( fd_http_server_t *        http,
-                             fd_http_server_ws_frame_t frame ) {
+int
+fd_http_server_ws_broadcast( fd_http_server_t * http ) {
+  if( FD_UNLIKELY( http->stage_err ) ) {
+    http->stage_err = 0;
+    http->stage_len = 0;
+    return -1;
+  }
+
+  fd_http_server_ws_frame_t frame = {
+    .off = http->stage_off,
+    .len = http->stage_len,
+  };
+
   for( ulong i=0UL; i<http->max_ws_conns; i++ ) {
     if( FD_LIKELY( http->pollfds[ http->max_conns+i ].fd==-1 ) ) continue;
 
-    fd_http_server_ws_send( http, i, frame );
+    struct fd_http_server_ws_connection * conn = &http->ws_conns[ i ];
+    if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
+      close_conn( http, i+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+      continue;
+    }
+
+    conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
+    conn->send_frame_cnt++;
+
+    if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
+      ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
+    }
   }
+
+  http->stage_off += http->stage_len;
+  http->stage_len = 0;
+
+  return 0;
 }
 
 static void
@@ -1069,13 +1123,13 @@ fd_http_server_poll( fd_http_server_t * http ) {
 
 void
 fd_http_server_evict_until( fd_http_server_t * http,
-                            ulong              last_off ) {
+                            ulong              off ) {
   conn_treap_fwd_iter_t next;
   for( conn_treap_fwd_iter_t it=conn_treap_fwd_iter_init( http->conn_treap, http->conns ); !conn_treap_fwd_iter_idx( it ); it=next ) {
     next = conn_treap_fwd_iter_next( it, http->conns );
     struct fd_http_server_connection * conn = conn_treap_fwd_iter_ele( it, http->conns );
 
-    if( FD_UNLIKELY( conn->response.last_off<last_off ) ) {
+    if( FD_UNLIKELY( conn->response._body_off<off ) ) {
       close_conn( http, conn_treap_fwd_iter_idx( it ), FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
     } else {
       break;
@@ -1087,10 +1141,106 @@ fd_http_server_evict_until( fd_http_server_t * http,
     ws_next = ws_conn_treap_fwd_iter_next( it, http->ws_conns );
     struct fd_http_server_ws_connection * conn = ws_conn_treap_fwd_iter_ele( it, http->ws_conns );
 
-    if( FD_UNLIKELY( conn->send_frames[ conn->send_frame_idx ].last_off<last_off ) ) {
+    if( FD_UNLIKELY( conn->send_frames[ conn->send_frame_idx ].off<off ) ) {
       close_conn( http, ws_conn_treap_fwd_iter_idx( it )+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
     } else {
       break;
     }
   }
+}
+
+static void
+fd_http_server_reserve( fd_http_server_t * http,
+                        ulong              len ) {
+  ulong remaining = http->oring_sz-((http->stage_off%http->oring_sz)+http->stage_len);
+  if( FD_UNLIKELY( len>remaining ) ) {
+    /* Appending the format string into the hcache would go past the end
+        of the buffer... two cases, */
+    if( FD_UNLIKELY( http->stage_len+len>http->oring_sz ) ) {
+      /* Case 1: The snap is going to be larger than the entire buffer,
+                  there's no way to fit it even if we evict everything
+                  else.  Mark the hcache as errored and exit. */
+
+      FD_LOG_WARNING(( "tried to reserve %lu bytes for an outgoing message which exceeds the entire data size", http->stage_len+len ));
+      http->stage_err = 1;
+      return;
+    } else {
+      /* Case 2: The snap can fit if we relocate it to the start of the
+                 buffer and evict whatever was there.  We also evict the
+                 rest of the buffer behind where the snap was to
+                 preserve the invariant that snaps are always evicted in
+                 circular order. */
+     
+      ulong stage_end = http->stage_off+remaining+http->stage_len+len;
+      ulong clamp = fd_ulong_if( stage_end>=http->oring_sz, stage_end-http->oring_sz, 0UL );
+      fd_http_server_evict_until( http, clamp );
+      memmove( http->oring, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
+      http->stage_off += http->stage_len+remaining;
+    }
+  } else {
+    /* The snap can fit in the buffer, we just need to evict whatever
+        was there before. */
+    ulong stage_end = http->stage_off+http->stage_len+len;
+    ulong clamp = fd_ulong_if( stage_end>=http->oring_sz, stage_end-http->oring_sz, 0UL );
+    fd_http_server_evict_until( http, clamp );
+  }
+}
+
+void
+fd_http_server_printf( fd_http_server_t * http,
+                       char const *       fmt,
+                       ... ) {
+  if( FD_UNLIKELY( http->stage_err ) ) return;
+
+  va_list ap;
+  va_start( ap, fmt );
+  ulong printed_len = (ulong)vsnprintf( NULL, 0UL, fmt, ap );
+  va_end( ap );
+
+  fd_http_server_reserve( http, printed_len );
+  if( FD_UNLIKELY( http->stage_err ) ) return;
+
+  va_start( ap, fmt );
+  vsnprintf( (char *)http->oring+(http->stage_off%http->oring_sz)+http->stage_len,
+             INT_MAX, /* We already proved it's going to fit above */
+             fmt,
+             ap );
+  va_end( ap );
+
+  http->stage_len += printed_len;
+}
+
+void
+fd_http_server_memcpy( fd_http_server_t * http,
+                       uchar const *      data,
+                       ulong              data_len ) {
+  fd_http_server_reserve( http, data_len );
+  if( FD_UNLIKELY( http->stage_err ) ) return;
+
+  fd_memcpy( (char *)http->oring+(http->stage_off%http->oring_sz)+http->stage_len,
+             data,
+             data_len );
+  http->stage_len += data_len;
+}
+
+void
+fd_http_server_unstage( fd_http_server_t * http ) {
+  http->stage_err = 0;
+  http->stage_len = 0UL;
+}
+
+int
+fd_http_server_stage_body( fd_http_server_t *          http,
+                           fd_http_server_response_t * response ) {
+  if( FD_UNLIKELY( http->stage_err ) ) {
+    http->stage_err = 0;
+    http->stage_len = 0;
+    return -1;
+  }
+
+  response->_body_off = http->stage_off;
+  response->_body_len = http->stage_len;
+  http->stage_off += http->stage_len;
+  http->stage_len = 0;
+  return 0;
 }

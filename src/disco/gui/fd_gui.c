@@ -20,13 +20,13 @@ fd_gui_footprint( void ) {
 }
 
 void *
-fd_gui_new( void *        shmem,
-            fd_hcache_t * hcache,
-            char const *  version,
-            char const *  cluster,
-            uchar const * identity_key,
-            int           is_voting,
-            fd_topo_t *   topo ) {
+fd_gui_new( void *             shmem,
+            fd_http_server_t * http,
+            char const *       version,
+            char const *       cluster,
+            uchar const *      identity_key,
+            int                is_voting,
+            fd_topo_t *        topo ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -45,8 +45,8 @@ fd_gui_new( void *        shmem,
 
   fd_gui_t * gui = (fd_gui_t *)shmem;
 
-  gui->hcache = hcache;
-  gui->topo   = topo;
+  gui->http = http;
+  gui->topo = topo;
 
   gui->debug_in_leader_slot = ULONG_MAX;
 
@@ -144,22 +144,22 @@ fd_gui_ws_open( fd_gui_t * gui,
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     printers[ i ]( gui );
-    FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
     if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
       fd_gui_printf_skip_rate( gui, i );
-      FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
       fd_gui_printf_epoch( gui, i );
-      FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     }
   }
 
   /* Print peers last because it's the largest message and would
      block other information. */
   fd_gui_printf_peers_all( gui );
-  FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 }
 
 static void
@@ -521,7 +521,7 @@ fd_gui_poll( fd_gui_t * gui ) {
   if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
     fd_gui_estimated_tps_snap( gui );
     fd_gui_printf_estimated_tps( gui );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_400millis += 400L*1000L*1000L;
   }
@@ -529,11 +529,11 @@ fd_gui_poll( fd_gui_t * gui ) {
   if( FD_LIKELY( now>gui->next_sample_100millis ) ) {
     fd_gui_txn_waterfall_snap( gui, gui->summary.txn_waterfall_current );
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
 
     fd_gui_tile_prime_metric_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_prime_metric_cur );
     fd_gui_printf_live_tile_prime_metric( gui, gui->summary.tile_prime_metric_ref, gui->summary.tile_prime_metric_cur, 0UL ); // TODO: REAL NEXT LEADER SLOT
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_100millis += 100L*1000L*1000L;
   }
@@ -543,7 +543,7 @@ fd_gui_poll( fd_gui_t * gui ) {
     gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL) % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[ 0 ]));
 
     fd_gui_printf_live_tile_timers( gui );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_10millis += 10L*1000L*1000L;
   }
@@ -669,7 +669,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   for( ulong i=before_peer_cnt; i<gui->gossip.peer_cnt; i++ ) added[ i-before_peer_cnt ] = i;
 
   if( 0 ) fd_gui_printf_peers_gossip_update( gui, updated, update_cnt, removed, removed_cnt, added, added_cnt );
-  if( 0 ) fd_hcache_snap_ws_broadcast( gui->hcache );
+  if( 0 ) fd_http_server_ws_broadcast( gui->http );
 }
 
 static void
@@ -761,7 +761,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
   for( ulong i=before_peer_cnt; i<gui->vote_account.vote_account_cnt; i++ ) added[ i-before_peer_cnt ] = i;
 
   if( 0 ) fd_gui_printf_peers_vote_account_update( gui, updated, update_cnt, removed, removed_cnt, added, added_cnt );
-  if( 0 ) fd_hcache_snap_ws_broadcast( gui->hcache );
+  if( 0 ) fd_http_server_ws_broadcast( gui->http );
 }
 
 static void
@@ -861,7 +861,7 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
   for( ulong i=before_peer_cnt; i<gui->validator_info.info_cnt; i++ ) added[ i-before_peer_cnt ] = i;
 
   if( 0 ) fd_gui_printf_peers_validator_info_update( gui, updated, update_cnt, removed, removed_cnt, added, added_cnt );
-  if( 0 ) fd_hcache_snap_ws_broadcast( gui->hcache );
+  if( 0 ) fd_http_server_ws_broadcast( gui->http );
 }
 
 int
@@ -876,12 +876,12 @@ fd_gui_request_slot( fd_gui_t *    gui,
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
     fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
-    FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
 
   fd_gui_printf_slot_request( gui, _slot, request_id );
-  FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   return 0;
 }
 
@@ -929,7 +929,7 @@ fd_gui_ws_message( fd_gui_t *    gui,
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
-    FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 
     cJSON_Delete( json );
     return 0;
@@ -1032,7 +1032,7 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   }
 
   fd_gui_printf_epoch( gui, idx );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 static void
@@ -1110,7 +1110,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   if( FD_UNLIKELY( gui->summary.vote_distance!=_slot-last_landed_vote ) ) {
     gui->summary.vote_distance = _slot-last_landed_vote;
     fd_gui_printf_vote_distance( gui );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
   }
 
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
@@ -1118,13 +1118,13 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
       if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_DELINQUENT ) ) {
         gui->summary.vote_state = FD_GUI_VOTE_STATE_DELINQUENT;
         fd_gui_printf_vote_state( gui );
-        fd_hcache_snap_ws_broadcast( gui->hcache );
+        fd_http_server_ws_broadcast( gui->http );
       }
     } else {
       if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_VOTING ) ) {
         gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
         fd_gui_printf_vote_state( gui );
-        fd_hcache_snap_ws_broadcast( gui->hcache );
+        fd_http_server_ws_broadcast( gui->http );
       }
     }
   }
@@ -1186,7 +1186,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 
     if( FD_LIKELY( should_republish ) ) {
       fd_gui_printf_slot( gui, parent_slot );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
+      fd_http_server_ws_broadcast( gui->http );
     }
 
     /* We reached the last parent in the chain, everything above this
@@ -1217,19 +1217,19 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   if( FD_LIKELY( _slot!=last_slot )) {
     gui->summary.estimated_slot_duration_nanos = (ulong)(fd_log_wallclock()-last_published)/(_slot-last_slot);
     fd_gui_printf_estimated_slot_duration_nanos( gui );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
   }
 
   if( FD_LIKELY( _slot!=gui->summary.slot_completed ) ) {
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
-    FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
+    fd_http_server_ws_broadcast( gui->http );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
     if( FD_LIKELY( republish_skip_rate[ i ] ) ) {
       fd_gui_printf_skip_rate( gui, i );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
+      fd_http_server_ws_broadcast( gui->http );
     }
   }
 }
@@ -1307,12 +1307,12 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
 
     slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
     fd_gui_printf_slot( gui, parent_slot );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
   }
 
   gui->summary.slot_rooted = _slot;
   fd_gui_printf_root_slot( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 static void
@@ -1339,7 +1339,7 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
 
     slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
     fd_gui_printf_slot( gui, parent_slot );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_http_server_ws_broadcast( gui->http );
   }
 
   if( FD_UNLIKELY( _slot<gui->summary.slot_optimistically_confirmed ) ) {
@@ -1351,13 +1351,13 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
       FD_TEST( slot->slot==i );
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
       fd_gui_printf_slot( gui, i );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
+      fd_http_server_ws_broadcast( gui->http );
     }
   }
 
   gui->summary.slot_optimistically_confirmed = _slot;
   fd_gui_printf_optimistically_confirmed_slot( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 static void
@@ -1365,7 +1365,7 @@ fd_gui_handle_balance_update( fd_gui_t * gui,
                               ulong      balance ) {
   gui->summary.balance = balance;
   fd_gui_printf_balance( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 static void
@@ -1466,7 +1466,7 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
   }
 
   fd_gui_printf_startup_progress( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_http_server_ws_broadcast( gui->http );
 }
 
 void
@@ -1489,7 +1489,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     case FD_PLUGIN_MSG_SLOT_ESTIMATED:
       gui->summary.slot_estimated = *(ulong const *)msg;
       fd_gui_printf_estimated_slot( gui );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
+      fd_http_server_ws_broadcast( gui->http );
       break;
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
       fd_gui_handle_leader_schedule( gui, (ulong const *)msg );

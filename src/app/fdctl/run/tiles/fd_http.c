@@ -14,7 +14,6 @@
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../ballet/base58/fd_base58.h"
 #include "../../../../ballet/http/fd_http_server.h"
-#include "../../../../ballet/http/fd_hcache.h"
 
 #include <errno.h>
 #include <sys/types.h>
@@ -33,7 +32,9 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_CONNS          1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
-#define FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ        (5UL<<30UL) /* 5GiB reserved for buffering GUI websockets */
+#define FD_HTTP_SERVER_GUI_OUTGOING_BUFFER_SZ    (5UL<<30UL) /* 5GiB reserved for buffering GUI websockets */
+
+#define FD_HTTP_SERVER_METRICS_OUTGOING_BUFFER_SZ (32UL<<20UL) /* 32MiB reserved for buffering metrics responses */
 
 const fd_http_server_params_t GUI_PARAMS = {
   .max_connection_cnt    = FD_HTTP_SERVER_GUI_MAX_CONNS,
@@ -41,6 +42,7 @@ const fd_http_server_params_t GUI_PARAMS = {
   .max_request_len       = FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN,
   .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
   .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
+  .outgoing_buffer_sz    = FD_HTTP_SERVER_GUI_OUTGOING_BUFFER_SZ,
 };
 
 const fd_http_server_params_t METRICS_PARAMS = {
@@ -49,6 +51,7 @@ const fd_http_server_params_t METRICS_PARAMS = {
   .max_request_len       = FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN,
   .max_ws_recv_frame_len = 0UL,
   .max_ws_send_frame_cnt = 0UL,
+  .outgoing_buffer_sz    = FD_HTTP_SERVER_METRICS_OUTGOING_BUFFER_SZ,
 };
 
 typedef struct {
@@ -59,8 +62,6 @@ typedef struct {
 
   fd_http_server_t * gui_server;
   fd_http_server_t * metrics_server;
-
-  fd_hcache_t * metrics_hcache;
 
   char          version_string[ 16UL ];
   uchar const * identity_key;
@@ -83,8 +84,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_http_ctx_t ), sizeof( fd_http_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(), fd_http_server_footprint( METRICS_PARAMS ) );
-  l = FD_LAYOUT_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ ) );
-  l = FD_LAYOUT_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( 32UL<<20UL ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -167,22 +166,21 @@ metrics_http_request( fd_http_server_request_t const * request ) {
   }
 
   if( FD_LIKELY( !strcmp( request->path, "/metrics" ) ) ) {
-    fd_prometheus_format( ctx->topo, ctx->metrics_hcache );
+    fd_prometheus_format( ctx->topo, ctx->metrics_server );
 
-    ulong body_len = 0UL;
-    ulong last_off;
-    uchar const * body = fd_hcache_snap_response( ctx->metrics_hcache, &body_len, &last_off );
-    return (fd_http_server_response_t){
-      .status            = body ? 200 : 500,
-      .body              = body,
-      .body_len          = body_len,
-      .last_off          = last_off,
-      .content_type      = "text/plain; version=0.0.4",
-      .upgrade_websocket = 0,
+    fd_http_server_response_t response = {
+      .status       = 200,
+      .content_type = "text/plain; version=0.0.4",
     };
+    if( FD_UNLIKELY( fd_http_server_stage_body( ctx->metrics_server, &response ) ) ) {
+      return (fd_http_server_response_t){
+        .status = 500,
+      };
+    }
+    return response;
   } else {
     return (fd_http_server_response_t){
-      .status            = 404,
+      .status = 404,
     };
   }
 }
@@ -203,9 +201,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
   } else if( FD_LIKELY( !strcmp( request->path, "/favicon.svg" ) ) ) {
     return (fd_http_server_response_t){
       .status            = 200,
-      .body              = firedancer_svg,
-      .body_len          = firedancer_svg_sz,
-      .last_off          = ULONG_MAX,
+      .static_body       = firedancer_svg,
+      .static_body_len   = firedancer_svg_sz,
       .content_type      = "image/svg+xml",
       .upgrade_websocket = 0,
     };
@@ -250,9 +247,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
 
       return (fd_http_server_response_t){
         .status            = 200,
-        .body              = data,
-        .body_len          = data_len,
-        .last_off          = ULONG_MAX,
+        .static_body       = data,
+        .static_body_len   = data_len,
         .content_type      = content_type,
         .cache_control     = cache_control,
         .content_encoding  = content_encoding,
@@ -329,20 +325,12 @@ unprivileged_init( fd_topo_t *      topo,
 
                            FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
                            FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( METRICS_PARAMS ) );
-  void * _gui_hcache     = FD_SCRATCH_ALLOC_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ ) );
-  void * _metrics_hcache = FD_SCRATCH_ALLOC_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( 32UL<<20UL ) );
   void * _gui            = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
-
-  fd_hcache_t * gui_hcache = fd_hcache_join( fd_hcache_new( _gui_hcache, ctx->gui_server, FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ ) );
-  FD_TEST( gui_hcache );
-
-  ctx->metrics_hcache = fd_hcache_join( fd_hcache_new( _metrics_hcache, ctx->metrics_server, 32UL<<20UL ) );
-  FD_TEST( ctx->metrics_hcache );
 
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%lu.%lu.%lu", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
 
   ctx->topo = topo;
-  ctx->gui  = fd_gui_join( fd_gui_new( _gui, gui_hcache, ctx->version_string, tile->http.cluster, ctx->identity_key, tile->http.is_voting, ctx->topo ) );
+  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->http.cluster, ctx->identity_key, tile->http.is_voting, ctx->topo ) );
   FD_TEST( ctx->gui );
 
   fd_topo_link_t * link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -367,7 +355,7 @@ populate_allowed_seccomp( void *               scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_http_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_http_ctx_t ), sizeof( fd_http_ctx_t ) );
 
-  populate_sock_filter_policy_http( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->gui_server->socket_fd, (uint)ctx->metrics_server->socket_fd );
+  populate_sock_filter_policy_http( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->gui_server ), (uint)fd_http_server_fd( ctx->metrics_server ) );
   return sock_filter_policy_http_instr_cnt;
 }
 
@@ -384,8 +372,8 @@ populate_allowed_fds( void * scratch,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->gui_server->socket_fd; /* gui listen socket */
-  out_fds[ out_cnt++ ] = ctx->metrics_server->socket_fd; /* metrics listen socket */
+  out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->gui_server ); /* gui listen socket */
+  out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->metrics_server ); /* metrics listen socket */
   return out_cnt;
 }
 

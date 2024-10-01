@@ -3,7 +3,7 @@ import websockets
 import requests
 import json
 
-for i in range(50000):
+for i in range(5000):
     x = requests.get("http://localhost:4321/hello/from/the/magic/tavern")
     print(x.content.decode('utf-8'))
 
