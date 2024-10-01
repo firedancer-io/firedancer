@@ -1229,7 +1229,7 @@ fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
   }
 
   fd_account_meta_t const * program_acc = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, NULL,
-                                                               program_pubkey, NULL, NULL );
+                                                               program_pubkey, NULL, NULL, NULL );
   fd_bincode_decode_ctx_t ctx = {
     .data    = (uchar *)program_acc + program_acc->hlen,
     .dataend = (char *) ctx.data + program_acc->dlen,
@@ -2835,7 +2835,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       }
 
-      if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
+      if( FD_UNLIKELY( FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash) & !FD_FEATURE_ACTIVE( slot_ctx, lattice_account_hash ) ) ) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
         if (txn->xid.ul[0] >= epoch_bank->eah_start_slot) {
           fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash, 0 );

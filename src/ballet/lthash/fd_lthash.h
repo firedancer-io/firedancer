@@ -18,6 +18,9 @@ union __attribute__((aligned(FD_LTHASH_ALIGN))) fd_lthash_value {
 };
 typedef union fd_lthash_value fd_lthash_value_t;
 
+#define FD_LTHASH_VALUE_ALIGN         (FD_LTHASH_ALIGN)
+#define FD_LTHASH_VALUE_FOOTPRINT     sizeof(fd_lthash_value_t)
+
 #define fd_lthash_t fd_blake3_t
 
 FD_PROTOTYPES_BEGIN

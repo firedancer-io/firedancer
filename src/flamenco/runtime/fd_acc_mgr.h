@@ -173,7 +173,8 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
                      fd_funk_rec_t const ** opt_out_rec,
-                     int *                  opt_err );
+                     int *                  opt_err,
+                     fd_funk_txn_t const ** txn_out   );
 
 int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
