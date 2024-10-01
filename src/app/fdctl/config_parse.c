@@ -264,7 +264,6 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
-  CFG_POP      ( cstr,   layout.solana_labs_affinity                      );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.verify_tile_count                         );

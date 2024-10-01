@@ -589,11 +589,7 @@ dynamic_port_range = "8900-9000"
     # affinity with the Agave affinity, as Firedancer tiles expect
     # to have exclusive use of their core.  Unexpected latency spikes
     # due to context switching may decrease performance overall.
-    agave_affinity = ""
-
-    # The following option is retained for backwards compatibility.  It
-    # will be ignored if agave_affinity is specified.
-    solana_labs_affinity = "17-31"
+    agave_affinity = "17-31"
 
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

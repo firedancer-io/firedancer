@@ -674,10 +674,6 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
 
-  if( FD_UNLIKELY( !strcmp( config->layout.agave_affinity, "" ) ) ) {
-    strncpy( config->layout.agave_affinity, config->layout.solana_labs_affinity, sizeof(config->layout.agave_affinity) );
-  }
-
   if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port != config->tiles.quic.regular_transaction_listen_port + 6 ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
                  "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
