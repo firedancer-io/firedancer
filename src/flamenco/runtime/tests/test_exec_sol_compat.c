@@ -1,5 +1,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fd_flamenco_base.h"
+#include "../../fd_flamenco.h"
 #include "fd_exec_sol_compat.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -58,6 +59,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_flamenco_boot( NULL, NULL );
   sol_compat_wksp_init();
   ulong fmem[ 64 ];
 

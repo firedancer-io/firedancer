@@ -801,7 +801,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
    of the transaction checks for fuzzing convenience.
 
    For reference this is the general code path which contains all relevant
-   pre-transactions checks in the v2.0.0 Agave client from upstream
+   pre-transactions checks in the v2.0.x Agave client from upstream
    to downstream is as follows:
 
    confirm_slot_entries() which calls verify_ticks()
@@ -826,7 +826,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
    and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
    also checks the total data size of the accounts in load_accounts() and
    validates the program accounts in load_transaction_accounts(). This
-   is paralled by fd_executor_check_txn_program_accounts_and_data_sz(). */
+   is paralled by fd_executor_load_transaction_accounts(). */
 
 static void FD_FN_UNUSED
 fd_txn_sigverify_task( void *tpool,
@@ -882,6 +882,13 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
                                          ...
                                           v
                               load_and_execute_transactions
+                                          v
+                                         ...
+                                          v
+                                    load_accounts --> load_transaction_accounts
+                                          v
+                              general transaction execution
+                                      
   */
   err = fd_executor_verify_precompiles( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -935,8 +942,8 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/account_loader.rs#L278-L284 */
-  err = fd_executor_check_txn_program_accounts_and_data_sz( txn_ctx );
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+  err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;
@@ -3089,11 +3096,11 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *  slot_ctx,
                                  fd_account_meta_t  *  acc,
                                  fd_pubkey_t const  *  key,
                                  ulong                 epoch ) {
-
+  
   // RentCollector::collect_from_existing_account (enter)
   // RentCollector::calculate_rent_result         (enter)
 
-  fd_solana_account_meta_t *info = &acc->info;
+  fd_solana_account_meta_t * info = &acc->info;
 
   // RentCollector::can_skip_rent_collection (enter)
 
@@ -3116,7 +3123,6 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *  slot_ctx,
     // By changing the slot, this forces the account to be updated
     // in the account_delta_hash which matches the "rent rewrite"
     // behavior in solana.
-
     acc->slot = slot_ctx->slot_bank.slot;
   }
 
@@ -3177,35 +3183,36 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *  slot_ctx,
 
 static void
 fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulong epoch ) {
-  fd_funk_txn_t *txn = slot_ctx->funk_txn;
-  fd_acc_mgr_t *acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *funk = slot_ctx->acc_mgr->funk;
-  fd_wksp_t *wksp = fd_funk_wksp(funk);
+  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
+  fd_funk_t *     funk    = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
 
-  fd_funk_partvec_t *partvec = fd_funk_get_partvec(funk, wksp);
+  fd_funk_partvec_t *partvec = fd_funk_get_partvec( funk, wksp );
 
-  fd_funk_rec_t *rec_map = fd_funk_rec_map(funk, wksp);
+  fd_funk_rec_t *rec_map = fd_funk_rec_map( funk, wksp );
 
-  for (fd_funk_rec_t const *rec_ro = fd_funk_part_head(partvec, (uint)off, rec_map);
+  for( fd_funk_rec_t const *rec_ro = fd_funk_part_head( partvec, (uint)off, rec_map );
        rec_ro != NULL;
-       rec_ro = fd_funk_part_next(rec_ro, rec_map)) {
-    fd_pubkey_t const *key = fd_type_pun_const(rec_ro->pair.key[0].uc);
-    // FD_LOG_WARNING(("Collecting rent from %32J", key));
-    FD_BORROWED_ACCOUNT_DECL(rec);
-    int err = fd_acc_mgr_view(acc_mgr, txn, key, rec);
+       rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
+    fd_pubkey_t const *key = fd_type_pun_const( rec_ro->pair.key[0].uc );
+    FD_LOG_DEBUG(( "Collecting rent from %32J", key ));
+    FD_BORROWED_ACCOUNT_DECL( rec );
+    int err = fd_acc_mgr_view( acc_mgr, txn, key, rec );
 
     /* Account might not exist anymore in the current world */
-    if( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+    if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
       continue;
     }
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS )) {
-      FD_LOG_WARNING(("fd_runtime_collect_rent: fd_acc_mgr_view failed (%d)", err));
+    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent: fd_acc_mgr_view failed (%d)", err ));
       continue;
     }
 
     /* Check if latest version in this transaction */
-    if (rec_ro != rec->const_rec)
+    if( rec_ro!=rec->const_rec ) {
       continue;
+    }
 
     /* Upgrade read-only handle to writable */
     err = fd_acc_mgr_modify(
@@ -3213,9 +3220,8 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
         /* do_create   */ 0,
         /* min_data_sz */ 0UL,
         rec);
-    if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
-    {
-      FD_LOG_WARNING(("fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err));
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
       continue;
     }
 
@@ -3513,7 +3519,7 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
     } else {
       ulong old = slot_ctx->slot_bank.capitalization;
       slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, leftover_lamports);
-      FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %ld->%ld ", leftover_lamports, old, slot_ctx->slot_bank.capitalization ));
+      FD_LOG_DEBUG(( "fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %ld->%ld ", leftover_lamports, old, slot_ctx->slot_bank.capitalization ));
     }
   } FD_SCRATCH_SCOPE_END;
 }
@@ -3531,7 +3537,7 @@ fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_runtime_distribute_rent_to_validators(slot_ctx, rent_to_be_distributed);
+  fd_runtime_distribute_rent_to_validators( slot_ctx, rent_to_be_distributed );
 }
 
 int
@@ -3561,17 +3567,18 @@ fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
 
 void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
-  // solana/runtime/src/bank.rs::freeze(....)
-  fd_runtime_collect_rent(slot_ctx);
+  
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L2820-L2821 */
+  fd_runtime_collect_rent( slot_ctx );
   // self.collect_fees();
 
-  fd_sysvar_recent_hashes_update(slot_ctx);
+  fd_sysvar_recent_hashes_update( slot_ctx );
 
   if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
     fd_sysvar_fees_update(slot_ctx);
 
   ulong fees = fd_ulong_sat_add (slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
-  if( FD_LIKELY ((fees > 0))) {
+  if( FD_LIKELY( fees ) ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_BORROWED_ACCOUNT_DECL(rec);
 
