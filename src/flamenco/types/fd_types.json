@@ -562,6 +562,16 @@
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/reward_info.rs#L5"
     },
     {
+      "name": "slot_lthash",
+      "type": "struct",
+      "archival": "true",
+      "alignment": "128",
+      "fields": [
+        { "name": "lthash",                      "type": "uchar[2048]" }
+      ],
+      "comment": "You can cast this to a (fd_lthash_value_t *) and use it directly since the alignment is preserved"
+    },
+    {
       "name": "solana_manifest",
       "type": "struct",
       "alignment": "16",
@@ -571,7 +581,8 @@
         { "name": "lamports_per_signature",                "type": "ulong" },
         { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence", "ignore_underflow": true },
         { "name": "epoch_account_hash",                    "type": "option", "element": "hash",                                  "ignore_underflow": true },
-        { "name": "versioned_epoch_stakes",                "type": "vector", "element": "versioned_epoch_stakes_pair",           "ignore_underflow": true }
+        { "name": "versioned_epoch_stakes",                "type": "vector", "element": "versioned_epoch_stakes_pair",           "ignore_underflow": true },
+        { "name": "lthash",                                "type": "option", "element": "slot_lthash",                           "ignore_underflow": true }
       ]
     },
     {
@@ -1082,7 +1093,7 @@
       "name": "slot_bank",
       "type": "struct",
       "archival": "true",
-      "alignment": "16",
+      "alignment": "128",
       "fields": [
         { "name": "recent_block_hashes",         "type": "recent_block_hashes" },
         { "name": "timestamp_votes",             "type": "clock_timestamp_votes" },
@@ -1104,7 +1115,7 @@
         { "name": "vote_account_keys",           "type": "vote_accounts" },
         { "name": "lamports_per_signature",      "type": "ulong" },
         { "name": "transaction_count",           "type": "ulong" },
-        { "name": "lthash",                      "type": "uchar[2048]" },
+        { "name": "lthash",                      "type": "slot_lthash" },
         { "name": "block_hash_queue",            "type": "block_hash_queue" },
         { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." }
       ]

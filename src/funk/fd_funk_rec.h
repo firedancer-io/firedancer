@@ -172,10 +172,18 @@ fd_funk_rec_query( fd_funk_t *               funk,
                    fd_funk_txn_t const *     txn,
                    fd_funk_rec_key_t const * key );
 
+
+/* fd_funk_rec_query_global is a query that searches for the
+   supplied key by walking up the funk txn stack.
+
+   if txn_out is supplied (non-null), the txn the key was found in
+   is returned. If *txn_out == NULL, the key was found in the root
+   context */
 FD_FN_PURE fd_funk_rec_t const *
 fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
-                          fd_funk_rec_key_t const * key );
+                          fd_funk_rec_key_t const * key,
+                          fd_funk_txn_t const **    txn_out );
 
 /* fd_funk_rec_query_safe is a query that is safe in the presence of
    concurrent writes. The result data is copied into a buffer
@@ -388,7 +396,7 @@ fd_funk_rec_is_modified( fd_funk_t *           funk,
    This is O(orig_rec) size.  If the caller doesn't have the
    original record lying around, it can be found via:
 
-     fd_funk_rec_t const * orig_rec = fd_funk_rec_query_global( funk, txn_parent, key );
+     fd_funk_rec_t const * orig_rec = fd_funk_rec_query_global( funk, txn_parent, key, NULL );
 
    This is O(ancestor depth to orig rec) and accounts for that the
    previous version of the record might not be in txn's parent. */

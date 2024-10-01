@@ -4,6 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
 #define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
@@ -43,6 +44,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
 
 void const *
 fd_hash_account_v0( uchar                     hash[ static 32 ],
+                    fd_lthash_value_t        *lthash,
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data,
@@ -56,6 +58,7 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
 
 void const *
 fd_hash_account_v1( uchar                     hash  [ static 32 ],
+                    fd_lthash_value_t        *lthash,
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data );
@@ -65,7 +68,8 @@ fd_hash_account_v1( uchar                     hash  [ static 32 ],
 
 void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
-                         fd_account_meta_t const *  account,
+                         fd_lthash_value_t         *lthash,
+                         fd_account_meta_t const   *account,
                          uchar const                pubkey[ static 32 ],
                          uchar const *              data,
                          fd_exec_slot_ctx_t const * slot_ctx );
@@ -74,8 +78,7 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_tpool_t * tpool,
-                  fd_hash_t * accounts_hash,
-                  ulong do_hash_verify );
+                  fd_hash_t * accounts_hash );
 
 /* Special version for verifying incremental snapshot */
 int
@@ -90,9 +93,6 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_tpool_t * tpool,
                   fd_hash_t * accounts_hash,
                   uint check_hash );
-
-int
-fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx );
 
 void
 fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx );

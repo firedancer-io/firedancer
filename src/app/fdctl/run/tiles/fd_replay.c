@@ -543,7 +543,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
   if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, epoch_accounts_hash ) ) ) {
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
     if( smr >= epoch_bank->eah_start_slot ) {
-      fd_accounts_hash( ctx->slot_ctx, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash, 0 );
+      fd_accounts_hash( ctx->slot_ctx, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash );
       epoch_bank->eah_start_slot = FD_SLOT_NULL;
     }
   }
@@ -913,7 +913,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         }
         res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx,
                                                       ctx->capture_ctx,
-                                                      txns, 
+                                                      txns,
                                                       txn_cnt,
                                                       ctx->tpool,
                                                       ctx->spads,

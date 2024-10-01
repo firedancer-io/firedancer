@@ -132,7 +132,7 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_pubkey_t const *  pubkey ) {
   int err = 0;
   fd_account_meta_t const * meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn,
-                                                        (fd_pubkey_t *) pubkey, NULL, &err );
+                                                        (fd_pubkey_t *) pubkey, NULL, &err, NULL );
   if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
@@ -163,7 +163,7 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
   /* Check if programdata account exists */
   fd_account_meta_t const * programdata_meta =
     (fd_account_meta_t const *)fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn,
-                                                    (fd_pubkey_t *) &loader_state.inner.program.programdata_address, NULL, &err );
+                                                    (fd_pubkey_t *) &loader_state.inner.program.programdata_address, NULL, &err, NULL );
   if( FD_UNLIKELY( !fd_acc_exists( programdata_meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }

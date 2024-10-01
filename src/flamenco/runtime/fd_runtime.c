@@ -1003,7 +1003,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  /* `load_and_execute_transactions()` -> `check_transactions()` 
+  /* `load_and_execute_transactions()` -> `check_transactions()`
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
   err = fd_executor_check_transactions( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1233,12 +1233,12 @@ fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
      This is necessary for executing any bpf upgradeable program. */
 
   fd_account_meta_t const * program_acc = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, NULL,
-                                                               program_pubkey, NULL, NULL );
+                                                               program_pubkey, NULL, NULL, NULL );
 
   if( memcmp( program_acc->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return;
   }
-                                                               
+
   fd_bincode_decode_ctx_t ctx = {
     .data    = (uchar *)program_acc + program_acc->hlen,
     .dataend = (char *) ctx.data + program_acc->dlen,
@@ -2846,15 +2846,15 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       }
 
-      if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
+      if( FD_UNLIKELY( FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash) ) ) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-        if (txn->xid.ul[0] >= epoch_bank->eah_start_slot) {
-          fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash, 0 );
+        if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
+          fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash );
           epoch_bank->eah_start_slot = ULONG_MAX;
         }
       }
 
-      if ( capture_ctx != NULL ) {
+      if( capture_ctx != NULL ) {
         fd_runtime_checkpt( capture_ctx, slot_ctx, txn->xid.ul[0] );
       }
 
@@ -3256,7 +3256,7 @@ fd_runtime_collect_from_existing_account( fd_exec_slot_ctx_t * slot_ctx,
   }
   /* RentResult::Exempt */
   /* Inlining should_collect_rent() */
-  int should_collect_rent = !( acc->info.executable || 
+  int should_collect_rent = !( acc->info.executable ||
                                !memcmp( pubkey, &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
   if( !should_collect_rent ) {
     calculate_rent_result = EXEMPT;

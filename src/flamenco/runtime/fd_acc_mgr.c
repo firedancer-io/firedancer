@@ -100,12 +100,13 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
                      fd_funk_rec_t const ** orec,
-                     int *                  opt_err ) {
+                     int *                  opt_err,
+                     fd_funk_txn_t const ** txn_out  ) {
 
   fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
   fd_funk_t *       funk = acc_mgr->funk;
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, txn_out );
 
   if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
@@ -136,7 +137,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
   //   txn = NULL;
   // }
   int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
+  fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err, NULL );
   if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       return err;
