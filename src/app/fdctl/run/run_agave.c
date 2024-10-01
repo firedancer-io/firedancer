@@ -139,7 +139,7 @@ agave_boot( config_t * config ) {
   ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
   ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
   ADD( "--snapshots", config->snapshots.path );
-  if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshots", config->snapshots.incremental_path );
+  if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );
   ADDU( "--maximum-incremental-snapshots-to-retain", config->snapshots.maximum_incremental_snapshots_to_retain );
   ADDU( "--minimal-snapshot-download-speed", config->snapshots.minimum_snapshot_download_speed );
