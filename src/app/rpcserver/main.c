@@ -8,8 +8,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "../../util/wksp/fd_wksp_private.h"
-#include "../../disco/topo/fd_topo.h"
 #include "fd_rpc_service.h"
 
 /*
@@ -57,15 +55,13 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   fd_wksp_mprotect( wksp, 1 );
 
   wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-replay-notify", NULL, "fd1_replay_notif.wksp" );
-  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
-  args->rep_notify_wksp = wksp = fd_wksp_attach( wksp_name );
-  if( FD_UNLIKELY( !wksp ) )
-    FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-  ulong offset = fd_ulong_align_up( fd_wksp_private_data_off( wksp->part_max ), fd_topo_workspace_align() );
-  args->rep_notify = fd_mcache_join( (void *)((ulong)wksp + offset) );
-  if( args->rep_notify == NULL ) {
-    FD_LOG_ERR(( "failed to join a replay notifier" ));
-  }
+  args->rep_notify = replay_sham_link_new( aligned_alloc( replay_sham_link_align(), replay_sham_link_footprint() ), wksp_name );
+
+  wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-stake-out", NULL, "fd1_stake_out.wksp" );
+  args->stake_notify = stake_sham_link_new( aligned_alloc( stake_sham_link_align(), stake_sham_link_footprint() ), wksp_name );
+  fd_pubkey_t identity_key[1]; /* Just the public key */
+  memset( identity_key, 0xa5, sizeof(fd_pubkey_t) );
+  args->stake_ci = fd_stake_ci_join( fd_stake_ci_new( aligned_alloc( fd_stake_ci_align(), fd_stake_ci_footprint() ), identity_key ) );
 
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
@@ -187,6 +183,12 @@ int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rpcserver_args_t args;
 
+#define SMAX 1LU<<28
+  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,
+                                fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) );
+  ulong fmem[16U];
+  fd_scratch_attach( smem, fmem, SMAX, 16U );
+
   ulong offline = fd_env_strip_cmdline_ulong( &argc, &argv, "--offline", NULL, 0 );
   if( !offline ) {
     init_args( &argc, &argv, &args );
@@ -207,12 +209,6 @@ int main( int argc, char ** argv ) {
   fd_rpc_ctx_t * ctx = NULL;
   fd_rpc_start_service( &args, &ctx );
 
-#define SMAX 1LU<<28
-  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,
-                                fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) );
-  ulong fmem[4U];
-  fd_scratch_attach( smem, fmem, SMAX, 4U );
-
   if( args.offline ) {
     while( !stopflag ) {
       fd_rpc_ws_poll( ctx );
@@ -222,43 +218,13 @@ int main( int argc, char ** argv ) {
     return 0;
   }
 
-  fd_frag_meta_t * mcache = args.rep_notify;
-  fd_wksp_t * mcache_wksp = args.rep_notify_wksp;
-  ulong depth  = fd_mcache_depth( mcache );
-  ulong seq_expect = fd_mcache_seq0( mcache );
+  replay_sham_link_start( args.rep_notify );
+  stake_sham_link_start( args.stake_notify );
   while( !stopflag ) {
-    while( 1 ) {
-      fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( seq_expect, depth );
+    fd_replay_notif_msg_t msg;
+    replay_sham_link_poll( args.rep_notify, ctx, &msg );
 
-      ulong seq_found = fd_frag_meta_seq_query( mline );
-      long  diff      = fd_seq_diff( seq_found, seq_expect );
-      if( FD_UNLIKELY( diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
-        if( FD_UNLIKELY( diff>0L ) ) {
-          FD_LOG_NOTICE(( "overrun: seq=%lu seq_found=%lu diff=%ld", seq_expect, seq_found, diff ));
-          seq_expect = seq_found;
-        } else {
-          /* caught up */
-          break;
-        }
-        continue;
-      }
-
-      fd_replay_notif_msg_t msg;
-      FD_TEST( mline->sz == sizeof(msg) );
-      fd_memcpy(&msg, fd_chunk_to_laddr( mcache_wksp, mline->chunk ), sizeof(msg));
-
-      seq_found = fd_frag_meta_seq_query( mline );
-      diff      = fd_seq_diff( seq_found, seq_expect );
-      if( FD_UNLIKELY( diff ) ) { /* overrun, optimize for expected sequence number ready */
-        FD_LOG_NOTICE(( "overrun: seq=%lu seq_found=%lu diff=%ld", seq_expect, seq_found, diff ));
-        seq_expect = seq_found;
-        continue;
-      }
-
-      fd_rpc_replay_notify( ctx, &msg );
-
-      ++seq_expect;
-    }
+    stake_sham_link_poll( args.stake_notify, ctx, args.stake_ci );
 
     fd_rpc_ws_poll( ctx );
   }

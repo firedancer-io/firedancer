@@ -841,6 +841,7 @@ fd_account_to_json( fd_webserver_t * ws,
     encstr = "base58";
     break;
   case FD_ENC_BASE64:
+  case FD_ENC_JSON:
     if (fd_web_reply_encode_base64(ws, val, val_sz)) {
       return "failed to encode data in base64";
     }
