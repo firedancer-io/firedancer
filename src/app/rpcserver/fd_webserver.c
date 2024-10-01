@@ -34,9 +34,9 @@ json_parse_root(fd_webserver_t * ws, json_lex_state_t* lex) {
     ulong sz;
     const char* text = json_lex_get_text(lex, &sz);
     FD_LOG_DEBUG(( "json parsing error: %s", text ));
-    fd_hcache_reset(ws->hcache);
+    fd_http_server_unstage( ws->server );
     ws->quick_size = 0;
-    fd_hcache_printf(ws->hcache, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error: %s\"},\"id\":null}", text);
+    fd_http_server_printf( ws->server, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error: %s\"},\"id\":null}", text );
   }
 
   json_values_delete(&values);
@@ -77,13 +77,13 @@ void fd_web_simple_error( fd_webserver_t * ws, const char* text, uint text_size 
 "</body>" CRLF
 "</html>" CRLF;
 
-  fd_hcache_reset(ws->hcache);
+  fd_http_server_unstage(ws->server);
   ws->quick_size = 0;
-  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC1, strlen(DOC1));
-  fd_hcache_memcpy(ws->hcache, (const uchar*)text, text_size);
-  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC2, strlen(DOC2));
-  fd_hcache_memcpy(ws->hcache, ws->upload_data, ws->upload_data_size);
-  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC3, strlen(DOC3));
+  fd_http_server_memcpy(ws->server, (const uchar*)DOC1, strlen(DOC1));
+  fd_http_server_memcpy(ws->server, (const uchar*)text, text_size);
+  fd_http_server_memcpy(ws->server, (const uchar*)DOC2, strlen(DOC2));
+  fd_http_server_memcpy(ws->server, ws->upload_data, ws->upload_data_size);
+  fd_http_server_memcpy(ws->server, (const uchar*)DOC3, strlen(DOC3));
 
   ws->status_code = 400; // BAD_REQUEST
 }
@@ -91,7 +91,7 @@ void fd_web_simple_error( fd_webserver_t * ws, const char* text, uint text_size 
 static void
 fd_web_reply_flush( fd_webserver_t * ws ) {
   if( ws->quick_size ) {
-    fd_hcache_memcpy(ws->hcache, (const uchar*)ws->quick_buf, ws->quick_size);
+    fd_http_server_memcpy(ws->server, (const uchar*)ws->quick_buf, ws->quick_size);
     ws->quick_size = 0;
   }
 }
@@ -110,26 +110,19 @@ request( fd_http_server_request_t const * request ) {
       return response;
     }
 
-    fd_hcache_printf( ws->hcache, "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <title>Error</title> </head> <body> <h1>GET method not supported!</h1> </body> </html>\r\n" );
-    ulong body_len     = 0;
-    uchar const * body = fd_hcache_snap_response( ws->hcache, &body_len );
-    FD_TEST( body );
-
+    fd_http_server_printf( ws->server, "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"> <title>Error</title> </head> <body> <h1>GET method not supported!</h1> </body> </html>\r\n" );
     fd_http_server_response_t response = {
       .status            = 400,
       .upgrade_websocket = 0,
       .content_type      = "text/html",
-      .body              = body,
-      .body_len          = body_len,
     };
+    FD_TEST( !fd_http_server_stage_body( ws->server, &response ) );
     return response;
   } else if( request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) {
     fd_http_server_response_t response = {
         .status                       = 204UL,
         .upgrade_websocket            = 0,
         .content_type                 = NULL,
-        .body                         = NULL,
-        .body_len                     = 0UL,
         .access_control_allow_origin  = "*",
         .access_control_allow_methods = "POST, GET, OPTIONS",
         .access_control_allow_headers = "Solana-Client, Content-Type",
@@ -141,7 +134,7 @@ request( fd_http_server_request_t const * request ) {
     ws->upload_data_size = request->post.body_len;
     ws->status_code = 200; // OK
     ws->quick_size = 0;
-    fd_hcache_reset( ws->hcache );
+    fd_http_server_unstage( ws->server );
 
     if( strcmp(request->path, "/") != 0 ) {
       fd_web_error( ws, "POST path must be \"/\"" );
@@ -163,21 +156,6 @@ request( fd_http_server_request_t const * request ) {
       fd_web_reply_flush( ws );
     }
 
-    ulong body_len     = 0;
-    uchar const * body = fd_hcache_snap_response( ws->hcache, &body_len );
-    if( !body ) {
-      FD_LOG_WARNING(( "fd_hcache_snap_response failed" ));
-      static uchar nullbody[1] = {0};
-      fd_http_server_response_t response = {
-        .status            = 400,
-        .upgrade_websocket = 0,
-        .content_type      = "text/html",
-        .body              = nullbody,
-        .body_len          = 0,
-        .access_control_allow_origin = "*",
-      };
-      return response;
-    }
 #ifdef FD_RPC_VERBOSE
     fwrite("response:\n\n", 1, 10, stdout);
     fwrite(body, 1, body_len, stdout);
@@ -188,10 +166,18 @@ request( fd_http_server_request_t const * request ) {
         .status            = ws->status_code,
         .upgrade_websocket = 0,
         .content_type      = ( ws->status_code == 200 ? "application/json" : "text/html" ),
-        .body              = (const uchar *)body,
-        .body_len          = body_len,
         .access_control_allow_origin = "*",
     };
+    if( FD_UNLIKELY( fd_http_server_stage_body( ws->server, &response ) ) ) {
+      FD_LOG_WARNING(( "fd_http_server_stage_body failed" ));
+      fd_http_server_response_t response = {
+        .status                      = 500,
+        .upgrade_websocket           = 0,
+        .content_type                = "text/html",
+        .access_control_allow_origin = "*",
+      };
+      return response;
+    }
     return response;
   }
 }
@@ -246,7 +232,7 @@ ws_message( ulong conn_id, uchar const * data, ulong data_len, void * ctx ) {
   int ret = json_values_parse(&lex, &values, &path);
   if (ret) {
     ws->quick_size = 0;
-    fd_hcache_reset( ws->hcache );
+    fd_http_server_unstage( ws->server );
     // json_values_printout(&values);
     ret = fd_webserver_ws_subscribe(&values, conn_id, ws->cb_arg);
   } else {
@@ -273,21 +259,21 @@ void fd_web_ws_simple_error( fd_webserver_t * ws, ulong conn_id, const char* tex
 "</body>" CRLF
 "</html>" CRLF;
 
-  fd_hcache_reset(ws->hcache);
+  fd_http_server_unstage( ws->server );
   ws->quick_size = 0;
-  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC1, strlen(DOC1));
-  fd_hcache_memcpy(ws->hcache, (const uchar*)text, text_size);
-  fd_hcache_memcpy(ws->hcache, (const uchar*)DOC2, strlen(DOC2));
+  fd_http_server_memcpy(ws->server, (const uchar*)DOC1, strlen(DOC1));
+  fd_http_server_memcpy(ws->server, (const uchar*)text, text_size);
+  fd_http_server_memcpy(ws->server, (const uchar*)DOC2, strlen(DOC2));
 
-  fd_hcache_snap_ws_send( ws->hcache, conn_id );
+  fd_http_server_ws_send( ws->server, conn_id );
 }
 
 void fd_web_ws_send( fd_webserver_t * ws, ulong conn_id ) {
   fd_web_reply_flush( ws );
-  fd_hcache_snap_ws_send( ws->hcache, conn_id );
+  fd_http_server_ws_send( ws->server, conn_id );
 }
 
-int fd_webserver_start( ushort portno, fd_http_server_params_t params, ulong hcache_size, fd_webserver_t * ws, void * cb_arg ) {
+int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_webserver_t * ws, void * cb_arg ) {
   memset(ws, 0, sizeof(fd_webserver_t));
 
   ws->cb_arg = cb_arg;
@@ -304,9 +290,6 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, ulong hca
   void* server_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
   ws->server = fd_http_server_join( fd_http_server_new( server_mem, params, callbacks, ws ) );
 
-  void * hcache_mem = aligned_alloc( fd_hcache_align(), fd_hcache_footprint( hcache_size ) );
-  ws->hcache = fd_hcache_join( fd_hcache_new( hcache_mem, ws->server, hcache_size ) );
-
   FD_TEST( fd_http_server_listen( ws->server, portno ) != NULL );
 
   return 0;
@@ -314,7 +297,6 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, ulong hca
 
 int fd_webserver_stop(fd_webserver_t * ws) {
   free( fd_http_server_delete( fd_http_server_leave( ws->server ) ) );
-  free( fd_hcache_delete( fd_hcache_leave( ws->hcache ) ) );
   return 0;
 }
 
@@ -335,7 +317,7 @@ fd_web_reply_append( fd_webserver_t * ws,
       memcpy( ws->quick_buf, text, text_sz );
       ws->quick_size = text_sz;
     } else {
-      fd_hcache_memcpy( ws->hcache, (const uchar*)text, text_sz );
+      fd_http_server_memcpy( ws->server, (const uchar*)text, text_sz );
     }
   }
   return 0;

@@ -70,8 +70,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
-
-  args->hcache_size = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf", NULL, 100U<<20U );
+  args->params.outgoing_buffer_sz    = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf",          NULL, 100U<<20U );
 
   const char * tpu_host = fd_env_strip_cmdline_cstr ( argc, argv, "--local-tpu-host", NULL, "127.0.0.1" );
   ulong tpu_port = fd_env_strip_cmdline_ulong( argc, argv, "--local-tpu-port", NULL, 9001U );
@@ -168,8 +167,7 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
-
-  args->hcache_size = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf", NULL, 100U<<20U );
+  args->params.outgoing_buffer_sz    = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf",          NULL, 100U<<20U );
 }
 
 static int stopflag = 0;
