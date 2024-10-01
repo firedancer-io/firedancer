@@ -4,6 +4,7 @@
 #include "fd_compute_budget_program.h"
 #include "fd_pack_bitset.h"
 #include "fd_chkdup.h"
+#include "fd_pack_tip_prog_blacklist.h"
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
 #include "../../disco/metrics/fd_metrics.h"
@@ -439,6 +440,10 @@ struct fd_pack_private {
   fd_histf_t net_cus_per_block      [ 1 ];
   ulong      cumulative_rebated_cus;
 
+  /* use_bundles: if true (non-zero), allows the use of bundles, groups
+     of transactions that are executed atomically with high priority */
+  int        use_bundles;
+
   /* bitset_avail: a stack of which bits are not currently reserved and
      can be used to represent an account address.
      Indexed [0, bitset_avail_cnt].  Element 0 is fixed at
@@ -583,6 +588,7 @@ fd_pack_new( void                   * mem,
   fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CUS_NET       ),
                                                FD_MHIST_MAX( PACK, CUS_NET       ) );
 
+  pack->use_bundles = 0;
 
   pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
@@ -717,26 +723,36 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     writes_to_sysvar |= fd_pack_unwritable_contains( accts+fd_txn_acct_iter_idx( iter ) );
   }
 
+  int bundle_blacklist = 0;
+  if( FD_UNLIKELY( pack->use_bundles ) ) {
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_IMM );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      bundle_blacklist |= fd_pack_tip_prog_check_blacklist( accts+fd_txn_acct_iter_idx( iter ) );
+    }
+  }
+
   fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
   fd_chkdup_t * chkdup = pack->chkdup;
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE  );
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE     );
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block    ) ) REJECT( TOO_LARGE     );
+  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block    ) ) REJECT( TOO_LARGE        );
   /*           ... that load too many accounts (ignoring 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK) */
-  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL  ) ) REJECT( ACCOUNT_CNT   );
+  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL  ) ) REJECT( ACCOUNT_CNT      );
   /*           ... that duplicate an account address */
-  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, NULL, 0UL ) ) ) REJECT( DUPLICATE_ACCT );
+  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, NULL, 0UL ) ) ) REJECT( DUPLICATE_ACCT   );
   /*           ... that try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR );
+  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR    );
   /*           ... that we already know about */
-  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) REJECT( DUPLICATE     );
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) REJECT( DUPLICATE        );
   /*           ... that have already expired */
-  if( FD_UNLIKELY( expires_at<pack->expire_before                       ) ) REJECT( EXPIRED       );
+  if( FD_UNLIKELY( expires_at<pack->expire_before                       ) ) REJECT( EXPIRED          );
   /*           ... that additional accounts from an ALT */
-  if( FD_UNLIKELY( txn->addr_table_adtl_cnt>0UL                         ) ) REJECT( ADDR_LUT      );
+  if( FD_UNLIKELY( txn->addr_table_adtl_cnt>0UL                         ) ) REJECT( ADDR_LUT         );
+  /*           ... that use an account that violates bundle rules */
+  if( FD_UNLIKELY( bundle_blacklist & 1                                 ) ) REJECT( BUNDLE_BLACKLIST );
 
 
   int replaces = 0;

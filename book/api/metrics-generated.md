@@ -112,6 +112,7 @@
 | pack_&#8203;total_&#8203;transactions_&#8203;per_&#8203;microblock_&#8203;count | `histogram` | Count of transactions in a scheduled microblock, including both votes and non-votes |
 | pack_&#8203;votes_&#8203;per_&#8203;microblock_&#8203;count | `histogram` | Count of simple vote transactions in a scheduled microblock |
 | pack_&#8203;normal_&#8203;transaction_&#8203;received | `counter` | Count of transactions received via the normal TPU path |
+| pack_&#8203;transaction_&#8203;inserted_&#8203;bundle_&#8203;blacklist | `counter` | Result of inserting a transaction into the pack object (Transaction uses an account on the bundle blacklist) |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;write_&#8203;sysvar | `counter` | Result of inserting a transaction into the pack object (Transaction tries to write to a sysvar) |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;estimation_&#8203;fail | `counter` | Result of inserting a transaction into the pack object (Estimating compute cost and/or fee failed) |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;duplicate_&#8203;account | `counter` | Result of inserting a transaction into the pack object (Transaction included an account address twice) |
