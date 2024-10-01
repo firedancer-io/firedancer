@@ -9,12 +9,14 @@
 
 int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
+  int           rc;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L172-L176 */
   if( FD_UNLIKELY( instr_data_sz==0UL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    goto done;
   }
 
   switch( instr_data[0] ) {
@@ -22,7 +24,8 @@ fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L179-L185 */
     FD_EXEC_CU_UPDATE( ctx, FD_ZKSDK_INSTR_CLOSE_CONTEXT_STATE_COMPUTE_UNITS );
     fd_log_collector_msg_literal( ctx, "CloseContextState" );
-    return fd_zksdk_process_close_context_state( ctx );
+    rc = fd_zksdk_process_close_context_state( ctx );
+    goto done;
 
   case FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT:
     FD_EXEC_CU_UPDATE( ctx, FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT_COMPUTE_UNITS );
@@ -85,8 +88,15 @@ fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
     break;
 
   default:
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    goto done;
   }
 
-  return fd_zksdk_process_verify_proof( ctx );
+  rc = fd_zksdk_process_verify_proof( ctx );
+
+done:
+  if( FD_UNLIKELY( rc ) ) {
+    FD_INSTR_ERR_FOR_LOG_INSTR( ctx, rc );
+  }
+  return rc;
 }

@@ -478,7 +478,7 @@ sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
 
     // Compare effects
     fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
-    int ok = sol_compat_cmp_txn( effects, &fixture->output );
+    int ok = sol_compat_cmp_txn( &fixture->output, effects );
 
     // Cleanup
     pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );

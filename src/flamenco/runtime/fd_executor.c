@@ -888,9 +888,11 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_log_collector_program_invoke( ctx );
       exec_result = native_prog_fn( ctx );
     } else {
+      FD_INSTR_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID );
       exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
+    int exec_instr_err = 0;
     if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
       ulong ending_lamports_h = 0UL;
       ulong ending_lamports_l = 0UL;
@@ -901,6 +903,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       }
 
       if( FD_UNLIKELY( ending_lamports_l != starting_lamports_l || ending_lamports_h != starting_lamports_h ) ) {
+        FD_INSTR_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
         exec_result = FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
 
@@ -919,14 +922,18 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       /* Log success */
       fd_log_collector_program_success( ctx );
     } else {
-      if( !txn_ctx->exec_err ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, exec_result, txn_ctx->instr_err_idx );
-      }
-
       if( !txn_ctx->failed_instr ) {
         txn_ctx->failed_instr = ctx;
         ctx->instr_err        = (uint)( -exec_result - 1 );
       }
+
+      /* https://github.com/anza-xyz/agave/blob/master/program-runtime/src/invoke_context.rs#L559-L579 */
+      if( txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
+        exec_instr_err = exec_result;
+      } else {
+        exec_instr_err = FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+      }
+      txn_ctx->exec_err = exec_instr_err;
 
       /* Log failure cases.
          We assume that the correct type of error is stored in ctx.
@@ -945,9 +952,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 #endif
 
     txn_ctx->instr_stack_sz--;
-
-    /* TODO: sanity before/after checks: total lamports unchanged etc */
-    return exec_result;
+    return exec_instr_err;
   } FD_SCRATCH_SCOPE_END;
 }
 

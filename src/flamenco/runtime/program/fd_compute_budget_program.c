@@ -148,5 +148,6 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
 
 
 int fd_compute_budget_program_execute( fd_exec_instr_ctx_t * ctx ) {
-  return fd_exec_consume_cus( ctx->txn_ctx, 150UL );
+  FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

@@ -947,10 +947,12 @@ int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
+  int rc;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
   if( FD_UNLIKELY( instr_data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    goto done;
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -964,26 +966,37 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
     if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) ||
                      (ulong)instr_data + 1232UL < (ulong)decode.data ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      goto done;
     }
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:
-      return create_lookup_table( ctx, &instr->inner.create_lut );
+      rc = create_lookup_table( ctx, &instr->inner.create_lut );
+      break;
     case fd_addrlut_instruction_enum_freeze_lut:
-      return freeze_lookup_table( ctx );
+      rc = freeze_lookup_table( ctx );
+      break;
     case fd_addrlut_instruction_enum_extend_lut:
-      return extend_lookup_table( ctx, &instr->inner.extend_lut );
+      rc = extend_lookup_table( ctx, &instr->inner.extend_lut );
+      break;
     case fd_addrlut_instruction_enum_deactivate_lut:
-      return deactivate_lookup_table( ctx );
+      rc = deactivate_lookup_table( ctx );
+      break;
     case fd_addrlut_instruction_enum_close_lut:
-      return close_lookup_table( ctx );
+      rc = close_lookup_table( ctx );
+      break;
     default:
+      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       break;
     }
   } FD_SCRATCH_SCOPE_END;
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+done:
+  if( FD_UNLIKELY( rc ) ) {
+    FD_INSTR_ERR_FOR_LOG_INSTR( ctx, rc );
+  }
+  return rc;
 }
 
 /**********************************************************************/

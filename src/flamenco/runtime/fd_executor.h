@@ -17,7 +17,10 @@
 #define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \
   fd_exec_instr_ctx_t * _ctx = (ctx);                     \
   int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
-  if( FD_UNLIKELY( err ) ) return err;                    \
+  if( FD_UNLIKELY( err ) ) {                              \
+   FD_INSTR_ERR_FOR_LOG_INSTR( _ctx, err );               \
+   return err;                                            \
+  }                                                       \
   } while(0)
 
 FD_PROTOTYPES_BEGIN

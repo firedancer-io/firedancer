@@ -390,6 +390,7 @@ common_close_account( fd_pubkey_t * authority_address,
 int
 execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
 
+  int                  rc;
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( instr_ctx->valloc,
                                                                           fd_sbpf_syscalls_align(),
                                                                           fd_sbpf_syscalls_footprint() ) );
@@ -417,7 +418,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   }
 
   if( FD_UNLIKELY( input==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    goto done;
   }
 
   fd_sha256_t _sha[1];
@@ -476,14 +478,16 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, round_up_heap_size, &heap_err );
 
   if( FD_UNLIKELY( heap_err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    rc = FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    goto done;
   }
   if( FD_UNLIKELY( heap_cost_result>vm->cu ) ) {
-    return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+    rc = FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+    goto done;
   }
   vm->cu -= heap_cost_result;
 
-  int exec_err = fd_vm_exec( vm );
+  rc = fd_vm_exec( vm );
   instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
@@ -501,32 +505,40 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     fd_log_collector_program_return( instr_ctx );
   }
 
-  if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
+  // The one case we don't want to use `goto done`
+  if( FD_UNLIKELY( rc!=FD_VM_SUCCESS ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
-    return exec_err;
+    return rc;
   }
 
   /* TODO: vm should report */
   if( FD_UNLIKELY( vm->reg[0] ) ) {
     //TODO: vm should report this error
     fd_valloc_free( instr_ctx->valloc, input );
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;;
+    rc = FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    goto done;
   }
 
   if( FD_UNLIKELY( is_deprecated ) ) {
     if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_unaligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
       fd_valloc_free( instr_ctx->valloc, input );
-      return FD_EXECUTOR_INSTR_SUCCESS;
+      rc = FD_EXECUTOR_INSTR_SUCCESS;
+      goto done;
     }
   } else {
     if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
       fd_valloc_free( instr_ctx->valloc, input );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      rc = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      goto done;
     }
 
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+done:
+  if( FD_UNLIKELY( rc ) ) {
+    FD_INSTR_ERR_FOR_LOG_INSTR( instr_ctx, rc );
+  }
+  return rc;
 }
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L566-L1444 */
@@ -1653,34 +1665,40 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
+    int rc;
+
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
     fd_borrowed_account_t * program_account = NULL;
 
     /* TODO: Agave uses `get_last_program_key`, we should have equivalent semantics:
        https://github.com//anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L492 */
     fd_pubkey_t const *     program_id      = &ctx->instr->program_id_pubkey;
-    int err = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    rc = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "Borrowed account lookup failed for program account" )); // custom log
-      return err;
+      goto done;
     }
 
     /* Program management instruction */
     if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
       if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_upgradeable_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
         FD_EXEC_CU_UPDATE( ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
-        return process_loader_upgradeable_instruction( ctx );
+        rc = process_loader_upgradeable_instruction( ctx );
+        goto done;
       } else if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
         FD_EXEC_CU_UPDATE( ctx, DEFAULT_LOADER_COMPUTE_UNITS );
         fd_log_collector_msg_literal( ctx, "BPF loader management instructions are no longer supported" );
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+        rc = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+        goto done;
       } else if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_deprecated_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
         FD_EXEC_CU_UPDATE( ctx, DEPRECATED_LOADER_COMPUTE_UNITS );
         fd_log_collector_msg_literal( ctx, "Deprecated loader is no longer supported" );
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+        rc = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+        goto done;
       } else {
         fd_log_collector_msg_literal( ctx, "Invalid BPF loader id" );
-        return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+        rc = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+        goto done;
       }
     }
 
@@ -1688,13 +1706,15 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* Program invocation. Any invalid programs will be caught here or at the program load. */
     if( FD_UNLIKELY( !program_account->const_meta->info.executable ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not executable" );
-      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      rc = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      goto done;
     }
 
     fd_sbpf_validated_program_t * prog = NULL;
     if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->slot_ctx, &ctx->instr->program_id_pubkey, &prog ) ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      rc = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      goto done;
     }
 
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L551-L563 */
@@ -1722,38 +1742,40 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_borrowed_account_t * program_acc_view = NULL;
     int read_result = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
     if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      goto done;
     }
     fd_account_meta_t const * metadata = program_acc_view->const_meta;
     uchar is_deprecated = !memcmp( metadata->info.owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
       fd_bpf_upgradeable_loader_state_t program_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( ctx, program_account, &program_account_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      rc = fd_bpf_loader_v3_program_get_state( ctx, program_account, &program_account_state );
+      if( FD_UNLIKELY( rc!=FD_BINCODE_SUCCESS ) ) {
         FD_LOG_WARNING(( "Bpf state read for program account failed" )); // custom log
-        return err;
+        goto done;
       }
 
       fd_borrowed_account_t * program_data_account = NULL;
       fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&program_account_state.inner.program.programdata_address;
-      err = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      rc = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
+      if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "Borrowed account lookup for program data account failed" )); // custom log
-        return err;
+        goto done;
       }
 
       fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( ctx, program_data_account, &program_data_account_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      rc = fd_bpf_loader_v3_program_get_state( ctx, program_data_account, &program_data_account_state );
+      if( FD_UNLIKELY( rc!=FD_BINCODE_SUCCESS ) ) {
         FD_LOG_WARNING(( "Bpf state read for program data account failed" )); // custom log
-        return err;
+        goto done;
       }
 
       if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_is_uninitialized( &program_data_account_state ) ) ) {
         /* The account is likely closed. */
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        rc = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        goto done;
       }
 
       ulong program_data_slot = program_data_account_state.inner.program_data.slot;
@@ -1761,10 +1783,19 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         /* The account was likely just deployed or upgraded. Corresponds to
           'LoadedProgramType::DelayVisibility' */
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        rc = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        goto done;
       }
     }
 
+    /* This call does not go into the `done` block since it may have a different
+       error kind due to VM invocation. */
     return execute( ctx, prog, is_deprecated );
+
+done:
+  if( FD_UNLIKELY( rc ) ) {
+    FD_INSTR_ERR_FOR_LOG_INSTR( ctx, rc );
+  }
+  return rc;
   } FD_SCRATCH_SCOPE_END;
 }

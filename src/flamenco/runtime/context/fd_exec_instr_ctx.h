@@ -40,6 +40,11 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
 
 FD_PROTOTYPES_BEGIN
 
+#define FD_INSTR_ERR_FOR_LOG_INSTR( instr_ctx, err ) (__extension__({ \
+    instr_ctx->txn_ctx->exec_err = err;                               \
+    instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;   \
+  }))
+
 /* Constructors */
 
 void *

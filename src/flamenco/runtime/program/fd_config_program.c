@@ -257,8 +257,11 @@ fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
 
-  int ret = _process_config_instr( ctx );
-  return ret;
+  int rc = _process_config_instr( ctx );
+  if( FD_UNLIKELY( rc ) ) {
+    FD_INSTR_ERR_FOR_LOG_INSTR( ctx, rc );
+  }
+  return rc;
 
   } FD_SCRATCH_SCOPE_END;
 }
