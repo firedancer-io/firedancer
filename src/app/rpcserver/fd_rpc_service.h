@@ -35,7 +35,6 @@ struct fd_rpcserver_args {
   fd_stake_ci_t *      stake_ci;
   ushort               port;
   fd_http_server_params_t params;
-  ulong                hcache_size;
   struct sockaddr_in tpu_addr;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;

@@ -128,7 +128,7 @@ read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_valloc_t valloc, ulong 
 static void
 fd_method_simple_error( fd_rpc_ctx_t * ctx, int errcode, const char* text ) {
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_hcache_reset(ws->hcache);
+  fd_http_server_unstage( ws->server );
   ws->quick_size = 0;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"%s\"},\"id\":%s}",
                        errcode, text, ctx->call_id );
@@ -2390,7 +2390,7 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   msg->slot_exec.root = args->blockstore->smr;
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
-  if (fd_webserver_start(args->port, args->params, args->hcache_size, &gctx->ws, ctx))
+  if (fd_webserver_start(args->port, args->params, &gctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 
   *ctx_p = ctx;

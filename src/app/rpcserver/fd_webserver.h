@@ -3,13 +3,11 @@
 
 #include "fd_methods.h"
 #include "../../ballet/http/fd_http_server.h"
-#include "../../ballet/http/fd_hcache.h"
 
 // #define FD_RPC_VERBOSE 1
 
 struct fd_webserver {
   fd_http_server_t * server;
-  fd_hcache_t *      hcache;
   void *             cb_arg;
   const uchar *      upload_data;
   ulong              upload_data_size;
@@ -20,7 +18,7 @@ struct fd_webserver {
 };
 typedef struct fd_webserver fd_webserver_t;
 
-int fd_webserver_start(ushort portno, fd_http_server_params_t params, ulong hcache_size, fd_webserver_t * ws, void * cb_arg );
+int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_webserver_t * ws, void * cb_arg );
 
 int fd_webserver_stop(fd_webserver_t * ws);
 
