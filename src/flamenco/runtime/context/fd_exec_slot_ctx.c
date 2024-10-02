@@ -165,6 +165,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
+    FD_LOG_WARNING(( "found epoch stakes - cnt: %lu", manifest->bank.epoch_stakes_len ));
 
   /* Populate the epoch context, using the already-allocated statically allocated memory */
   /* Copy stakes */
@@ -331,7 +332,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
     slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
     slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
-
+    FD_LOG_WARNING(( "found epoch stakes - cnt: %lu", manifest->bank.epoch_stakes_len ));
     for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) { 
       if( epochs[i].key == epoch )
         stakes0 = &epochs[i].value;

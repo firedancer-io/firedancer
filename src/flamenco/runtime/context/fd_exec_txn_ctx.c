@@ -151,8 +151,8 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
   if( idx >= ctx->accounts_cnt ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
-
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
+  FD_LOG_WARNING(("FD %32J", txn_account->const_meta->info.owner));
   if( min_data_sz > txn_account->const_meta->dlen ) {
     void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, min_data_sz );
     void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );

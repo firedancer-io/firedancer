@@ -962,6 +962,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   fd_funk_txn_t * parent_txn = txn_ctx->slot_ctx->funk_txn;
   txn_ctx->funk_txn          = parent_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
+  FD_LOG_WARNING(("FD6: %32J %32J %lu", txn_ctx->borrowed_accounts[0].pubkey->uc, txn_ctx->borrowed_accounts[0].const_meta->info.owner, txn_ctx->borrowed_accounts[0].const_meta->dlen));
 
   int err;
 
@@ -983,11 +984,13 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
                               load_and_execute_transactions
   */
   err = fd_executor_verify_precompiles( txn_ctx );
+  FD_LOG_WARNING(("X %d", err));
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;
     return;
   }
+  FD_LOG_WARNING(("FD5: %32J %32J %lu", txn_ctx->borrowed_accounts[0].pubkey->uc, txn_ctx->borrowed_accounts[0].const_meta->info.owner, txn_ctx->borrowed_accounts[0].const_meta->dlen));
 
   /* Duplicate Account Check */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
@@ -997,11 +1000,14 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
       if( FD_UNLIKELY( !memcmp( &txn_ctx->accounts[i], &txn_ctx->accounts[j], sizeof(fd_pubkey_t) ) ) ) {
         task_info->txn->flags = 0U;
         task_info->exec_res   = FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE;
+        FD_LOG_WARNING(("Y %d", err));
         return;
       }
     }
   }
+  FD_LOG_WARNING(("FD4: %32J %32J %lu", txn_ctx->borrowed_accounts[0].pubkey->uc, txn_ctx->borrowed_accounts[0].const_meta->info.owner, txn_ctx->borrowed_accounts[0].const_meta->dlen));
 
+  FD_LOG_WARNING(("Z %d", err));
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3529-L3554 */
   err = fd_check_transaction_age( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1009,6 +1015,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     task_info->exec_res   = err;
     return;
   }
+  FD_LOG_WARNING(("FD3: %32J %32J %lu", txn_ctx->borrowed_accounts[0].pubkey->uc, txn_ctx->borrowed_accounts[0].const_meta->info.owner, txn_ctx->borrowed_accounts[0].const_meta->dlen));
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3568-L3591 */
   err = fd_executor_check_status_cache( txn_ctx );
@@ -1017,6 +1024,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     task_info->exec_res   = err;
     return;
   }
+  FD_LOG_WARNING(("W %d", err));
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L423-L430 */
   err = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
@@ -1025,14 +1033,18 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     task_info->exec_res   = err;
     return;
   }
+  FD_LOG_WARNING(("U %d", err));
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L413-L488 */
   err = fd_executor_collect_fees( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;
+          FD_LOG_WARNING(("U2 %d", err));
+
     return;
   }
+  FD_LOG_WARNING(("V %d", err));
 
   // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L264
   err = fd_executor_check_replenish_program_cache( txn_ctx );
@@ -1041,6 +1053,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     task_info->exec_res   = err;
     return;
   }
+  FD_LOG_WARNING(("Q %d", err));
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/account_loader.rs#L278-L284 */
   err = fd_executor_check_txn_program_accounts_and_data_sz( txn_ctx );
@@ -1049,6 +1062,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     task_info->exec_res   = err;
     return;
   }
+  FD_LOG_WARNING(("R %d", err));
 
 }
 
@@ -1439,7 +1453,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
     borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[0] );
 
     for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
@@ -1515,12 +1528,15 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     }
   }
   ulong curr = slot_ctx->signature_cnt;
+  FD_LOG_WARNING(("SIG CNT 1: %lu", curr));
   FD_COMPILER_MFENCE();
   while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->signature_cnt, curr, curr + 1 ) != curr ) ) {
+    FD_LOG_WARNING(("SIG CNT 2: %lu", curr));
     FD_SPIN_PAUSE();
     curr = slot_ctx->signature_cnt;
     FD_COMPILER_MFENCE();
   }
+  FD_LOG_WARNING(("SIG CNT 3: %lu", slot_ctx->signature_cnt));
 
   return 0;
 }
@@ -1788,7 +1804,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
       }
 
-      slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+      // slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
 
       if( FD_LIKELY( slot_ctx->status_cache ) ) {
         results[num_cache_txns] = exec_txn_err == 0 ? 1 : 0;
@@ -2117,8 +2133,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = i;
         incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
         task_infos[i].txn_ctx->capture_ctx = capture_ctx;
-
-        task_infos[i].txn_ctx->valloc = fd_scratch_virtual();
       }
 
       ulong * next_incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );

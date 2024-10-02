@@ -451,6 +451,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
           fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
           insert->iter = iter;
         } else {
+          FD_LOG_WARNING(("FINISHED BLOCK %lu", slot ));
           replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
         }
         FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, block_hash->uc, txn_cnt, block->shreds_cnt ));

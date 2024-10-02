@@ -849,7 +849,7 @@ after_frag( void *             _ctx,
   /* do a replay */
   ulong        txn_cnt    = ctx->txn_cnt;
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
-  // FD_TEST( txn_cnt>0UL && flags & REPLAY_FLAG_FINISHED_BLOCK );
+  FD_LOG_WARNING(( "AAA: %lu %u", txn_cnt,  (flags & REPLAY_FLAG_FINISHED_BLOCK) ));
   fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
   microblock_trailer->bank_idx                 = bank_idx;
   microblock_trailer->bank_busy_seq            = seq;
@@ -905,7 +905,7 @@ after_frag( void *             _ctx,
     execute_time_ns += fd_log_wallclock();
     FD_LOG_DEBUG(("TIMING: execute_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)execute_time_ns * 1e-6));
 
-    if( res != 0 && !( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
+    if( res != 0UL && !( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
       FD_LOG_WARNING(( "block invalid - slot: %lu", curr_slot ));
 
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );

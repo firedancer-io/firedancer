@@ -179,6 +179,7 @@ fd_validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, 
 
   int is_nonce = fd_executor_is_system_nonce_account( account );
   if ( FD_UNLIKELY( is_nonce<0 ) ) {
+    FD_LOG_WARNING(( "VVDXXSD %32J %32J %lu", account->pubkey->uc, account->const_meta->info.owner, account->const_meta->dlen ));
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
   }
 
@@ -1110,6 +1111,8 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
       FD_LOG_ERR(( "fd_acc_mgr_view err=%d", err ));
     }
+    FD_LOG_WARNING(("FD7: %32J %32J %lu", acc->uc, txn_ctx->borrowed_accounts[0].const_meta->info.owner, txn_ctx->borrowed_accounts[0].const_meta->dlen));
+    FD_LOG_WARNING(("FD2: %32J %32J %lu", acc->uc, borrowed_account->const_meta->info.owner, borrowed_account->const_meta->dlen));
     uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     memcpy( borrowed_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
 
