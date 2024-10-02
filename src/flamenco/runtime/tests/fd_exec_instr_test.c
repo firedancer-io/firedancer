@@ -1848,7 +1848,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       effects->error = -1;
     }
     /* Ignore Lamport mismatches since Agave performs this check outside of the CPI */
-    if( is_cpi && syscall_err == FD_VM_CPI_ERR_LAMPORTS_MISMATCH ) {
+    if( is_cpi && syscall_err == FD_VM_ERR_SYSCALL_CPI_LAMPORTS_MISMATCH ) {
       effects->error = 0;
     }
   }

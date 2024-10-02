@@ -691,7 +691,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
       caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_CPI_ERR_LAMPORTS_MISMATCH;
+    return FD_VM_ERR_SYSCALL_CPI_LAMPORTS_MISMATCH;
   }
   
   /* Set the transaction compute meter to be the same as the VM's compute meter,
@@ -758,7 +758,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
       caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_CPI_ERR_LAMPORTS_MISMATCH;
+    return FD_VM_ERR_SYSCALL_CPI_LAMPORTS_MISMATCH;
   }
 
   return FD_VM_SUCCESS;
