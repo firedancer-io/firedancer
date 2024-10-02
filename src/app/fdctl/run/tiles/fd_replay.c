@@ -580,6 +580,20 @@ is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulong prev_slo
   return ( prev_epoch < new_epoch || slot_idx == 0 );
 }
 
+static int
+suppress_notify( const fd_pubkey_t * prog ) {
+  /* Certain accounts are just noise and a waste of notification bandwidth */
+  if ( !memcmp( prog, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+    return 1;
+  } else if ( !memcmp( prog, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+    return 1;
+  } else if ( !memcmp( prog, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
@@ -741,6 +755,7 @@ after_frag( void *             _ctx,
       fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
       FD_TEST((void*)(sigs + txn->signature_cnt) <= (void*)(raw + txns[i].payload_sz));
       for( ushort j = 0; j < acct_cnt; ++j ) {
+        if( suppress_notify( accts + j ) ) continue;
         if( msg == NULL ) {
           NOTIFY_START;
           msg->type = FD_REPLAY_ACCTS_TYPE;
@@ -1507,7 +1522,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
-    FD_LOG_ERR(( "failed to decode cluster version" ));;
+    FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
   }
   fd_features_enable_cleaned_up( &ctx->epoch_ctx->features, ctx->epoch_ctx->epoch_bank.cluster_version );
 

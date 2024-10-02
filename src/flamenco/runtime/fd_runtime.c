@@ -3613,7 +3613,10 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
       rec->meta->info.lamports += fees;
       rec->meta->slot = slot_ctx->slot_bank.slot;
-      // FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
+
+      slot_ctx->slot_bank.collected_fees = fees;
+      slot_ctx->slot_bank.leader_post_balance = rec->meta->info.lamports;
+      memcpy( slot_ctx->slot_bank.leader_account.uc, slot_ctx->leader->uc, sizeof(fd_hash_t) );
 
       ulong old = slot_ctx->slot_bank.capitalization;
       slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);
