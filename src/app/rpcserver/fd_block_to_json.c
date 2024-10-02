@@ -496,10 +496,8 @@ fd_txn_to_json_full( fd_webserver_t * ws,
                      const uchar* raw,
                      ulong raw_sz,
                      fd_rpc_encoding_t encoding,
-                     long maxvers,
-                     int rewards ) {
+                     long maxvers ) {
   (void)maxvers;
-  (void)rewards;
 
   if( encoding == FD_ENC_BASE64 ) {
     EMIT_SIMPLE("\"transaction\":[\"");
@@ -519,8 +517,7 @@ fd_txn_to_json_full( fd_webserver_t * ws,
     return NULL;
   }
 
-  EMIT_SIMPLE("\"meta\":null,\"transaction\":{");
-  EMIT_SIMPLE("\"message\":{\"accountKeys\":[");
+  EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
 
   ushort acct_cnt = txn->acct_addr_cnt;
   const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
@@ -604,11 +601,9 @@ fd_txn_to_json_accts( fd_webserver_t * ws,
                       fd_txn_t* txn,
                       const uchar* raw,
                       fd_rpc_encoding_t encoding,
-                      long maxvers,
-                      int rewards ) {
+                      long maxvers ) {
   (void)encoding;
   (void)maxvers;
-  (void)rewards;
 
   EMIT_SIMPLE("\"transaction\":{\"accountKeys\":[");
 
@@ -643,12 +638,11 @@ fd_txn_to_json( fd_webserver_t * ws,
                 ulong raw_sz,
                 fd_rpc_encoding_t encoding,
                 long maxvers,
-                enum fd_block_detail detail,
-                int rewards ) {
+                enum fd_block_detail detail ) {
   if( detail == FD_BLOCK_DETAIL_FULL )
-    return fd_txn_to_json_full( ws, txn, raw, raw_sz, encoding, maxvers, rewards );
+    return fd_txn_to_json_full( ws, txn, raw, raw_sz, encoding, maxvers );
   else if( detail == FD_BLOCK_DETAIL_ACCTS )
-    return fd_txn_to_json_accts( ws, txn, raw, encoding, maxvers, rewards );
+    return fd_txn_to_json_accts( ws, txn, raw, encoding, maxvers );
   return "unsupported detail parameter";
 }
 
@@ -663,7 +657,7 @@ fd_block_to_json( fd_webserver_t * ws,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
-                  int rewards) {
+                  rewards_arg_t * rewards ) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
@@ -672,6 +666,14 @@ fd_block_to_json( fd_webserver_t * ws,
   fd_base58_encode_32(parent_hash->uc, 0, phash);
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
                        meta->height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
+
+  if( rewards ) {
+    fd_base58_encode_32(rewards->leader_account.uc, 0, hash);
+    fd_web_reply_sprintf(ws, ",\"rewards\":[{\"commission\":null,\"lamports\":%lu,\"postBalance\":%lu,\"pubkey\":\"%s\",\"rewardType\":\"Fee\"}]",
+                         rewards->collected_fees,
+                         rewards->leader_post_balance,
+                         hash);
+  }
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_web_reply_sprintf(ws, "},\"id\":%s}", call_id);
@@ -778,7 +780,7 @@ fd_block_to_json( fd_webserver_t * ws,
           if ( err ) return err;
         }
 
-        const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, raw, pay_sz, encoding, maxvers, detail, rewards );
+        const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, raw, pay_sz, encoding, maxvers, detail );
         if ( err ) return err;
 
         EMIT_SIMPLE("}");
