@@ -484,6 +484,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
+  instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -504,8 +505,6 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     fd_valloc_free( instr_ctx->valloc, input );
     return exec_err;
   }
-
-  instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   /* TODO: vm should report */
   if( FD_UNLIKELY( vm->reg[0] ) ) {
