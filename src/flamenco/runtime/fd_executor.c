@@ -919,6 +919,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       /* Log success */
       fd_log_collector_program_success( ctx );
     } else {
+      /* if txn_ctx->exec_err is not set, it indicates an instruction error */
       if( !txn_ctx->exec_err ) {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, exec_result, txn_ctx->instr_err_idx );
       }
