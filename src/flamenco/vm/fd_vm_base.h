@@ -79,16 +79,6 @@
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
 
-/* Error codes related to CPI syscall.
-   FIXME: Should this be in fd_executor_err.h instead?
-          Or a separate file for syscall errors? */
-
-#define FD_VM_CPI_ERR_TOO_MANY_SIGNERS       (-39) /* detected too many signers */
-#define FD_VM_CPI_ERR_TOO_MANY_ACC_INFOS     (-40) /* detected too many account infos */
-#define FD_VM_CPI_ERR_INSTR_TOO_LARGE        (-41) /* detected too many account infos meta */
-#define FD_VM_CPI_ERR_INSTR_DATA_TOO_LARGE   (-42) /* detected instruction data too large */
-#define FD_VM_CPI_ERR_TOO_MANY_ACC_METAS     (-43) /* detected too many account metas */
-
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
 
@@ -114,6 +104,7 @@
 #define FD_VM_ERR_SYSCALL_INVALID_POINTER                         (-20)
 #define FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW                     (-21)
 
+/* Poseidon returns custom errors for some reason */
 #define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS                 (1)
 #define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS             (2)
 

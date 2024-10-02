@@ -596,7 +596,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Pre-flight checks ************************************************/
   int err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
+    return err;
+  }
   
   /* Translate instruction ********************************************/
   VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
@@ -640,7 +643,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Instruction checks ***********************************************/
 
   err = fd_vm_syscall_cpi_check_instruction( vm, VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
+    return err;
+  }
 
   /* Translate account infos ******************************************/
   VM_SYSCALL_CPI_ACC_INFO_T * acc_infos =
