@@ -47,37 +47,51 @@
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
+struct fd_native_prog_info {
+  fd_pubkey_t key;
+  fd_exec_instr_fn_t fn;
+};
+typedef struct fd_native_prog_info fd_native_prog_info_t;
+
+#define MAP_PERFECT_NAME fd_native_program_fn_lookup_tbl
+#define MAP_PERFECT_LG_TBL_SZ 4
+#define MAP_PERFECT_T fd_native_prog_info_t
+#define MAP_PERFECT_HASH_C 13U
+#define MAP_PERFECT_KEY key.uc
+#define MAP_PERFECT_KEY_T fd_pubkey_t const *
+#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
+#define MAP_PERFECT_COMPLEX_KEY 1
+#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
+
+#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>28)&0xFU)
+
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr + 8UL ) )
+
+#define MAP_PERFECT_0       ( VOTE_PROG_ID            ), .fn = fd_vote_program_execute
+#define MAP_PERFECT_1       ( SYS_PROG_ID             ), .fn = fd_system_program_execute
+#define MAP_PERFECT_2       ( CONFIG_PROG_ID          ), .fn = fd_config_program_execute
+#define MAP_PERFECT_3       ( STAKE_PROG_ID           ), .fn = fd_stake_program_execute
+#define MAP_PERFECT_4       ( COMPUTE_BUDGET_PROG_ID  ), .fn = fd_compute_budget_program_execute
+#define MAP_PERFECT_5       ( ADDR_LUT_PROG_ID        ), .fn = fd_address_lookup_table_program_execute
+#define MAP_PERFECT_6       ( ZK_EL_GAMAL_PROG_ID     ), .fn = fd_executor_zk_elgamal_proof_program_execute
+#define MAP_PERFECT_7       ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute
+#define MAP_PERFECT_8       ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute
+#define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute
+
+#include "../../util/tmpl/fd_map_perfect.c"
+#undef PERFECT_HASH
+
 /* https://github.com/anza-xyz/agave/blob/9efdd74b1b65ecfd85b0db8ad341c6bd4faddfef/program-runtime/src/invoke_context.rs#L461-L488 */
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
   fd_pubkey_t const * pubkey        = prog_acc->pubkey;
   fd_pubkey_t const * owner         = (fd_pubkey_t const *)prog_acc->const_meta->info.owner;
   fd_pubkey_t const * lookup_pubkey = !memcmp( owner, fd_solana_native_loader_id.key, sizeof( fd_pubkey_t ) ) ? pubkey : owner;
-
-  /* TODO: use a proper lookup table */
-  if ( !memcmp( lookup_pubkey, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_vote_program_execute;
-  } else if ( !memcmp( lookup_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_system_program_execute;
-  } else if ( !memcmp( lookup_pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_config_program_execute;
-  } else if ( !memcmp( lookup_pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_stake_program_execute;
-  } else if ( !memcmp( lookup_pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_compute_budget_program_execute;
-  } else if( !memcmp( lookup_pubkey, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_address_lookup_table_program_execute;
-  } else if( !memcmp( lookup_pubkey, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_zk_elgamal_proof_program_execute;
-  } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ))) {
-    return fd_bpf_loader_program_execute;
-  } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_bpf_loader_program_execute;
-  } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_bpf_loader_program_execute;
-  } else {
-    return NULL;
-  }
+  const fd_native_prog_info_t null_function = (const fd_native_prog_info_t) {0};
+  return fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
 }
 
 /* Returns 1 if the sysvar instruction is used, 0 otherwise */
