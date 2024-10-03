@@ -577,8 +577,8 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
 
 #define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, vaddr0, sz0, vaddr1, sz1 ) do {                                    \
-  if( FD_UNLIKELY( ((vaddr0> vaddr1) & ((vaddr0-vaddr1)<sz1)) |                                                 \
-                   ((vaddr1>=vaddr0) & ((vaddr1-vaddr0)<sz0)) ) ) {                                             \
+  if( FD_UNLIKELY( ((vaddr0> vaddr1) && ((vaddr0-vaddr1)<sz1)) ||                                               \
+                   ((vaddr1>=vaddr0) && ((vaddr1-vaddr0)<sz0)) ) ) {                                            \
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_COPY_OVERLAPPING );                                        \
     return FD_VM_ERR_MEM_OVERLAP;                                                                               \
   }                                                                                                             \
