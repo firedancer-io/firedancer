@@ -1704,6 +1704,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( FD_UNLIKELY( _l > output_end ) ) {
     goto error;
   }
+  ctx->txn_ctx->return_data.len = input->vm_ctx.return_data_len;
+  ctx->txn_ctx->instr_trace_length = input->vm_ctx.instr_trace_len;
 
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
