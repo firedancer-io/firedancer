@@ -365,7 +365,7 @@ metric introduced.
   <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </group>
 
-<group name="Replay" tile="storei">
+<group name="Replay" tile="storei" full="true">
   <gauge name="Behind"   summary="The total number of slots we are behind" />
   <gauge name="CaughtUp" summary="Boolean value which indicates if we have caught up" />
   <gauge name="Slot"     summary="The current turbine slot" />
@@ -378,7 +378,7 @@ metric introduced.
   <int value="4" name="IncrementalEnd" label="Set after fd_snapshot_load has completed" />
 </enum>
 
-<group name="Replay" tile="replay">
+<group name="Replay" tile="replay" full="true">
   <counter name="SnapshotStatus" enum="SnapshotStatus" summary="The snapshot and incremental snapshot progress" />
 </group>
 

@@ -49,7 +49,7 @@
 
 #include "../../util/tmpl/fd_treap.c"
 
-#define FD_HTTP_SERVER_DEBUG 1
+#define FD_HTTP_SERVER_DEBUG 0
 
 FD_FN_CONST char const *
 fd_http_server_connection_close_reason_str( int reason ) {
