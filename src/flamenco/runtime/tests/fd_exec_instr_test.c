@@ -1846,10 +1846,28 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   int exec_err = vm->instr_ctx->txn_ctx->exec_err;
   effects->error = 0;
   if( syscall_err ) {
-    effects->error = exec_err <= 0 ? -exec_err : -1;
     if( exec_err==0 ) {
       FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
+    } else {
+      effects->error = (exec_err <= 0) ? -exec_err : -1;
+
+      /* Map error kind, equivalent to:
+          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind + 1); */ 
+      switch (vm->instr_ctx->txn_ctx->exec_err_kind) {
+        case FD_EXECUTOR_ERR_KIND_EBPF:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_EBPF;
+          break;
+        case FD_EXECUTOR_ERR_KIND_SYSCALL:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_SYSCALL;
+          break;
+        case FD_EXECUTOR_ERR_KIND_INSTR:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_INSTRUCTION;
+          break;
+        default:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_UNSPECIFIED;
+          break;
+      }
     }
   }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
@@ -1890,7 +1908,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->frame_count = vm->frame_cnt;
 
   fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
-  if( log->buf_sz ) {
+  /* Only collect log on valid errors (i.e., != -1). Follows
+     https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
+  if( effects->error != -1 && log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
