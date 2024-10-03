@@ -29,3 +29,48 @@ const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL] = {
 const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL] = {
     DECLARE_METRIC_COUNTER( LINK, SLOW_COUNT ),
 };
+const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT] = {
+    "bank",
+    "dedup",
+    "net",
+    "pack",
+    "poh",
+    "quic",
+    "shred",
+    "store",
+    "verify",
+#ifdef FD_HAS_NO_AGAVE
+    "replay",
+    "storei",
+#endif
+};
+const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {
+    FD_METRICS_BANK_TOTAL,
+    FD_METRICS_DEDUP_TOTAL,
+    FD_METRICS_NET_TOTAL,
+    FD_METRICS_PACK_TOTAL,
+    FD_METRICS_POH_TOTAL,
+    FD_METRICS_QUIC_TOTAL,
+    FD_METRICS_SHRED_TOTAL,
+    FD_METRICS_STORE_TOTAL,
+    FD_METRICS_VERIFY_TOTAL,
+#ifdef FD_HAS_NO_AGAVE
+    FD_METRICS_REPLAY_TOTAL,
+    FD_METRICS_STOREI_TOTAL,
+#endif
+};
+const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT] = {
+    FD_METRICS_BANK,
+    FD_METRICS_DEDUP,
+    FD_METRICS_NET,
+    FD_METRICS_PACK,
+    FD_METRICS_POH,
+    FD_METRICS_QUIC,
+    FD_METRICS_SHRED,
+    FD_METRICS_STORE,
+    FD_METRICS_VERIFY,
+#ifdef FD_HAS_NO_AGAVE
+    FD_METRICS_REPLAY,
+    FD_METRICS_STOREI,
+#endif
+};

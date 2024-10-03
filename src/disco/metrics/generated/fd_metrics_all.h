@@ -2,6 +2,20 @@
 
 #include "../fd_metrics_base.h"
 
+#include "fd_metrics_bank.h"
+#include "fd_metrics_dedup.h"
+#include "fd_metrics_net.h"
+#include "fd_metrics_pack.h"
+#include "fd_metrics_poh.h"
+#include "fd_metrics_quic.h"
+#include "fd_metrics_shred.h"
+#include "fd_metrics_store.h"
+#include "fd_metrics_verify.h"
+#ifdef FD_HAS_NO_AGAVE
+#include "fd_metrics_replay.h"
+#include "fd_metrics_storei.h"
+#endif
+
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
@@ -159,3 +173,11 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL];
 
 #define FD_METRICS_TOTAL_SZ (8UL*352UL)
+#ifndef FD_HAS_NO_AGAVE
+#define FD_METRICS_TILE_KIND_CNT 9
+#else
+#define FD_METRICS_TILE_KIND_CNT 11
+#endif
+extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
+extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
+extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];
