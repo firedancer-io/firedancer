@@ -12,6 +12,10 @@
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../funk/fd_funk.h"
 
 #include <fcntl.h>
 #include <pwd.h>
@@ -223,6 +227,12 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    return fd_funk_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -265,6 +275,12 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    return fd_funk_footprint();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -275,7 +291,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
 ulong
 fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "loose" );
+  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.loose", obj->id );
   if( loose!=ULONG_MAX ) {
     return loose;
   }
