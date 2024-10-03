@@ -612,6 +612,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
   fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
+  /* fd_ulong_sat_mul: signers_seeds_cnt<=16 => no need for sat_mul */
   fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
     int err = fd_vm_derive_pda( vm, caller_program_id, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
@@ -624,7 +625,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
     FD_VM_MEM_SLICE_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
                               VM_SYSCALL_CPI_ACC_META_ALIGN,
-                              VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction )*VM_SYSCALL_CPI_ACC_META_SIZE );
+                              fd_ulong_sat_mul( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_ACC_META_SIZE ) );
 
   /* Translate instruction data *************************************************/
 
