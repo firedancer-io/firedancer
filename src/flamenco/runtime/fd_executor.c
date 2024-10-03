@@ -1111,7 +1111,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
   }
 #endif
 
-  return exec_result;
+    return exec_result;
   } FD_SCRATCH_SCOPE_END;
 }
 
