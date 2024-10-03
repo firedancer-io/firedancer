@@ -1769,7 +1769,7 @@ unprivileged_init( fd_topo_t *      topo,
   poh_link_init( &stake_out,    topo, tile, 2UL );
   poh_link_init( &crds_shred,   topo, tile, 3UL );
 
-  FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
+  FD_LOG_INFO(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;
   FD_COMPILER_MFENCE();
   for(;;) {
