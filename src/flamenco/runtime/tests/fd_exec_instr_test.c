@@ -1713,9 +1713,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
   // Skip extra checks for non-CPI syscalls
-  int skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+  int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+  int skip_extra_checks = !is_cpi;
 
-  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, !!skip_extra_checks ) )
+  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1840,6 +1841,27 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
   if( syscall_err ) {
+    /*  In the CPI syscall, certain checks are performed out of order between Firedancer and Agave's
+        implementation. Certain checks in FD (whose error codes mapped below)
+        do not have a (sequentially) equivalent one in Agave. Thus, it doesn't make sense
+        to declare a mismatch if Firedancer fails such a check when Agave doesn't, as long
+        as both end up error'ing out at some point. We also have other metrics (namely CU count)
+        to rely on. */
+
+    /*  Certain pre-flight checks are not performed in Agave. These manifest as
+        access violations in Agave. The agave_access_violation_mask bitset sets
+        the error codes that are expected to be access violations in Agave. */
+    if( is_cpi &&
+      ( syscall_err == FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS ||
+        syscall_err == FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE ||
+        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
+        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
+
+      /* FD performs pre-flight checks that manifest as access violations in Agave */
+      vm->instr_ctx->txn_ctx->exec_err      = FD_VM_ERR_EBPF_ACCESS_VIOLATION;
+      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
+    }
+
     fd_log_collector_program_failure( vm->instr_ctx );
   }
 
