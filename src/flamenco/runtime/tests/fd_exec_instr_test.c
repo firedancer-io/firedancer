@@ -265,7 +265,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
   txn_ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
 
-  /* Set up epoch context */
+  /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   epoch_bank->rent.lamports_per_uint8_year = 3480;
   epoch_bank->rent.exemption_threshold = 2;
@@ -688,6 +688,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   epoch_bank->epoch_schedule = default_epoch_schedule;
   epoch_bank->rent           = default_rent;
   epoch_bank->ticks_per_slot = 64;
+  epoch_bank->slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)epoch_bank->ticks_per_slot;
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {

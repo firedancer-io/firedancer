@@ -37,6 +37,8 @@
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 
+#define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
+
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 

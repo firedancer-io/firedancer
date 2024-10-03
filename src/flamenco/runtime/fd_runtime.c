@@ -86,8 +86,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   uint128 target_tick_duration = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
   epoch_bank->ns_per_slot = target_tick_duration * epoch_bank->ticks_per_slot;
 
-#define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
-
   epoch_bank->slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)epoch_bank->ticks_per_slot;
   epoch_bank->genesis_creation_time = genesis_block->creation_time;
   slot_ctx->slot_bank.max_tick_height = epoch_bank->ticks_per_slot * (slot_ctx->slot_bank.slot + 1);
@@ -3035,46 +3033,40 @@ fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
 #define FD_RENT_EXEMPT (-1L)
 
 static long
-fd_rent_due(fd_account_meta_t *acc,
-            ulong epoch,
-            fd_rent_t const *rent,
-            fd_epoch_schedule_t const *schedule,
-            double slots_per_year)
-{
+fd_rent_due( fd_account_meta_t *         acc,
+             ulong                       epoch,
+             fd_rent_t const *           rent,
+             fd_epoch_schedule_t const * schedule,
+             double                      slots_per_year ) {
 
   fd_solana_account_meta_t *info = &acc->info;
 
-  /* Nothing due if account is rent-exempt */
-
-  ulong min_balance = fd_rent_exempt_minimum_balance2(rent, acc->dlen);
-  if (info->lamports >= min_balance)
-  {
+  /* Nothing due if account is rent-exempt
+     https://github.com/anza-xyz/agave/blob/v2.0.9/sdk/src/rent_collector.rs#L90 */
+  ulong min_balance = fd_rent_exempt_minimum_balance2( rent, acc->dlen );
+  if( info->lamports>=min_balance ) {
     return FD_RENT_EXEMPT;
   }
 
-  /* Count the number of slots that have passed since last collection */
-
+  /* Count the number of slots that have passed since last collection 
+     https://github.com/anza-xyz/agave/blob/v2.0.9/sdk/src/rent_collector.rs#L93-L98 */
   ulong slots_elapsed = 0UL;
-  if (FD_LIKELY(epoch >= schedule->first_normal_epoch))
-  {
-    slots_elapsed = (epoch - info->rent_epoch) * schedule->slots_per_epoch;
-  }
-  else
-  {
-    for (ulong i = info->rent_epoch; i < epoch; i++)
-    {
-      slots_elapsed += fd_epoch_slot_cnt(schedule, i);
+  if( FD_UNLIKELY( info->rent_epoch < schedule->first_normal_epoch ) ) {
+    /* Count the slots before the first normal epoch separately */
+    for( ulong i=info->rent_epoch; i<schedule->first_normal_epoch && i<epoch; i++ ) {
+      slots_elapsed += fd_epoch_slot_cnt( schedule, fd_ulong_sat_add( i, 1UL ) );
     }
+    slots_elapsed += fd_ulong_sat_sub( epoch, schedule->first_normal_epoch ) * schedule->slots_per_epoch;
+  }
+  else {
+    slots_elapsed = (epoch - info->rent_epoch) * schedule->slots_per_epoch;
   }
   /* Consensus-critical use of doubles :( */
 
   double years_elapsed;
-  if (FD_LIKELY(slots_per_year != 0.0))
-  {
+  if( FD_LIKELY( slots_per_year!=0.0 ) ) {
     years_elapsed = (double)slots_elapsed / slots_per_year;
-  }
-  else
-  {
+  } else {
     years_elapsed = 0.0;
   }
 
