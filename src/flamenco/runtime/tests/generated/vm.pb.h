@@ -12,6 +12,16 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+/* We are only concerned with these error kinds as the syscall/VM fuzzers don't
+ hit higher level error kinds (e.g., transaction errors) */
+typedef enum fd_exec_test_err_kind {
+    FD_EXEC_TEST_ERR_KIND_UNSPECIFIED = 0,
+    FD_EXEC_TEST_ERR_KIND_EBPF = 1,
+    FD_EXEC_TEST_ERR_KIND_SYSCALL = 2,
+    FD_EXEC_TEST_ERR_KIND_INSTRUCTION = 3
+} fd_exec_test_err_kind_t;
+
 /* Struct definitions */
 /* Describes an input data region. Agave's memory mapping sets up a series of
  memory mapped regions, which combine to make the input data region. */
@@ -56,6 +66,8 @@ typedef struct fd_exec_test_syscall_effects {
     uint64_t pc;
     pb_size_t input_data_regions_count;
     struct fd_exec_test_input_data_region *input_data_regions;
+    /* Error Kind (should be used along with error code) */
+    fd_exec_test_err_kind_t error_kind;
 } fd_exec_test_syscall_effects_t;
 
 /* Effects of fd_vm_validate */
@@ -157,12 +169,29 @@ typedef struct fd_exec_test_validate_vm_fixture {
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _FD_EXEC_TEST_ERR_KIND_MIN FD_EXEC_TEST_ERR_KIND_UNSPECIFIED
+#define _FD_EXEC_TEST_ERR_KIND_MAX FD_EXEC_TEST_ERR_KIND_INSTRUCTION
+#define _FD_EXEC_TEST_ERR_KIND_ARRAYSIZE ((fd_exec_test_err_kind_t)(FD_EXEC_TEST_ERR_KIND_INSTRUCTION+1))
+
+
+
+
+
+#define fd_exec_test_syscall_effects_t_error_kind_ENUMTYPE fd_exec_test_err_kind_t
+
+
+
+
+
+
+
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
@@ -172,7 +201,7 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
@@ -197,6 +226,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_RODATA_TAG  9
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_PC_TAG      10
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INPUT_DATA_REGIONS_TAG 11
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_ERROR_KIND_TAG 12
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_RESULT_TAG 1
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SUCCESS_TAG 2
 #define FD_EXEC_TEST_RETURN_DATA_PROGRAM_ID_TAG  1
@@ -302,7 +332,8 @@ X(a, STATIC,   SINGULAR, UINT64,   frame_count,       7) \
 X(a, POINTER,  SINGULAR, BYTES,    log,               8) \
 X(a, POINTER,  SINGULAR, BYTES,    rodata,            9) \
 X(a, STATIC,   SINGULAR, UINT64,   pc,               10) \
-X(a, POINTER,  REPEATED, MESSAGE,  input_data_regions,  11)
+X(a, POINTER,  REPEATED, MESSAGE,  input_data_regions,  11) \
+X(a, STATIC,   SINGULAR, UENUM,    error_kind,       12)
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_DEFAULT NULL
 #define fd_exec_test_syscall_effects_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
@@ -380,6 +411,7 @@ extern const pb_msgdesc_t fd_exec_test_return_data_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_VM_PB_H_MAX_SIZE  FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
+#define org_solana_sealevel_v1_ErrKind fd_exec_test_ErrKind
 #define org_solana_sealevel_v1_InputDataRegion fd_exec_test_InputDataRegion
 #define org_solana_sealevel_v1_VmContext fd_exec_test_VmContext
 #define org_solana_sealevel_v1_SyscallInvocation fd_exec_test_SyscallInvocation
@@ -390,6 +422,9 @@ extern const pb_msgdesc_t fd_exec_test_return_data_t_msg;
 #define org_solana_sealevel_v1_ValidateVmEffects fd_exec_test_ValidateVmEffects
 #define org_solana_sealevel_v1_ValidateVmFixture fd_exec_test_ValidateVmFixture
 #define org_solana_sealevel_v1_ReturnData fd_exec_test_ReturnData
+#define _ORG_SOLANA_SEALEVEL_V1_ERR_KIND_MIN _FD_EXEC_TEST_ERR_KIND_MIN
+#define _ORG_SOLANA_SEALEVEL_V1_ERR_KIND_MAX _FD_EXEC_TEST_ERR_KIND_MAX
+#define _ORG_SOLANA_SEALEVEL_V1_ERR_KIND_ARRAYSIZE _FD_EXEC_TEST_ERR_KIND_ARRAYSIZE
 #define ORG_SOLANA_SEALEVEL_V1_INPUT_DATA_REGION_INIT_DEFAULT FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_VM_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_INVOCATION_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT
