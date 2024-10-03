@@ -150,9 +150,6 @@ after_frag( void *             _ctx,
        Equally importantly, we need to parse to extract the signature
        for dedup.  Just parse it right into the output dcache. */
 
-    /* Increment on GOSSIP_IN_IDX but not VOTER_IN_IDX */
-    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL - in_idx );
-
     /* Here, *opt_sz is the size of udp payload, as the tx has not
        been parsed yet. Code here is similar to the verify tile. */
     ulong payload_sz = *opt_sz;
@@ -165,11 +162,10 @@ after_frag( void *             _ctx,
 
     txn = (fd_txn_t *)(dcache_entry + txn_off);
     ulong txn_t_sz = fd_txn_parse( dcache_entry, payload_sz, txn, NULL );
-    if( FD_UNLIKELY( !txn_t_sz ) ) {
-      FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
-      *opt_filter = 1;
-      return;
-    }
+    if( FD_UNLIKELY( !txn_t_sz ) ) FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
+
+    /* Increment on GOSSIP_IN_IDX but not VOTER_IN_IDX */
+    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL - in_idx );
 
     /* Write payload_sz into trailer.
        fd_txn_parse always returns a multiple of 2 so this sz is
