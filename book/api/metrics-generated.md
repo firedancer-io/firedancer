@@ -11,6 +11,7 @@
 | link_&#8203;overrun_&#8203;polling_&#8203;count | `counter` | The number of times the link has been overrun while polling. |
 | link_&#8203;overrun_&#8203;polling_&#8203;frag_&#8203;count | `counter` | The number of fragments the link has not processed because it was overrun while polling. |
 | link_&#8203;overrun_&#8203;reading_&#8203;count | `counter` | The number of input overruns detected while reading metadata by the consumer. |
+| link_&#8203;overrun_&#8203;reading_&#8203;frag_&#8203;count | `counter` | The number of fragments the link has not processed because it was overrun while reading. |
 
 ## All Tiles
 <!--@include: ./metrics-tile-preamble.md-->
