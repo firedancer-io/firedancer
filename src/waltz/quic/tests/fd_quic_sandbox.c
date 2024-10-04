@@ -313,7 +313,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   conn->state       = FD_QUIC_CONN_STATE_ACTIVE;
   conn->established = 1;
-  conn->in_service  = 1;
+  conn->in_schedule = 1;
 
   /* Mock a completed handshake */
   conn->handshake_complete = 1;

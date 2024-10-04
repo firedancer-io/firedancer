@@ -90,8 +90,8 @@ struct fd_quic_conn {
   uint               version;             /* QUIC version of the connection */
 
   ulong              next_service_time;   /* time service should be called next */
-  ulong              sched_service_time;  /* time service is scheduled for, if in_service=1 */
-  int                in_service;          /* whether the conn is in the service queue */
+  ulong              sched_service_time;  /* time service is scheduled for, if conn in service_queue */
+  int                in_schedule;         /* whether the conn is in the service schedule */
   uchar              called_conn_new;     /* whether we need to call conn_final on teardown */
 
   /* we can have multiple connection ids */
