@@ -942,8 +942,16 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL );
 
-  fd_runtime_prep_and_exec_txns_tpool( slot_ctx, task_info, 1UL, tpool );
+  fd_runtime_pre_execute_check( task_info );
 
+  if( !task_info->exec_res ) {
+    task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
+  }
+
+  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
+  slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
+  
   return task_info;
 }
 
