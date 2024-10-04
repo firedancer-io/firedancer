@@ -12402,7 +12402,7 @@ void fd_clock_timestamp_votes_decode_unsafe( fd_clock_timestamp_votes_t * self, 
   ulong votes_len;
   fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 10000 ) );
+    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 15000 ) );
     self->votes_root = NULL;
   }
   for( ulong i=0; i < votes_len; i++ ) {
@@ -12486,7 +12486,7 @@ void fd_clock_timestamp_votes_decode_archival_unsafe( fd_clock_timestamp_votes_t
   ulong votes_len;
   fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 10000 ) );
+    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 15000 ) );
     self->votes_root = NULL;
   }
   for( ulong i=0; i < votes_len; i++ ) {

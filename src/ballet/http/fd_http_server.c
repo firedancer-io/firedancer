@@ -76,6 +76,7 @@ fd_http_server_connection_close_reason_str( int reason ) {
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE:      return "WS_EXPECTED_CONT_OPCODE-Expected continuation opcode in websocket frame";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:      return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:   return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE:            return "FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE-Websocket frame type changed unexpectedly";
     default: break;
   }
 
@@ -289,7 +290,7 @@ close_conn( fd_http_server_t * http,
             ulong              conn_idx,
             int                reason ) {
   FD_TEST( http->pollfds[ conn_idx ].fd!=-1 );
-#ifdef FD_HTTP_SERVER_DEBUG
+#if FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Closing connection %lu (fd=%d) (%d-%s)", conn_idx, http->pollfds[ conn_idx ].fd, reason, fd_http_server_connection_close_reason_str( reason ) ));
 #endif
 
@@ -334,7 +335,7 @@ fd_http_server_ws_close( fd_http_server_t * http,
    should be closed.  Any errors from an accept(2), read(2), or send(2)
    that are not expected here will be considered fatal and terminate the
    server. */
-    
+
 static inline int
 is_expected_network_error( int err ) {
   return
@@ -387,7 +388,7 @@ accept_conns( fd_http_server_t * http ) {
       http->callbacks.open( conn_id, fd, http->callback_ctx );
     }
 
-#ifdef FD_HTTP_SERVER_DEBUG
+#if FD_HTTP_SERVER_DEBUG
     FD_LOG_NOTICE(( "Accepted connection %lu (fd=%d)", conn_id, fd ));
 #endif
   }
@@ -441,6 +442,7 @@ read_conn_http( fd_http_server_t * http,
   uchar method_enum = UCHAR_MAX;
   if( FD_LIKELY( method_len==3UL && !strncmp( method, "GET", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_GET;
   else if( FD_LIKELY( method_len==4UL && !strncmp( method, "POST", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_POST;
+  else if( FD_LIKELY( method_len==7UL && !strncmp( method, "OPTIONS", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_OPTIONS;
 
   if( FD_UNLIKELY( method_enum==UCHAR_MAX ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD );
@@ -597,7 +599,7 @@ read_conn_http( fd_http_server_t * http,
   if( FD_LIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
   conn->response = response;
 
-#ifdef FD_HTTP_SERVER_DEBUG
+#if FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Received %s request \"%s\" from %lu (fd=%d) response code %lu", fd_http_server_method_str( method_enum ), path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
 #endif
 
@@ -629,7 +631,7 @@ again:
   }
 
   int opcode = conn->recv_bytes[ conn->recv_bytes_parsed ] & 0x0F;
-  if( FD_UNLIKELY( opcode!=0x0 && opcode!=0x1 && opcode!=0x8 && opcode!=0x9 && opcode!=0xA ) ) {
+  if( FD_UNLIKELY( opcode!=0x0 && opcode!=0x1 && opcode!=0x2 && opcode!=0x8 && opcode!=0x9 && opcode!=0xA ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE );
     return;
   }
@@ -714,10 +716,16 @@ again:
     return;
   }
 
-  if( FD_UNLIKELY( !conn->recv_started_msg && opcode!=0x1 ) ) {
+  if( FD_UNLIKELY( !conn->recv_started_msg && opcode!=0x1 && opcode!=0x2 ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE );
     return;
   }
+
+  if( FD_UNLIKELY( conn->recv_started_msg && opcode!=conn->recv_last_opcode ) ) {
+    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE );
+    return;
+  }
+  conn->recv_last_opcode = opcode;
 
   /* Check if this is a complete message */
 
@@ -1195,7 +1203,7 @@ fd_http_server_reserve( fd_http_server_t * http,
                  rest of the buffer behind where the snap was to
                  preserve the invariant that snaps are always evicted in
                  circular order. */
-     
+
       ulong stage_end = http->stage_off+remaining+http->stage_len+len;
       ulong clamp = fd_ulong_if( stage_end>=http->oring_sz, stage_end-http->oring_sz, 0UL );
       fd_http_server_evict_until( http, clamp );
@@ -1209,6 +1217,17 @@ fd_http_server_reserve( fd_http_server_t * http,
     ulong clamp = fd_ulong_if( stage_end>=http->oring_sz, stage_end-http->oring_sz, 0UL );
     fd_http_server_evict_until( http, clamp );
   }
+}
+
+void
+fd_http_server_stage_trunc( fd_http_server_t * http,
+                             ulong len ) {
+  http->stage_len = len;
+}
+
+ulong
+fd_http_server_stage_len( fd_http_server_t * http ) {
+  return http->stage_len;
 }
 
 void
