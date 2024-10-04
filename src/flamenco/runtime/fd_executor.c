@@ -402,11 +402,15 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L317-320 */
     if( FD_UNLIKELY( !fd_account_is_executable( program_account->const_meta ) ) ) {
-      /* In the agave client if an account is not writable and it is not an
-         instruction account then a dummy account is loaded in that has the
+      /* In the agave client if an account...
+         - not writable
+         - not an instruction account
+         - in the loaded program cache
+         then a dummy account is loaded in that has the
          executable flag set to true. This is a hack to mirror those semantics.
          https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L239-249 */
 
+      /* If it is not writable */
       if( fd_txn_account_is_writable_idx( txn_ctx, instr->program_id ) ) {
         return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
       }
@@ -423,6 +427,23 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
           }
         }
       }
+
+      /* If it is not in the loaded program cache. Only accounts in the transaction account keys
+         that are owned by one of the four loaders (bpf v1, v2, v3, v4) are iterated over in Agave's
+         replenish_program_cache() function to be loaded into the program cache. From my inspection,
+         it seems that if we reach this far in the code path, then this account should be in the program
+         cache iff the owners match one of the four loaders.
+         TODO: We may need something more robust than this. */
+      if( FD_UNLIKELY( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) &&
+                       memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) &&
+                       memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+                       memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+        return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      }
+
+      /* Set readonly account's executable status (lol) */
+      fd_account_meta_t * meta = (fd_account_meta_t *)program_account->const_meta;
+      meta->info.executable = 1;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L322-325 */
