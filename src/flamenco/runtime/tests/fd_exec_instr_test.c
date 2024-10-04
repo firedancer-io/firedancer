@@ -141,7 +141,7 @@ _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     /* Actually invoke rent collection */
-    fd_runtime_collect_rent_account( slot_ctx, acc->meta, acc->pubkey, epoch );
+    fd_runtime_collect_rent_from_account( slot_ctx, acc->meta, acc->pubkey, epoch );
   }
 }
 
