@@ -55,6 +55,7 @@ struct fd_http_server_ws_connection {
   ulong pong_bytes_written;
 
   int     recv_started_msg;
+  int     recv_last_opcode;
   ulong   recv_bytes_parsed;
   ulong   recv_bytes_read;
   uchar * recv_bytes;
