@@ -1713,8 +1713,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( FD_UNLIKELY( _l > output_end ) ) {
     goto error;
   }
-
-  if (input->vm_ctx.return_data.program_id->size == sizeof(fd_pubkey_t)) {
+  
+  if (input->vm_ctx.return_data.program_id && input->vm_ctx.return_data.program_id->size == sizeof(fd_pubkey_t)) {
     fd_memcpy( ctx->txn_ctx->return_data.program_id.uc, input->vm_ctx.return_data.program_id->bytes, sizeof(fd_pubkey_t) );
     ctx->txn_ctx->return_data.len = input->vm_ctx.return_data.data->size;
     fd_memcpy( ctx->txn_ctx->return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_ctx->return_data.len );
