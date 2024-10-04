@@ -996,7 +996,7 @@ method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_
       fd_method_error(ctx, -1, "unable to read epoch_bank");
       return 0;
     }
-    ulong min_balance = fd_rent_exempt_minimum_balance2(&epoch_bank->rent, sizen);
+    ulong min_balance = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sizen );
 
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,

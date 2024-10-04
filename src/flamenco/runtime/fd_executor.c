@@ -176,7 +176,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 
 int
 check_rent_transition( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee ) {
-  ulong min_balance   = fd_rent_exempt_minimum_balance2( rent, account->const_meta->dlen );
+  ulong min_balance   = fd_rent_exempt_minimum_balance( rent, account->const_meta->dlen );
   ulong pre_lamports  = account->const_meta->info.lamports;
   uchar pre_is_exempt = pre_lamports >= min_balance;
 
@@ -209,7 +209,7 @@ fd_validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, 
   }
 
   if( is_nonce ) {
-    min_balance = fd_rent_exempt_minimum_balance2( rent, 80 );
+    min_balance = fd_rent_exempt_minimum_balance( rent, 80 );
   }
 
   ulong out = ULONG_MAX;
@@ -385,9 +385,9 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
        successfully, update the starting lamports accordingly to avoid
        unbalanced lamports issues during instruction execution.
        TODO: the rent epoch check in the conditional should probably be moved
-       to inside fd_runtime_collect_rent_account. */
+       to inside fd_runtime_collect_rent_from_account. */
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && acct->const_meta->info.rent_epoch<=epoch ) {
-      fd_runtime_collect_rent_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
+      fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
       acct->starting_lamports = acct->meta->info.lamports;
     }
 
@@ -553,7 +553,7 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L109-L125 */
   if( FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
     if( FD_LIKELY( rec->const_meta->info.rent_epoch!=ULONG_MAX
-                && rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) ) {
+                && rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) ) {
       return 1;
     }
     return 0;
@@ -572,7 +572,7 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/sdk/src/rent_collector.rs#L167-L183 */
-  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) {
+  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) {
     return 0;
   }
 
@@ -1958,7 +1958,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
          - lamports >= rent_exempt_minimum    -> RentExempt
          In Agave, 'self' refers to our 'after' state. */
       uchar after_uninitialized  = b->meta->info.lamports == 0;
-      uchar after_rent_exempt    = b->meta->info.lamports >= fd_rent_exempt_minimum_balance2( rent, b->meta->dlen );
+      uchar after_rent_exempt    = b->meta->info.lamports >= fd_rent_exempt_minimum_balance( rent, b->meta->dlen );
 
       /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
       if( FD_LIKELY( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
@@ -1968,7 +1968,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
         } else {
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
           uchar before_uninitialized = b->starting_dlen == ULONG_MAX || b->starting_lamports == 0;
-          uchar before_rent_exempt   = b->starting_dlen != ULONG_MAX && b->starting_lamports >= fd_rent_exempt_minimum_balance2( rent, b->starting_dlen );
+          uchar before_rent_exempt   = b->starting_dlen != ULONG_MAX && b->starting_lamports >= fd_rent_exempt_minimum_balance( rent, b->starting_dlen );
 
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
           if( before_uninitialized || before_rent_exempt ) {
@@ -1978,8 +1978,8 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
                            b->starting_dlen,
                            b->meta->info.lamports,
                            b->starting_lamports,
-                           fd_rent_exempt_minimum_balance2( rent, b->meta->dlen ),
-                           fd_rent_exempt_minimum_balance2( rent, b->starting_dlen ) ));
+                           fd_rent_exempt_minimum_balance( rent, b->meta->dlen ),
+                           fd_rent_exempt_minimum_balance( rent, b->starting_dlen ) ));
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
@@ -1992,8 +1992,8 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
                            b->starting_dlen,
                            b->meta->info.lamports,
                            b->starting_lamports,
-                           fd_rent_exempt_minimum_balance2( rent, b->meta->dlen ),
-                           fd_rent_exempt_minimum_balance2( rent, b->starting_dlen ) ));
+                           fd_rent_exempt_minimum_balance( rent, b->meta->dlen ),
+                           fd_rent_exempt_minimum_balance( rent, b->starting_dlen ) ));
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           }

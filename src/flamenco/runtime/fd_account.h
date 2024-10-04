@@ -229,9 +229,9 @@ static inline int
 fd_account_is_rent_exempt_at_data_length( fd_exec_instr_ctx_t const * ctx,
                                           fd_account_meta_t   const * meta ) {
   assert( meta != NULL );
-  fd_rent_t rent     = ctx->epoch_ctx->epoch_bank.rent;
-  ulong min_balanace = fd_rent_exempt_minimum_balance2( &rent, meta->dlen );
-  return meta->info.lamports >= min_balanace; 
+  fd_rent_t rent    = ctx->epoch_ctx->epoch_bank.rent;
+  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, meta->dlen );
+  return meta->info.lamports >= min_balance; 
 }
 
 /* fd_account_is_executable returns 1 if the given account has the

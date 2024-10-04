@@ -153,8 +153,8 @@ genesis_create( void *                       buf,
 
   uchar stake_data[ FD_STAKE_STATE_V2_SZ ];
 
-  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance2( &genesis->rent, FD_STAKE_STATE_V2_SZ );
-  ulong vote_min_bal        = fd_rent_exempt_minimum_balance2( &genesis->rent, FD_VOTE_STATE_V3_SZ  );
+  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_V2_SZ );
+  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ  );
 
   do {
     fd_stake_state_v2_t state[1];
@@ -243,7 +243,7 @@ genesis_create( void *                       buf,
   genesis->accounts[ stake_cfg_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = fd_solana_stake_program_config_id,
     .account = (fd_solana_account_t) {
-      .lamports   = fd_rent_exempt_minimum_balance2( &genesis->rent, sizeof(stake_cfg_data) ),
+      .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, sizeof(stake_cfg_data) ),
       .data_len   = sizeof(stake_cfg_data),
       .data       = stake_cfg_data,
       .owner      = fd_solana_config_program_id
@@ -279,7 +279,7 @@ genesis_create( void *                       buf,
 
 #define FEATURE_ENABLED_SZ 9UL
   static const uchar feature_enabled_data[ FEATURE_ENABLED_SZ ] = { 1, 0, 0, 0, 0, 0, 0, 0, 0 };
-  ulong default_feature_enabled_balance = fd_rent_exempt_minimum_balance2( &genesis->rent, FEATURE_ENABLED_SZ );
+  ulong default_feature_enabled_balance = fd_rent_exempt_minimum_balance( &genesis->rent, FEATURE_ENABLED_SZ );
 
   /* Set up feature gate accounts */
   for( ulong j=0UL; j<feature_cnt; j++ ) {
