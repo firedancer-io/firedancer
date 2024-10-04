@@ -956,11 +956,6 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   }
 
   fd_exec_txn_ctx_t *          txn_ctx   = task_info->txn_ctx;
-
-  fd_funk_txn_t * parent_txn = txn_ctx->slot_ctx->funk_txn;
-  txn_ctx->funk_txn          = parent_txn;
-  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
-
   int err;
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275

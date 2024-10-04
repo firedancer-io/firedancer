@@ -1264,8 +1264,16 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t *  slot_ctx,
 
   /* Unroll accounts from aluts and place into correct spots */
   int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
+  if( FD_UNLIKELY( res ) ) {
+    return res;
+  }
 
-  return res;
+  /* Set up borrowed accounts */
+  fd_funk_txn_t * parent_txn = txn_ctx->slot_ctx->funk_txn;
+  txn_ctx->funk_txn          = parent_txn;
+  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
   /* TODO:FIXME: MOVE THIS PELASE */
 }
 
@@ -1490,13 +1498,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     }
   }
 
-  // For executable accounts, we need to set up dummy borrowed accounts by cluttering txn ctx state and resetting it after
-  // TODO: Revisit this hacky approach
-  fd_valloc_t orig_valloc = txn_ctx->valloc;
-  txn_ctx->valloc = fd_scratch_virtual();
-  txn_ctx->funk_txn = slot_ctx->funk_txn;
-  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
-
   // Dump executable accounts
   for( ulong i = 0; i < txn_ctx->executable_cnt; ++i ) {
     if( !txn_ctx->executable_accounts[i].const_meta ) {
@@ -1504,11 +1505,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     }
     dump_account_state( &txn_ctx->executable_accounts[i], &message->account_shared_data[message->account_shared_data_count++] );
   }
-
-  // Reset state
-  txn_ctx->valloc = orig_valloc;
-  txn_ctx->funk_txn = NULL;
-  txn_ctx->executable_cnt = 0;
 
   // Dump LUT accounts
   fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
