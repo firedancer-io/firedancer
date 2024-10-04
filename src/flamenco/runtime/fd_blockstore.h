@@ -10,7 +10,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "fd_readwrite_lock.h"
+#include "fd_rwseq_lock.h"
 #include "stdbool.h"
 
 /* FD_BLOCKSTORE_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
@@ -267,7 +267,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
 
   /* Concurrency */
 
-  fd_readwrite_lock_t lock;
+  fd_rwseq_lock_t lock;
 
   /* Slot metadata */
 
@@ -562,25 +562,25 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root_slot );
 /* Acquire a read lock */
 static inline void
 fd_blockstore_start_read( fd_blockstore_t * blockstore ) {
-  fd_readwrite_start_read( &blockstore->lock );
+  fd_rwseq_start_read( &blockstore->lock );
 }
 
 /* Release a read lock */
 static inline void
 fd_blockstore_end_read( fd_blockstore_t * blockstore ) {
-  fd_readwrite_end_read( &blockstore->lock );
+  fd_rwseq_end_read( &blockstore->lock );
 }
 
 /* Acquire a write lock */
 static inline void
 fd_blockstore_start_write( fd_blockstore_t * blockstore ) {
-  fd_readwrite_start_write( &blockstore->lock );
+  fd_rwseq_start_write( &blockstore->lock );
 }
 
 /* Release a write lock */
 static inline void
 fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
-  fd_readwrite_end_write( &blockstore->lock );
+  fd_rwseq_end_write( &blockstore->lock );
 }
 
 void

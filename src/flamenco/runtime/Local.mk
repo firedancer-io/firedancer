@@ -5,10 +5,10 @@ $(call add-objs,fd_acc_mgr,fd_flamenco)
 $(call add-hdrs,fd_account.h)
 $(call add-objs,fd_account,fd_flamenco)
 
-$(call add-hdrs,fd_bank_hash_cmp.h fd_readwrite_lock.h)
+$(call add-hdrs,fd_bank_hash_cmp.h fd_rwseq_lock.h)
 $(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 
-$(call add-hdrs,fd_blockstore.h fd_readwrite_lock.h)
+$(call add-hdrs,fd_blockstore.h fd_rwseq_lock.h)
 $(call add-objs,fd_blockstore,fd_flamenco)
 
 $(call add-hdrs,fd_borrowed_account.h)
