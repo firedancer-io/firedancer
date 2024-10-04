@@ -492,7 +492,7 @@ test_shred_reject( void ) {
   shred->data.flags = 0x80;    SIGN_REJECT( shred );/* block complete but not batch complete */
 
   shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 4 ], 2048UL );   FD_TEST( shred );
-  shred->data.parent_off = 2;                    SIGN_ACCEPT( shred ); /* Slot == 2 */
+  shred->data.parent_off = 2;                    SIGN_REJECT( shred ); /* Slot == 2 */
   shred->data.parent_off = 0;                    SIGN_REJECT( shred );
   shred->data.parent_off = 3;                    SIGN_REJECT( shred );
   shred->data.parent_off = 0; shred->slot = 0UL; SIGN_ACCEPT( shred );

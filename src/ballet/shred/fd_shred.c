@@ -69,9 +69,19 @@ fd_shred_parse( uchar const * const buf,
   /* At this point we know all the fields exist, but we need to sanity
      check a few fields that would make a shred illegal. */
   if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
+    ulong parent_off = (ulong)shred->data.parent_off;
+    ulong slot       = shred->slot;
     if( FD_UNLIKELY( (shred->data.flags&0xC0)==0x80                              ) ) return NULL;
-    if( FD_UNLIKELY( (ulong)(shred->data.parent_off)>shred->slot                 ) ) return NULL;
-    if( FD_UNLIKELY( (shred->data.parent_off==0) & (shred->slot!=0UL)            ) ) return NULL;
+    if( FD_UNLIKELY( parent_off>slot                                             ) ) return NULL;
+    /* The property we want to enforce is
+           slot==0 <=> parent_off==0 <=> slot==parent_off,
+       where <=> means if and only if.  It's a strange expression
+       though, because any two of the statements automatically imply the
+       other one, so it's logically equivalent to:
+            (slot==0 or parent_off==0)   <=> slot==parent_off
+       We want the complement though, so that we can return NULL, and
+       the complement of iff is xor. */
+    if( FD_UNLIKELY( ((parent_off==0) | (slot==0UL)) ^ (slot==parent_off)        ) ) return NULL;
     if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
   } else {
     if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;
