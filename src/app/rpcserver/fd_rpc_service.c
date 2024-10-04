@@ -129,11 +129,7 @@ read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_valloc_t valloc, ulong 
 
 static void
 fd_method_simple_error( fd_rpc_ctx_t * ctx, int errcode, const char* text ) {
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_http_server_unstage( ws->server );
-  ws->quick_size = 0;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"%s\"},\"id\":%s}",
-                       errcode, text, ctx->call_id );
+  fd_web_reply_error( &ctx->global->ws, errcode, text, ctx->call_id );
 }
 
 static void
@@ -776,7 +772,7 @@ method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong            slot = get_slot_from_commitment_level( values, ctx );
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, slot, fd_scratch_virtual() );
     if( FD_UNLIKELY( !epoch_bank ) ) {
-      fd_web_error( ws, "unable to read epoch_bank" );
+      fd_method_simple_error( ctx, -1, "unable to read epoch_bank" );
       return 0;
     }
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%s}" CRLF,
@@ -1813,7 +1809,6 @@ method_simulateTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
 void
 fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
   fd_rpc_ctx_t ctx = *( fd_rpc_ctx_t *)cb_arg;
-  fd_webserver_t * ws = &ctx.global->ws;
 
   snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "null");
 
@@ -2084,17 +2079,6 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
     fd_method_error(&ctx, -1, "unknown or unimplemented method %s", (const char*)arg);
     return;
   }
-
-  /* Probably should make an error here */
-  static const char* DOC=
-    "<html>" CRLF
-    "<head>" CRLF
-    "<title>OK</title>" CRLF
-    "</head>" CRLF
-    "<body>" CRLF
-    "</body>" CRLF
-    "</html>";
-  fd_web_reply_append(ws, DOC, strlen(DOC));
 }
 
 static int
@@ -2111,12 +2095,12 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     ulong arg_sz = 0;
     const void* arg = json_get_value(values, PATH, 3, &arg_sz);
     if (arg == NULL) {
-      fd_web_ws_error(ws, conn_id, "getAccountInfo requires a string as first parameter");
+      fd_method_simple_error( ctx, -1, "getAccountInfo requires a string as first parameter" );
       return 0;
     }
     fd_pubkey_t acct;
     if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
-      fd_method_error(ctx, -1, "invalid base58 encoding");
+      fd_method_simple_error(ctx, -1, "invalid base58 encoding");
       return 0;
     }
 
@@ -2138,7 +2122,7 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
       enc = FD_ENC_JSON;
     else {
-      fd_web_ws_error(ws, conn_id, "invalid data encoding %s", (const char*)enc_str);
+      fd_method_error(ctx, -1, "invalid data encoding %s", (const char*)enc_str);
       return 0;
     }
 
@@ -2162,14 +2146,14 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     const void* off_ptr = json_get_value(values, PATH4, 5, &off_sz);
     if (len_ptr && off_ptr) {
       if (enc == FD_ENC_JSON) {
-        fd_web_ws_error(ws, conn_id, "cannot use jsonParsed encoding with slice");
+        fd_method_simple_error(ctx, -1, "cannot use jsonParsed encoding with slice");
         return 0;
       }
     }
 
     fd_rpc_global_ctx_t * subs = ctx->global;
     if( subs->sub_cnt >= FD_WS_MAX_SUBS ) {
-      fd_web_ws_error(ws, conn_id, "too many subscriptions");
+      fd_method_simple_error(ctx, -1, "too many subscriptions");
       return 0;
     }
     struct fd_ws_subscription * sub = &subs->sub_list[ subs->sub_cnt++ ];
@@ -2193,10 +2177,9 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
 static int
 ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg, struct fd_ws_subscription * sub) {
   fd_webserver_t * ws = &ctx->global->ws;
+  fd_web_reply_new( ws );
 
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong conn_id = sub->conn_id;
-
     ulong val_sz;
     void * val = read_account_with_xid(ctx, &sub->acct_subscribe.acct, &msg->accts.funk_xid, fd_scratch_virtual(), &val_sz);
     if (val == NULL) {
@@ -2209,7 +2192,7 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
                          msg->accts.funk_xid.ul[0]);
     const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len );
     if( err ) {
-      fd_web_ws_error(ws, conn_id, "%s", err);
+      FD_LOG_WARNING(( "error converting account to json: %s", err ));
       return 0;
     }
     fd_web_reply_sprintf(ws, "},\"subscription\":%lu}}" CRLF, sub->subsc_id);
@@ -2225,7 +2208,7 @@ ws_method_slotSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ctx_t
 
   fd_rpc_global_ctx_t * subs = ctx->global;
   if( subs->sub_cnt >= FD_WS_MAX_SUBS ) {
-    fd_web_ws_error(ws, conn_id, "too many subscriptions");
+    fd_method_simple_error(ctx, -1, "too many subscriptions");
     return 0;
   }
   struct fd_ws_subscription * sub = &subs->sub_list[ subs->sub_cnt++ ];
@@ -2242,10 +2225,11 @@ ws_method_slotSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ctx_t
 
 static int
 ws_method_slotSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg, struct fd_ws_subscription * sub) {
-  (void)ctx;
+  fd_webserver_t * ws = &ctx->global->ws;
+  fd_web_reply_new( ws );
+
   char bank_hash[50];
   fd_base58_encode_32(msg->slot_exec.bank_hash.uc, 0, bank_hash);
-  fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"result\":{\"parent\":%lu,\"root\":%lu,\"slot\":%lu,\"bank_hash\":\"%s\"},\"subscription\":%lu}}" CRLF,
                        msg->slot_exec.parent, msg->slot_exec.root, msg->slot_exec.slot,
                        bank_hash, sub->subsc_id);
@@ -2264,11 +2248,11 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
   ulong arg_sz = 0;
   const void* arg = json_get_value(values, PATH, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_ws_error( ws, conn_id, "missing jsonrpc member" );
+    fd_web_reply_error( ws, -1, "missing jsonrpc member", "null" );
     return 0;
   }
   if (!MATCH_STRING(arg, arg_sz, "2.0")) {
-    fd_web_ws_error( ws, conn_id, "jsonrpc value must be 2.0" );
+    fd_web_reply_error( ws, -1, "jsonrpc value must be 2.0", "null" );
     return 0;
   }
 
@@ -2290,7 +2274,7 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
     if (arg != NULL) {
       snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "\"%s\"", (const char *)arg);
     } else {
-      fd_web_ws_error( ws, conn_id, "missing id member" );
+      fd_web_reply_error( ws, -1, "missing id member", "null" );
       return 0;
     }
   }
@@ -2302,7 +2286,7 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
   arg_sz = 0;
   arg = json_get_value(values, PATH2, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_ws_error( ws, conn_id, "missing method member" );
+    fd_web_reply_error( ws, -1, "missing method member", ctx.call_id );
     return 0;
   }
   long meth_id = fd_webserver_json_keyword((const char*)arg, arg_sz);
@@ -2310,19 +2294,19 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
   switch (meth_id) {
   case KEYW_WS_METHOD_ACCOUNTSUBSCRIBE:
     if (ws_method_accountSubscribe(conn_id, values, &ctx)) {
-      fd_web_ws_send( ws, conn_id );
       return 1;
     }
     return 0;
   case KEYW_WS_METHOD_SLOTSUBSCRIBE:
     if (ws_method_slotSubscribe(conn_id, values, &ctx)) {
-      fd_web_ws_send( ws, conn_id );
       return 1;
     }
     return 0;
   }
 
-  fd_web_ws_error( ws, conn_id, "unknown websocket method: %s", (const char*)arg );
+  char text[4096];
+  snprintf( text, sizeof(text), "unknown websocket method: %s", (const char*)arg );
+  fd_web_reply_error( ws, -1, text, ctx.call_id );
   return 0;
 }
 

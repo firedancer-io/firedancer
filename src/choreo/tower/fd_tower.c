@@ -219,11 +219,11 @@ fd_tower_init( fd_tower_t *                tower,
                                                               &vote_state_versioned );
     if( FD_LIKELY( vote_state ) ) {
       fd_tower_from_vote_state( tower, vote_state );
-      FD_LOG_NOTICE(( "[%s] loading vote state for vote acc: %32J", __func__, vote_acc_addr ));
+      FD_LOG_NOTICE(( "[%s] loading vote state for vote acc: %s", __func__, FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ) ));
     } else {
-      FD_LOG_WARNING(( "[%s] didn't find existing vote state for vote acc: %32J",
+      FD_LOG_WARNING(( "[%s] didn't find existing vote state for vote acc: %s",
                        __func__,
-                       vote_acc_addr ));
+                       FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ) ));
     }
   }
   FD_SCRATCH_SCOPE_END;
@@ -235,8 +235,6 @@ fd_tower_init( fd_tower_t *                tower,
   /* Init the smr. */
 
   tower->smr = smr;
-
-  return;
 }
 
 int
@@ -384,9 +382,9 @@ fd_tower_threshold_check( fd_tower_t const * tower,
                                                                 fd_scratch_virtual(),
                                                                 &vote_state_versioned );
       if( FD_UNLIKELY( !vote_state ) ) {
-        FD_LOG_WARNING(( "[%s] failed to load vote acc addr %32J. skipping.",
+        FD_LOG_WARNING(( "[%s] failed to load vote acc addr %s. skipping.",
                          __func__,
-                         vote_acc->addr ));
+                         FD_BASE58_ENC_32_ALLOCA( vote_acc->addr ) ));
         continue;
       }
 
@@ -724,9 +722,9 @@ fd_tower_fork_update( fd_tower_t const * tower,
                                                                 fd_scratch_virtual(),
                                                                 &vote_state_versioned );
       if( FD_UNLIKELY( !vote_state ) ) {
-        FD_LOG_WARNING(( "[%s] failed to load vote acc addr %32J. skipping.",
+        FD_LOG_WARNING(( "[%s] failed to load vote acc addr %s. skipping.",
                          __func__,
-                         vote_acc->addr ));
+                         FD_BASE58_ENC_32_ALLOCA( vote_acc->addr ) ));
         continue;
       }
 
@@ -927,23 +925,23 @@ fd_tower_vote_state_query( FD_PARAM_UNUSED fd_tower_t const * tower,
   FD_BORROWED_ACCOUNT_DECL( vote_acc );
   rc = fd_acc_mgr_view( acc_mgr, fork->slot_ctx.funk_txn, vote_acc_addr, vote_acc );
   if( FD_UNLIKELY( rc == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-    FD_LOG_WARNING(( "[%s] fd_acc_mgr_view could not find vote account %32J. error: %d",
+    FD_LOG_WARNING(( "[%s] fd_acc_mgr_view could not find vote account %s. error: %d",
                      __func__,
-                     vote_acc_addr,
+                     FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ),
                      rc ));
     return NULL;
   } else if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "[%s] fd_acc_mgr_view failed on vote account %32J. error: %d",
+    FD_LOG_ERR(( "[%s] fd_acc_mgr_view failed on vote account %s. error: %d",
                  __func__,
-                 vote_acc_addr,
+                 FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ),
                  rc ));
   }
 
   rc = fd_vote_get_state( vote_acc, valloc, versioned );
   if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "[%s] fd_vote_get_state failed on vote account %32J. error: %d",
+    FD_LOG_ERR(( "[%s] fd_vote_get_state failed on vote account %s. error: %d",
                  __func__,
-                 vote_acc_addr,
+                 FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ),
                  rc ));
   }
 

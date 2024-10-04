@@ -8,7 +8,7 @@
    The primary use case is for serving ongoing RPC data to RPC
    subscribers, but it also serves a WebSocket stream for browser
    clients to show the GUI.
-   
+
    The server does not allocate and has a built in allocation strategy
    and memory region for outgoing messages which the caller should use.
    HTTP repsonse bodies and WebSocket frames are placed into an outgoing
@@ -16,7 +16,7 @@
    will automatically evict slow clients that do not read their messages
    in time and would be overwriten when the buffer has wrapped fully
    around.
-   
+
    Using the outgoing ring has two steps,
 
      (1) Stage data into the ring with fd_http_server_printf and
@@ -59,6 +59,7 @@
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE      (-20)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-21)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-22)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE            (-23)
 
 /* Given a FD_HTTP_SERVER_CONNECTION_CLOSE_* reason code, a reason that
    a HTTP connection a client was closed, produce a human readable
@@ -310,6 +311,17 @@ void
 fd_http_server_ws_close( fd_http_server_t * http,
                          ulong              ws_conn_id,
                          int                reason );
+
+/* fd_http_server_buffer_trunc truncates the pending message to the given length. */
+
+void
+fd_http_server_stage_trunc( fd_http_server_t * http,
+                             ulong len );
+
+/* fd_http_server_buffer_len returns the length of the pending message. */
+
+ulong
+fd_http_server_stage_len( fd_http_server_t * http );
 
 /* fd_http_server_printf appends the rendered format string fmt into the
    staging area of the outgoing ring buffer.  Assumes http is a current

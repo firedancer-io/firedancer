@@ -956,7 +956,7 @@
       "name": "clock_timestamp_votes",
       "type": "struct",
       "fields": [
-          { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":10000 }
+          { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":15000 }
       ],
       "comment": "Validator timestamp oracle votes received from voting nodes. TODO: make this a map"
     },

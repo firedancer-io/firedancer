@@ -1157,7 +1157,7 @@ fd_jit_compile( struct dasm_State **       Dst,
       break;
 
     default:
-      FD_LOG_WARNING(( "Unsupported opcode %x", opcode ));
+      FD_LOG_WARNING(( "Unsupported opcode %lx", opcode ));
       cur = text_end;
       break;
 

@@ -29,9 +29,6 @@
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
 struct fd_ledger_args {
@@ -231,10 +228,14 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_hash_t const * expected = fd_blockstore_block_hash_query( blockstore, slot );
     if( FD_UNLIKELY( !expected ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
     else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected->hash, 32UL ) ) ) {
-      FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%32J, got=%32J",
+      char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( expected_hash, expected->hash );
+      char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( poh_hash, ledger_args->slot_ctx->slot_bank.poh.hash );
+      FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
-                        expected->hash,
-                        ledger_args->slot_ctx->slot_bank.poh.hash ));
+                        expected_hash,
+                        poh_hash ));
 
       if( ledger_args->checkpt_mismatch ) {
         fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
@@ -251,10 +252,16 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
                                          expected->hash,
                                          32UL ) ) ) {
-      FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+
+      char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( expected_hash, expected->hash );
+      char bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( bank_hash, ledger_args->slot_ctx->slot_bank.banks_hash.hash );
+
+      FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
-                        expected->hash,
-                        ledger_args->slot_ctx->slot_bank.banks_hash.hash ));
+                        expected_hash,
+                        bank_hash ));
 
       if( ledger_args->checkpt_mismatch ) {
         fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
@@ -889,7 +896,7 @@ ingest( fd_ledger_args_t * args ) {
                                 id = fd_feature_iter_next( id ) ) {
     ulong activated_at = fd_features_get( &slot_ctx->epoch_ctx->features, id );
     if( activated_at ) {
-      FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
+      FD_LOG_DEBUG(( "feature %s activated at slot %lu", FD_BASE58_ENC_32_ALLOCA( id->id.key ), activated_at ));
     }
   }
 
@@ -1242,7 +1249,7 @@ prune( fd_ledger_args_t * args ) {
     fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
     if( !original_rec ) {
       /* Some sysvars aren't touched during execution. Not a problem. */
-      FD_LOG_DEBUG(("Record is not in account pubkey=%32J at index=%lu", &records[i], i));
+      FD_LOG_DEBUG(( "Record is not in account pubkey=%s at index=%u", FD_BASE58_ENC_32_ALLOCA( &records[i] ), i ));
       continue;
     }
     fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &records[i], 0, 1, NULL, NULL );
@@ -1254,15 +1261,15 @@ prune( fd_ledger_args_t * args ) {
              fd_funk_val_sz( original_rec ) ) == 0 );
     FD_TEST(( !!new_rec ));
   }
-  FD_LOG_NOTICE(("Copied over all sysvars and bank keys"));
+  FD_LOG_NOTICE(( "Copied over all sysvars and bank keys" ));
 
   /* Publish transaction with pruned records to the root of funk */
   if( fd_funk_txn_publish( pruned_funk, prune_txn, 1 )==0 ) {
-    FD_LOG_ERR(("failed to publish transaction into pruned funk"));
+    FD_LOG_ERR(( "failed to publish transaction into pruned funk" ));
   }
 
   /* Verify that the pruned records are in the funk */
-  FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp )));
+  FD_LOG_NOTICE(( "Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp ) ));
 
   fd_funk_leave( unpruned_funk );
 

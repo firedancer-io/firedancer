@@ -5,9 +5,6 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
    => (active stake) ordered by node identity).  Returns the tree root. */
@@ -40,7 +37,7 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
 
     fd_pubkey_t null_key = {0};
     if( memcmp( node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
-      FD_LOG_WARNING(( "vote account %32J skipped", n->elem.key.key ));
+      FD_LOG_WARNING(( "vote account %s skipped", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
       continue;
     }
     /* Check if node identity was previously visited */

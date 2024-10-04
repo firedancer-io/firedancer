@@ -12,9 +12,6 @@
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/fd_flamenco.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* The PoH recorder is implemented in Firedancer but for now needs to
    work with Agave, so we have a locking scheme for them to
    co-operate.
