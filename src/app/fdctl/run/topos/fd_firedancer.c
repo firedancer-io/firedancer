@@ -6,6 +6,10 @@
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../flamenco/runtime/fd_blockstore.h"
+#include "../../../../flamenco/runtime/fd_runtime.h"
+#include "../../../../flamenco/runtime/fd_txncache.h"
+#include "../../../../funk/fd_funk.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../util/net/fd_net_headers.h"
 #include <sys/sysinfo.h>
@@ -188,9 +192,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
-  fd_topo_obj_t * blockstore_obj = fd_topob_obj( topo, "blockstore", "bstore" );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "obj.%lu.loose", ( config->rpc.extended_tx_metadata_storage ? 128UL : 64UL ) * FD_SHMEM_GIGANTIC_PAGE_SZ ) );
-
+  fd_topo_obj_t * blockstore_obj = fd_topob_obj_concrete( topo, "blockstore", "bstore", fd_blockstore_align(), fd_blockstore_footprint(), ( config->rpc.extended_tx_metadata_storage ? 128UL : 64UL ) * FD_SHMEM_GIGANTIC_PAGE_SZ );
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -198,13 +200,18 @@ fd_topo_firedancer( config_t * _config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
   /* Create a txncache to be used by replay. */
-  fd_topo_obj_t * txncache_obj = fd_topob_obj( topo, "txncache", "tcache" );
+  fd_topo_obj_t * txncache_obj = fd_topob_obj_concrete( topo,
+                                                        "txncache",
+                                                        "tcache",
+                                                        fd_txncache_align(),
+                                                        fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT),
+                                                        0 );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   /* Create a shared blockstore to be used by replay. */
-  fd_topo_obj_t * funk_obj = fd_topob_obj( topo, "funk", "funk" );
+  fd_topo_obj_t * funk_obj = fd_topob_obj_concrete( topo, "funk", "funk", fd_funk_align(), fd_funk_footprint(), config->tiles.replay.funk_sz_gb * FD_SHMEM_GIGANTIC_PAGE_SZ );
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, funk_obj->id, "funk" ) );
