@@ -508,7 +508,11 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     ulong           _vaddr    = (vaddr);                                                                    \
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) {                                                  \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
+      return FD_VM_ERR_SYSCALL_UNALIGNED_POINTER;                                                           \
+    }                                                                                                       \
+    if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
       return FD_VM_ERR_SIGSEGV;                                                                             \
     }                                                                                                       \
@@ -529,7 +533,11 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     ulong           _vaddr    = (vaddr);                                                                    \
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi) ) {                                                   \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
+      return FD_VM_ERR_SYSCALL_UNALIGNED_POINTER;                                                           \
+    }                                                                                                       \
+    if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
       return FD_VM_ERR_SIGSEGV;                                                                             \
     }                                                                                                       \
@@ -542,7 +550,11 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     ulong           _vaddr    = (vaddr);                                                                    \
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) {                                                  \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
+      return FD_VM_ERR_SYSCALL_UNALIGNED_POINTER;                                                           \
+    }                                                                                                       \
+    if( FD_UNLIKELY( (!_haddr) | _is_multi ) ) {                                                            \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
       return FD_VM_ERR_SIGSEGV;                                                                             \
     }                                                                                                       \
