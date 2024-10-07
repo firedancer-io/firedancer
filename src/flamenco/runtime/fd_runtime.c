@@ -57,9 +57,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define MICRO_LAMPORTS_PER_LAMPORT                 (1000000UL)
 
 void
