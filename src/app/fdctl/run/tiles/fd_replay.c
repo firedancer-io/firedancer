@@ -163,7 +163,7 @@ struct fd_replay_tile_ctx {
   fd_tpool_t * tpool;
 
   /* Depends on store_int and is polled in after_credit */
-
+  void * blockstore_shmem;
   fd_blockstore_t *     blockstore;
 
   /* Updated during execution */
@@ -1337,12 +1337,7 @@ after_credit( void *             _ctx,
 
   // Poll for blockstore
   if( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
-    ulong                    tag = FD_BLOCKSTORE_MAGIC;
-    fd_wksp_tag_query_info_t info;
-    if( fd_wksp_tag_query( ctx->blockstore_wksp, &tag, 1, &info, 1 ) > 0 ) {
-      void * shmem              = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
-      ctx->blockstore = fd_blockstore_join( shmem );
-    }
+    ctx->blockstore = fd_blockstore_join( ctx->blockstore_shmem );
 
     if ( ctx->blockstore != NULL ) {
       FD_LOG_NOTICE(( "INIT BLOCKSTORE" ));
@@ -1475,6 +1470,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
+  ctx->blockstore_shmem = fd_topo_obj_laddr( topo, blockstore_obj_id );
   ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
   if( ctx->blockstore_wksp==NULL ) {
     FD_LOG_ERR(( "no blockstore wksp" ));
@@ -1572,7 +1568,7 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to tag query funk in %s", ctx->snapshot ));
     }
   } else {
-    void * funk_shmem = fd_wksp_alloc_laddr( ctx->funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+    void * funk_shmem = fd_topo_obj_laddr( topo, funk_obj_id );
     if (funk_shmem == NULL) {
       FD_LOG_ERR(( "failed to allocate funk" ));
     }
