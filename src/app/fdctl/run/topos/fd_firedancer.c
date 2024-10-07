@@ -189,7 +189,7 @@ fd_topo_firedancer( config_t * _config ) {
 
   /* Create a shared blockstore to be used by store and replay. */
   fd_topo_obj_t * blockstore_obj = fd_topob_obj( topo, "blockstore", "bstore" );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, ( config->rpc.extended_tx_metadata_storage ? 128UL : 64UL ) * FD_SHMEM_GIGANTIC_PAGE_SZ , "obj.%lu.loose", blockstore_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "obj.%lu.loose", ( config->rpc.extended_tx_metadata_storage ? 128UL : 64UL ) * FD_SHMEM_GIGANTIC_PAGE_SZ ) );
 
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -205,7 +205,6 @@ fd_topo_firedancer( config_t * _config ) {
 
   /* Create a shared blockstore to be used by replay. */
   fd_topo_obj_t * funk_obj = fd_topob_obj( topo, "funk", "funk" );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, config->tiles.replay.funk_sz_gb * FD_SHMEM_GIGANTIC_PAGE_SZ , "obj.%lu.loose", funk_obj->id ) );
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, funk_obj->id, "funk" ) );
