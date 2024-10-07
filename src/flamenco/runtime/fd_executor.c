@@ -47,6 +47,8 @@
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
+#define MAX_TX_ACCOUNT_LOCKS (128UL)
+
 /* TODO: precompiles currently enter this noop function. Once the move_precompile_verification_to_svm
    feature gets activated, this will need to be replaced with precompile verification functions. */
 static int
@@ -249,7 +251,7 @@ status_check_tower( ulong slot, void * _ctx ) {
   return 0;
 }
 
-int
+static int
 fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
   if( FD_UNLIKELY( !txn_ctx->slot_ctx->status_cache ) ) {
@@ -271,6 +273,24 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   int err;
   fd_txncache_query_batch( txn_ctx->slot_ctx->status_cache, &curr_query, 1UL, txn_ctx->slot_ctx, status_check_tower, &err );
   return err;
+}
+
+/* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3596-L3605 */
+int
+fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3603 */
+  int err = fd_check_transaction_age( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return err;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3604 */
+  err = fd_executor_check_status_cache( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return err;
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275 */
@@ -496,6 +516,38 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
+static inline ulong
+get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.0.9/sdk/src/transaction/sanitized.rs#L277-L289 */
+int
+fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
+  /* Ensure the number of account keys does not exceed the transaction lock limit
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L282-L283 */
+  ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx );
+  if( FD_UNLIKELY( txn_ctx->accounts_cnt>tx_account_lock_limit ) ) {
+    return FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS;
+  }
+
+  /* Duplicate account check
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L284-L285 */
+  for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
+    for( ushort j=0; j<txn_ctx->accounts_cnt; j++ ) {
+      if( i==j ) continue;
+
+      if( FD_UNLIKELY( !memcmp( &txn_ctx->accounts[i], &txn_ctx->accounts[j], sizeof(fd_pubkey_t) ) ) ) {
+        return FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE;
+      }
+    }
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L286-L288 */
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
 /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L101-L126 */
 static int
 fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
@@ -529,7 +581,7 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
   return 1;
 }
 
-int
+static int
 fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
   fd_borrowed_account_t * rec = NULL;
@@ -581,6 +633,24 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
   txn_ctx->execution_fee = execution_fee;
   txn_ctx->priority_fee  = priority_fee;
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L413-L497 */
+int
+fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L423-L430 */
+  int err = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return err;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L488 */
+  err = fd_executor_collect_fees( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return err;
+  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
