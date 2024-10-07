@@ -597,10 +597,7 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_WARNING(( "failed to find blockstore in workspace. making new blockstore." ));
     }
   } else {
-    void * blockstore_shmem = fd_wksp_alloc_laddr( ctx->blockstore_wksp,
-                                                 fd_blockstore_align(),
-                                                 fd_blockstore_footprint(),
-                                                 FD_BLOCKSTORE_MAGIC );
+    void * blockstore_shmem = fd_topo_obj_laddr( topo, blockstore_obj_id );
     if( blockstore_shmem == NULL ) {
       FD_LOG_ERR(( "failed to alloc blockstore" ));
     }
