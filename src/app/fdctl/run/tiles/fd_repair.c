@@ -100,7 +100,6 @@ struct fd_repair_tile_ctx {
 
   fd_mux_context_t * mux;
 
-  void * blockstore_shmem;
   fd_wksp_t  *      blockstore_wksp;
   fd_blockstore_t * blockstore;
 
@@ -415,7 +414,12 @@ after_credit( void *             _ctx,
 
   // Poll for blockstore
   if ( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
-    ctx->blockstore = fd_blockstore_join( ctx->blockstore_shmem );
+    ulong tag = FD_BLOCKSTORE_MAGIC;
+    fd_wksp_tag_query_info_t info;
+    if ( fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0 ) {
+      void * shmem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
+      ctx->blockstore = fd_blockstore_join( shmem );
+    }
   }
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
@@ -563,7 +567,6 @@ unprivileged_init( fd_topo_t *      topo,
   /* Blockstore setup */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
-  ctx->blockstore_shmem = fd_topo_obj_laddr( topo, blockstore_obj_id );
   ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
 
   if( ctx->blockstore_wksp==NULL ) {
