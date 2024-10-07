@@ -24,7 +24,7 @@ jobs:
       group: github-v1
     env:
       MACHINE: ${{ matrix.machine }}
-      EXTRAS: fuzz asan ubsan
+      EXTRAS: fuzz asan ubsan msan
     steps:
       - uses: actions/checkout@v4
         with:
