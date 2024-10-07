@@ -45,9 +45,6 @@
 #include <unistd.h>
 
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 // #define STOP_SLOT 280859632
 
 /* An estimate of the max number of transactions in a block.  If there are more
@@ -942,7 +939,11 @@ after_frag( void *             _ctx,
     }
 
     if( flags & REPLAY_FLAG_FINISHED_BLOCK ) {
-      FD_LOG_INFO(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %32J", curr_slot, ctx->parent_slot, fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count, ctx->blockhash.uc ));
+      FD_LOG_INFO(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
+                    curr_slot,
+                    ctx->parent_slot,
+                    fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count,
+                    FD_BASE58_ENC_32_ALLOCA( ctx->blockhash.uc ) ));
       // Copy over latest blockhash to slot_bank poh for updating the sysvars
       fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
       fd_block_info_t block_info[1];
