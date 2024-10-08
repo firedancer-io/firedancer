@@ -1950,7 +1950,8 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
         /* Fetch borrowed account */
         /* First check if account is read-only. 
-           TODO: have fd_txn_borrowed_account_modify_idx perform this check? */
+           TODO: Once direct mapping is enabled we _technically_ don't need 
+                 this check */
 
         if( fd_txn_borrowed_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
           break;
