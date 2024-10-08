@@ -1509,12 +1509,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           }
 
           /* The Agave client updates the account state upon closing an account
-            in their loaded program cache. Checking for a program can be
-            checked by checking to see if the programdata account's loader state
-            is unitialized. The firedancer implementation also removes closed
-            accounts from the loaded program cache at the end of a slot. Closed
-            accounts currently get handled in the
-            fd_bpf_loader_v3_is_executable check in fd_executor.c */
+             in their loaded program cache. Checking for a program can be
+             checked by checking to see if the programdata account's loader state
+             is unitialized. The firedancer implementation also removes closed
+             accounts from the loaded program cache at the end of a slot. Closed
+             accounts are not checked from the cache, instead the account state
+             is looked up. */
 
         } else {
           fd_log_collector_msg_literal( instr_ctx, "Invalid program account" );
@@ -1834,7 +1834,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
 
       if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_is_uninitialized( &program_data_account_state ) ) ) {
-        /* The account is likely closed. */
+        /* The account is closed. */
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
