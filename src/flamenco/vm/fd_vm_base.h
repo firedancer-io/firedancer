@@ -103,9 +103,6 @@
 #define FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE                       (-19)
 #define FD_VM_ERR_SYSCALL_INVALID_POINTER                         (-20)
 #define FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW                     (-21)
-/* Following syscall errors do not have an Agave equivalent.
-   We intentionally leave a number gap here. */
-#define FD_VM_ERR_SYSCALL_CPI_LAMPORTS_MISMATCH                   (-101)
 
 /* Poseidon returns custom errors for some reason */
 #define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS                 (1)

@@ -1709,7 +1709,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   fd_exec_instr_ctx_t ctx[1];
   // Skip extra checks for non-CPI syscalls
   int skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
-  uint is_cpi = !skip_extra_checks;
 
   if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, !!skip_extra_checks ) )
     goto error;
@@ -1846,10 +1845,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     if( exec_err==0 ) {
       FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
-    }
-    /* Ignore Lamport mismatches since Agave performs this check outside of the CPI */
-    if( is_cpi && syscall_err == FD_VM_ERR_SYSCALL_CPI_LAMPORTS_MISMATCH ) {
-      effects->error = 0;
     }
   }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success

@@ -35,8 +35,6 @@ fd_vm_syscall_strerror( int err ) {
   case FD_VM_ERR_SYSCALL_INVALID_POINTER:                        return "Invalid pointer";
   case FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW:                    return "Arithmetic overflow";
 
-  case FD_VM_ERR_SYSCALL_CPI_LAMPORTS_MISMATCH:                  return "Detected lamports mismatch in CPI";
-
   case FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS:                return "Syscall error: Invalid parameters.";
   case FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS:            return "Syscall error: Invalid endianness.";
 
