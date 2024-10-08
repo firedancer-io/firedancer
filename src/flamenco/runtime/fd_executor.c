@@ -535,9 +535,7 @@ fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
   /* Duplicate account check
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L284-L285 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
-    for( ushort j=0; j<txn_ctx->accounts_cnt; j++ ) {
-      if( i==j ) continue;
-
+    for( ushort j=i+1; j<txn_ctx->accounts_cnt; j++ ) {
       if( FD_UNLIKELY( !memcmp( &txn_ctx->accounts[i], &txn_ctx->accounts[j], sizeof(fd_pubkey_t) ) ) ) {
         return FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE;
       }
