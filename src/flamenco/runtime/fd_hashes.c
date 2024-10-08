@@ -350,6 +350,7 @@ fd_account_hash_task( void *tpool,
     uchar const *       acc_data = (uchar *)acc_meta_parent + acc_meta_parent->hlen;
     fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
     fd_lthash_value_t old_lthash_value;
+    fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
 
     fd_hash_account_current( old_hash.hash, &old_lthash_value, acc_meta_parent, acc_key->key, acc_data, slot_ctx );
@@ -426,6 +427,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = acc_mgr->funk;
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
   /* Collect list of changed accounts to be added to bank hash */
   fd_accounts_hash_task_data_t task_data;
@@ -526,11 +528,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
-//  if( FD_FEATURE_ACTIVE( slot_ctx, lattice_account_hash ) ) {
-    // Sanity-check LT Hash
-    fd_accounts_check_lthash( slot_ctx );
-//  }
-
   for( ulong i = 0; i < task_data.info_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
     /* Upgrade to writable record */
@@ -538,8 +535,27 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
+    fd_funk_txn_t * parent     = fd_funk_txn_parent( slot_ctx->funk_txn, txn_map );
+    int err = 0;
+    fd_account_meta_t const * acc_meta_parent = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, parent, fd_type_pun_const( task_info->rec->pair.key[0].uc ), NULL, &err, NULL);
+    if ( FD_LIKELY (acc_meta_parent->info.lamports != 0) ) {
+      uchar const *       acc_data = (uchar *)acc_meta_parent + acc_meta_parent->hlen;
+      fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
+      fd_lthash_value_t old_lthash_value;
+      fd_lthash_zero(&old_lthash_value);
+      fd_hash_t old_hash;
+
+      fd_hash_account_current( old_hash.hash, &old_lthash_value, acc_meta_parent, acc_key->key, acc_data, slot_ctx );
+      fd_lthash_sub( acc, &old_lthash_value );
+    }
+
     fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec), 1);
   }
+
+//  if( FD_FEATURE_ACTIVE( slot_ctx, lattice_account_hash ) ) {
+    // Sanity-check LT Hash
+    fd_accounts_check_lthash( slot_ctx );
+//  }
 
   fd_valloc_free( slot_ctx->valloc, task_data.info );
   fd_valloc_free( slot_ctx->valloc, task_data.lthash_values );
