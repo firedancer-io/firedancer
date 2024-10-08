@@ -119,32 +119,6 @@ fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx ) {
 }
 
 int
-is_invoked_account( fd_txn_t const * txn_descriptor, uchar idx ) {
-  for ( uchar i = 0; i < txn_descriptor->instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &txn_descriptor->instr[i];
-    if ( instr->program_id == idx ) return 1;
-  }
-  return 0;
-}
-
-int
-is_passed_to_program_account( fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * raw_ptr, uchar idx ) {
-  for ( uchar i = 0; i < txn_descriptor->instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &txn_descriptor->instr[i];
-    uchar const * instr_accs = ((uchar const *)raw_ptr->raw + instr->acct_off );
-    for ( uchar j = 0; j < instr->acct_cnt; j++ ) {
-      if ( instr_accs[j] == idx ) return 1;
-    }
-  }
-  return 0;
-}
-
-int
-is_non_loader_program_key( fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * raw_ptr, uchar idx ) {
-  return !is_invoked_account( txn_descriptor, idx ) || is_passed_to_program_account( txn_descriptor, raw_ptr, idx );
-}
-
-int
 fd_executor_is_system_nonce_account( fd_borrowed_account_t * account ) {
 FD_SCRATCH_SCOPE_BEGIN {
   if ( memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) == 0 ) {
@@ -1059,7 +1033,6 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
   ulong starting_lamports_l = 0UL;
   int err = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
   if( FD_UNLIKELY( err ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
     return err;
   }
   instr->starting_lamports_h = starting_lamports_h;
