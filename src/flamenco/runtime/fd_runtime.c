@@ -1232,12 +1232,13 @@ fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
   /* If account corresponds to bpf_upgradeable, copy over the programdata as well.
      This is necessary for executing any bpf upgradeable program. */
 
-  if( fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) != 0 ) {
-    return;
-  }
-
   fd_account_meta_t const * program_acc = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, NULL,
                                                                program_pubkey, NULL, NULL );
+
+  if( memcmp( program_acc->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    return;
+  }
+                                                               
   fd_bincode_decode_ctx_t ctx = {
     .data    = (uchar *)program_acc + program_acc->hlen,
     .dataend = (char *) ctx.data + program_acc->dlen,
