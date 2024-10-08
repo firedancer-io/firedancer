@@ -1,4 +1,5 @@
 #include "fd_runtime.h"
+#include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 
 #include "fd_executor.h"
@@ -1022,8 +1023,15 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  /* `load_and_execute_sanitized_transactions()` -> `load_transaction_accounts()` -> `load_transaction()` -> `load_accounts()`
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/transaction_processor.rs#L500-623 */
+  err = fd_executor_check_executable_program_accounts( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    task_info->txn->flags = 0U;
+    task_info->exec_res   = err;
+    return;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
@@ -2280,7 +2288,7 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, 0 );
   if( result != 0 ) {
     FD_LOG_WARNING(("update bpf program cache failed"));
     return result;
@@ -2327,7 +2335,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_runtime_freeze(slot_ctx);
 
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, 0 );
   if( result != 0 ) {
     FD_LOG_WARNING(("update bpf program cache failed"));
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -3525,7 +3533,7 @@ fd_runtime_collect_rent_accounts_prune( ulong slot, fd_exec_slot_ctx_t * slot_ct
 
 ulong fd_runtime_calculate_rent_burn( ulong rent_collected,
                                       fd_rent_t const * rent ) {
-  return ( rent_collected * rent->burn_percent ) / 100;
+  return ( rent_collected * rent->burn_percent ) / 100UL;
 }
 
 struct fd_validator_stake_pair {
@@ -4223,10 +4231,10 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_
 }
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
-                        char const         * genesis_filepath,
-                        uchar                is_snapshot,
-                        fd_capture_ctx_t   * capture_ctx
+fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
+                         char const         * genesis_filepath,
+                         uchar                is_snapshot,
+                         fd_capture_ctx_t   * capture_ctx
  ) {
   if ( strlen( genesis_filepath ) == 0 ) return;
 
