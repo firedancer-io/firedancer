@@ -176,11 +176,11 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {
-  vm->region_haddr[0] = 0UL;               vm->region_ld_sz[0] = (uint)0UL;             vm->region_st_sz[0] = (uint)0UL;
-  vm->region_haddr[1] = (ulong)vm->rodata; vm->region_ld_sz[1] = (uint)vm->rodata_sz;   vm->region_st_sz[1] = (uint)0UL;
-  vm->region_haddr[2] = (ulong)vm->stack;  vm->region_ld_sz[2] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[2] = (uint)FD_VM_STACK_MAX;
-  vm->region_haddr[3] = (ulong)vm->heap;   vm->region_ld_sz[3] = (uint)vm->heap_max;    vm->region_st_sz[3] = (uint)vm->heap_max;
-  vm->region_haddr[5] = 0UL;               vm->region_ld_sz[5] = (uint)0UL;             vm->region_st_sz[5] = (uint)0UL;
+  vm->region_haddr[0] = 0UL;               vm->region_ld_sz[0] = (uint)0UL;                  vm->region_st_sz[0] = (uint)0UL;
+  vm->region_haddr[1] = (ulong)vm->rodata; vm->region_ld_sz[1] = (uint)vm->rodata_sz;        vm->region_st_sz[1] = (uint)0UL;
+  vm->region_haddr[2] = (ulong)vm->stack;  vm->region_ld_sz[2] = (uint)FD_VM_STACK_FRAME_SZ; vm->region_st_sz[2] = (uint)FD_VM_STACK_FRAME_SZ;
+  vm->region_haddr[3] = (ulong)vm->heap;   vm->region_ld_sz[3] = (uint)vm->heap_max;         vm->region_st_sz[3] = (uint)vm->heap_max;
+  vm->region_haddr[5] = 0UL;               vm->region_ld_sz[5] = (uint)0UL;                  vm->region_st_sz[5] = (uint)0UL;
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
        the load and stores are fragmented. */
