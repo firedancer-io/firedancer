@@ -1765,7 +1765,7 @@ fd_quic_handle_v1_handshake(
      > receives its first Handshake packet. */
   fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = enc_level;
+    conn->peer_enc_level = (uchar) enc_level;
   }
 
   /* handle frames */
@@ -2003,7 +2003,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     }
 
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = enc_level;
+    conn->peer_enc_level = (uchar) enc_level;
   }
 
   /* handle frames */
