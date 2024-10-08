@@ -776,26 +776,6 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int
-fd_executor_collect_fee( fd_borrowed_account_t const * rec,
-                         ulong                         fee ) {
-  if( FD_UNLIKELY( !rec->meta->info.lamports ) ) {
-    return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
-  }
-
-  if( FD_UNLIKELY( fee>rec->meta->info.lamports ) ) {
-    // TODO: Not enough lamports to pay for this txn...
-    //
-    // (Should this be lamps + whatever is required to keep the payer rent exempt?)
-    FD_LOG_WARNING(( "Not enough lamps" ));
-    return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
-  }
-
-  rec->meta->info.lamports = fd_ulong_sat_sub( rec->meta->info.lamports, fee );
-
-  return 0;
-}
-
 static void
 dump_sorted_features( const fd_features_t * features, fd_exec_test_feature_set_t * output_feature_set ) {
   /* NOTE: Caller must have a scratch frame prepared */

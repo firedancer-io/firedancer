@@ -113,10 +113,6 @@ fd_executor_is_system_nonce_account( fd_borrowed_account_t * account );
 int
 fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
 
-int
-fd_executor_collect_fee( fd_borrowed_account_t const * rec,
-                         ulong                         fee );
-
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
