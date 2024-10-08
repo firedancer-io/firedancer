@@ -263,7 +263,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   epoch_bank->slots_per_year = oldbank->slots_per_year;
   slot_bank->max_tick_height = oldbank->max_tick_height;
   fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, FD_INFLATION_FOOTPRINT );
-  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->rent_collector.epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
+  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
   epoch_bank->rent = oldbank->rent_collector.rent;
   fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, FD_RENT_FOOTPRINT );
 
