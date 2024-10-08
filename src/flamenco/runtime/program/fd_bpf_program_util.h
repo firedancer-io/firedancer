@@ -16,6 +16,7 @@ struct fd_sbpf_validated_program {
 
   ulong rodata_sz;
 
+  ulong calldests_pad[3]; // calldests private header FIXME: hardcoded size
   fd_sbpf_calldests_t calldests[];
 
   // uchar rodata[];
