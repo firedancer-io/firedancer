@@ -6,7 +6,7 @@
 #include "../util/fd_util_base.h"
 
 struct fd_rwlock {
-  volatile ushort value; /* Bits 0..16 are
+  ushort value; /* Bits 0..16 are
 
                     0: Unlocked
                     1..=0xFFFE: Locked by N readers
@@ -21,7 +21,7 @@ fd_rwlock_write( fd_rwlock_t * lock ) {
   for(;;) {
     ushort value = lock->value;
     if( FD_LIKELY( !value ) ) {
-      if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, 0, 0xFFFF )==0 ) ) return;
+      if( FD_LIKELY( !FD_ATOMIC_CAS( &lock->value, 0, 0xFFFF ) ) ) return;
     }
     FD_SPIN_PAUSE();
   }
@@ -34,17 +34,7 @@ fd_rwlock_write( fd_rwlock_t * lock ) {
 static inline void
 fd_rwlock_unwrite( fd_rwlock_t * lock ) {
   FD_COMPILER_MFENCE();
-# if FD_HAS_THREADS
-  for(;;) {
-    ushort value = lock->value;
-    if( FD_LIKELY( value ) ) {
-      if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, 0xFFFF, 0 )==0xFFFF ) ) return;
-    }
-    FD_SPIN_PAUSE();
-  }
-#else
   lock->value = 0;
-#endif
 }
 
 static inline void
