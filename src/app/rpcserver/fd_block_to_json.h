@@ -18,13 +18,6 @@ const char* fd_txn_to_json( fd_webserver_t * ws,
                             long maxvers,
                             enum fd_block_detail detail );
 
-struct rewards_arg {
-  ulong collected_fees;
-  fd_hash_t leader_account;
-  ulong leader_post_balance;
-};
-typedef struct rewards_arg rewards_arg_t;
-
 const char* fd_block_to_json( fd_webserver_t * ws,
                               fd_blockstore_t * blockstore,
                               const char * call_id,
@@ -35,7 +28,7 @@ const char* fd_block_to_json( fd_webserver_t * ws,
                               fd_rpc_encoding_t encoding,
                               long maxvers,
                               enum fd_block_detail detail,
-                              rewards_arg_t * rewards );
+                              fd_block_rewards_t * rewards );
 
 #define FD_LONG_UNSET (1L << 63L)
 

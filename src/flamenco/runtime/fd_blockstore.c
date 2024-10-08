@@ -1074,7 +1074,7 @@ fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong
 }
 
 int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz ) {
+fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_block_rewards_t * rewards_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1096,6 +1096,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
     if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
+    if( rewards_out ) memcpy( rewards_out, &blk->rewards, sizeof(fd_block_rewards_t) );
     ulong blk_data_gaddr = blk->data_gaddr;
     if( FD_UNLIKELY( !blk_data_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     ulong sz = *block_data_out_sz = blk->data_sz;

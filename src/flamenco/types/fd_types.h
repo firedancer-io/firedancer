@@ -2461,9 +2461,6 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   fd_block_hash_queue_t block_hash_queue;
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
-  ulong collected_fees;
-  fd_hash_t leader_account;
-  ulong leader_post_balance;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2493,9 +2490,6 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint lthash_off;
   uint block_hash_queue_off;
   uint use_preceeding_epoch_stakes_off;
-  uint collected_fees_off;
-  uint leader_account_off;
-  uint leader_post_balance_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)

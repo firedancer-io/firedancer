@@ -502,32 +502,17 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
 
   ulong rewards_sz = 0;
-  const void* rewards = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
+  const void* rewards_flag = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
 
   ulong blk_sz;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_block_map_t meta[1];
+  fd_block_rewards_t rewards[1];
   fd_hash_t parent_hash;
   uchar * blk_data;
-  if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, &parent_hash, fd_libc_alloc_virtual(), &blk_data, &blk_sz ) ) {
+  if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, rewards, &parent_hash, fd_libc_alloc_virtual(), &blk_data, &blk_sz ) ) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
-  }
-
-  rewards_arg_t * rewards_a = NULL;
-  rewards_arg_t rewards_b;
-  if( rewards && *(const int*)rewards ) {
-    FD_SCRATCH_SCOPE_BEGIN {
-      fd_slot_bank_t * slot_bank = read_slot_bank( ctx, slotn, fd_scratch_virtual() );
-      if( FD_UNLIKELY( !slot_bank ) ) {
-        fd_method_error( ctx, -1, "slot bank %lu not found", slotn );
-        return 0;
-      }
-      rewards_a = &rewards_b;
-      rewards_b.collected_fees = slot_bank->collected_fees;
-      memcpy( rewards_b.leader_account.uc, slot_bank->leader_account.uc, sizeof(fd_hash_t) );
-      rewards_b.leader_post_balance = slot_bank->leader_post_balance;
-    } FD_SCRATCH_SCOPE_END;
   }
 
   const char * err = fd_block_to_json(ws,
@@ -540,7 +525,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
                                       enc,
                                       (maxvers == NULL ? 0 : *(const long*)maxvers),
                                       det,
-                                      rewards_a);
+                                      ((rewards_flag == NULL || *(const int*)rewards_flag) == 0 ? NULL : rewards));
   if( err ) {
     free( blk_data );
     fd_method_error(ctx, -1, "%s", err);
