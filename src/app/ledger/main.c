@@ -415,12 +415,12 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   fd_runtime_recover_banks( args->slot_ctx, 0, args->genesis==NULL );
 
-  /* Finish other runtime setup steps  */
+  /* Finish other runtime setup steps */
   fd_funk_start_write( funk );
   fd_features_restore( args->slot_ctx );
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn, 1 );
   fd_funk_end_write( funk );
 
 }

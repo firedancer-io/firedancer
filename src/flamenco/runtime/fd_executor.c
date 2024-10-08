@@ -19,6 +19,7 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
+#include "program/fd_bpf_program_util.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_slot_history.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -314,6 +315,44 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* This function has no direct parallel to agave. It encapsulates the functions
+   filter_executable_program_accounts() and replenish_program_cache(). The
+   implementation will differ from Agave to avoid mirroring the Agave client's 
+   bpf program cache sematnics.
+   
+   If the account is owned by the one of the four loaders then it is considered
+   an executable program account regardless of it is actually used as a program
+   in an instruction.
+   
+   The other check is to make sure it is a program that can be successfully
+   executed by the runtime. There are historical programs that would not be
+   allowed to be executed by the runtime: they would fail loading checks or
+   would fail verification. These programs are not allowed to be executed and
+   a transaction would fail if they are included at all.
+   
+   To avoid initializing a vm instance and doing a program load/verification
+   on every program account for every transaction, the firedancer client 
+   precomputes which programs are invalid and stores it in within a program
+   blacklist. If a loader-owned program is in the blacklist the transaction
+   will fail with the same error as a bpf cache failure. */
+int
+fd_executor_check_executable_program_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
+  for( uint i=0U; i<txn_ctx->accounts_cnt; i++ ) {
+    fd_borrowed_account_t * account = &txn_ctx->borrowed_accounts[i];
+    if( ( !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) ||
+          !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) ||
+          !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ||
+          !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) ) {
+
+      if( FD_UNLIKELY( fd_bpf_is_in_program_blacklist( txn_ctx->slot_ctx, account->pubkey ) ) ) {
+        return FD_RUNTIME_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT;
+      }
+    }
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L410-427 */
 static int
 accumulate_and_check_loaded_account_data_size( ulong   acc_size,
@@ -448,16 +487,16 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
         }
       }
 
-      /* If it is not in the loaded program cache. Only accounts in the transaction account keys
-         that are owned by one of the four loaders (bpf v1, v2, v3, v4) are iterated over in Agave's
-         replenish_program_cache() function to be loaded into the program cache. From my inspection,
-         it seems that if we reach this far in the code path, then this account should be in the program
-         cache iff the owners match one of the four loaders.
-         TODO: We may need something more robust than this. */
-      if( FD_UNLIKELY( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) &&
-                       memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) &&
-                       memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-                       memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      /* If it is not in the loaded program cache. Only accounts in the transaction 
+         account keys that are owned by one of the four loaders (bpf v1, v2, v3, v4) 
+         are iterated over in Agave's replenish_program_cache() function to be loaded
+         into the program cache. From my inspection, it seems that if we reach this
+         far in the code path, then this account should be in the program cache iff
+         the owners match one of the four loaders. */
+      if( FD_UNLIKELY( ( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) ) ) {
         return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
       }
 
@@ -486,8 +525,9 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for( ushort i=0; i<program_owners_cnt; i++ ) {
       if( !memcmp( program_owners[i].key, owner_account->pubkey, sizeof(fd_pubkey_t) ) ) {
-        /* If the account has already been seen, skip the owner checks*/
-        goto skip_owner_checks;
+        /* If the owner account has already been seen, skip the owner checks
+           and do not acccumulate the account size. */
+        continue;
       }
     }
 
@@ -507,10 +547,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       return err;
     }
 
-    fd_memcpy( &program_owners[program_owners_cnt++], owner_account->pubkey, sizeof(fd_pubkey_t) );
-
-    skip_owner_checks:
-    (void)err;
+    fd_memcpy( &program_owners[ program_owners_cnt++ ], owner_account->pubkey, sizeof(fd_pubkey_t) );
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
