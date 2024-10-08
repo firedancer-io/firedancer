@@ -193,11 +193,11 @@ slot_ctx_restore( ulong                 slot,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  fd_hash_t const * block_hash = fd_blockstore_block_hash_query( blockstore, slot );
+  fd_block_map_t *  block = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
   FD_LOG_DEBUG(( "Current slot %lu", slot ));
-  if( !block_hash ) FD_LOG_ERR(( "missing block hash of slot we're trying to restore" ));
+  if( !block || !block->block_gaddr ) FD_LOG_ERR(( "missing block at slot we're trying to restore" ));
   fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, block_hash, sizeof(fd_funk_txn_xid_t) );
+  memcpy( xid.uc, block->block_hash.uc, sizeof(fd_funk_txn_xid_t) );
   xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );

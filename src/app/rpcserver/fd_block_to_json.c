@@ -657,7 +657,7 @@ fd_block_to_json( fd_webserver_t * ws,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
-                  rewards_arg_t * rewards ) {
+                  fd_block_rewards_t * rewards ) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
@@ -668,10 +668,10 @@ fd_block_to_json( fd_webserver_t * ws,
                        meta->height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
 
   if( rewards ) {
-    fd_base58_encode_32(rewards->leader_account.uc, 0, hash);
+    fd_base58_encode_32(rewards->leader.uc, 0, hash);
     fd_web_reply_sprintf(ws, ",\"rewards\":[{\"commission\":null,\"lamports\":%lu,\"postBalance\":%lu,\"pubkey\":\"%s\",\"rewardType\":\"Fee\"}]",
                          rewards->collected_fees,
-                         rewards->leader_post_balance,
+                         rewards->post_balance,
                          hash);
   }
 

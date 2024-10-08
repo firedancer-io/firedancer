@@ -14151,12 +14151,6 @@ int fd_slot_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_hash_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -14190,9 +14184,6 @@ void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t 
       fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
     }
   }
-  fd_bincode_uint64_decode_unsafe( &self->collected_fees, ctx );
-  fd_hash_decode_unsafe( &self->leader_account, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->leader_post_balance, ctx );
 }
 int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -14246,12 +14237,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
     err = fd_bincode_uint64_encode( self->use_preceeding_epoch_stakes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode( self->collected_fees, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode( &self->leader_account, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->leader_post_balance, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 enum {
@@ -14278,9 +14263,6 @@ enum {
   fd_slot_bank_lthash_TAG = (20 << 6) | FD_ARCHIVE_META_UCHAR2048,
   fd_slot_bank_block_hash_queue_TAG = (21 << 6) | FD_ARCHIVE_META_STRUCT,
   fd_slot_bank_use_preceeding_epoch_stakes_TAG = (22 << 6) | FD_ARCHIVE_META_OPTION,
-  fd_slot_bank_collected_fees_TAG = (23 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_leader_account_TAG = (24 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_leader_post_balance_TAG = (25 << 6) | FD_ARCHIVE_META_ULONG,
 };
 int fd_slot_bank_decode_archival( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
@@ -14472,25 +14454,6 @@ int fd_slot_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   break;
   }
-  case (ushort)fd_slot_bank_collected_fees_TAG: {
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  break;
-  }
-  case (ushort)fd_slot_bank_leader_account_TAG: {
-  err = fd_archive_decode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_decode_check_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  break;
-  }
-  case (ushort)fd_slot_bank_leader_post_balance_TAG: {
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  break;
-  }
   default:
     err = fd_archive_decode_skip_field( ctx, tag );
     if( FD_UNLIKELY( err ) ) return err;
@@ -14615,19 +14578,6 @@ void fd_slot_bank_decode_archival_unsafe( fd_slot_bank_t * self, fd_bincode_deco
       fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
     }
   }
-  break;
-  }
-  case (ushort)fd_slot_bank_collected_fees_TAG: {
-  fd_bincode_uint64_decode_unsafe( &self->collected_fees, ctx );
-  break;
-  }
-  case (ushort)fd_slot_bank_leader_account_TAG: {
-  fd_archive_decode_setup_length( ctx, &offset );
-  fd_hash_decode_archival_unsafe( &self->leader_account, ctx );
-  break;
-  }
-  case (ushort)fd_slot_bank_leader_post_balance_TAG: {
-  fd_bincode_uint64_decode_unsafe( &self->leader_post_balance, ctx );
   break;
   }
   default:
@@ -14783,22 +14733,6 @@ int fd_slot_bank_encode_archival( fd_slot_bank_t const * self, fd_bincode_encode
   }
   err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_collected_fees_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->collected_fees, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_leader_account_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode_archival( &self->leader_account, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_set_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_leader_post_balance_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->leader_post_balance, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -14882,15 +14816,6 @@ int fd_slot_bank_decode_offsets( fd_slot_bank_off_t * self, fd_bincode_decode_ct
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  self->collected_fees_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  self->leader_account_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_hash_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  self->leader_post_balance_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_new(fd_slot_bank_t * self) {
@@ -14906,7 +14831,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_stake_accounts_new( &self->stake_account_keys );
   fd_vote_accounts_new( &self->vote_account_keys );
   fd_block_hash_queue_new( &self->block_hash_queue );
-  fd_hash_new( &self->leader_account );
 }
 void fd_slot_bank_destroy( fd_slot_bank_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_recent_block_hashes_destroy( &self->recent_block_hashes, ctx );
@@ -14923,7 +14847,6 @@ void fd_slot_bank_destroy( fd_slot_bank_t * self, fd_bincode_destroy_ctx_t * ctx
   if( self->has_use_preceeding_epoch_stakes ) {
     self->has_use_preceeding_epoch_stakes = 0;
   }
-  fd_hash_destroy( &self->leader_account, ctx );
 }
 
 ulong fd_slot_bank_footprint( void ){ return FD_SLOT_BANK_FOOTPRINT; }
@@ -14958,9 +14881,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   } else {
     fun( w, &self->use_preceeding_epoch_stakes, "use_preceeding_epoch_stakes", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
-  fun( w, &self->collected_fees, "collected_fees", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fd_hash_walk( w, &self->leader_account, fun, "leader_account", level );
-  fun( w, &self->leader_post_balance, "leader_post_balance", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_bank", level-- );
 }
 ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
@@ -14991,9 +14911,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   if( self->has_use_preceeding_epoch_stakes ) {
     size += sizeof(ulong);
   }
-  size += sizeof(ulong);
-  size += fd_hash_size( &self->leader_account );
-  size += sizeof(ulong);
   return size;
 }
 

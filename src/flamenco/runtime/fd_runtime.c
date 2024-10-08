@@ -1681,7 +1681,7 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   uchar * const end_laddr = cur_laddr + tot_meta_sz;
 
   fd_blockstore_start_write( blockstore );
-  fd_block_t * blk = fd_blockstore_block_query( blockstore, slot_ctx->slot_bank.slot );
+  fd_block_t * blk = slot_ctx->block;
   /* Link to previous allocation */
   ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr;
   ((ulong*)cur_laddr)[1] = blk->txns_meta_sz;
@@ -2216,6 +2216,8 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
 
   // TODO: this is not part of block execution, move it.
   if( slot_ctx->slot_bank.slot != 0 ) {
+    slot_ctx->block = fd_blockstore_block_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot );
+
     ulong slot_idx;
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.prev_slot, &slot_idx );
@@ -3754,9 +3756,12 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       rec->meta->info.lamports += fees;
       rec->meta->slot = slot_ctx->slot_bank.slot;
 
-      slot_ctx->slot_bank.collected_fees = fees;
-      slot_ctx->slot_bank.leader_post_balance = rec->meta->info.lamports;
-      memcpy( slot_ctx->slot_bank.leader_account.uc, slot_ctx->leader->uc, sizeof(fd_hash_t) );
+      fd_blockstore_start_write( slot_ctx->blockstore );
+      fd_block_t * blk = slot_ctx->block;
+      blk->rewards.collected_fees = fees;
+      blk->rewards.post_balance = rec->meta->info.lamports;
+      memcpy( blk->rewards.leader.uc, slot_ctx->leader->uc, sizeof(fd_hash_t) );
+      fd_blockstore_end_write( slot_ctx->blockstore );
 
       ulong old = slot_ctx->slot_bank.capitalization;
       slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);

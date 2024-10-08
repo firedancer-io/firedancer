@@ -54,6 +54,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_acc_mgr_t *           acc_mgr;
   fd_blockstore_t *        blockstore;
+  fd_block_t *             block;
   fd_exec_epoch_ctx_t *    epoch_ctx;
   fd_valloc_t              valloc;
 
