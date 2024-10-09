@@ -837,9 +837,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Message */
   /* For v0 transactions, the highest bit of the num_required_signatures is set, and an extra byte is used for the version.
-     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 */
-  // Note: always create a valid txn with 1+ signatures
-  uchar num_required_signatures = fd_uchar_max( 1, (uchar) test_ctx->tx.message.header.num_required_signatures );
+     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 
+     
+     We will always create a transaction with at least 1 signature, and cap the signature count to 127 to avoid 
+     collisions with the header_b0 tag. */
+  uchar num_required_signatures = fd_uchar_max( 1, fd_uchar_min( 127, (uchar) test_ctx->tx.message.header.num_required_signatures ) );
   if( !test_ctx->tx.message.is_legacy ) {
     uchar header_b0 = (uchar) 0x80UL;
     _add_to_data( &txn_raw_cur_ptr, &header_b0, sizeof(uchar) );
