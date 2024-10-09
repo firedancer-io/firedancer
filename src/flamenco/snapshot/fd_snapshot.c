@@ -12,9 +12,6 @@
 #include <assert.h>
 #include <errno.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 static void
 fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);

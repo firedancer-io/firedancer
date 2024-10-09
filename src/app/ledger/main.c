@@ -1249,7 +1249,9 @@ prune( fd_ledger_args_t * args ) {
     fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
     if( !original_rec ) {
       /* Some sysvars aren't touched during execution. Not a problem. */
-      FD_LOG_DEBUG(( "Record is not in account pubkey=%s at index=%u", FD_BASE58_ENC_32_ALLOCA( &records[i] ), i ));
+      char record[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( record, (uchar*) &records[i] );
+      FD_LOG_DEBUG(( "Record is not in account pubkey=%s at index=%u", record, i ));
       continue;
     }
     fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &records[i], 0, 1, NULL, NULL );
