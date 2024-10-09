@@ -1004,7 +1004,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  /* `load_and_execute_transactions()` -> `check_transactions()` 
+  /* `load_and_execute_transactions()` -> `check_transactions()`
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
   err = fd_executor_check_transactions( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -2838,7 +2838,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       if( FD_UNLIKELY( FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash) & !FD_FEATURE_ACTIVE( slot_ctx, lattice_account_hash ) ) ) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
         if (txn->xid.ul[0] >= epoch_bank->eah_start_slot) {
-          fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash, 0 );
+          fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash );
           epoch_bank->eah_start_slot = ULONG_MAX;
         }
       }

@@ -78,8 +78,7 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_tpool_t * tpool,
-                  fd_hash_t * accounts_hash,
-                  ulong do_hash_verify );
+                  fd_hash_t * accounts_hash );
 
 /* Special version for verifying incremental snapshot */
 int
