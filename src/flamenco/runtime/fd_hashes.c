@@ -1091,6 +1091,8 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
   char a[45];
   FD_LOG_NOTICE(("accounts_lthash %s", fd_acct_addr_cstr (a, (uchar *) slot_ctx->slot_bank.lthash.lthash)));
 
+  fd_accounts_check_lthash( slot_ctx );
+
   FD_LOG_INFO(("accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
 
   return 0;
@@ -1274,5 +1276,9 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
 
   // Compare the accumulator to the slot
   fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun_const( slot_ctx->slot_bank.lthash.lthash );
-  FD_TEST( memcmp( acc, &acc_lthash, sizeof( fd_lthash_value_t ) ) == 0 );
+  if ( memcmp( acc, &acc_lthash, sizeof( fd_lthash_value_t ) ) == 0 ) {
+    FD_LOG_NOTICE(("accounts_lthash %s == %s", FD_BASE58_ENC_32_ALLOCA ((uchar *) slot_ctx->slot_bank.lthash.lthash), FD_BASE58_ENC_32_ALLOCA ((uchar *) &acc_lthash)));
+  } else {
+    FD_LOG_ERR(("accounts_lthash %s != %s", FD_BASE58_ENC_32_ALLOCA ((uchar *) slot_ctx->slot_bank.lthash.lthash), FD_BASE58_ENC_32_ALLOCA ((uchar *) &acc_lthash)));
+  }
 }
