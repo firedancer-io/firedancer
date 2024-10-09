@@ -3334,8 +3334,12 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
   for( fd_funk_rec_t const *rec_ro = fd_funk_part_head( partvec, (uint)off, rec_map );
        rec_ro != NULL;
        rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
+
+    if ( FD_UNLIKELY( !fd_funk_key_is_acc( rec_ro->pair.key ) ) ) {
+      continue;
+    }
+
     fd_pubkey_t const *key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    FD_LOG_DEBUG(( "Collecting rent from %s", FD_BASE58_ENC_32_ALLOCA( key ) ));
     FD_BORROWED_ACCOUNT_DECL( rec );
     int err = fd_acc_mgr_view( acc_mgr, txn, key, rec );
 
