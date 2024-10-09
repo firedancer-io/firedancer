@@ -102,4 +102,14 @@ typedef struct __attribute__((packed)) {
   uchar  last_entry_hash[32];
 } fd_poh_init_msg_t;
 
+struct fd_bundle_msg {
+   uchar block_builder_pubkey[ 32 ];
+   ulong block_builder_commission;
+
+   ulong      txn_cnt;
+   fd_txn_p_t txns[ 5 ];
+};
+
+typedef struct fd_bundle_msg fd_bundle_msg_t;
+
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */

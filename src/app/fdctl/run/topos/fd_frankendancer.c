@@ -106,17 +106,6 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
-  if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
-    FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
-                 "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
-                 "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                 topo->tile_cnt, affinity_tile_cnt ));
-  if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
-    FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
-                     "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
-                     "individual tile counts in the [layout] section of the configuration file.",
-                     topo->tile_cnt, affinity_tile_cnt ));
-
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -186,6 +175,37 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_dedup", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "stake_out",    0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "crds_shred",   0UL                                                  );
+
+  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+    fd_topob_wksp( topo, "bundle_pack"  );
+    fd_topob_wksp( topo, "bundle_sign"  );
+    fd_topob_wksp( topo, "sign_bundle"  );
+    fd_topob_wksp( topo, "bundle"       );
+
+    /**/                 fd_topob_link( topo, "bundle_pack",  "bundle_pack",  0,        128UL,                                    sizeof( fd_bundle_msg_t ), 1UL );
+    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  0,        128UL,                                    9UL,                       1UL );
+    /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  0,        128UL,                                    64UL,                      1UL );
+
+    /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "bundle_pack",  0UL );
+
+    /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bundle_pack",    0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+
+    /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "bundle_sign",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_sign",    0UL                                                );
+    /**/                 fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "sign_bundle",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_bundle",    0UL                                                );
+  }
+
+  if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
+    FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                 "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                 "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                 topo->tile_cnt, affinity_tile_cnt ));
+  if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
+    FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                     "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                     "individual tile counts in the [layout] section of the configuration file.",
+                     topo->tile_cnt, affinity_tile_cnt ));
 
   /* There is a special fseq that sits between the pack, bank, and poh
      tiles to indicate when the bank/poh tiles are done processing a
@@ -262,6 +282,10 @@ fd_topo_frankendancer( config_t * config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
       tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
+      strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
+      strncpy( tile->bundle.identity_key_path, config->consensus.identity_path, sizeof(tile->bundle.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
       strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );

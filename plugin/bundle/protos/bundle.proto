@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+import "packet.proto";
+import "shared.proto";
+
+package bundle;
+
+message Bundle {
+  shared.Header header = 2;
+  repeated packet.Packet packets = 3;
+}
+
+message BundleUuid {
+  bundle.Bundle bundle = 1;
+  string uuid = 2;
+}
+
+/* Bundle Result Types */
+
+// Indicates the bundle was accepted and forwarded to a validator.
+// NOTE: A single bundle may have multiple events emitted if forwarded to many validators.
+message Accepted {
+  // Slot at which bundle was forwarded.
+  uint64 slot = 1;
+
+  // Validator identity bundle was forwarded to.
+  string validator_identity = 2;
+}
+
+// Indicates the bundle was dropped and therefore not forwarded to any validator.
+message Rejected {
+  oneof reason {
+    StateAuctionBidRejected state_auction_bid_rejected = 1;
+    WinningBatchBidRejected winning_batch_bid_rejected = 2;
+    SimulationFailure simulation_failure = 3;
+    InternalError internal_error = 4;
+    DroppedBundle dropped_bundle = 5;
+  }
+}
+
+// Indicates the bundle's bid was high enough to win its state auction.
+// However, not high enough relative to other state auction winners and therefore excluded from being forwarded.
+message WinningBatchBidRejected {
+  // Auction's unique identifier.
+  string auction_id = 1;
+  // Bundle's simulated bid.
+  uint64 simulated_bid_lamports = 2;
+  optional string msg = 3;
+}
+
+// Indicates the bundle's bid was __not__ high enough to be included in its state auction's set of winners.
+message StateAuctionBidRejected {
+  // Auction's unique identifier.
+  string auction_id = 1;
+  // Bundle's simulated bid.
+  uint64 simulated_bid_lamports = 2;
+  optional string msg = 3;
+}
+
+// Bundle dropped due to simulation failure.
+message SimulationFailure {
+  // Signature of the offending transaction.
+  string tx_signature = 1;
+  optional string msg = 2;
+}
+
+// Bundle dropped due to an internal error.
+message InternalError {
+  string msg = 1;
+}
+
+// Bundle dropped (e.g. because no leader upcoming)
+message DroppedBundle {
+  string msg = 1;
+}
+
+message Finalized {}
+message Processed {
+  string validator_identity = 1;
+  uint64 slot = 2;
+  /// Index within the block.
+  uint64 bundle_index = 3;
+}
+message Dropped {
+  DroppedReason reason = 1;
+}
+enum DroppedReason {
+  BlockhashExpired = 0;
+  // One or more transactions in the bundle landed on-chain, invalidating the bundle.
+  PartiallyProcessed = 1;
+  // This indicates bundle was processed but not finalized. This could occur during forks.
+  NotFinalized = 2;
+}
+
+message BundleResult {
+  // Bundle's Uuid.
+  string bundle_id = 1;
+
+  oneof result {
+    // Indicated accepted by the block-engine and forwarded to a validator capable of packing bundles.
+    Accepted accepted = 2;
+    // Rejected by the block-engine.
+    Rejected rejected = 3;
+    // Reached finalized commitment level.
+    Finalized finalized = 4;
+    // Reached a processed commitment level.
+    Processed processed = 5;
+    // Was accepted and forwarded by the block-engine but never landed on-chain.
+    Dropped dropped = 6;
+  }
+}

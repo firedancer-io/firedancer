@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package auth;
+
+import "google/protobuf/timestamp.proto";
+
+enum Role {
+  RELAYER = 0;
+  SEARCHER = 1;
+  VALIDATOR = 2;
+  SHREDSTREAM_SUBSCRIBER = 3;
+}
+
+message GenerateAuthChallengeRequest {
+  /// Role the client is attempting to generate tokens for.
+  Role role = 1;
+
+  /// Client's 32 byte pubkey.
+  bytes pubkey = 2;
+}
+
+message GenerateAuthChallengeResponse {
+  string challenge = 1;
+}
+
+message GenerateAuthTokensRequest {
+  /// The pre-signed challenge.
+  string challenge = 1;
+
+  /// The signing keypair's corresponding 32 byte pubkey.
+  bytes client_pubkey = 2;
+
+  /// The 64 byte signature of the challenge signed by the client's private key. The private key must correspond to
+  // the pubkey passed in the [GenerateAuthChallenge] method. The client is expected to sign the challenge token
+  // prepended with their pubkey. For example sign(pubkey, challenge).
+  bytes signed_challenge = 3;
+}
+
+message Token {
+    /// The token.
+    string value = 1;
+
+    /// When the token will expire.
+    google.protobuf.Timestamp expires_at_utc = 2;
+}
+
+message GenerateAuthTokensResponse {
+  /// The token granting access to resources.
+  Token access_token = 1;
+
+  /// The token used to refresh the access_token. This has a longer TTL than the access_token.
+  Token refresh_token = 2;
+}
+
+message RefreshAccessTokenRequest {
+  /// Non-expired refresh token obtained from the [GenerateAuthTokens] method.
+  string refresh_token = 1;
+}
+
+message RefreshAccessTokenResponse {
+  /// Fresh access_token.
+  Token access_token = 1;
+}
+
+/// This service is responsible for issuing auth tokens to clients for API access.
+service AuthService {
+  /// Returns a challenge, client is expected to sign this challenge with an appropriate keypair in order to obtain access tokens.
+  rpc GenerateAuthChallenge(GenerateAuthChallengeRequest) returns (GenerateAuthChallengeResponse) {}
+
+  /// Provides the client with the initial pair of auth tokens for API access.
+  rpc GenerateAuthTokens(GenerateAuthTokensRequest) returns (GenerateAuthTokensResponse) {}
+
+  /// Call this method with a non-expired refresh token to obtain a new access token.
+  rpc RefreshAccessToken(RefreshAccessTokenRequest) returns (RefreshAccessTokenResponse) {}
+}
+
