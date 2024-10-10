@@ -4102,6 +4102,127 @@ typedef struct fd_gossip_contact_info_v2_off fd_gossip_contact_info_v2_off_t;
 #define FD_GOSSIP_CONTACT_INFO_V2_OFF_FOOTPRINT sizeof(fd_gossip_contact_info_v2_off_t)
 #define FD_GOSSIP_CONTACT_INFO_V2_OFF_ALIGN (8UL)
 
+/* referring to lockout_offset for the use of varint */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_restart_run_length_encoding_inner {
+  ushort bits;
+};
+typedef struct fd_restart_run_length_encoding_inner fd_restart_run_length_encoding_inner_t;
+#define FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT sizeof(fd_restart_run_length_encoding_inner_t)
+#define FD_RESTART_RUN_LENGTH_ENCODING_INNER_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_restart_run_length_encoding_inner_off {
+  uint bits_off;
+};
+typedef struct fd_restart_run_length_encoding_inner_off fd_restart_run_length_encoding_inner_off_t;
+#define FD_RESTART_RUN_LENGTH_ENCODING_INNER_OFF_FOOTPRINT sizeof(fd_restart_run_length_encoding_inner_off_t)
+#define FD_RESTART_RUN_LENGTH_ENCODING_INNER_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_restart_run_length_encoding {
+  ulong offsets_len;
+  fd_restart_run_length_encoding_inner_t * offsets;
+};
+typedef struct fd_restart_run_length_encoding fd_restart_run_length_encoding_t;
+#define FD_RESTART_RUN_LENGTH_ENCODING_FOOTPRINT sizeof(fd_restart_run_length_encoding_t)
+#define FD_RESTART_RUN_LENGTH_ENCODING_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_restart_run_length_encoding_off {
+  uint offsets_off;
+};
+typedef struct fd_restart_run_length_encoding_off fd_restart_run_length_encoding_off_t;
+#define FD_RESTART_RUN_LENGTH_ENCODING_OFF_FOOTPRINT sizeof(fd_restart_run_length_encoding_off_t)
+#define FD_RESTART_RUN_LENGTH_ENCODING_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec_u8_inner {
+  ulong bits_len;
+  uchar* bits;
+};
+typedef struct fd_restart_raw_offsets_bitvec_u8_inner fd_restart_raw_offsets_bitvec_u8_inner_t;
+#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec_u8_inner_off {
+  uint bits_off;
+};
+typedef struct fd_restart_raw_offsets_bitvec_u8_inner_off fd_restart_raw_offsets_bitvec_u8_inner_off_t;
+#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_OFF_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_u8_inner_off_t)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_OFF_ALIGN (8UL)
+
+/* referring to slot_history for the BitVec type */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec {
+  fd_restart_raw_offsets_bitvec_u8_inner_t bits;
+  uchar has_bits;
+  ulong len;
+};
+typedef struct fd_restart_raw_offsets_bitvec fd_restart_raw_offsets_bitvec_t;
+#define FD_RESTART_RAW_OFFSETS_BITVEC_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_t)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec_off {
+  uint bits_off;
+  uint len_off;
+};
+typedef struct fd_restart_raw_offsets_bitvec_off fd_restart_raw_offsets_bitvec_off_t;
+#define FD_RESTART_RAW_OFFSETS_BITVEC_OFF_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_off_t)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_restart_raw_offsets {
+  fd_restart_raw_offsets_bitvec_t offsets;
+};
+typedef struct fd_restart_raw_offsets fd_restart_raw_offsets_t;
+#define FD_RESTART_RAW_OFFSETS_FOOTPRINT sizeof(fd_restart_raw_offsets_t)
+#define FD_RESTART_RAW_OFFSETS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_off {
+  uint offsets_off;
+};
+typedef struct fd_restart_raw_offsets_off fd_restart_raw_offsets_off_t;
+#define FD_RESTART_RAW_OFFSETS_OFF_FOOTPRINT sizeof(fd_restart_raw_offsets_off_t)
+#define FD_RESTART_RAW_OFFSETS_OFF_ALIGN (8UL)
+
+union fd_restart_slots_offsets_inner {
+  fd_restart_run_length_encoding_t run_length_encoding;
+  fd_restart_raw_offsets_t raw_offsets;
+};
+typedef union fd_restart_slots_offsets_inner fd_restart_slots_offsets_inner_t;
+
+struct fd_restart_slots_offsets {
+  uint discriminant;
+  fd_restart_slots_offsets_inner_t inner;
+};
+typedef struct fd_restart_slots_offsets fd_restart_slots_offsets_t;
+#define FD_RESTART_SLOTS_OFFSETS_FOOTPRINT sizeof(fd_restart_slots_offsets_t)
+#define FD_RESTART_SLOTS_OFFSETS_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_gossip_restart_last_voted_fork_slots {
+  fd_pubkey_t from;
+  ulong wallclock;
+  fd_restart_slots_offsets_t offsets;
+  ulong last_voted_slot;
+  fd_hash_t last_voted_hash;
+  ushort shred_version;
+};
+typedef struct fd_gossip_restart_last_voted_fork_slots fd_gossip_restart_last_voted_fork_slots_t;
+#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_FOOTPRINT sizeof(fd_gossip_restart_last_voted_fork_slots_t)
+#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_restart_last_voted_fork_slots_off {
+  uint from_off;
+  uint wallclock_off;
+  uint offsets_off;
+  uint last_voted_slot_off;
+  uint last_voted_hash_off;
+  uint shred_version_off;
+};
+typedef struct fd_gossip_restart_last_voted_fork_slots_off fd_gossip_restart_last_voted_fork_slots_off_t;
+#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_OFF_FOOTPRINT sizeof(fd_gossip_restart_last_voted_fork_slots_off_t)
+#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_OFF_ALIGN (8UL)
+
 union fd_crds_data_inner {
   fd_gossip_contact_info_v1_t contact_info_v1;
   fd_gossip_vote_t vote;
@@ -4115,6 +4236,7 @@ union fd_crds_data_inner {
   fd_gossip_duplicate_shred_t duplicate_shred;
   fd_gossip_incremental_snapshot_hashes_t incremental_snapshot_hashes;
   fd_gossip_contact_info_v2_t contact_info_v2;
+  fd_gossip_restart_last_voted_fork_slots_t restart_last_voted_fork_slots;
 };
 typedef union fd_crds_data_inner fd_crds_data_inner_t;
 
@@ -7199,6 +7321,96 @@ ulong fd_gossip_contact_info_v2_size( fd_gossip_contact_info_v2_t const * self )
 ulong fd_gossip_contact_info_v2_footprint( void );
 ulong fd_gossip_contact_info_v2_align( void );
 
+void fd_restart_run_length_encoding_inner_new( fd_restart_run_length_encoding_inner_t * self );
+int fd_restart_run_length_encoding_inner_decode( fd_restart_run_length_encoding_inner_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_run_length_encoding_inner_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_restart_run_length_encoding_inner_decode_unsafe( fd_restart_run_length_encoding_inner_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_run_length_encoding_inner_decode_offsets( fd_restart_run_length_encoding_inner_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_run_length_encoding_inner_encode( fd_restart_run_length_encoding_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_restart_run_length_encoding_inner_destroy( fd_restart_run_length_encoding_inner_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_restart_run_length_encoding_inner_walk( void * w, fd_restart_run_length_encoding_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_restart_run_length_encoding_inner_size( fd_restart_run_length_encoding_inner_t const * self );
+ulong fd_restart_run_length_encoding_inner_footprint( void );
+ulong fd_restart_run_length_encoding_inner_align( void );
+
+void fd_restart_run_length_encoding_new( fd_restart_run_length_encoding_t * self );
+int fd_restart_run_length_encoding_decode( fd_restart_run_length_encoding_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_run_length_encoding_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_restart_run_length_encoding_decode_unsafe( fd_restart_run_length_encoding_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_run_length_encoding_decode_offsets( fd_restart_run_length_encoding_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_run_length_encoding_encode( fd_restart_run_length_encoding_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_restart_run_length_encoding_destroy( fd_restart_run_length_encoding_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_restart_run_length_encoding_walk( void * w, fd_restart_run_length_encoding_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_restart_run_length_encoding_size( fd_restart_run_length_encoding_t const * self );
+ulong fd_restart_run_length_encoding_footprint( void );
+ulong fd_restart_run_length_encoding_align( void );
+
+void fd_restart_raw_offsets_bitvec_u8_inner_new( fd_restart_raw_offsets_bitvec_u8_inner_t * self );
+int fd_restart_raw_offsets_bitvec_u8_inner_decode( fd_restart_raw_offsets_bitvec_u8_inner_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_bitvec_u8_inner_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_restart_raw_offsets_bitvec_u8_inner_decode_unsafe( fd_restart_raw_offsets_bitvec_u8_inner_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_bitvec_u8_inner_decode_offsets( fd_restart_raw_offsets_bitvec_u8_inner_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_bitvec_u8_inner_encode( fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_restart_raw_offsets_bitvec_u8_inner_destroy( fd_restart_raw_offsets_bitvec_u8_inner_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_restart_raw_offsets_bitvec_u8_inner_walk( void * w, fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_restart_raw_offsets_bitvec_u8_inner_size( fd_restart_raw_offsets_bitvec_u8_inner_t const * self );
+ulong fd_restart_raw_offsets_bitvec_u8_inner_footprint( void );
+ulong fd_restart_raw_offsets_bitvec_u8_inner_align( void );
+
+void fd_restart_raw_offsets_bitvec_new( fd_restart_raw_offsets_bitvec_t * self );
+int fd_restart_raw_offsets_bitvec_decode( fd_restart_raw_offsets_bitvec_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_bitvec_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_restart_raw_offsets_bitvec_decode_unsafe( fd_restart_raw_offsets_bitvec_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_bitvec_decode_offsets( fd_restart_raw_offsets_bitvec_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_bitvec_encode( fd_restart_raw_offsets_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_restart_raw_offsets_bitvec_destroy( fd_restart_raw_offsets_bitvec_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_restart_raw_offsets_bitvec_walk( void * w, fd_restart_raw_offsets_bitvec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_restart_raw_offsets_bitvec_size( fd_restart_raw_offsets_bitvec_t const * self );
+ulong fd_restart_raw_offsets_bitvec_footprint( void );
+ulong fd_restart_raw_offsets_bitvec_align( void );
+
+void fd_restart_raw_offsets_new( fd_restart_raw_offsets_t * self );
+int fd_restart_raw_offsets_decode( fd_restart_raw_offsets_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_restart_raw_offsets_decode_unsafe( fd_restart_raw_offsets_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_decode_offsets( fd_restart_raw_offsets_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_raw_offsets_encode( fd_restart_raw_offsets_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_restart_raw_offsets_destroy( fd_restart_raw_offsets_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_restart_raw_offsets_walk( void * w, fd_restart_raw_offsets_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_restart_raw_offsets_size( fd_restart_raw_offsets_t const * self );
+ulong fd_restart_raw_offsets_footprint( void );
+ulong fd_restart_raw_offsets_align( void );
+
+void fd_restart_slots_offsets_new_disc( fd_restart_slots_offsets_t * self, uint discriminant );
+void fd_restart_slots_offsets_new( fd_restart_slots_offsets_t * self );
+int fd_restart_slots_offsets_decode( fd_restart_slots_offsets_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_slots_offsets_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_restart_slots_offsets_decode_unsafe( fd_restart_slots_offsets_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_restart_slots_offsets_encode( fd_restart_slots_offsets_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_restart_slots_offsets_destroy( fd_restart_slots_offsets_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_restart_slots_offsets_walk( void * w, fd_restart_slots_offsets_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_restart_slots_offsets_size( fd_restart_slots_offsets_t const * self );
+ulong fd_restart_slots_offsets_footprint( void );
+ulong fd_restart_slots_offsets_align( void );
+
+FD_FN_PURE uchar fd_restart_slots_offsets_is_run_length_encoding( fd_restart_slots_offsets_t const * self );
+FD_FN_PURE uchar fd_restart_slots_offsets_is_raw_offsets( fd_restart_slots_offsets_t const * self );
+enum {
+fd_restart_slots_offsets_enum_run_length_encoding = 0,
+fd_restart_slots_offsets_enum_raw_offsets = 1,
+}; 
+void fd_gossip_restart_last_voted_fork_slots_new( fd_gossip_restart_last_voted_fork_slots_t * self );
+int fd_gossip_restart_last_voted_fork_slots_decode( fd_gossip_restart_last_voted_fork_slots_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_restart_last_voted_fork_slots_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_restart_last_voted_fork_slots_decode_unsafe( fd_gossip_restart_last_voted_fork_slots_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_restart_last_voted_fork_slots_decode_offsets( fd_gossip_restart_last_voted_fork_slots_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_restart_last_voted_fork_slots_encode( fd_gossip_restart_last_voted_fork_slots_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_restart_last_voted_fork_slots_destroy( fd_gossip_restart_last_voted_fork_slots_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_restart_last_voted_fork_slots_walk( void * w, fd_gossip_restart_last_voted_fork_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_restart_last_voted_fork_slots_size( fd_gossip_restart_last_voted_fork_slots_t const * self );
+ulong fd_gossip_restart_last_voted_fork_slots_footprint( void );
+ulong fd_gossip_restart_last_voted_fork_slots_align( void );
+
 void fd_crds_data_new_disc( fd_crds_data_t * self, uint discriminant );
 void fd_crds_data_new( fd_crds_data_t * self );
 int fd_crds_data_decode( fd_crds_data_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -7223,6 +7435,7 @@ FD_FN_PURE uchar fd_crds_data_is_node_instance( fd_crds_data_t const * self );
 FD_FN_PURE uchar fd_crds_data_is_duplicate_shred( fd_crds_data_t const * self );
 FD_FN_PURE uchar fd_crds_data_is_incremental_snapshot_hashes( fd_crds_data_t const * self );
 FD_FN_PURE uchar fd_crds_data_is_contact_info_v2( fd_crds_data_t const * self );
+FD_FN_PURE uchar fd_crds_data_is_restart_last_voted_fork_slots( fd_crds_data_t const * self );
 enum {
 fd_crds_data_enum_contact_info_v1 = 0,
 fd_crds_data_enum_vote = 1,
@@ -7236,6 +7449,7 @@ fd_crds_data_enum_node_instance = 8,
 fd_crds_data_enum_duplicate_shred = 9,
 fd_crds_data_enum_incremental_snapshot_hashes = 10,
 fd_crds_data_enum_contact_info_v2 = 11,
+fd_crds_data_enum_restart_last_voted_fork_slots = 12,
 }; 
 void fd_crds_bloom_new( fd_crds_bloom_t * self );
 int fd_crds_bloom_decode( fd_crds_bloom_t * self, fd_bincode_decode_ctx_t * ctx );
