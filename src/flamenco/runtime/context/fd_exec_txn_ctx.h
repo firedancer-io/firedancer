@@ -60,6 +60,9 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_exec_epoch_ctx_t const * epoch_ctx;
   fd_exec_slot_ctx_t *        slot_ctx;
 
+  /* This spad is used to allocate all of the */
+  fd_spad_t * spad;
+
   fd_funk_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
   fd_valloc_t           valloc;
@@ -84,6 +87,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_borrowed_account_t executable_accounts[128];                    /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];                      /* Array of borrowed accounts accessed by this transaction. */
   uchar                 nonce_accounts[128];                         /* Nonce accounts in the txn to be saved */
+  uchar *               acc_data_ptrs[128];                          /* Pointers to the data of the accounts SPAD RELATED TODO:FIXME: */
   uint                  num_instructions;                            /* Counter for number of instructions in txn */
   fd_txn_return_data_t  return_data;                                 /* Data returned from `return_data` syscalls */
   fd_vote_account_cache_t * vote_accounts_map;                       /* Cache of bank's deserialized vote accounts to support fork choice */

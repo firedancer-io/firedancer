@@ -26,30 +26,21 @@ fd_borrowed_account_init( void * ptr ) {
   return ret;
 }
 
-void *
+void
 fd_borrowed_account_resize( fd_borrowed_account_t * borrowed_account,
-                            void *                  buf,
                             ulong                   dlen ) {
-  // TODO: Check for max accounts size?
-  uchar * new_raw_data = (uchar *)buf;
 
-  ulong old_sz = sizeof(fd_account_meta_t)+borrowed_account->meta->dlen;
-  ulong new_sz = sizeof(fd_account_meta_t)+dlen;
-  fd_memcpy( new_raw_data, borrowed_account->const_meta, old_sz );
-  fd_memset( new_raw_data+old_sz, 0, new_sz-old_sz );
+  /* TODO: where do we do a check on resizing accounts? 
+     Also does 10MB also include the account meta? */
 
-  fd_account_meta_t * meta = borrowed_account->meta;
-  uint is_changed = borrowed_account->meta != borrowed_account->orig_meta;
+  /* Because the memory exists for an account is already preallocated for the 
+     max account size, we only need to zero out bytes and update the dlen*/
 
-  borrowed_account->const_meta = borrowed_account->meta = (fd_account_meta_t *)new_raw_data;
-  borrowed_account->const_data = borrowed_account->data = new_raw_data + sizeof(fd_account_meta_t);
+  ulong old_sz    = sizeof(fd_account_meta_t)+borrowed_account->meta->dlen;
+  ulong new_sz    = sizeof(fd_account_meta_t)+dlen;
+  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+  fd_memset( borrowed_account->data+old_sz, 0, memset_sz );
   borrowed_account->meta->dlen = dlen;
-
-  if( is_changed ) {
-    return meta;
-  }
-
-  return NULL;
 }
 
 fd_borrowed_account_t *

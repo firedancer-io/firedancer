@@ -16,8 +16,6 @@ fd_exec_txn_ctx_new( void * mem ) {
     return NULL;
   }
 
-  // fd_memset(mem, 0, FD_EXEC_TXN_CTX_FOOTPRINT);
-
   fd_exec_txn_ctx_t * self = (fd_exec_txn_ctx_t *) mem;
 
   FD_COMPILER_MFENCE();
@@ -154,11 +152,7 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
   if( min_data_sz > txn_account->const_meta->dlen ) {
-    void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, min_data_sz );
-    void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );
-    if( old_txn_account_data != NULL ) {
-      fd_valloc_free( ctx->valloc, old_txn_account_data );
-    }
+    fd_borrowed_account_resize( txn_account, min_data_sz );
   }
 
   // TODO: check if writable???
@@ -175,12 +169,8 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
     if( memcmp( pubkey->uc, ctx->accounts[i].uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if writable???
       fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[i];
-      if( min_data_sz > txn_account->const_meta->dlen ) {
-        void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(fd_account_meta_t) + min_data_sz );
-        void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );
-        if( old_txn_account_data != NULL ) {
-          fd_valloc_free( ctx->valloc, old_txn_account_data );
-        }
+      if( min_data_sz>txn_account->const_meta->dlen ) {
+        fd_borrowed_account_resize( txn_account, min_data_sz );
       }
       *account = txn_account;
       return FD_ACC_MGR_SUCCESS;
@@ -227,6 +217,13 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
 
   txn_ctx->exec_err      = 0;
   txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
+
+/* TODO:FIXME: fd_spad_t move it around */
+  uchar     * mem  = fd_valloc_malloc( txn_ctx->valloc, 8UL, 128UL * 10000000UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, 128UL * 10000000UL ) ); /* 128 accounts for 10MB per account */
+  ulong mem_max = fd_spad_alloc_max( spad, 128UL * 10000000UL );
+  FD_TEST( 128UL*10000000UL == mem_max );
+  txn_ctx->spad = spad;
 }
 
 void

@@ -116,13 +116,8 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
   }
 
   fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
-  if( min_data_sz > instr_account->const_meta->dlen ) {
-    /* TODO expensive copy */
-    void * new_instr_account_data = fd_valloc_malloc( ctx->txn_ctx->valloc, 8UL, sizeof(fd_account_meta_t) + min_data_sz );
-    void * old_instr_account_data = fd_borrowed_account_resize( instr_account, new_instr_account_data, min_data_sz );
-    if( old_instr_account_data != NULL ) {
-      fd_valloc_free( ctx->txn_ctx->valloc, old_instr_account_data );
-    }
+  if( min_data_sz>instr_account->const_meta->dlen ) {
+    fd_borrowed_account_resize( instr_account, min_data_sz );
   }
 
   /* TODO: consider checking if account is writable */
@@ -131,9 +126,9 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
 }
 
 int
-fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
-                                  fd_pubkey_t const * pubkey,
-                                  ulong min_data_sz,
+fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t *     ctx,
+                                  fd_pubkey_t const *       pubkey,
+                                  ulong                     min_data_sz,
                                   fd_borrowed_account_t * * account ) {
   for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
@@ -144,11 +139,7 @@ fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
       }
       fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
       if( min_data_sz > instr_account->const_meta->dlen ) {
-        void * new_instr_account_data = fd_valloc_malloc( ctx->txn_ctx->valloc, 8UL, sizeof(fd_account_meta_t) + min_data_sz );
-        void * old_instr_account_data = fd_borrowed_account_resize( instr_account, new_instr_account_data, min_data_sz );
-        if( old_instr_account_data != NULL ) {
-          fd_valloc_free( ctx->txn_ctx->valloc, old_instr_account_data );
-        }
+        fd_borrowed_account_resize( instr_account, min_data_sz );
       }
       *account = instr_account;
       return FD_ACC_MGR_SUCCESS;
