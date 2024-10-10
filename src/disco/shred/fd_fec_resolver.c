@@ -174,8 +174,6 @@ fd_fec_resolver_footprint( ulong depth,
   layout = FD_LAYOUT_APPEND( layout, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                      );
   layout = FD_LAYOUT_APPEND( layout, ctx_map_align(),        ctx_map_footprint( lg_curr_map_cnt )           );
   layout = FD_LAYOUT_APPEND( layout, ctx_map_align(),        ctx_map_footprint( lg_done_map_cnt )           );
-  layout = FD_LAYOUT_APPEND( layout, freelist_align(),       freelist_footprint( depth+partial_depth+1UL )  );
-  layout = FD_LAYOUT_APPEND( layout, freelist_align(),       freelist_footprint( complete_depth+1UL  )      );
   layout = FD_LAYOUT_APPEND( layout, bmtrlist_align(),       bmtrlist_footprint( depth+1UL )                );
   layout = FD_LAYOUT_APPEND( layout, FD_BMTREE_COMMIT_ALIGN, depth*footprint_per_bmtree                     );
 

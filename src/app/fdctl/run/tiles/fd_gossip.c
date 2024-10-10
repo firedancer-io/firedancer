@@ -29,12 +29,14 @@
 #define NET_IN_IDX      0
 #define VOTER_IN_IDX    1
 #define SIGN_IN_IDX     2
+#define EQVOC_IN_IDX    3
 
 #define SHRED_OUT_IDX   0
 #define REPAIR_OUT_IDX  1
 #define DEDUP_OUT_IDX   2
 #define SIGN_OUT_IDX    3
 #define VOTER_OUT_IDX   4
+#define EQVOC_OUT_IDX   5
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
 
@@ -110,6 +112,16 @@ struct fd_gossip_tile_ctx {
   ulong       voter_contact_out_wmark;
   ulong       voter_contact_out_chunk;
 
+  fd_frag_meta_t * eqvoc_out_mcache;
+  ulong *          eqvoc_out_sync;
+  ulong            eqvoc_out_depth;
+  ulong            eqvoc_out_seq;
+
+  fd_wksp_t * eqvoc_out_mem;
+  ulong       eqvoc_out_chunk0;
+  ulong       eqvoc_out_wmark;
+  ulong       eqvoc_out_chunk;
+
   fd_frag_meta_t * dedup_out_mcache;
   ulong *          dedup_out_sync;
   ulong            dedup_out_depth;
@@ -164,6 +176,8 @@ struct fd_gossip_tile_ctx {
 
   ulong replay_vote_txn_sz;
   uchar replay_vote_txn [ FD_TXN_MTU ];
+
+  ulong replay_vote_txn_sig_sz;
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -233,7 +247,7 @@ gossip_send_packet( uchar const * msg,
                     size_t msglen,
                     fd_gossip_peer_addr_t const * addr,
                     void * arg ) {
-ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
 
@@ -411,6 +425,16 @@ after_frag( void *             _ctx,
     static ulong sent_vote_cnt = 0;
     if ( ( ++sent_vote_cnt % 50 ) == 0 )
       FD_LOG_NOTICE(( "Gossip tile has sent %lu vote txns", sent_vote_cnt ));
+
+    return;
+  }
+
+  if ( in_idx == EQVOC_IN_IDX ) {
+    fd_crds_data_t duplicate_shred_crds;
+    duplicate_shred_crds.discriminant = fd_crds_data_enum_duplicate_shred;
+    duplicate_shred_crds.inner.duplicate_shred.version = ;
+
+    fd_gossip_push_value( ctx->gossip,  )
 
     return;
   }
@@ -747,6 +771,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->voter_contact_out_chunk0      = fd_dcache_compact_chunk0( ctx->voter_contact_out_mem, voter_out->dcache );
   ctx->voter_contact_out_wmark       = fd_dcache_compact_wmark ( ctx->voter_contact_out_mem, voter_out->dcache, voter_out->mtu );
   ctx->voter_contact_out_chunk       = ctx->voter_contact_out_chunk0;
+
+  /* Set up eqvoc tile output */
+  fd_topo_link_t * eqvoc_out = &topo->links[ tile->out_link_id[ EQVOC_OUT_IDX ] ];
+  ctx->eqvoc_out_mcache      = eqvoc_out->mcache;
+  ctx->eqvoc_out_sync        = fd_mcache_seq_laddr( ctx->eqvoc_out_mcache );
+  ctx->eqvoc_out_depth       = fd_mcache_depth( ctx->eqvoc_out_mcache );
+  ctx->eqvoc_out_seq         = fd_mcache_seq_query( ctx->eqvoc_out_sync );
+  ctx->eqvoc_out_mem         = topo->workspaces[ topo->objs[ eqvoc_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->eqvoc_out_chunk0      = fd_dcache_compact_chunk0( ctx->eqvoc_out_mem, eqvoc_out->dcache );
+  ctx->eqvoc_out_wmark       = fd_dcache_compact_wmark ( ctx->eqvoc_out_mem, eqvoc_out->dcache, eqvoc_out->mtu );
+  ctx->eqvoc_out_chunk       = ctx->eqvoc_out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top>( (ulong)scratch + scratch_footprint( tile ) ) ) )

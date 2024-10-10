@@ -79,6 +79,8 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "voter_gossip" );
   fd_topob_wksp( topo, "voter_dedup"  );
   fd_topob_wksp( topo, "poh_replay"   );
+  fd_topob_wksp( topo, "gossip_eqvoc" );
+  fd_topob_wksp( topo, "eqvoc_gossip" );
 
   fd_topob_wksp( topo, "net"        );
   fd_topob_wksp( topo, "quic"       );
@@ -99,7 +101,8 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "funk"       );
   fd_topob_wksp( topo, "pohi"       );
   fd_topob_wksp( topo, "voter"      );
-  fd_topob_wksp( topo, "poh_slot" );
+  fd_topob_wksp( topo, "poh_slot"   );
+  fd_topob_wksp( topo, "eqvoc"      );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -192,6 +195,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "repair_store", 0UL );
   /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                             fd_topob_tile( topo, "bhole",   "bhole",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "eqvoc",   "eqvoc",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
   /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "stake_out",    0UL );
   /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
@@ -275,8 +279,11 @@ fd_topo_firedancer( config_t * _config ) {
   }
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
+  
   FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong j=0UL; j<shred_tile_cnt; j++ )
+                       fd_topob_tile_in(  topo, "bhole",   0UL,          "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
 
   FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
@@ -543,6 +550,8 @@ fd_topo_firedancer( config_t * _config ) {
 
       memcpy( tile->sender.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->sender.identity_key_path, config->consensus.identity_path, sizeof(tile->sender.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "eqvoc" ) ) ) {
+      strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
