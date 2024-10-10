@@ -30,6 +30,7 @@ if [ ! -d dump/test-vectors ]; then
   popd
 else
   pushd dump/test-vectors
+  git fetch --depth=1 -q origin $GIT_REF
   git checkout -q $GIT_REF
   popd
 fi
