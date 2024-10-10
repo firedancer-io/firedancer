@@ -147,6 +147,10 @@ fd_topo_frankendancer( config_t * config ) {
                                                                "This may cause contention between the two tiles.", tile->name, tile->kind_id, agave_cpu[ i ] ));
         }
 
+        if( FD_UNLIKELY( topo->agave_affinity_cnt>FD_TILE_MAX ) ) {
+          FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies more CPUs than Firedancer can use. "
+                        "You should either reduce the number of CPUs in the affinity string." ));
+        }
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = agave_cpu[ i ];
       }
     }
