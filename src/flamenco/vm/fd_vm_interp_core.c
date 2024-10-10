@@ -182,9 +182,8 @@ interp_exec:
   FD_VM_INTERP_INSTR_EXEC;
 
   /* 0x00 - 0x0f ******************************************************/
-
-/* FIXME: MORE THINKING AROUND LDQ HANDLING HERE (see below) */
-interp_0x00: // FD_SBPF_OP_ADDL_IMM
+  /* SKIP 0x00 (FD_SBPF_OP_ADDL_IMM). Agave treats this as an UnsupportedInstruction (sigill)
+     https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L426 */
 
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
     reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
