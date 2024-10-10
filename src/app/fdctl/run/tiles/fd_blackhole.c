@@ -12,6 +12,7 @@ before_frag( void * _ctx    FD_PARAM_UNUSED,
              ulong  sig     FD_PARAM_UNUSED,
              int *  opt_filter ) {
   *opt_filter = 1;
+  FD_LOG_NOTICE(("got something %lu", in_idx));
 }
 
 static ulong
