@@ -64,6 +64,7 @@ name = \"fd1\"
 [log]
     path = \"fddev.log\"
     level_stderr = \"INFO\"
+    level_logfile = \"NOTICE\"
     level_flush = \"ERR\"
 [consensus]
     vote = true

@@ -163,7 +163,7 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
     pending_slots->start = slot;
     pending_slots->end = slot+1U;
     pending[slot & FD_PENDING_MASK] = when;
-    FD_LOG_WARNING(("PENDING QUEUE: EMPTY, START SLOT: %lu, END SLOT: %lu", pending_slots->start, pending_slots->end));
+    FD_LOG_DEBUG(("PENDING QUEUE: EMPTY, START SLOT: %lu, END SLOT: %lu", pending_slots->start, pending_slots->end));
 
   } else if ( slot < pending_slots->start ) {
     /* Grow down */
@@ -175,7 +175,7 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
       pending[i & FD_PENDING_MASK] = 0;
     }
     pending_slots->start = slot;
-    FD_LOG_WARNING(("PENDING QUEUE: GROW DOWN, START SLOT: %lu", pending_slots->start));
+    FD_LOG_DEBUG(("PENDING QUEUE: GROW DOWN, START SLOT: %lu", pending_slots->start));
 
   } else if ( slot >= pending_slots->end ) {
     /* Grow up */
@@ -187,7 +187,7 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
       pending[i & FD_PENDING_MASK] = 0;
     }
     pending_slots->end = slot+1U;
-    FD_LOG_WARNING(("PENDING QUEUE: GROW UP, END SLOT: %lu", pending_slots->end));
+    FD_LOG_DEBUG(("PENDING QUEUE: GROW UP, END SLOT: %lu", pending_slots->end));
 
   } else {
     /* Update in place */

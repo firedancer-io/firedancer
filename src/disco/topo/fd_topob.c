@@ -431,6 +431,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "replay", /* FIREDANCER only */
     "thread", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
+    "eqvoc",  /* FIREDANCER only */
 #endif
   };
 
