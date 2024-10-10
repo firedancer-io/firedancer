@@ -1576,6 +1576,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_release_write( programdata_account );
 
       if( FD_UNLIKELY( required_payment>0UL ) ) {
+        if ( FD_UNLIKELY( instr_ctx->instr->acct_cnt<=3UL ) ) {
+          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        }
+
         fd_pubkey_t const * payer_key = &txn_accs[ instr_acc_idxs[ 3UL ] ];
 
         fd_system_program_instruction_t instr = {

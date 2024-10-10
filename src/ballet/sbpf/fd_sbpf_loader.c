@@ -229,6 +229,11 @@ fd_sbpf_load_phdrs( fd_sbpf_elf_info_t *  info,
   return 0;
 }
 
+/* FD_SBPF_SECTION_NAME_SZ_MAX is the maximum length of a symbol name cstr
+   including zero terminator. 
+   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L12 */
+#define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
+
 /* fd_sbpf_load_shdrs walks the section header table.  Remembers info
    along the way, and performs various validations.
 
@@ -335,10 +340,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Create name cstr */
 
-    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 63UL, NULL );
+    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, FD_SBPF_SECTION_NAME_SZ_MAX-1UL, NULL );
     REQUIRE( name_ptr );
-    char __attribute__((aligned(16UL))) name[ 65UL ] = {0};
-    strncpy( name, name_ptr, 64UL );
+    char __attribute__((aligned(16UL))) name[ FD_SBPF_SECTION_NAME_SZ_MAX ] = {0};
+    strncpy( name, name_ptr, FD_SBPF_SECTION_NAME_SZ_MAX-1UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -638,9 +643,10 @@ struct fd_sbpf_loader {
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
 /* FD_SBPF_SYM_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator. */
-
+   including zero terminator. 
+   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L13 */
 #define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
+
 
 static int
 fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
