@@ -963,6 +963,9 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
   ulong           range_min = range_len*range_idx;
   ulong           range_max = ( range_idx+1U < range_cnt ? range_min+range_len-1U : ULONG_MAX );
 
+  fd_lthash_value_t accum;
+  fd_lthash_zero(&accum);
+
   for( ulong i = num_iter_accounts; i; --i ) {
     fd_funk_rec_t const * rec = rec_map + (i-1UL);
     if ( ( rec->map_next >> 63 ) /* unused map entry */ ||
@@ -984,9 +987,9 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
 
     uchar hash[32];
     if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) )
-      fd_hash_account_v1( (uchar *) hash, &lthash_values[range_idx], metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
+      fd_hash_account_v1( (uchar *) hash, &accum, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
     else
-      fd_hash_account_v0( (uchar *) hash, &lthash_values[range_idx], metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot );
+      fd_hash_account_v0( (uchar *) hash, &accum, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot );
     fd_hash_t * h = (fd_hash_t *) metadata->hash;
     if( (h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) != 0 ) {
       if( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
@@ -1001,13 +1004,14 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
     }
 
     if( num_pairs == max_pairs ) {
-      FD_LOG_ERR(("stupid code...  really?")); // remove before merge
+//      FD_LOG_ERR(("stupid code...  really?")); // remove before merge
       /* Try again with a larger array */
       fd_valloc_free( slot_ctx->valloc, pairs );
       max_pairs *= 2;
       pairs = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, max_pairs * sizeof(fd_pubkey_hash_pair_t) );
       FD_TEST(NULL != pairs);
       num_pairs = 0;
+      fd_lthash_zero(&accum);
       i = num_iter_accounts+1;
       continue;
     }
@@ -1021,6 +1025,8 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
 
   // FD_LOG_NOTICE(( "sorted_subrange %lx ... %lx => %lu pairs", range_min, range_max, num_pairs ));
   *num_pairs_out = num_pairs;
+
+  fd_lthash_add( &lthash_values[range_idx], &accum );
   return pairs;
 }
 
