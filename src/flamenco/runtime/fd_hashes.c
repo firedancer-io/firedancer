@@ -342,6 +342,7 @@ fd_account_hash_task( void *tpool,
     fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
 
     fd_lthash_value_t new_lthash_value;
+    fd_lthash_zero(&new_lthash_value);
     fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data, slot_ctx );
     fd_lthash_add( acc, &new_lthash_value );
   }
@@ -986,14 +987,21 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
       fd_hash_account_v1( (uchar *) hash, &lthash_values[range_idx], metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
     else
       fd_hash_account_v0( (uchar *) hash, &lthash_values[range_idx], metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot );
-    if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
-      FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
+    fd_hash_t * h = (fd_hash_t *) metadata->hash;
+    if( (h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) != 0 ) {
+      if( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+        FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
+      }
+    } else
+      fd_memcpy( metadata->hash, &hash, 32 );
+
+    if( (metadata->info.executable & ~1) != 0 ) {
+      FD_LOG_ERR((" impossible ")); // remove before merge
+      continue;
     }
 
-    if ((metadata->info.executable & ~1) != 0)
-      continue;
-
     if( num_pairs == max_pairs ) {
+      FD_LOG_ERR(("stupid code...  really?")); // remove before merge
       /* Try again with a larger array */
       fd_valloc_free( slot_ctx->valloc, pairs );
       max_pairs *= 2;
@@ -1258,9 +1266,9 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
     accounts_hash_t *slot = &hash_map[slot_idx];
     if (FD_UNLIKELY (NULL != slot->key)) {
       void const * data = fd_funk_val_const( slot->key, wksp );
-      fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
+      fd_account_meta_t * metadata = (fd_account_meta_t *)fd_type_pun_const( data );
       if( FD_UNLIKELY(metadata->info.lamports != 0) ) {
-        uchar const *       acc_data = (uchar *)metadata + metadata->hlen;
+        uchar *             acc_data = fd_account_get_data(metadata);
         uchar hash  [ 32 ];
         fd_hash_account_current( hash, &acc_lthash, metadata, slot->key->pair.key[0].uc, acc_data, slot_ctx );
         if (fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
