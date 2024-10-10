@@ -201,7 +201,16 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
   (void)tile;
 
   /* Every tile maps an additional set of pages for the stack. */
-  return (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+  ulong extra_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+
+  if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) ) ) {
+    /* TODO: This is extremely gross.  Replay tile spawns a bunch of
+       extra threads which also require stack space.  These huge
+       pages need to be reserved as well. */
+    extra_pages += tile->replay.tpool_thread_count*((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
+  }
+
+  return extra_pages;
 }
 
 FD_FN_PURE static ulong
