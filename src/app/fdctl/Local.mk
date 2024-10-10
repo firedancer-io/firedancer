@@ -18,7 +18,7 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 # fdctl core
 $(call add-objs,main1 config config_parse caps utility keys ready mem spy help version,fd_fdctl)
-$(call add-objs,run/run run/run1 run/run_agave run/topos/topos,fd_fdctl)
+$(call add-objs,run/run run/run1 run/run_agave,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_util)
 
@@ -49,8 +49,11 @@ $(call add-objs,run/tiles/fd_sender,fd_fdctl)
 endif
 
 # fdctl topologies
-$(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
+ifdef FD_HAS_NO_AGAVE
 $(call add-objs,run/topos/fd_firedancer,fd_fdctl)
+else
+$(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
+endif
 
 # fdctl configure stages
 $(call add-objs,configure/configure,fd_fdctl)
@@ -74,6 +77,7 @@ $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_
 
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default.toml
+$(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default-firedancer.toml
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h

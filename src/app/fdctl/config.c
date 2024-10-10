@@ -299,18 +299,6 @@ fdctl_tile_run( fd_topo_tile_t * tile ) {
   return *fd_topo_tile_to_config( tile );
 }
 
-/* topo_initialize initializes the provided topology structure from the
-   user configuration.  This should be called exactly once immediately
-   after Firedancer is booted. */
-static void
-topo_initialize( config_t * config ) {
-  fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->development.topology );
-  if( FD_UNLIKELY( strcmp( config->development.topology, "frankendancer" ) ) ) {
-    FD_LOG_NOTICE(( "initializing %s topology", config->development.topology ));
-  }
-  topo_config_fn( config );
-}
-
 
 static void
 validate_ports( config_t * result ) {
@@ -467,7 +455,25 @@ fdctl_cfg_from_env( int *      pargc,
                     config_t * config ) {
 
   memset( config, 0, sizeof(config_t) );
+#if FD_HAS_NO_AGAVE
+  static uchar pod_mem1[ 1UL<<20 ];
+  static uchar pod_mem2[ 1UL<<20 ];
+  uchar * pod1 = fd_pod_join( fd_pod_new( pod_mem1, sizeof(pod_mem1) ) );
+  uchar * pod2 = fd_pod_join( fd_pod_new( pod_mem2, sizeof(pod_mem2) ) );
+ 
+  uchar scratch[ 4096 ];
+  long toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
+  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
+ 
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod1 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod2 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
+  fd_pod_delete( fd_pod_leave( pod1 ) );
+  fd_pod_delete( fd_pod_leave( pod2 ) );
+#else
   fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
+#endif
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -638,6 +644,15 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.identity_path, "{name}", config->name );
   }
 
+#if FD_HAS_NO_AGAVE
+  if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
+    FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
+                                   sizeof(config->consensus.vote_account_path),
+                                   NULL,
+                                   "%s/vote-account.json",
+                                   config->scratch_directory ) );
+  }
+#endif
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
@@ -693,7 +708,7 @@ fdctl_cfg_from_env( int *      pargc,
 
   fdctl_cfg_validate( config );
   validate_ports( config );
-  topo_initialize( config );
+  fd_topo_initialize( config );
 }
 
 int

@@ -289,6 +289,8 @@ typedef struct {
       char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
 
+      ulong expected_shred_version;
+
       /* non-config */
 
       char  identity_key_path[ PATH_MAX ];
