@@ -252,6 +252,7 @@ metric introduced.
 </group>
 
 <group name="Dedup" tile="dedup">
+  <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
   <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </group>
 

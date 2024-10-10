@@ -105,6 +105,7 @@
 ## Dedup Tile
 | Metric | Type | Description |
 |--------|------|-------------|
+| dedup_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the dedup stage |
 | dedup_&#8203;gossiped_&#8203;votes_&#8203;received | `counter` | Count of simple vote transactions received over gossip instead of via the normal TPU path |
 
 ## Pack Tile

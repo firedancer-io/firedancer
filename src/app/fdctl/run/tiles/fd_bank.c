@@ -256,6 +256,12 @@ after_frag( fd_bank_ctx_t *     ctx,
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
 
+  /* We have a race window with the GUI, where if the slot is ending it
+    will snap these metrics to draw the waterfall, but see them outdated
+    because housekeeping hasn't run.  For now just update them here, but
+    PoH should eventually flush the pipeline before ending the slot. */
+  metrics_write( ctx );
+
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
