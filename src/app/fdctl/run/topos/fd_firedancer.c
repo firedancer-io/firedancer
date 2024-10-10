@@ -97,7 +97,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "funk"       );
   fd_topob_wksp( topo, "pohi"       );
   fd_topob_wksp( topo, "voter"      );
-  fd_topob_wksp( topo, "poh_slot" );
+  fd_topob_wksp( topo, "poh_slot"   );
+  fd_topob_wksp( topo, "eqvoc"      );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -190,6 +191,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "repair_store", 0UL );
   /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                             fd_topob_tile( topo, "bhole",   "bhole",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "eqvoc",   "eqvoc",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
   /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "stake_out",    0UL );
   /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
@@ -286,6 +288,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(verify_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",  j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
   /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "gossip_dedup", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "eqvoc",   0UL,          "metric_in", "gossip_dedup", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "voter_dedup",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
@@ -353,6 +356,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "eqvoc",   0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "replay_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "net",     i,            "metric_in",  "voter_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_out( topo, "sender",  0UL,                        "voter_net",    0UL                                                  );
@@ -377,6 +381,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "repair",   0UL,                       "repair_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "repair",   0UL,          "metric_in", "sign_repair",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_repair",  0UL                                                  );
+
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "eqvoc",    0UL,          "metric_in", "shred_net",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */
   fd_topo_obj_t * net0_pid_obj = fd_topob_obj( topo, "fseq", "net" );
@@ -549,6 +555,8 @@ fd_topo_initialize( config_t * config ) {
 
       memcpy( tile->sender.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->sender.identity_key_path, config->consensus.identity_path, sizeof(tile->sender.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "eqvoc" ) ) ) {
+      strncpy( tile->eqvoc.identity_key_path, config->consensus.identity_path, sizeof(tile->eqvoc.identity_key_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

@@ -34,7 +34,7 @@ FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snap
 echo "
 name = \"fd1\"
 [layout]
-    affinity = \"1-37\"
+    affinity = \"auto\"
     bank_tile_count = 1
     verify_tile_count = 16
     shred_tile_count = 1
@@ -64,10 +64,8 @@ name = \"fd1\"
 [log]
     path = \"fddev.log\"
     level_stderr = \"INFO\"
+    level_logfile = \"NOTICE\"
     level_flush = \"ERR\"
-[development]
-    topology = \"firedancer\"
-
 [consensus]
     vote = true
     identity_path = \"fd-identity-keypair.json\"

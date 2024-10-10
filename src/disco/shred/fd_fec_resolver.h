@@ -7,8 +7,8 @@
    tile, which is why it's in disco/shred.
 
    The primary complication in the interface comes from lifetimes.
-   Buffers returned by the networking layer are typically ephemeral, we
-   need to hold onto the data until we've finished the FEC set, so we
+   Buffers returned by the networking layer are typically ephemeral and
+   we need to hold onto the data until we've finished the FEC set, so we
    need at least one memcpy.  Once we complete the FEC set, the result
    needs to go out on an mcache/dcache pair and on the network, which
    also have different lifetime requirements.  The FEC resolver goes out

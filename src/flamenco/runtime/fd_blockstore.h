@@ -107,8 +107,8 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #define MAP_NAME               fd_buf_shred_map
 #define MAP_ELE_T              fd_buf_shred_t
 #define MAP_KEY_T              fd_shred_key_t
-#define MAP_KEY_EQ(k0,k1)      FD_SHRED_KEY_EQ(*k0,*k1)
-#define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key) ^ seed)
+#define MAP_KEY_EQ(k0,k1)      (FD_SHRED_KEY_EQ(*k0,*k1))
+#define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key)^seed)
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
