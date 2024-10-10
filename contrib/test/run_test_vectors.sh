@@ -47,7 +47,6 @@ cat contrib/test/test-vectors-fixtures/precompile-fixtures/*.list | xargs -P 4 -
 LOG=$LOG_PATH/test_exec_txn
 cat contrib/test/test-vectors-fixtures/txn-fixtures/*.list | xargs -P 4 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
-zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 LOG=$LOG_PATH/test_elf_loader
 cat contrib/test/test-vectors-fixtures/elf-loader-fixtures.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
