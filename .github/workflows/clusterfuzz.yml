@@ -10,6 +10,9 @@ jobs:
       url: 'https://isol-clusterfuzz.appspot.com/'
     strategy:
       matrix:
+        sanitizer_combos:
+          - "fuzz asan ubsan"
+          - "fuzz msan"
         machine:
           - linux_clang_haswell
           - linux_clang_icelake
@@ -24,7 +27,7 @@ jobs:
       group: github-v1
     env:
       MACHINE: ${{ matrix.machine }}
-      EXTRAS: fuzz asan ubsan msan
+      EXTRAS: ${{ matrix.sanitizer_combos }}
     steps:
       - uses: actions/checkout@v4
         with:
