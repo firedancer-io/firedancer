@@ -1015,6 +1015,22 @@ dynamic_port_range = "8900-9000"
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
+    # The gui tile receives data from the validator and serves an HTTP
+    # endpoint to clients to view it.
+    [tiles.gui]
+        # If the GUI is enabled.  If the GUI is enabled, by default it
+        # will not show names or icons for validators unless the
+        # program-id index is also enabled in this TOML file by setting
+        #
+        # [ledger]
+        #   account_indexes = ["program-id"]
+        #
+        # In this same file.
+        enabled = true
+
+        # The port to listen on.
+        gui_listen_port = 80
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

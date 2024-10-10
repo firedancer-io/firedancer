@@ -171,8 +171,9 @@ typedef struct {
     } pack;
 
     struct {
+      int   plugins_enabled;
       ulong bank_cnt;
-      char   identity_key_path[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
     } poh;
 
     struct {
@@ -193,6 +194,15 @@ typedef struct {
     struct {
       char   identity_key_path[ PATH_MAX ];
     } sign;
+
+    struct {
+      ushort listen_port;
+
+      int    is_voting;
+
+      char   cluster[ 32 ];
+      char   identity_key_path[ PATH_MAX ];
+    } gui;
 
     struct {
       ushort prometheus_listen_port;

@@ -813,6 +813,9 @@ write_conn_http( fd_http_server_t * http,
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
+        case 405:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n" ) );
+          break;
         case 500:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
           break;
