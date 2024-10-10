@@ -1,6 +1,7 @@
 #include "config_parse.h"
 
 FD_IMPORT_BINARY( fdctl_default_config, "src/app/fdctl/config/default.toml" );
+FD_IMPORT_BINARY( fdctl_default_firedancer_config, "src/app/fdctl/config/default-firedancer.toml" );
 
 /* Pod query utils ****************************************************/
 
@@ -312,7 +313,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
-  CFG_POP      ( cstr,   development.topology                             );
 
   CFG_POP      ( bool,   development.netns.enabled                        );
   CFG_POP      ( cstr,   development.netns.interface0                     );
@@ -451,8 +451,6 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
-
-  CFG_HAS_NON_EMPTY( development.topology );
 
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );

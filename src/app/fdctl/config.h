@@ -150,7 +150,6 @@ typedef struct {
     int no_agave;
     int bootstrap;
     uint debug_tile;
-    char topology[ 32 ];
 
     struct {
       int  enabled;

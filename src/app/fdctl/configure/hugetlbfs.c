@@ -84,23 +84,25 @@ init( config_t * const config ) {
 
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
         write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
-        if( FD_UNLIKELY( read_uint_file( total_page_path, ERR_MSG )<total_pages+additional_pages_needed ) )
+        uint raised_free_pages = read_uint_file( free_page_path, ERR_MSG );
+        if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) )
           FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Your Firedancer "
                        "configuration requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) "
-                       "pages on this NUMA node but only %lu %s pages were available according to `%s`. If your system has the required "
-                       "amount of memory, this can be because it is not configured with %s page support, or Firedancer cannot increase "
-                       "the value of `%s` at runtime. You might need to enable huge pages in grub at boot time. This error can also happen "
-                       "because system uptime is high and memory is fragmented. You can fix this by rebooting the machine and "
-                       "running the `hugetlbfs` stage immediately on boot.",
+                       "pages on this NUMA node but only %u %s pages were available according to `%s` (raised from %lu). If your "
+                       "system has the required amount of memory, this can be because it is not configured with %s page support, or "
+                       "Firedancer cannot increase the value of `%s` at runtime. You might need to enable huge pages in grub at boot "
+                       "time. This error can also happen because system uptime is high and memory is fragmented. You can fix this by "
+                       "rebooting the machine and running the `hugetlbfs` stage immediately on boot.",
                        PAGE_NAMES[ j ],
                        i,
                        required_pages[ 1 ] + (required_pages[ 0 ] / 512),
                        required_pages[ 1 ],
                        required_pages[ 0 ],
-                       free_pages,
-                       PAGE_NAMES[ i ],
+                       raised_free_pages,
+                       PAGE_NAMES[ j ],
                        free_page_path,
-                       PAGE_NAMES[ i ],
+                       free_pages,
+                       PAGE_NAMES[ j ],
                        total_page_path ));
       }
     }

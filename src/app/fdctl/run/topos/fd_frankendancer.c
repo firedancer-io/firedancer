@@ -7,7 +7,7 @@
 #include "../../../../util/shmem/fd_shmem_private.h"
 
 void
-fd_topo_frankendancer( config_t * config ) {
+fd_topo_initialize( config_t * config ) {
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;

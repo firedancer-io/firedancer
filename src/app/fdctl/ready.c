@@ -22,7 +22,10 @@ ready_cmd_fn( args_t *         args,
        long time, and aren't needed to start sending transactions
        anyway. */
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
-    
+
+    /* Don't wait for thread tiles, they will not report ready. */
+    if( strncmp( tile->name, "thread", 7 )==0 ) continue;
+
     long start = fd_log_wallclock();
     int printed = 0;
     do {
