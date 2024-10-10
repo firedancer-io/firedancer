@@ -312,15 +312,27 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   ulong vaddr_hi  = vaddr >> 32;
   ulong region    = fd_ulong_min( vaddr_hi, 5UL );
   ulong offset    = vaddr & 0xffffffffUL;
-  ulong region_sz = (ulong)vm_region_sz[ region ];
-  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
-     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
+    https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
     */
-  if( FD_UNLIKELY( ( region == 2 ) && !!( vaddr & 0x1000 ) ) ) {
-    return sentinel;
+  if ( FD_UNLIKELY( region == 2UL ) ) {
+    /* If an access starts in a gap region, that is an access violation */
+    if ( !!( vaddr & 0x1000 ) ) {
+      return sentinel;
+    }
+
+    /* To account for the fact that we have gaps in the virtual address space but not in the 
+       physical address space, we need to subtract from the offset the size of all the virtual
+       gap frames underneath it.
+       
+       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
+    ulong gap_mask = 0xFFFFFFFFFFFFF000;
+    offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask ); 
   }
+
+  ulong region_sz = (ulong)vm_region_sz[ region ];
+  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
   if( region==4UL ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );

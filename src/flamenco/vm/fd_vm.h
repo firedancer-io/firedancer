@@ -196,7 +196,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (789408UL)
+#define FD_VM_FOOTPRINT (527264UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
