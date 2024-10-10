@@ -106,12 +106,26 @@ before_credit( void *             _ctx,
     char contents[ 4096 ];
     ulong contents_len = 0UL;
 
+    int process_died = 0;
     while( 1 ) {
       if( FD_UNLIKELY( contents_len>=sizeof( contents ) ) ) FD_LOG_ERR(( "contents overflow" ));
       long n = read( ctx->status_fds[ i ], contents + contents_len, sizeof( contents ) - contents_len );
-      if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( -1==n ) ) {
+        if( FD_UNLIKELY( errno==ESRCH ) ) {
+          process_died = 1;
+          break;
+        }
+        FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) ));
+      }
       if( FD_LIKELY( 0==n ) ) break;
       contents_len += (ulong)n;
+    }
+
+    /* Supervisor is going to bring the whole process tree down if any
+       of the target PIDs died, so we can ignore this and wait. */
+    if( FD_UNLIKELY( process_died ) ) {
+      FD_LOG_WARNING(( "cannot get context switch metrics for dead tile idx %lu", i ));
+      continue;
     }
 
     int found_voluntary = 0;
