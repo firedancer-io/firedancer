@@ -423,7 +423,6 @@ parse_log_level( char const * level ) {
   return -1;
 }
 
-#ifdef FD_HAS_NO_AGAVE
 FD_FN_CONST static char *
 cluster_to_cstr( ulong cluster ) {
   switch( cluster ) {
@@ -436,7 +435,6 @@ cluster_to_cstr( ulong cluster ) {
     default:                             return "unknown";
   }
 }
-#endif
 
 static char *
 default_user( void ) {
@@ -645,6 +643,8 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->consensus.authorized_voter_paths[ i ], "{name}", config->name );
   }
+
+  strcpy( config->cluster, cluster_to_cstr( cluster ) );
 
 #ifdef FD_HAS_NO_AGAVE
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
