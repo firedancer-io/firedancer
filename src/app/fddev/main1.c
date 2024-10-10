@@ -33,7 +33,6 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
 };
 
 extern fd_topo_run_tile_t fd_tile_net;
-extern fd_topo_run_tile_t fd_tile_netmux;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
@@ -45,6 +44,8 @@ extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_cswtch;
+extern fd_topo_run_tile_t fd_tile_gui;
+extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_blackhole;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
@@ -62,7 +63,6 @@ extern fd_topo_run_tile_t fd_tile_sender;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
-  &fd_tile_netmux,
   &fd_tile_quic,
   &fd_tile_verify,
   &fd_tile_dedup,
@@ -74,6 +74,8 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_sign,
   &fd_tile_metric,
   &fd_tile_cswtch,
+  &fd_tile_gui,
+  &fd_tile_plugin,
   &fd_tile_blackhole,
   &fd_tile_bencho,
   &fd_tile_benchg,
