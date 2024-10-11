@@ -943,13 +943,84 @@ method_getLatestBlockhash(struct json_values* values, fd_rpc_ctx_t * ctx) {
 }
 
 // Implementation of the "getLeaderSchedule" methods
-// TODO
+
+struct leader_rb_node {
+    fd_pubkey_t key;
+    uint first, last;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+typedef struct leader_rb_node leader_rb_node_t;
+#define REDBLK_T leader_rb_node_t
+#define REDBLK_NAME leader_rb
+FD_FN_PURE long leader_rb_compare(leader_rb_node_t* left, leader_rb_node_t* right) {
+  for( uint i = 0; i < sizeof(fd_pubkey_t)/sizeof(ulong); ++i ) {
+    ulong a = left->key.ul[i];
+    ulong b = right->key.ul[i];
+    if( a != b ) return (fd_ulong_bswap( a ) < fd_ulong_bswap( b ) ? -1 : 1);
+  }
+  return 0;
+}
+#include "../../util/tmpl/fd_redblack.c"
+
 static int
 method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  FD_LOG_WARNING(( "getLeaderSchedule is not implemented" ));
-  fd_method_error(ctx, -1, "getLeaderSchedule is not implemented");
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_webserver_t * ws = &ctx->global->ws;
+    ulong            slot = get_slot_from_commitment_level( values, ctx );
+
+    fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, slot, fd_scratch_virtual() );
+    if( epoch_bank == NULL ) {
+      fd_method_error(ctx, -1, "unable to read epoch_bank");
+      return 0;
+    }
+    ulong slot_index;
+    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
+    fd_epoch_leaders_t * leaders = ctx->global->stake_ci->epoch_info[epoch%2].lsched;
+
+    /* Reorganize the map to index on sorted leader key */
+    void * shmem = fd_scratch_alloc( leader_rb_align(), leader_rb_footprint( leaders->pub_cnt ) );
+    leader_rb_node_t * pool = leader_rb_join( leader_rb_new( shmem, leaders->pub_cnt ) );
+    leader_rb_node_t * root = NULL;
+    uint * nexts = (uint*)fd_scratch_alloc( alignof(uint), sizeof(uint) * leaders->sched_cnt );
+    for( uint i = 0; i < leaders->sched_cnt; ++i ) {
+      fd_pubkey_t * pk = leaders->pub + leaders->sched[i];
+      leader_rb_node_t key;
+      fd_memcpy( key.key.uc, pk->uc, sizeof(fd_pubkey_t) );
+      leader_rb_node_t * nd = leader_rb_find( pool, root, &key );
+      if( nd ) {
+        nexts[nd->last] = i;
+        nd->last = i;
+        nexts[i] = UINT_MAX;
+      } else {
+        nd = leader_rb_acquire( pool );
+        fd_memcpy( nd->key.uc, pk->uc, sizeof(fd_pubkey_t) );
+        nd->first = nd->last = i;
+        nexts[i] = UINT_MAX;
+        leader_rb_insert( pool, &root, nd );
+      }
+    }
+
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{");
+
+    int first=1;
+    for ( leader_rb_node_t* nd = leader_rb_minimum(pool, root); nd; nd = leader_rb_successor(pool, nd) ) {
+      char str[50];
+      fd_base58_encode_32(nd->key.uc, 0, str);
+      fd_web_reply_sprintf(ws, "%s\"%s\":[", (first ? "" : ","), str);
+      first=0;
+      int first2=1;
+      for( uint i = nd->first; i != UINT_MAX; i = nexts[i] ) {
+        fd_web_reply_sprintf(ws, "%s%u,%u,%u,%u", (first2 ? "" : ","), i*4, i*4+1, i*4+2, i*4+3);
+        first2=0;
+      }
+      fd_web_reply_sprintf(ws, "]");
+    }
+
+    fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
