@@ -25,7 +25,7 @@ jobs:
           - linux_clang_x86_64
           - linux_clang_icelake
           - native
-          - fddev-no-agave
+          - native-no-agave
         # Attach additional params to machine types
         include:
           - test-case: linux_gcc_noarch64-gcc-12 
@@ -91,15 +91,15 @@ jobs:
             compiler-version: 15.0.6
             run-unit-tests: true
             run-integration-tests: true
-          - test-case: fddev-no-agave
-            machine: linux_gcc_x86_64
-            label: self-hosted
+          - test-case: native-no-agave
+            machine: native
+            label: 512G
             extras: "no-agave rpath"
-            targets: "fddev"
-            compiler: gcc
-            compiler-version: 12.4.0
+            targets: "all integration-test fdctl"
+            compiler: clang
+            compiler-version: 15.0.6
             run-unit-tests: false
-            run-integration-tests: false
+            run-integration-tests: true
     runs-on: ${{ matrix.label }}
     env:
       MACHINE: ${{ matrix.machine }}

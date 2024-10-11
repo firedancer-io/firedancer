@@ -118,7 +118,7 @@ wait_children( struct child_info * children,
     };
   }
 
-  int exited_child_cnt = poll( pfd, children_cnt, (int)(timeout_seconds*1000UL*1000UL) );
+  int exited_child_cnt = poll( pfd, children_cnt, (int)(timeout_seconds*1000UL) );
   if( FD_UNLIKELY( -1==exited_child_cnt ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( !exited_child_cnt ) ) FD_LOG_ERR(( "`%s` timed out", children[ 0 ].name ));
 
@@ -195,7 +195,7 @@ test_fddev( config_t * config ) {
   struct child_info configure = fork_child( "fddev configure", config, fddev_configure );
   wait_children( &configure, 1UL, 15UL );
   struct child_info wksp = fork_child( "fddev wksp", config, fddev_wksp );
-  wait_children( &wksp, 1UL, 15UL );
+  wait_children( &wksp, 1UL, 30UL );
 
   struct child_info dev = fork_child( "fddev dev", config, fddev_dev );
   struct child_info ready = fork_child( "fddev ready", config, fddev_ready );

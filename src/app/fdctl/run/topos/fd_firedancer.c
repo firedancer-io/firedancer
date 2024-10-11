@@ -16,9 +16,7 @@
 #include <sys/sysinfo.h>
 
 void
-fd_topo_firedancer( config_t * _config ) {
-  config_t * config = (config_t *)_config;
-
+fd_topo_initialize( config_t * config ) {
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
@@ -448,6 +446,8 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );
       strncpy( tile->store_int.shred_cap_archive, config->tiles.store_int.shred_cap_archive, sizeof(tile->store_int.shred_cap_archive) );
       strncpy( tile->store_int.shred_cap_replay, config->tiles.store_int.shred_cap_replay, sizeof(tile->store_int.shred_cap_replay) );
+      tile->store_int.expected_shred_version = config->consensus.expected_shred_version;
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
@@ -491,7 +491,13 @@ fd_topo_firedancer( config_t * _config ) {
       tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
       tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
       tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
+
+      if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 ) 
+                    && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
+        fd_cstr_printf_check(  config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path );
+      }
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
+
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
