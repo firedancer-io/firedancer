@@ -160,12 +160,25 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
 #define FD_BLOCK_FLAG_FINALIZED 6 /* xx1xxxxx 2/3 of cluster has rooted this slot */
 #define FD_BLOCK_FLAG_DEADBLOCK 7 /* x1xxxxxx failed to replay the block */
 
+/* Rewards assigned after block is executed */
+
+struct fd_block_rewards {
+  ulong collected_fees;
+  fd_hash_t leader;
+  ulong post_balance;
+};
+typedef struct fd_block_rewards fd_block_rewards_t;
+
 /* Remaining bits [4, 8) are reserved.
 
    To avoid confusion, please use `fd_bits.h` API
    ie. `fd_uchar_set_bit`, `fd_uchar_extract_bit`. */
 
 struct fd_block {
+
+  /* Computed rewards */
+
+  fd_block_rewards_t rewards;
 
   /* data region
 
@@ -520,7 +533,7 @@ fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
    call cannot fail and returns FD_BLOCKSTORE_OK. */
 
 int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz );
+fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_block_rewards_t * rewards_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz );
 
 /* fd_blockstore_block_map_query_volatile is the same as above except it
    only copies out the metadata (fd_block_map_t).  Returns

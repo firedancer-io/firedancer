@@ -665,8 +665,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L542-L560 */
       /* Verify Program account */
 
-      fd_bpf_upgradeable_loader_state_t loader_state = {0};
-      fd_pubkey_t * new_program_id = NULL;
+      fd_bpf_upgradeable_loader_state_t loader_state   = {0};
+      fd_pubkey_t *                     new_program_id = NULL;
+      fd_epoch_bank_t *                 epoch_bank     = fd_exec_epoch_ctx_epoch_bank( instr_ctx->slot_ctx->epoch_ctx );
+      fd_rent_t       *                 rent           = &epoch_bank->rent;
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, program ) {
 
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, program, &loader_state );
@@ -682,8 +684,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account too small" );
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( program->const_meta->info.lamports<fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx,
-                                                                                          program->const_meta->dlen ) ) ) {
+      if( FD_UNLIKELY( program->const_meta->info.lamports<fd_rent_exempt_minimum_balance( rent,
+                                                                                           program->const_meta->dlen ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
         return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
@@ -790,8 +792,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L628-L642 */
       /* Pass an extra account to avoid the overly strict unblanaced instruction error */
       /* Invoke the system program to create the new account */
-      fd_system_program_instruction_create_account_t create_acct;
-      create_acct.lamports = fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx, programdata_len );
+      fd_system_program_instruction_create_account_t create_acct = {0};
+      create_acct.lamports = fd_rent_exempt_minimum_balance( rent, programdata_len );
       if( !create_acct.lamports ) {
         create_acct.lamports = 1UL;
       }
@@ -1027,7 +1029,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, programdata ) {
 
-      programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx, programdata->const_meta->dlen ) );
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( instr_ctx->slot_ctx->epoch_ctx );
+      fd_rent_t       * rent       = &epoch_bank->rent;
+
+      programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, programdata->const_meta->dlen ) );
 
       if( FD_UNLIKELY( programdata->const_meta->dlen<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData account not large enough" );
@@ -1557,9 +1562,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1232-L1256 */
-      ulong balance          = programdata_account->const_meta->info.lamports;
-      ulong min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx, new_len ), 1UL );
-      ulong required_payment = fd_ulong_sat_sub( min_balance, balance );
+      fd_epoch_bank_t * epoch_bank       = fd_exec_epoch_ctx_epoch_bank( instr_ctx->slot_ctx->epoch_ctx );
+      fd_rent_t       * rent             = &epoch_bank->rent;
+      ulong             balance          = programdata_account->const_meta->info.lamports;
+      ulong             min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
+      ulong             required_payment = fd_ulong_sat_sub( min_balance, balance );
 
       /* Borrowed accounts need to be dropped before native invocations. Note:
          the programdata account is manually released and acquired within the
@@ -1569,6 +1576,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_release_write( programdata_account );
 
       if( FD_UNLIKELY( required_payment>0UL ) ) {
+        if ( FD_UNLIKELY( instr_ctx->instr->acct_cnt<=3UL ) ) {
+          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        }
+
         fd_pubkey_t const * payer_key = &txn_accs[ instr_acc_idxs[ 3UL ] ];
 
         fd_system_program_instruction_t instr = {

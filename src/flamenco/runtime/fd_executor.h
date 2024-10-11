@@ -50,13 +50,10 @@ int
 fd_validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee );
 
 int
-fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
-
-int
-fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_scratch allocations.  Returns an
@@ -98,6 +95,9 @@ uint
 fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
 int
+fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
+
+int
 fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 void
@@ -112,10 +112,6 @@ fd_executor_is_system_nonce_account( fd_borrowed_account_t * account );
 
 int
 fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
-
-int
-fd_executor_collect_fee( fd_borrowed_account_t const * rec,
-                         ulong                         fee );
 
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
@@ -134,7 +130,13 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
+fd_executor_check_executable_program_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
+int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
 
 static inline int
 fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,

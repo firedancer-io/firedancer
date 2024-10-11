@@ -201,7 +201,16 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
   (void)tile;
 
   /* Every tile maps an additional set of pages for the stack. */
-  return (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+  ulong extra_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+
+  if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) ) ) {
+    /* TODO: This is extremely gross.  Replay tile spawns a bunch of
+       extra threads which also require stack space.  These huge
+       pages need to be reserved as well. */
+    extra_pages += tile->replay.tpool_thread_count*((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
+  }
+
+  return extra_pages;
 }
 
 FD_FN_PURE static ulong
@@ -370,6 +379,16 @@ fd_topo_print_log( int         stdout,
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Gigantic Pages", i, fd_topo_gigantic_page_cnt( topo, i ) );
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
   }
+
+  char agave_affinity[ 4096 ];
+  ulong offset = 0UL;
+  for( ulong i=0UL; i<topo->agave_affinity_cnt; i++ ) {
+    ulong sz;
+    if( FD_LIKELY( i!=0UL ) ) FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, ", %lu", topo->agave_affinity_cpu_idx[ i ] ) );
+    else                      FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, "%lu", topo->agave_affinity_cpu_idx[ i ] ) );
+    offset += sz;
+  }
+  PRINT("  %23s: %s\n", "Agave Affinity", agave_affinity );
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {

@@ -1,0 +1,32 @@
+[layout]
+    bank_tile_count = 1
+
+[gossip]
+    port = 8700
+
+[tiles]
+    [tiles.gossip]
+        peer_ports = []
+        gossip_listen_port = 8700
+    
+    [tiles.repair]
+        repair_intake_listen_port = 8701
+        repair_serve_listen_port = 8702
+
+    [tiles.replay]
+        tpool_thread_count = 2
+        funk_sz_gb = 32
+        funk_rec_max = 10000000
+        funk_txn_max = 1024
+        cluster_version =  "1.18.0"
+
+    [tiles.pack]
+        use_consumed_cus = false
+
+[consensus]
+    vote = true
+
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true

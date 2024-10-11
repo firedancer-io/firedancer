@@ -12,10 +12,6 @@
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
-#include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/runtime/fd_txncache.h"
-#include "../../funk/fd_funk.h"
 
 #include <fcntl.h>
 #include <pwd.h>
@@ -227,12 +223,6 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    return fd_funk_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -275,12 +265,6 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_footprint();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    return fd_funk_footprint();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -291,7 +275,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
 ulong
 fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.loose", obj->id );
+  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "loose" );
   if( loose!=ULONG_MAX ) {
     return loose;
   }
@@ -313,18 +297,6 @@ fdctl_obj_loose( fd_topo_t const *     topo,
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t * tile ) {
   return *fd_topo_tile_to_config( tile );
-}
-
-/* topo_initialize initializes the provided topology structure from the
-   user configuration.  This should be called exactly once immediately
-   after Firedancer is booted. */
-static void
-topo_initialize( config_t * config ) {
-  fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->development.topology );
-  if( FD_UNLIKELY( strcmp( config->development.topology, "frankendancer" ) ) ) {
-    FD_LOG_NOTICE(( "initializing %s topology", config->development.topology ));
-  }
-  topo_config_fn( config );
 }
 
 
@@ -483,7 +455,25 @@ fdctl_cfg_from_env( int *      pargc,
                     config_t * config ) {
 
   memset( config, 0, sizeof(config_t) );
+#if FD_HAS_NO_AGAVE
+  static uchar pod_mem1[ 1UL<<20 ];
+  static uchar pod_mem2[ 1UL<<20 ];
+  uchar * pod1 = fd_pod_join( fd_pod_new( pod_mem1, sizeof(pod_mem1) ) );
+  uchar * pod2 = fd_pod_join( fd_pod_new( pod_mem2, sizeof(pod_mem2) ) );
+ 
+  uchar scratch[ 4096 ];
+  long toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
+  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
+ 
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod1 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod2 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
+  fd_pod_delete( fd_pod_leave( pod1 ) );
+  fd_pod_delete( fd_pod_leave( pod2 ) );
+#else
   fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
+#endif
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -654,6 +644,15 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.identity_path, "{name}", config->name );
   }
 
+#if FD_HAS_NO_AGAVE
+  if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
+    FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
+                                   sizeof(config->consensus.vote_account_path),
+                                   NULL,
+                                   "%s/vote-account.json",
+                                   config->scratch_directory ) );
+  }
+#endif
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
@@ -686,7 +685,7 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
-    if( FD_UNLIKELY( !config->development.bench.disable_status_cache ) )
+    if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
 
@@ -709,7 +708,7 @@ fdctl_cfg_from_env( int *      pargc,
 
   fdctl_cfg_validate( config );
   validate_ports( config );
-  topo_initialize( config );
+  fd_topo_initialize( config );
 }
 
 int

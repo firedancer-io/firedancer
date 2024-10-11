@@ -37,6 +37,8 @@
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 
+#define FD_RENT_EXEMPT_RENT_EPOCH (ULONG_MAX)
+
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
@@ -222,10 +224,10 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_tpool_t * tpool );
 
 int
-fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_account_meta_t * acc,
-                                 fd_pubkey_t const * key,
-                                 ulong epoch );
+fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t * slot_ctx,
+                                      fd_account_meta_t  * acc,
+                                      fd_pubkey_t const  * key,
+                                      ulong                epoch );
 
 void
 fd_runtime_execute_txn( fd_execute_txn_task_info_t * task_info );

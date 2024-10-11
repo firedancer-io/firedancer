@@ -542,28 +542,30 @@ fd_txn_to_json_full( fd_webserver_t * ws,
   EMIT_SIMPLE("],");
 
   EMIT_SIMPLE("\"addressTableLookups\":[");
-  fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
-  for( ulong i = 0; i < txn->addr_table_lookup_cnt; i++ ) {
-    if( i ) EMIT_SIMPLE(",");
-    fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
-    fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(raw + addr_lut->addr_off);
-    fd_base58_encode_32(addr_lut_acc->uc, NULL, buf32);
-    fd_web_reply_sprintf(ws, "{\"accountKey\":\"%s\",\"readonlyIndexes\":[", buf32);
-    uchar const * idxs = raw + addr_lut->readonly_off;
-    for( uchar j = 0; j < addr_lut->readonly_cnt; j++ ) {
-      if( j ) EMIT_SIMPLE(",");
-      fd_web_reply_sprintf(ws, "%u", (uint)idxs[j]);
+  if( txn->transaction_version == FD_TXN_V0 ) {
+    fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
+    for( ulong i = 0; i < txn->addr_table_lookup_cnt; i++ ) {
+      if( i ) EMIT_SIMPLE(",");
+      fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+      fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(raw + addr_lut->addr_off);
+      fd_base58_encode_32(addr_lut_acc->uc, NULL, buf32);
+      fd_web_reply_sprintf(ws, "{\"accountKey\":\"%s\",\"readonlyIndexes\":[", buf32);
+      uchar const * idxs = raw + addr_lut->readonly_off;
+      for( uchar j = 0; j < addr_lut->readonly_cnt; j++ ) {
+        if( j ) EMIT_SIMPLE(",");
+        fd_web_reply_sprintf(ws, "%u", (uint)idxs[j]);
+      }
+      EMIT_SIMPLE("],\"writableIndexes\":[");
+      idxs = raw + addr_lut->writable_off;
+      for( uchar j = 0; j < addr_lut->writable_cnt; j++ ) {
+        if( j ) EMIT_SIMPLE(",");
+        fd_web_reply_sprintf(ws, "%u", (uint)idxs[j]);
+      }
+      EMIT_SIMPLE("]}");
     }
-    EMIT_SIMPLE("],\"writableIndexes\":[");
-    idxs = raw + addr_lut->writable_off;
-    for( uchar j = 0; j < addr_lut->writable_cnt; j++ ) {
-      if( j ) EMIT_SIMPLE(",");
-      fd_web_reply_sprintf(ws, "%u", (uint)idxs[j]);
-    }
-    EMIT_SIMPLE("]}");
   }
 
-  fd_web_reply_sprintf(ws, "],\"addressTableLookups\":[],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
+  fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
                        (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
 
   ushort instr_cnt = txn->instr_cnt;
@@ -657,7 +659,7 @@ fd_block_to_json( fd_webserver_t * ws,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
-                  rewards_arg_t * rewards ) {
+                  fd_block_rewards_t * rewards ) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
@@ -668,10 +670,10 @@ fd_block_to_json( fd_webserver_t * ws,
                        meta->height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
 
   if( rewards ) {
-    fd_base58_encode_32(rewards->leader_account.uc, 0, hash);
+    fd_base58_encode_32(rewards->leader.uc, 0, hash);
     fd_web_reply_sprintf(ws, ",\"rewards\":[{\"commission\":null,\"lamports\":%lu,\"postBalance\":%lu,\"pubkey\":\"%s\",\"rewardType\":\"Fee\"}]",
                          rewards->collected_fees,
-                         rewards->leader_post_balance,
+                         rewards->post_balance,
                          hash);
   }
 

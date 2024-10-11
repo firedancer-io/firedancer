@@ -21,7 +21,7 @@ fd_rwlock_write( fd_rwlock_t * lock ) {
   for(;;) {
     ushort value = lock->value;
     if( FD_LIKELY( !value ) ) {
-      if( FD_LIKELY( !FD_ATOMIC_CAS( &lock->value, 0, 0xFFFF ) ) ) return;
+      if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, 0, 0xFFFF )==0 ) ) return;
     }
     FD_SPIN_PAUSE();
   }
@@ -42,7 +42,7 @@ fd_rwlock_read( fd_rwlock_t * lock ) {
 # if FD_HAS_THREADS
   for(;;) {
     ushort value = lock->value;
-    if( FD_UNLIKELY( value!=0xFFFE ) ) {
+    if( FD_UNLIKELY( value<0xFFFE ) ) {
       if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, value, value+1 )==value ) ) {
         return;
       }

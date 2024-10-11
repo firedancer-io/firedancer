@@ -496,6 +496,18 @@ fdctl_obj_new( fd_topo_t const *     topo,
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
 
+  ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.align", obj->id );
+  ulong sz    = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.sz", obj->id );
+  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.loose", obj->id );
+
+  if( align!=ULONG_MAX && sz!=ULONG_MAX && loose!=ULONG_MAX ) {
+    /* If the object specified the properities necessary to be concrete then
+       we should not call any sort of `new` function on it. The user is
+       responsible for initializing the data structure properly after topology
+       init time. */
+    return;
+  }
+
   void * laddr = fd_topo_obj_laddr( topo, obj->id );
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
@@ -514,15 +526,6 @@ fdctl_obj_new( fd_topo_t const *     topo,
     fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    /* TODO: Runtime. You must new the object here, otherwise the memory
-       contents will be undefined at boot. */
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    /* TODO: Runtime. You must new the object here, otherwise the memory
-       contents will be undefined at boot. */
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    /* TODO: Runtime. You must new the object here, otherwise the memory
-       contents will be undefined at boot. */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }
