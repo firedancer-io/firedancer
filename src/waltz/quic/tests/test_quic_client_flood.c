@@ -192,10 +192,11 @@ run_quic_client(
     for( ulong j = 0; j < batch_sz; ++j ) {
 
       if( cur_stream ) {
-        int rc = fd_quic_stream_send( cur_stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
+        fd_aio_pkt_info_t * chunk = batches[msg_sz - MSG_SZ_MIN];
+        int rc = fd_quic_stream_send( cur_stream, chunk->buf, chunk->buf_sz, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
         FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
 
-        if( rc == 1 ) {
+        if( rc == FD_QUIC_SUCCESS ) {
           sent++;
           /* successful - stream will begin closing */
           /* stream and meta will be recycled when quic notifies the stream

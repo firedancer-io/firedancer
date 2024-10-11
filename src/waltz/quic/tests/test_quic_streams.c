@@ -2,7 +2,7 @@
 #include "fd_quic_test_helpers.h"
 #include "fd_quic_stream_spam.h"
 
-ulong recvd = 0;
+static ulong recvd = 0;
 
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
@@ -23,9 +23,11 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
         stream->stream_id, data_sz, offset ));
 
-  if( FD_UNLIKELY( fin && offset+data_sz != pkt.buf_sz ) )
+  if( FD_UNLIKELY( ( offset+data_sz != pkt.buf_sz && fin ) ||
+                   ( offset+data_sz >  pkt.buf_sz        ) ) ) {
     FD_LOG_ERR(( "data wrong size. expected: %u, actual: %lu",
                  (uint)pkt.buf_sz, offset+data_sz ));
+  }
 
   if( FD_UNLIKELY( 0!=memcmp( data, (uchar *)pkt.buf + offset, data_sz ) ) ) {
     FD_LOG_HEXDUMP_WARNING(( "FAIL: expected data", payload_buf + offset, data_sz ));
@@ -146,16 +148,8 @@ main( int     argc,
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
 
   FD_LOG_NOTICE(( "Creating spammer" ));
-  fd_quic_stream_spam_t * spammer =
-  fd_quic_stream_spam_join( fd_quic_stream_spam_new(
-    fd_wksp_alloc_laddr(
-        wksp,
-        fd_quic_stream_spam_align(),
-        fd_quic_stream_spam_footprint( quic_client_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ] ),
-        1UL ),
-      quic_client_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ],
-      fd_quic_stream_spam_gen,
-      NULL ) );
+  fd_quic_stream_spam_t spammer_[1];
+  fd_quic_stream_spam_t * spammer = fd_quic_stream_spam_join( fd_quic_stream_spam_new( spammer_, fd_quic_stream_spam_gen, NULL ) );
   FD_TEST( spammer );
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
@@ -253,7 +247,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
-  fd_wksp_free_laddr( fd_quic_stream_spam_delete( fd_quic_stream_spam_delete( spammer ) ) );
+  fd_quic_stream_spam_delete( fd_quic_stream_spam_delete( spammer ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );

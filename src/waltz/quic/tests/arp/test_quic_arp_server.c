@@ -43,11 +43,9 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   /* send back "received" */
   int               send_fin = 0UL; /* do not close stream */
   char              reply[]  = "received";
-  fd_aio_pkt_info_t batch[1] = {{ .buf = reply, .buf_sz = sizeof( reply ) }};
-  ulong             batch_sz = 1UL;
 
-  int rc = fd_quic_stream_send( stream, batch, batch_sz, send_fin );
-  if( rc != 1 ) {
+  int rc = fd_quic_stream_send( stream, reply, sizeof(reply), send_fin );
+  if( rc!=FD_QUIC_SUCCESS ) {
     FD_LOG_WARNING(( "SERVER fd_quic_stream_send failed. rc: %d", rc ));
   }
 

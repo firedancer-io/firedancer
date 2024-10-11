@@ -3,12 +3,6 @@
 
 #include "../fd_quic.h"
 
-/* fd_quic_stream_spam_t is a simple load generator that sends sub-MTU
-   size unidirectional streams at max rate. */
-
-struct fd_quic_stream_spam_private;
-typedef struct fd_quic_stream_spam_private fd_quic_stream_spam_t;
-
 /* fd_quic_stream_gen_spam_t is a virtual fn that generates a random
    stream buffer to be sent given a stream ID.  pkt points to a packet
    info to be filled in.  On entry, pkt->buf is a writable buffer of
@@ -22,17 +16,21 @@ typedef void
                                fd_aio_pkt_info_t * pkt,
                                fd_quic_stream_t *  stream );
 
+/* fd_quic_stream_spam_t is a simple load generator that sends sub-MTU
+   size unidirectional streams at max rate. */
+
+struct fd_quic_stream_spam_private {
+  fd_quic_stream_gen_spam_t gen_fn;
+  void *                    gen_ctx;
+  fd_quic_stream_t *        stream;
+};
+
+typedef struct fd_quic_stream_spam_private fd_quic_stream_spam_t;
+
 FD_PROTOTYPES_BEGIN
-
-ulong
-fd_quic_stream_spam_align( void );
-
-ulong
-fd_quic_stream_spam_footprint( ulong stream_cnt );
 
 void *
 fd_quic_stream_spam_new( void *                    mem,
-                         ulong                     stream_cnt,
                          fd_quic_stream_gen_spam_t gen_fn,
                          void *                    gen_ctx );
 
