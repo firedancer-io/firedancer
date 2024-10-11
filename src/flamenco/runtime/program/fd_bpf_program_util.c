@@ -144,7 +144,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     }
 
     int funk_err = FD_FUNK_SUCCESS;
-    fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, NULL, &funk_err );
+    fd_funk_rec_t const * existing_rec = fd_funk_rec_query_global( funk, funk_txn, &id );
+    fd_funk_rec_t *       rec          = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, existing_rec, &funk_err );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       return -1;
     }
@@ -176,7 +177,11 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     /* Load program. If program loading fails add it to the blacklist. */
 
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
+      /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+      fd_funk_rec_remove( funk, rec, 0 );
+
+      /* Update program blacklist */
       if( update_program_blacklist ) {
         fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
       }
@@ -221,7 +226,13 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
               
       int res = fd_vm_validate( vm );
       if( FD_UNLIKELY( res ) ) {
+        /* Remove pending funk record */
+        FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
+        fd_funk_rec_remove( funk, rec, 0 );
+
+        /* Add program to blacklist */
         fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
+        return -1;
       }
     }
 
