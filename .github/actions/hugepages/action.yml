@@ -23,3 +23,4 @@ runs:
         [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages) -lt '${{ inputs.count_huge }}' ] && \
           sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_huge }}' huge 0
         sudo chown -R $USER:$USER /mnt/.fd
+        sudo chmod -R 775 /mnt/.fd
