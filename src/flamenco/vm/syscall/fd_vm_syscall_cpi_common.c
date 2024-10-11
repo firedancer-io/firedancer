@@ -682,6 +682,18 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len );
   if( FD_UNLIKELY( err ) ) return err;
 
+  /* Check that the caller lamports haven't changed */
+  ulong caller_lamports_h = 0UL;
+  ulong caller_lamports_l = 0UL;
+
+  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
+
+  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
+    return FD_VM_ERR_INSTR_ERR;
+  }
+  
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
@@ -737,6 +749,16 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) return err;
     }
+  }
+
+  caller_lamports_h = 0UL;
+  caller_lamports_l = 0UL;
+  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
+
+  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
+    return FD_VM_ERR_INSTR_ERR;
   }
 
   return FD_VM_SUCCESS;
