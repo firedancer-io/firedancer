@@ -141,7 +141,7 @@ _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     /* Actually invoke rent collection */
-    fd_runtime_collect_rent_account( slot_ctx, acc->meta, acc->pubkey, epoch );
+    fd_runtime_collect_rent_from_account( slot_ctx, acc->meta, acc->pubkey, epoch );
   }
 }
 
@@ -425,9 +425,10 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
   }
 
-  /* Add accounts to bpf program cache */
+  /* Add accounts to bpf program cache. The program blacklist is intentionally
+     not being updated here because of the fact that  */
   fd_funk_start_write( acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, 1 );
   fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
@@ -664,9 +665,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
-  /* Add accounts to bpf program cache */
+  /* Add accounts to bpf program cache. The program blacklist is intentionally
+     not being populated here because any inputs that would trigger the blacklist
+     are ignored in the fuzzers/harnesses. */
   fd_funk_start_write( runner->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, 1 );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
@@ -834,9 +837,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Message */
   /* For v0 transactions, the highest bit of the num_required_signatures is set, and an extra byte is used for the version.
-     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 */
-  // Note: always create a valid txn with 1+ signatures
-  uchar num_required_signatures = fd_uchar_max( 1, (uchar) test_ctx->tx.message.header.num_required_signatures );
+     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 
+     
+     We will always create a transaction with at least 1 signature, and cap the signature count to 127 to avoid 
+     collisions with the header_b0 tag. */
+  uchar num_required_signatures = fd_uchar_max( 1, fd_uchar_min( 127, (uchar) test_ctx->tx.message.header.num_required_signatures ) );
   if( !test_ctx->tx.message.is_legacy ) {
     uchar header_b0 = (uchar) 0x80UL;
     _add_to_data( &txn_raw_cur_ptr, &header_b0, sizeof(uchar) );

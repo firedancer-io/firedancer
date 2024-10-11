@@ -257,6 +257,10 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
   if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
     return;
 
+  // Skip reverted features
+  if ( id->reverted )
+    return;
+
   fd_feature_t feature[1];
 
   FD_SCRATCH_SCOPE_BEGIN

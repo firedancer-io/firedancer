@@ -110,7 +110,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
      However, from a memory mapping perspective it's always 32 bytes, so we unify the code. */
   uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,   FD_VM_ALIGN_RUST_POD_U8_ARRAY, 32UL );
   uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-  uchar * result       = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
 
   switch( MATCH_ID_OP( curve_id, group_op ) ) {
 
@@ -123,6 +122,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ed25519_point_add( r, p0, p1 );
     fd_ed25519_point_tobytes( result, r );
     ret = 0UL;
@@ -138,6 +138,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ed25519_point_sub( r, p0, p1 );
     fd_ed25519_point_tobytes( result, r );
     ret = 0UL;
@@ -153,6 +154,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ed25519_scalar_mul( r, inputL, p );
     fd_ed25519_point_tobytes( result, r );
     ret = 0UL;
@@ -168,6 +170,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ristretto255_point_add( r, p0, p1 );
     fd_ristretto255_point_tobytes( result, r );
     ret = 0UL;
@@ -183,6 +186,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ristretto255_point_sub( r, p0, p1 );
     fd_ristretto255_point_tobytes( result, r );
     ret = 0UL;
@@ -198,6 +202,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ristretto255_scalar_mul( r, inputL, p );
     fd_ristretto255_point_tobytes( result, r );
     ret = 0UL;
@@ -361,10 +366,21 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   );
   FD_VM_CU_UPDATE( vm, cost );
 
+  /* Edge case points_len==0.
+     Agave computes the MSM, that returns the point at infinity, and stores the result.
+     This means that we have to mem map result, and then set the point at infinity,
+     that is 0x0100..00 for Edwards and 0x00..00 for Ristretto. */
+  if ( FD_UNLIKELY( points_len==0 ) ) {
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+    memset( result, 0, 32 );
+    result[0] = curve_id==FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS ? 1 : 0;
+    *_ret = 0;
+    return FD_VM_SUCCESS;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1166-L1178 */
-  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr,      FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
-  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,       FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-  uchar * result        = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
+  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
 
   switch( curve_id ) {
 
@@ -374,6 +390,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     fd_ed25519_point_t * r = multi_scalar_mul_edwards( _r, scalars, points, points_len );
 
     if( FD_LIKELY( r ) ) {
+      uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
       fd_ed25519_point_tobytes( result, r );
       ret = 0UL;
     }
@@ -385,6 +402,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     fd_ristretto255_point_t * r = multi_scalar_mul_ristretto( _r, scalars, points, points_len );
 
     if( FD_LIKELY( r ) ) {
+      uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
       fd_ristretto255_point_tobytes( result, r );
       ret = 0UL;
     }

@@ -113,10 +113,6 @@ fd_executor_is_system_nonce_account( fd_borrowed_account_t * account );
 int
 fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
 
-int
-fd_executor_collect_fee( fd_borrowed_account_t const * rec,
-                         ulong                         fee );
-
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
@@ -132,6 +128,9 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
+
+int
+fd_executor_check_executable_program_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );

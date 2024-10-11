@@ -1,5 +1,8 @@
+dump/test-vectors/txn/fixtures/err_38/b9fba2a95d253c7478bc7eca1152a5cadff2fe68_946426.fix
+dump/test-vectors/txn/fixtures/err_38/b57efa6dc499a1d7fa691e8a39980f2e9b8bc1a5_1503098.fix
 dump/test-vectors/txn/fixtures/programs/1aef56362df9ae008fbd3d21fe0f5ca5c2bb93e8_1509242.fix
 dump/test-vectors/txn/fixtures/programs/2418705d8008ed1bd58108b4e9ce43ae111a1cdc_1870939.fix
+dump/test-vectors/txn/fixtures/programs/2e6cbb44ce7014cd45620872b31af391476032a2_1684472.fix
 dump/test-vectors/txn/fixtures/programs/308129c271ce81ab4b217bf262dd43e855b5b119_3709853.fix
 dump/test-vectors/txn/fixtures/programs/31837b434273533d354985aa1dfdde5edf8fabe1_85273.fix
 dump/test-vectors/txn/fixtures/programs/430c9cbdf850779d725e4b38340ce83f1bf59434_1313564.fix

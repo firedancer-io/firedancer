@@ -613,7 +613,13 @@ dynamic_port_range = "8900-9000"
     #    3 | 2
     #    4 | 4
     #    5 | floating
-    affinity = "1-16"
+    #
+    # If the value is specified as auto, Firedancer will attempt to
+    # determine the best layout for the system.  This is the default
+    # value although for best performance it is recommended to specify
+    # the layout manually.  If the layout is specified as auto, the
+    # agave_affinity below must also be set to auto.
+    affinity = "auto"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Agave validator as
@@ -627,7 +633,11 @@ dynamic_port_range = "8900-9000"
     # affinity with the Agave affinity, as Firedancer tiles expect
     # to have exclusive use of their core.  Unexpected latency spikes
     # due to context switching may decrease performance overall.
-    agave_affinity = "17-31"
+    #
+    # If the value is specified as "auto", the [layout.affinity] field
+    # must also be set to "auto", and the Agave affinity will be
+    # determined automatically as well.
+    agave_affinity = "auto"
 
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -851,7 +861,7 @@ dynamic_port_range = "8900-9000"
         # underlying link bandwidth.  Supporting more streams per
         # connection currently has a memory footprint cost on the order
         # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 2048
+        max_concurrent_streams_per_connection = 32
 
         # QUIC uses a fixed-size pool of streams to use for all the
         # connections in the QUIC instance.  When a new connection is
@@ -862,7 +872,7 @@ dynamic_port_range = "8900-9000"
         # this value must be at least as high as the value of
         # `max_concurrent_connections` above multiplied by 16, or else
         # the validator will refuse to start.
-        stream_pool_cnt = 32768
+        stream_pool_cnt = 65536
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -909,7 +919,7 @@ dynamic_port_range = "8900-9000"
         #
         # An idle connection will be terminated if it remains idle
         # longer than this threshold.
-        idle_timeout_millis = 10000
+        idle_timeout_millis = 2000
 
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag
@@ -1075,13 +1085,6 @@ dynamic_port_range = "8900-9000"
     # if [gossip.entrypoints] is non-empty.
     bootstrap = false
 
-    # The current topology type that will be set up and run. Currently the
-    # supported topology types are:
-    #   - "frankendancer"   The Frankendancer topology for running the
-    #                       mixed client with Firedancer networking
-    #                       and Agave runtime.
-    topology = "frankendancer"
-
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
     # Firedancer instance and have them go through more of the kernel
@@ -1219,7 +1222,11 @@ dynamic_port_range = "8900-9000"
         # The tiles included in this affinity are,
         #
         #      bencho, benchg1, .... benchgN, benchs1, ... benchsN
-        affinity = "f7"
+        #
+        # If the [layout.affinity] above is set to "auto" then this
+        # value must also be set to "auto" and it will be determined
+        # automatically.
+        affinity = "auto"
 
         # Solana has a hard-coded maximum CUs per block limit of
         # 48,000,000 which works out to around 80,000 transfers a

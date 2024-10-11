@@ -154,6 +154,12 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    char const * link_name,
                    ulong        link_kind_id );
 
+/* Automatically layout the tiles onto CPUs in the topology for a
+   best effort. */
+
+void
+fd_topob_auto_layout( fd_topo_t * topo );
+
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
    the topology before returning.

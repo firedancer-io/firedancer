@@ -158,22 +158,18 @@ agave_boot( config_t * config ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_LIKELY( strcmp( "", config->layout.agave_affinity ) ) ) {
-    ushort agave_cpu[ FD_TILE_MAX ];
-    ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
-    FD_CPUSET_DECL( cpu_set );
-    for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
-      fd_cpuset_insert( cpu_set, agave_cpu[ i ] );
-    }
+  FD_CPUSET_DECL( cpu_set );
+  for( ulong i=0UL; i<config->topo.agave_affinity_cnt; i++ ) {
+    fd_cpuset_insert( cpu_set, config->topo.agave_affinity_cpu_idx[ i ] );
+  }
 
-    if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
-      if( FD_LIKELY( errno==EINVAL ) ) {
-        FD_LOG_ERR(( "Unable to set the affinity for threads created by Agave. It is likely "
-                     "that the affinity you have specified for Agave under [layout.agave_affinity] "
-                     "in the configuration file contains CPUs which do not exist on this machine." ));
-      } else {
-        FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
+  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+    if( FD_LIKELY( errno==EINVAL ) ) {
+      FD_LOG_ERR(( "Unable to set the affinity for threads created by Agave. It is likely "
+                    "that the affinity you have specified for Agave under [layout.agave_affinity] "
+                    "in the configuration file contains CPUs which do not exist on this machine." ));
+    } else {
+      FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
 

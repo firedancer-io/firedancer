@@ -289,6 +289,8 @@ typedef struct {
       char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
 
+      ulong expected_shred_version;
+
       /* non-config */
 
       char  identity_key_path[ PATH_MAX ];
@@ -333,6 +335,9 @@ typedef struct fd_topo_t {
   fd_topo_link_t links[ FD_TOPO_MAX_LINKS ];
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
+
+  ulong          agave_affinity_cnt;
+  ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
 } fd_topo_t;
 
 typedef struct {
