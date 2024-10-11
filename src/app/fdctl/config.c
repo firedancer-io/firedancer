@@ -9,6 +9,9 @@
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_pod_format.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../funk/fd_funk.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
@@ -195,11 +198,6 @@ fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
 ulong
 fdctl_obj_align( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "align" );
-  if( align!=ULONG_MAX ) {
-    return align;
-  }
-
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -223,6 +221,12 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    return fd_funk_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -236,11 +240,6 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
       ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
-
-  ulong sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "sz" );
-  if( sz!=ULONG_MAX ) {
-    return sz;
-  }
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
@@ -265,6 +264,12 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    return fd_funk_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;

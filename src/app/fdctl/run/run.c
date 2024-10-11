@@ -7,6 +7,9 @@
 
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_pod_format.h"
+#include "../../../flamenco/runtime/fd_blockstore.h"
+#include "../../../flamenco/runtime/fd_txncache.h"
+#include "../../../funk/fd_funk.h"
 #include "../configure/configure.h"
 
 #include <dirent.h>
@@ -496,18 +499,6 @@ fdctl_obj_new( fd_topo_t const *     topo,
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
 
-  ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.align", obj->id );
-  ulong sz    = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.sz", obj->id );
-  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.loose", obj->id );
-
-  if( align!=ULONG_MAX && sz!=ULONG_MAX && loose!=ULONG_MAX ) {
-    /* If the object specified the properities necessary to be concrete then
-       we should not call any sort of `new` function on it. The user is
-       responsible for initializing the data structure properly after topology
-       init time. */
-    return;
-  }
-
   void * laddr = fd_topo_obj_laddr( topo, obj->id );
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
@@ -526,6 +517,12 @@ fdctl_obj_new( fd_topo_t const *     topo,
     fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("slot_max"), VAL("lg_txn_max") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }
