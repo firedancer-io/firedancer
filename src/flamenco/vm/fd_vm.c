@@ -242,9 +242,9 @@ fd_vm_validate( fd_vm_t const * vm ) {
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
      Agave doesn't perform these checks explicitly due to Rust's guarantees  */
   if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
-                   (const uchar *) vm->text < vm->rodata ||
-                   (const uchar *) vm->text > (const uchar *) vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *) vm->text  + vm->text_sz >  vm->rodata + vm->rodata_sz ) )
+                   (const uchar *)vm->text < vm->rodata ||
+                   (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
+                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz ) )
     return FD_VM_ERR_BAD_TEXT;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
