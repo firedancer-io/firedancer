@@ -76,7 +76,7 @@ runs:
     - name: Install MSAN dependencies from cache
       shell: bash
       run: tar -Izstd -xvf deps-bundle-msan.tar.zst
-      if: steps.deps-sh-msan-cache.outputs.cache-hit == 'true' && ${{ inputs.msan-opt }}
+      if: steps.deps-sh-msan-cache.outputs.cache-hit == 'true' && ${{ inputs.msan-opt }} == 'true'
 
     - name: Install dependencies from scratch
       shell: bash
@@ -104,5 +104,5 @@ runs:
         FD_AUTO_INSTALL_PACKAGES=1 \
         '${{ inputs.deps-script-path }}' +dev +msan fetch install
         '${{ inputs.deps-bundle-path }}'
-      if: steps.deps-sh-msan-cache.outputs.cache-hit != 'true' && ${{ inputs.msan-opt == 'true' }}
+      if: steps.deps-sh-msan-cache.outputs.cache-hit != 'true' && ${{ inputs.msan-opt' }} == 'true'
 
