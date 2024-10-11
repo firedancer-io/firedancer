@@ -93,7 +93,7 @@ jobs:
             run-integration-tests: true
           - test-case: native-no-agave
             machine: native
-            label: self-hosted
+            label: 512G
             extras: "no-agave rpath"
             targets: "all integration-test fdctl"
             compiler: clang
