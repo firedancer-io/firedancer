@@ -37,6 +37,73 @@ static void __attribute__((destructor)) free_buf(void) {
 #define PROGRAMDATA_METADATA_SIZE        (45UL  ) /* UpgradeableLoaderState::size_of_programdata_metadata() */
 #define SIZE_OF_UNINITIALIZED            (4UL   ) /* UpgradeableLoaderState::size_of_uninitialized() */
 
+/* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
+static inline int
+program_error_to_instr_error( ulong  err, 
+                              uint * custom_err ) {
+  switch( err ) {
+    case CUSTOM_ZERO:
+      *custom_err = 0;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    case INVALID_ARGUMENT:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    case INVALID_INSTRUCTION_DATA:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    case INVALID_ACCOUNT_DATA:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    case ACCOUNT_DATA_TOO_SMALL:
+      return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+    case INSUFFICIENT_FUNDS:
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    case INCORRECT_PROGRAM_ID:
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+    case MISSING_REQUIRED_SIGNATURES:
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    case ACCOUNT_ALREADY_INITIALIZED:
+      return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+    case UNINITIALIZED_ACCOUNT:
+      return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+    case NOT_ENOUGH_ACCOUNT_KEYS:
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    case ACCOUNT_BORROW_FAILED:
+      return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+    case MAX_SEED_LENGTH_EXCEEDED:
+      return FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED;
+    case INVALID_SEEDS:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
+    case BORSH_IO_ERROR:
+      return FD_EXECUTOR_INSTR_ERR_BORSH_IO_ERROR;
+    case ACCOUNT_NOT_RENT_EXEMPT:
+      return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+    case UNSUPPORTED_SYSVAR:
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    case ILLEGAL_OWNER:
+      return FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER;
+    case MAX_ACCOUNTS_DATA_ALLOCATIONS_EXCEEDED:
+      return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
+    case INVALID_ACCOUNT_DATA_REALLOC:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+    case MAX_INSTRUCTION_TRACE_LENGTH_EXCEEDED:
+      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+    case BUILTIN_PROGRAMS_MUST_CONSUME_COMPUTE_UNITS:
+      return FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS;
+    case INVALID_ACCOUNT_OWNER:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    case ARITHMETIC_OVERFLOW:
+      return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+    case IMMUTABLE:
+      return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    case INCORRECT_AUTHORITY:
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    default:
+      if( err>>BUILTIN_BIT_SHIFT == 0 ) {
+        *custom_err = (uint)err;
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      }
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ERR;
+  }
+}
+
 int
 fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_pubkey_t const *  pubkey ) {
@@ -507,10 +574,13 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   }
 
   /* TODO: vm should report */
-  if( FD_UNLIKELY( vm->reg[0] ) ) {
-    //TODO: vm should report this error
+  ulong err = vm->reg[0];
+  if( FD_UNLIKELY( err ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;;
+
+    /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1431-L1434 */
+    instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
+    return program_error_to_instr_error( err, &instr_ctx->txn_ctx->custom_err );
   }
 
   if( FD_UNLIKELY( is_deprecated ) ) {
