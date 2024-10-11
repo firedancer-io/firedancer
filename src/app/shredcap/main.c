@@ -85,7 +85,7 @@ main( int argc, char ** argv ) {
     }
     int lg_txn_max = fd_ulong_find_msb( shred_max ) + 1;
 
-    blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, hashseed, shred_max, slot_history_max, lg_txn_max ) );
+    blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, hashseed, shred_max, slot_history_max, (ulong)lg_txn_max ) );
     if ( blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));

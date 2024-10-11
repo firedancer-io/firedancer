@@ -121,8 +121,6 @@ struct fd_store_tile_ctx {
 
   fd_stake_ci_t * stake_ci;
 
-  ulong blockstore_seed;
-
   ulong * root_slot_fseq;
 
   int sim;
@@ -297,8 +295,6 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
-
-  FD_TEST( sizeof(ulong) == getrandom( &ctx->blockstore_seed, sizeof(ulong), 0 ) );
 }
 
 static void
@@ -598,15 +594,12 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_WARNING(( "failed to find blockstore in workspace. making new blockstore." ));
     }
   } else {
-    void * blockstore_shmem = fd_wksp_alloc_laddr( ctx->blockstore_wksp,
-                                                 fd_blockstore_align(),
-                                                 fd_blockstore_footprint(),
-                                                 FD_BLOCKSTORE_MAGIC );
+    void * blockstore_shmem = fd_topo_obj_laddr( topo, blockstore_obj_id );
     if( blockstore_shmem == NULL ) {
-      FD_LOG_ERR(( "failed to alloc blockstore" ));
+      FD_LOG_ERR(( "failed to find blockstore" ));
     }
 
-    ctx->blockstore = fd_blockstore_join( fd_blockstore_new( blockstore_shmem, 1, ctx->blockstore_seed, FD_BUF_SHRED_MAP_MAX, FD_BLOCK_MAX, FD_TXN_MAP_LG_MAX ) );
+    ctx->blockstore = fd_blockstore_join( blockstore_shmem );
   }
 
   FD_TEST( ctx->blockstore );

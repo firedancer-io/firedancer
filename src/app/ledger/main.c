@@ -657,7 +657,7 @@ init_blockstore( fd_ledger_args_t * args ) {
     if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
-    int lg_txn_max = 22;
+    ulong lg_txn_max = 22UL;
     args->blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
                                                               args->slot_history_max, lg_txn_max ) );
     if( args->blockstore == NULL ) {

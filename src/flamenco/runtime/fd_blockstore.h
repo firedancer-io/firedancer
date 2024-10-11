@@ -301,7 +301,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
   ulong slot_deque_gaddr;   /* deque of slots (ulongs) used to traverse blockstore ancestry */
 
-  int   lg_txn_max;
+  ulong lg_txn_max;
   ulong txn_map_gaddr;
 
   /* The blockstore alloc is used for allocating wksp resources for shred headers, microblock
@@ -333,7 +333,7 @@ fd_blockstore_new( void * shmem,
                    ulong  seed,
                    ulong  shred_max,
                    ulong  slot_max,
-                   int    lg_txn_max );
+                   ulong  lg_txn_max );
 
 fd_blockstore_t *
 fd_blockstore_join( void * shblockstore );
