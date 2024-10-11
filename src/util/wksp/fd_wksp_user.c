@@ -182,6 +182,7 @@ fd_wksp_private_free( ulong                     i,        /* Partition to free, 
   /* Poison the data region of the now freed allocation. */
   fd_asan_poison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
 # endif
+  fd_msan_poison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
 }
 
 /* user APIs **********************************************************/
@@ -334,6 +335,7 @@ trimmed:
   /* Unpoison the data region of the allocation */
   fd_asan_unpoison( fd_wksp_laddr_fast( wksp, lo ), hi - lo );
 # endif
+  fd_msan_unpoison( fd_wksp_laddr_fast( wksp, lo ), hi - lo );
 
   fd_wksp_private_unlock( wksp );
   *_lo = lo;
