@@ -18,11 +18,18 @@ set -e
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"/..
 
-rm -f deps-bundle.tar.zst
+if [ -n "$MSAN" ]; then
+    bundle="deps-bundle-msan.tar.zst"
+    prefix="opt-msan"
+else
+    bundle="deps-bundle.tar.zst"
+    prefix="opt"
+fi
 
-tar -Izstd -cf deps-bundle.tar.zst \
-  ./opt/{include,lib}
+rm -f "$bundle"
 
-echo "[+] Created deps-bundle.tar.zst"
+tar -Izstd -cf "$bundle" "./$prefix"/{include,lib} 
+
+echo "[+] Created $bundle"
 
 # Now you can commit this file to blob storage such as Git LFS.

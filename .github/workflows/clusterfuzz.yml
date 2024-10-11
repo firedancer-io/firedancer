@@ -34,7 +34,10 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/hugepages
-      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/deps # "regular" non-msan dependencies (./opt)
+      - uses: ./.github/actions/deps # build deps with msan       (./opt-msan)
+        with:
+          msan-opt: true
 
       - run: sudo apt update && sudo apt install -y zip
 
