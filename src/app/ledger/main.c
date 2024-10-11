@@ -130,7 +130,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
       }
     }
   }
-  ledger_args->tpool       = tpool;
+  ledger_args->tpool = tpool;
   return 0;
 }
 

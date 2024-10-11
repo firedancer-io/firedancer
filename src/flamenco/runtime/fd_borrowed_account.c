@@ -54,7 +54,7 @@ fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account,
   ulong dlen = ( borrowed_account->const_meta != NULL ) ? borrowed_account->const_meta->dlen : 0;
 
   if( borrowed_account->const_meta != NULL ) {
-    fd_memcpy( new_raw_data, (uchar *)borrowed_account->const_meta,  sizeof(fd_account_meta_t)+dlen );
+    fd_memcpy( new_raw_data, (uchar *)borrowed_account->const_meta, sizeof(fd_account_meta_t)+dlen );
   } else {
     /* Account did not exist, set up metadata */
     fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
