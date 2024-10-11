@@ -20,27 +20,42 @@
    in the epoch context. This value will foll forward to the
    latest version.
 */
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION (2000)
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR 2
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR 0
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH 0
 
-/* FD_BASE58_ENCODE_{32,64} is a shorthand for fd_base58_encode_{32,64},
-   including defining a temp buffer.  Useful for printf-like functions.
+/* FD_BASE58_ENC_{32,64}_ALLOCA is a shorthand for fd_base58_encode_{32,64},
+   including defining a temp buffer.  With additional support for passing
+   NULL.  Useful for printf-like functions.
    Example:
 
     fd_pubkey_t pk = ... ;
-    printf("%s", FD_BASE58_ENCODE_32( pk ) );
+    printf("%s", FD_BASE58_ENC_32_ALLOCA( pk ) );
 
    The temp buffer is allocated on the stack and therefore invalidated
-   when the function this is used in returns. */
-#define FD_BASE58_ENCODE_32( x ) __extension__({           \
-  char *_out = (char *)alloca( FD_BASE58_ENCODED_32_SZ );  \
-  fd_base58_encode_32( (uchar const *)(x), NULL, _out );   \
+   when the function this is used in returns.  NULL will result in
+   "<NULL>".
+   Do NOT use this marco in a long loop or a recursive function.
+   */
+#define FD_BASE58_ENC_32_ALLOCA( x ) __extension__({                     \
+  char *_out = (char *)fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );  \
+  if( FD_UNLIKELY( x == NULL ) ) {                                       \
+    strcpy(_out, "<NULL>");                                              \
+  } else {                                                               \
+    fd_base58_encode_32( (uchar const *)(x), NULL, _out );               \
+  }                                                                      \
+  _out;                                                                  \
 })
 
-#define FD_BASE58_ENCODE_64( x ) __extension__({           \
-  char *_out = (char *)alloca( FD_BASE58_ENCODED_64_SZ );  \
-  fd_base58_encode_64( (uchar const *)(x), NULL, _out );   \
+#define FD_BASE58_ENC_64_ALLOCA( x ) __extension__({                    \
+  char *_out = (char *)fd_alloca_check( 1UL, FD_BASE58_ENCODED_64_SZ ); \
+  if( FD_UNLIKELY( x == NULL ) ) {                                      \
+    strcpy(_out, "<NULL>");                                             \
+  } else {                                                              \
+    fd_base58_encode_64( (uchar const *)(x), NULL, _out );              \
+  }                                                                     \
+  _out;                                                                 \
 })
-
 
 /* Forward declarations */
 

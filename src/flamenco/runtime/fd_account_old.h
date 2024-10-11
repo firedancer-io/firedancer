@@ -54,7 +54,7 @@ int fd_account_set_executable2( fd_exec_instr_ctx_t * ctx,
   fd_rent_t rent;
   fd_rent_new( &rent );
   if( fd_sysvar_rent_read( &rent, ctx->slot_ctx ) ) {
-    ulong min_balance = fd_rent_exempt_minimum_balance(ctx->slot_ctx, metadata->dlen);
+    ulong min_balance = fd_rent_exempt_minimum_balance( &rent, metadata->dlen );
     if (metadata->info.lamports < min_balance) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
     }

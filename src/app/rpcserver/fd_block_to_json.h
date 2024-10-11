@@ -16,8 +16,7 @@ const char* fd_txn_to_json( fd_webserver_t * ws,
                             ulong raw_sz,
                             fd_rpc_encoding_t encoding,
                             long maxvers,
-                            enum fd_block_detail detail,
-                            int rewards );
+                            enum fd_block_detail detail );
 
 const char* fd_block_to_json( fd_webserver_t * ws,
                               fd_blockstore_t * blockstore,
@@ -29,7 +28,7 @@ const char* fd_block_to_json( fd_webserver_t * ws,
                               fd_rpc_encoding_t encoding,
                               long maxvers,
                               enum fd_block_detail detail,
-                              int rewards);
+                              fd_block_rewards_t * rewards );
 
 #define FD_LONG_UNSET (1L << 63L)
 

@@ -5,9 +5,6 @@
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* TODO This should be called fd_txn_acct. */
 
 struct __attribute__((aligned(8UL))) fd_borrowed_account {

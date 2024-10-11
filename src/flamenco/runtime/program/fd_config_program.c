@@ -122,13 +122,13 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       if( FD_UNLIKELY( borrow_err!=FD_ACC_MGR_SUCCESS ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s is not in account list", FD_BASE58_ENCODE_32( signer ) );
+          "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
       if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( signer_account ) ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s is not in account list", FD_BASE58_ENCODE_32( signer ) );
+          "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;  /* seems to be deliberately not ACC_BORROW_FAILED? */
       }
 
@@ -137,7 +137,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter ) ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s signer_key().is_none()", FD_BASE58_ENCODE_32( signer ) );
+          "account %s signer_key().is_none()", FD_BASE58_ENC_32_ALLOCA( signer ) );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -165,7 +165,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         if( FD_UNLIKELY( !is_signer ) ) {
           /* Max msg_sz: 39 - 2 + 45 = 82 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( ctx,
-            "account %s is not in stored signer list", FD_BASE58_ENCODE_32( signer ) );
+            "account %s is not in stored signer list", FD_BASE58_ENC_32_ALLOCA( signer ) );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
       }

@@ -4,19 +4,6 @@
 #include "fd_metrics_base.h"
 
 #include "generated/fd_metrics_all.h"
-#include "generated/fd_metrics_net.h"
-#include "generated/fd_metrics_quic.h"
-#include "generated/fd_metrics_verify.h"
-#include "generated/fd_metrics_dedup.h"
-#include "generated/fd_metrics_pack.h"
-#include "generated/fd_metrics_bank.h"
-#include "generated/fd_metrics_poh.h"
-#include "generated/fd_metrics_store.h"
-#include "generated/fd_metrics_shred.h"
-#ifdef FD_HAS_NO_AGAVE
-#include "generated/fd_metrics_replay.h"
-#include "generated/fd_metrics_storei.h"
-#endif
 
 #include "../../tango/tempo/fd_tempo.h"
 

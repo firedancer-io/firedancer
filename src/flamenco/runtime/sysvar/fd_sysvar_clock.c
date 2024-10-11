@@ -384,7 +384,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  ulong lamps = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, sz );
+  ulong lamps = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz );
   if( acc->meta->info.lamports < lamps )
     acc->meta->info.lamports = lamps;
 

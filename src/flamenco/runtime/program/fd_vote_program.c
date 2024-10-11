@@ -798,7 +798,7 @@ set_vote_account_state( ulong                       vote_acct_idx,
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L175
     int resize_needed      = vote_account->const_meta->dlen < vsz;
     fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
-    int resize_rent_exempt = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, vsz ) <= vote_account->const_meta->info.lamports;
+    int resize_rent_exempt = fd_rent_exempt_minimum_balance( &epoch_bank->rent, vsz ) <= vote_account->const_meta->info.lamports;
 
     /* The resize operation itself is part of the horrible conditional,
        but behind a short-circuit operator. */
@@ -1673,7 +1673,7 @@ withdraw(
   } else {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1043
     ulong min_rent_exempt_balance =
-        fd_rent_exempt_minimum_balance2( rent_sysvar, vote_account->const_meta->dlen );
+        fd_rent_exempt_minimum_balance( rent_sysvar, vote_account->const_meta->dlen );
     if( remaining_balance < min_rent_exempt_balance ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
@@ -2122,7 +2122,7 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
   fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
   if( NULL == pool )
     pool = slot_ctx->slot_bank.timestamp_votes.votes_pool =
-        fd_clock_timestamp_vote_t_map_alloc( slot_ctx->valloc, 10000 );
+        fd_clock_timestamp_vote_t_map_alloc( slot_ctx->valloc, 15000 );
 
   fd_clock_timestamp_vote_t timestamp_vote = {
       .pubkey    = *vote_acc,
@@ -2392,7 +2392,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !rent ) ) return rc;
 
     if( FD_UNLIKELY( me->const_meta->info.lamports <
-                     fd_rent_exempt_minimum_balance2( rent, me->const_meta->dlen ) ) )
+                     fd_rent_exempt_minimum_balance( rent, me->const_meta->dlen ) ) )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L76

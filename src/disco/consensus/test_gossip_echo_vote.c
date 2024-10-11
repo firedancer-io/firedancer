@@ -36,9 +36,6 @@
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_eth.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define MAX_ADDR_STRLEN        128
 #define TEST_GOSSIP_VOTE_MAGIC ( 0x7e57UL ) /* test */
 
@@ -325,17 +322,17 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           /* echo through gossip  */
           fd_gossip_push_value( arg_->gossip, &echo_data, NULL );
           static ulong echo_cnt = 0;
-          FD_LOG_NOTICE(( "Echo gossip vote#%lu: root=%lu, from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
+          FD_LOG_NOTICE(( "Echo gossip vote#%lu: root=%lu, from=%s, gossip_pubkey=%s, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%s",
                           echo_cnt++,
                           vote_instr.inner.compact_update_vote_state.root,
-                          &vote->from,
-                          arg_->gossip_config->public_key,
+                          FD_BASE58_ENC_32_ALLOCA( &vote->from ),
+                          FD_BASE58_ENC_32_ALLOCA( arg_->gossip_config->public_key ),
                           parsed_txn->acct_addr_cnt,
                           parsed_txn->readonly_signed_cnt,
                           parsed_txn->readonly_unsigned_cnt,
                           parsed_txn->signature_cnt,
                           parsed_txn->signature_off,
-                          account_addr ));
+                          FD_BASE58_ENC_32_ALLOCA( account_addr ) ));
 
           /* echo through udp  */
           fd_aio_pkt_info_t udp_pkt;
@@ -346,10 +343,10 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           send_udp_pkt( udp_pkt.buf, udp_pkt.buf_sz, arg_->wksp, dst_ip, dst_port );
           FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu\nOld sig1: %s\nOld sig2: %s\nNew sig1: %s\nNew sig2: %s",
                          new_timestamp,
-                         FD_BASE58_ENCODE_64( vote->txn.raw + parsed_txn->signature_off ),
-                         FD_BASE58_ENCODE_64( vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ),
-                         FD_BASE58_ENCODE_64( echo_data.inner.vote.txn.raw + parsed_txn->signature_off ),
-                         FD_BASE58_ENCODE_64( echo_data.inner.vote.txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ) ));
+                         FD_BASE58_ENC_64_ALLOCA( vote->txn.raw + parsed_txn->signature_off ),
+                         FD_BASE58_ENC_64_ALLOCA( vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ),
+                         FD_BASE58_ENC_64_ALLOCA( echo_data.inner.vote.txn.raw + parsed_txn->signature_off ),
+                         FD_BASE58_ENC_64_ALLOCA( echo_data.inner.vote.txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ) ));
           FD_LOG_ERR(( "Finish." ));
 
        } else {
@@ -359,9 +356,9 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
         FD_LOG_ERR(( "Unable to decode the vote instruction in gossip, error=%d", decode_result ));
       }
     } else {
-      FD_LOG_ERR(( "Received gossip vote txn targets program %32J instead of %32J",
-                   account_addr,
-                   fd_solana_vote_program_id.key ));
+      FD_LOG_ERR(( "Received gossip vote txn targets program %s instead of %s",
+                   FD_BASE58_ENC_32_ALLOCA( account_addr ),
+                   FD_BASE58_ENC_32_ALLOCA( fd_solana_vote_program_id.key ) ));
     }
   }
 }
@@ -498,7 +495,7 @@ main( int argc, char ** argv ) {
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
-                   1,
+                   1UL,
                    _page_sz,
                    numa_idx ));
   fd_wksp_t * wksp = fd_wksp_new_anonymous(

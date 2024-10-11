@@ -5,6 +5,7 @@
 
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
 #include <sys/mman.h>
@@ -22,6 +23,10 @@ typedef struct {
 
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
+
+  /* Pre-staged with the public key base58 encoded, followed by "-" in the first bytes */
+  ulong public_key_base58_sz;
+  uchar concat[ FD_BASE58_ENCODED_32_SZ+1UL+9UL ];
 
   int               in_role[ MAX_IN ];
   uchar *           in_data[ MAX_IN ];
@@ -139,6 +144,11 @@ after_frag_sensitive( void *             _ctx,
     fd_ed25519_sign( ctx->out[ in_idx ].data, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
+  case FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519: {
+    memcpy( ctx->concat+ctx->public_key_base58_sz+1UL, ctx->_data, 9UL );
+    fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
@@ -215,6 +225,9 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
+  fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
+  ctx->concat[ ctx->public_key_base58_sz ] = '-';
+
   for( ulong i=0; i<MAX_IN; i++ ) ctx->in_role[ i ] = -1;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
@@ -253,6 +266,11 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       ctx->in_role[ i ] = FD_KEYGUARD_ROLE_VOTER;
       FD_TEST( !strcmp( out_link->name, "sign_voter"  ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
+      FD_TEST( out_link->mtu==64UL );
+    } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_BUNDLE;
+      FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );
+      FD_TEST( in_link->mtu==9UL );
       FD_TEST( out_link->mtu==64UL );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));

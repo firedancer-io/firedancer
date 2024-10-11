@@ -23,20 +23,18 @@ fd_shred_parse( uchar const * const buf,
                    (variant!=0x5a /*FD_SHRED_TYPE_LEGACY_CODE*/ ) ) )
     return NULL;
 
-  /* There are five sections of a shred that can contribute to the size:
-     header, payload, zero-padding, Merkle root of previous erasure batch and Merkle proof.
-     Some of these may have 0 size in certain cases.  sz is the sum of all 5, while for
-     data shreds, shred->data.size == header+payload. */
+  /* There are six sections of a shred that can contribute to the size:
+     header, payload, zero-padding, Merkle root of previous erasure
+     batch, Merkle proof, and retransmitter signature.
+     Some of these may have 0 size in certain cases.  sz is the sum of
+     all 5, while for data shreds, shred->data.size == header+payload.
+     We'll call the last three section the trailer. */
   ulong header_sz       = fd_shred_header_sz( variant ); /* between 88 and 89 bytes */
-  ulong merkle_proof_sz = fd_shred_merkle_sz( shred->variant ); /* between 0 and 300 bytes */
+  ulong trailer_sz      = fd_shred_merkle_sz( shred->variant )   /* between 0 and 300 bytes */
+                           + fd_ulong_if( fd_shred_is_resigned( type ), FD_SHRED_SIGNATURE_SZ, 0UL ) /* 0 or 64 */
+                           + fd_ulong_if( fd_shred_is_chained( type ),  FD_SHRED_MERKLE_ROOT_SZ, 0UL ); /* 0 or 32 */
   ulong zero_padding_sz;
   ulong payload_sz;
-
-  /* only present for chained merkle shreds */
-  ulong previous_merkle_root_sz = fd_ulong_if(
-   (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED) |
-     (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED)
-     , FD_SHRED_MERKLE_ROOT_SZ, 0UL );
 
   if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
     if( FD_UNLIKELY( shred->data.size<header_sz ) ) return NULL;
@@ -52,28 +50,38 @@ fd_shred_parse( uchar const * const buf,
        The Merkle proof is not in bytes [sz-merkle_proof_sz, sz) but in
        [FD_SHRED_MIN_SZ-merkle_proof_sz, FD_SHRED_MIN_SZ).  From above,
        we know sz >= FD_SHRED_MIN_SZ in this case. */
-    uchar is_legacy_data_shred = type & 0x20;
+    uchar is_legacy_data_shred = type==FD_SHRED_TYPE_LEGACY_DATA;
     ulong effective_sz = fd_ulong_if( is_legacy_data_shred, sz, FD_SHRED_MIN_SZ );
-    if( FD_UNLIKELY( effective_sz < header_sz+merkle_proof_sz+payload_sz+previous_merkle_root_sz ) ) return NULL;
-    zero_padding_sz = effective_sz - header_sz - merkle_proof_sz - payload_sz - previous_merkle_root_sz;
+    if( FD_UNLIKELY( effective_sz < header_sz+payload_sz+trailer_sz ) ) return NULL;
+    zero_padding_sz = effective_sz - header_sz - payload_sz - trailer_sz;
   }
   else if( FD_LIKELY( type & FD_SHRED_TYPEMASK_CODE ) ) {
     zero_padding_sz = 0UL;
     /* Payload size is not specified directly, but the whole shred must
        be FD_SHRED_MAX_SZ. */
-    if( FD_UNLIKELY( header_sz+previous_merkle_root_sz+merkle_proof_sz+zero_padding_sz > FD_SHRED_MAX_SZ ) ) return NULL;
-    payload_sz      = FD_SHRED_MAX_SZ - header_sz - merkle_proof_sz - zero_padding_sz - previous_merkle_root_sz;
+    if( FD_UNLIKELY( header_sz+zero_padding_sz+trailer_sz > FD_SHRED_MAX_SZ ) ) return NULL;
+    payload_sz      = FD_SHRED_MAX_SZ - header_sz - zero_padding_sz - trailer_sz;
   }
   else return NULL;
 
-  if( FD_UNLIKELY( sz < header_sz + payload_sz + zero_padding_sz + merkle_proof_sz + previous_merkle_root_sz ) ) return NULL;
+  if( FD_UNLIKELY( sz < header_sz + payload_sz + zero_padding_sz + trailer_sz ) ) return NULL;
 
   /* At this point we know all the fields exist, but we need to sanity
      check a few fields that would make a shred illegal. */
   if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
+    ulong parent_off = (ulong)shred->data.parent_off;
+    ulong slot       = shred->slot;
     if( FD_UNLIKELY( (shred->data.flags&0xC0)==0x80                              ) ) return NULL;
-    if( FD_UNLIKELY( (ulong)(shred->data.parent_off)>shred->slot                 ) ) return NULL;
-    if( FD_UNLIKELY( (shred->data.parent_off==0) & (shred->slot!=0UL)            ) ) return NULL;
+    if( FD_UNLIKELY( parent_off>slot                                             ) ) return NULL;
+    /* The property we want to enforce is
+           slot==0 <=> parent_off==0 <=> slot==parent_off,
+       where <=> means if and only if.  It's a strange expression
+       though, because any two of the statements automatically imply the
+       other one, so it's logically equivalent to:
+            (slot==0 or parent_off==0)   <=> slot==parent_off
+       We want the complement though, so that we can return NULL, and
+       the complement of iff is xor. */
+    if( FD_UNLIKELY( ((parent_off==0) | (slot==0UL)) ^ (slot==parent_off)        ) ) return NULL;
     if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
   } else {
     if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;

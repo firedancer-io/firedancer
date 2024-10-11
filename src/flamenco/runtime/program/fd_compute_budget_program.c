@@ -27,7 +27,8 @@ sanitize_requested_heap_size( ulong bytes ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L69-L148 */
-int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
+int 
+fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
   uint has_compute_units_limit_update             = 0UL;
   uint has_compute_units_price_update             = 0UL;
   uint has_requested_heap_size                    = 0UL;
@@ -148,5 +149,6 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
 
 
 int fd_compute_budget_program_execute( fd_exec_instr_ctx_t * ctx ) {
-  return fd_exec_consume_cus( ctx->txn_ctx, 150UL );
+  FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

@@ -43,6 +43,22 @@ struct fd_quic_event {
 };
 typedef struct fd_quic_event fd_quic_event_t;
 
+struct fd_quic_rb_event {
+    // key is time of event and the connection id
+    // this makes the key uniq, suitable for the red black tree
+    ulong timeout;
+    ulong conn_idx;
+
+    fd_quic_conn_t * conn;
+
+    // required by redblack interface
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int   redblack_color;
+};
+typedef struct fd_quic_rb_event fd_quic_rb_event_t;
+
 /* structure for a cummulative summation tree */
 struct fd_quic_cs_tree {
   ulong cnt;
@@ -83,6 +99,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   ulong                   free_conns;     /* count of free connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
+  fd_quic_rb_event_t *    rb_service_queue; /* priority queue of connections */
+  fd_quic_rb_event_t *    rb_service_queue_root;
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
 
   fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */

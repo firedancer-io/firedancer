@@ -18,7 +18,7 @@ FD_PROTOTYPES_BEGIN
    for the config program. */
 
 int
-fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) ;
+fd_config_program_execute( fd_exec_instr_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

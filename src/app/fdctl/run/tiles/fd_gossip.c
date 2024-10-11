@@ -130,6 +130,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_peer_addr_t tvu_my_fwd_addr;
   fd_gossip_peer_addr_t tpu_my_addr;
   fd_gossip_peer_addr_t tpu_vote_my_addr;
+  fd_gossip_peer_addr_t repair_serve_addr;
   ushort                gossip_listen_port;
 
   fd_wksp_t *     net_in_mem;
@@ -672,18 +673,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_gossip_update_addr( ctx->gossip, &ctx->gossip_config.my_addr );
 
-  ctx->tvu_my_addr.addr      = tile->gossip.ip_addr;
-  ctx->tvu_my_addr.port      = fd_ushort_bswap( tile->gossip.tvu_port );
-  ctx->tvu_my_fwd_addr.addr  = tile->gossip.ip_addr;
-  ctx->tvu_my_fwd_addr.port  = fd_ushort_bswap( tile->gossip.tvu_fwd_port );
-  ctx->tpu_my_addr.addr      = tile->gossip.ip_addr;
-  ctx->tpu_my_addr.port      = fd_ushort_bswap( tile->gossip.tpu_port );
-  ctx->tpu_vote_my_addr.addr = tile->gossip.ip_addr;
-  ctx->tpu_vote_my_addr.port = fd_ushort_bswap( tile->gossip.tpu_vote_port );
+  ctx->tvu_my_addr.addr       = tile->gossip.ip_addr;
+  ctx->tvu_my_addr.port       = fd_ushort_bswap( tile->gossip.tvu_port );
+  ctx->tvu_my_fwd_addr.addr   = tile->gossip.ip_addr;
+  ctx->tvu_my_fwd_addr.port   = fd_ushort_bswap( tile->gossip.tvu_fwd_port );
+  ctx->tpu_my_addr.addr       = tile->gossip.ip_addr;
+  ctx->tpu_my_addr.port       = fd_ushort_bswap( tile->gossip.tpu_port );
+  ctx->tpu_vote_my_addr.addr  = tile->gossip.ip_addr;
+  ctx->tpu_vote_my_addr.port  = fd_ushort_bswap( tile->gossip.tpu_vote_port );
+  ctx->repair_serve_addr.addr = tile->gossip.ip_addr;
+  ctx->repair_serve_addr.port = fd_ushort_bswap( tile->gossip.repair_serve_port );
 
   fd_gossip_update_tvu_addr( ctx->gossip, &ctx->tvu_my_addr, &ctx->tvu_my_fwd_addr );
   fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr, &ctx->tpu_my_addr );
   fd_gossip_update_tpu_vote_addr( ctx->gossip, &ctx->tpu_vote_my_addr );
+  fd_gossip_update_repair_addr( ctx->gossip, &ctx->repair_serve_addr );
   fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
   fd_gossip_start( ctx->gossip );
 

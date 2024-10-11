@@ -139,7 +139,7 @@ agave_boot( config_t * config ) {
   ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
   ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
   ADD( "--snapshots", config->snapshots.path );
-  if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshots", config->snapshots.incremental_path );
+  if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );
   ADDU( "--maximum-incremental-snapshots-to-retain", config->snapshots.maximum_incremental_snapshots_to_retain );
   ADDU( "--minimal-snapshot-download-speed", config->snapshots.minimum_snapshot_download_speed );
@@ -151,14 +151,6 @@ agave_boot( config_t * config ) {
       FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  /* silence a bunch of solana_metrics INFO spam */
-  if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
-    FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  char * log_style = config->log.colorize1 ? "always" : "never";
-  if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", log_style, 1 ) ) )
-    FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
   FD_LOG_INFO(( "Running Agave validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
@@ -166,22 +158,18 @@ agave_boot( config_t * config ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_LIKELY( strcmp( "", config->layout.agave_affinity ) ) ) {
-    ushort agave_cpu[ FD_TILE_MAX ];
-    ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
-    FD_CPUSET_DECL( cpu_set );
-    for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
-      fd_cpuset_insert( cpu_set, agave_cpu[ i ] );
-    }
+  FD_CPUSET_DECL( cpu_set );
+  for( ulong i=0UL; i<config->topo.agave_affinity_cnt; i++ ) {
+    fd_cpuset_insert( cpu_set, config->topo.agave_affinity_cpu_idx[ i ] );
+  }
 
-    if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
-      if( FD_LIKELY( errno==EINVAL ) ) {
-        FD_LOG_ERR(( "Unable to set the affinity for threads created by Agave. It is likely "
-                     "that the affinity you have specified for Agave under [layout.agave_affinity] "
-                     "in the configuration file contains CPUs which do not exist on this machine." ));
-      } else {
-        FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
+  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+    if( FD_LIKELY( errno==EINVAL ) ) {
+      FD_LOG_ERR(( "Unable to set the affinity for threads created by Agave. It is likely "
+                    "that the affinity you have specified for Agave under [layout.agave_affinity] "
+                    "in the configuration file contains CPUs which do not exist on this machine." ));
+    } else {
+      FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
 

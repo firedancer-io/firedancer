@@ -956,7 +956,7 @@
       "name": "clock_timestamp_votes",
       "type": "struct",
       "fields": [
-          { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":10000 }
+          { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":15000 }
       ],
       "comment": "Validator timestamp oracle votes received from voting nodes. TODO: make this a map"
     },
@@ -1072,7 +1072,7 @@
         { "name": "eah_interval",          "type": "ulong" },
         { "name": "genesis_hash",          "type": "hash" },
         { "name": "cluster_type",          "type": "uint" },
-        { "name": "cluster_version",       "type": "uint" },
+        { "name": "cluster_version",       "type": "array", "element": "uint", "length": 3 },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"}
       ]
     },

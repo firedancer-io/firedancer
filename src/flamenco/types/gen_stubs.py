@@ -1473,6 +1473,11 @@ class ArrayMember:
         self.element = json["element"]
         self.length = int(json["length"])
 
+    def propogateArchival(self, nametypes):
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
+
     def metaTag(self):
         return "FD_ARCHIVE_META_ARRAY"
 
