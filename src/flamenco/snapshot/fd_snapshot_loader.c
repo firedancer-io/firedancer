@@ -17,7 +17,8 @@ struct fd_snapshot_loader {
 
   /* Source: HTTP */
 
-  fd_snapshot_http_t vhttp[1];
+  void *               http_mem;
+  fd_snapshot_http_t * http;
 
   /* Source: File I/O */
 
@@ -61,6 +62,7 @@ fd_snapshot_loader_footprint( ulong zstd_window_sz ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_loader_t), sizeof(fd_snapshot_loader_t) );
   l = FD_LAYOUT_APPEND( l, fd_zstd_dstream_align(),       fd_zstd_dstream_footprint( zstd_window_sz ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_http_t),   sizeof(fd_snapshot_http_t) );
   /* FIXME add test ensuring zstd dstream align > alignof loader */
   return FD_LAYOUT_FINI( l, fd_snapshot_loader_align() );
 }
@@ -82,9 +84,12 @@ fd_snapshot_loader_new( void * mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_snapshot_loader_t * loader   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_loader_t), sizeof(fd_snapshot_loader_t) );
   void *                 zstd_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_zstd_dstream_align(),       fd_zstd_dstream_footprint( zstd_window_sz ) );
+  void *                 http_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_http_t),   sizeof(fd_snapshot_http_t) );
   FD_SCRATCH_ALLOC_FINI( l, fd_snapshot_loader_align() );
 
-  loader->zstd = fd_zstd_dstream_new( zstd_mem, zstd_window_sz );
+  fd_memset( loader, 0, sizeof(fd_snapshot_loader_t) );
+  loader->http_mem = http_mem;
+  loader->zstd     = fd_zstd_dstream_new( zstd_mem, zstd_window_sz );
 
   FD_COMPILER_MFENCE();
   loader->magic = FD_SNAPSHOT_LOADER_MAGIC;
@@ -107,7 +112,7 @@ fd_snapshot_loader_delete( fd_snapshot_loader_t * loader ) {
   fd_tar_io_reader_delete  ( loader->vtar  );
   fd_io_istream_zstd_delete( loader->vzstd );
   fd_io_istream_file_delete( loader->vfile );
-  fd_snapshot_http_delete  ( loader->vhttp );
+  fd_snapshot_http_delete  ( loader->http  );
   fd_tar_reader_delete     ( loader->tar   );
   fd_zstd_dstream_delete   ( loader->zstd  );
 
@@ -152,14 +157,15 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     d->vsrc = fd_io_istream_file_virtual( d->vfile );
     break;
   case FD_SNAPSHOT_SRC_HTTP:
-    if( FD_UNLIKELY( !fd_snapshot_http_new( d->vhttp, src->http.dest, src->http.ip4, src->http.port, &d->name ) ) ) {
+    d->http = fd_snapshot_http_new( d->http_mem, src->http.dest, src->http.ip4, src->http.port, &d->name );
+    if( FD_UNLIKELY( !d->http ) ) {
       FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" ));
       return NULL;
     }
-    fd_snapshot_http_set_path( d->vhttp, src->http.path, src->http.path_len, base_slot );
-    d->vhttp->hops = (ushort)3;  /* TODO don't hardcode */
+    fd_snapshot_http_set_path( d->http, src->http.path, src->http.path_len, base_slot );
+    d->http->hops = (ushort)3;  /* TODO don't hardcode */
 
-    d->vsrc = fd_io_istream_snapshot_http_virtual( d->vhttp );
+    d->vsrc = fd_io_istream_snapshot_http_virtual( d->http );
     break;
   default:
     __builtin_unreachable();

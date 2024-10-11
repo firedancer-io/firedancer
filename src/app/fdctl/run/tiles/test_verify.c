@@ -125,6 +125,7 @@ load_test_txn( char * hex[], ulong hex_sz, ulong * tx_len ) {
 
 static void
 setup_verify_ctx( fd_verify_ctx_t * ctx, void ** mem ) {
+  fd_memset( ctx, 0, sizeof(fd_verify_ctx_t) );
   /* tcache - note: using aligned_alloc for tests */
   ulong depth     = VERIFY_TCACHE_DEPTH;
   ulong map_cnt   = VERIFY_TCACHE_MAP_CNT;

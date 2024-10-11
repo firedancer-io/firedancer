@@ -1,6 +1,7 @@
 #include "config_parse.h"
 
 FD_IMPORT_BINARY( fdctl_default_config, "src/app/fdctl/config/default.toml" );
+FD_IMPORT_BINARY( fdctl_default_firedancer_config, "src/app/fdctl/config/default-firedancer.toml" );
 
 /* Pod query utils ****************************************************/
 
@@ -269,7 +270,6 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
-  CFG_POP      ( cstr,   layout.solana_labs_affinity                      );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
@@ -313,7 +313,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
-  CFG_POP      ( cstr,   development.topology                             );
 
   CFG_POP      ( bool,   development.netns.enabled                        );
   CFG_POP      ( cstr,   development.netns.interface0                     );
@@ -365,7 +364,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
-  CFG_POP      ( uint,   tiles.replay.cluster_version                     );
+  CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
 
   CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
@@ -452,8 +451,6 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
-
-  CFG_HAS_NON_EMPTY( development.topology );
 
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );

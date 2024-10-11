@@ -798,7 +798,7 @@ set_vote_account_state( ulong                       vote_acct_idx,
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L175
     int resize_needed      = vote_account->const_meta->dlen < vsz;
     fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
-    int resize_rent_exempt = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, vsz ) <= vote_account->const_meta->info.lamports;
+    int resize_rent_exempt = fd_rent_exempt_minimum_balance( &epoch_bank->rent, vsz ) <= vote_account->const_meta->info.lamports;
 
     /* The resize operation itself is part of the horrible conditional,
        but behind a short-circuit operator. */
@@ -1202,7 +1202,8 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
                         fd_landed_vote_t *          new_state,
                         int                         has_new_root,
                         ulong                       new_root,
-                        long *                      timestamp,
+                        int                         has_timestamp,
+                        long                        timestamp,
                         ulong                       epoch,
                         ulong                       current_slot,
                         fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
@@ -1415,7 +1416,7 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
     increment_credits( vote_state, epoch, earned_credits );
   }
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L750
-  if( FD_LIKELY( timestamp != NULL ) ) {
+  if( FD_LIKELY( has_timestamp ) ) {
     /* new_state asserted nonempty at function beginning */
     if( deq_fd_landed_vote_t_empty( new_state ) ) {
       FD_LOG_ERR(( "solana panic" ));
@@ -1424,9 +1425,9 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
-    rc              = process_timestamp( vote_state, last_slot, *timestamp, ctx );
+    rc              = process_timestamp( vote_state, last_slot, timestamp, ctx );
     if( FD_UNLIKELY( rc ) ) { return rc; }
-    vote_state->last_timestamp.timestamp = *timestamp;
+    vote_state->last_timestamp.timestamp = timestamp;
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L754
@@ -1672,7 +1673,7 @@ withdraw(
   } else {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1043
     ulong min_rent_exempt_balance =
-        fd_rent_exempt_minimum_balance2( rent_sysvar, vote_account->const_meta->dlen );
+        fd_rent_exempt_minimum_balance( rent_sysvar, vote_account->const_meta->dlen );
     if( remaining_balance < min_rent_exempt_balance ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
@@ -1924,6 +1925,7 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
                                  landed_votes,
                                  vote_state_update->has_root,
                                  vote_state_update->root,
+                                 vote_state_update->has_timestamp,
                                  vote_state_update->timestamp,
                                  epoch,
                                  slot,
@@ -2020,7 +2022,8 @@ do_process_tower_sync( fd_vote_state_t *           vote_state,
       landed_votes_from_lockouts( tower_sync->lockouts, fd_scratch_virtual() ),
       tower_sync->has_root,
       tower_sync->root,
-      tower_sync->has_timestamp ? &tower_sync->timestamp : NULL,
+      tower_sync->has_timestamp,
+      tower_sync->timestamp,
       epoch,
       slot,
       ctx );
@@ -2095,8 +2098,9 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
     elem->confirmation_count = (uint)lock_offset->confirmation_count;
   }
 
-  vote_update->hash      = compact_update->hash;
-  vote_update->timestamp = compact_update->timestamp;
+  vote_update->hash          = compact_update->hash;
+  vote_update->has_timestamp = compact_update->has_timestamp;
+  vote_update->timestamp     = compact_update->timestamp;
 
   return 1;
 }
@@ -2118,7 +2122,7 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
   fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
   if( NULL == pool )
     pool = slot_ctx->slot_bank.timestamp_votes.votes_pool =
-        fd_clock_timestamp_vote_t_map_alloc( slot_ctx->valloc, 10000 );
+        fd_clock_timestamp_vote_t_map_alloc( slot_ctx->valloc, 15000 );
 
   fd_clock_timestamp_vote_t timestamp_vote = {
       .pubkey    = *vote_acc,
@@ -2388,7 +2392,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !rent ) ) return rc;
 
     if( FD_UNLIKELY( me->const_meta->info.lamports <
-                     fd_rent_exempt_minimum_balance2( rent, me->const_meta->dlen ) ) )
+                     fd_rent_exempt_minimum_balance( rent, me->const_meta->dlen ) ) )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L76

@@ -49,11 +49,15 @@
 #define FD_STATS_KEY_MAX (1<<8)
 /* Sha256 pre-image size for pings/pongs */
 #define FD_PING_PRE_IMAGE_SZ (48UL)
+/* Number of recognized CRDS enum members */
+#define FD_KNOWN_CRDS_ENUM_MAX (12UL)
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
 /* Maximum number of stake weights, mirrors fd_stake_ci */
 #define MAX_STAKE_WEIGHTS (40200UL)
+
+#define MAX_PEER_PING_COUNT (10000U)
 
 /* Test if two addresses are equal */
 static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
@@ -243,6 +247,14 @@ typedef struct fd_stats_elem fd_stats_elem_t;
 #define MAP_T        fd_stats_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
+struct fd_msg_stats_elem {
+  ulong bytes_rx_cnt;
+  ulong total_cnt;
+  ulong dups_cnt;
+};
+/* Receive type statistics table. */
+typedef struct fd_msg_stats_elem fd_msg_stats_elem_t;
+
 /* Global data for gossip service */
 struct fd_gossip {
     /* Concurrency lock */
@@ -296,6 +308,8 @@ struct fd_gossip {
     ulong need_push_cnt;
     /* Table of receive statistics */
     fd_stats_elem_t * stats;
+    /* Table of message type stats */
+    fd_msg_stats_elem_t msg_stats[ FD_KNOWN_CRDS_ENUM_MAX ];
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -433,7 +447,6 @@ fd_gossip_contact_info_v2_to_v1( fd_gossip_contact_info_v2_t const * v2,
   v1->shred_version = v2->shred_version;
   v1->wallclock = v2->wallclock;
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_GOSSIP, &v1->gossip );
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU, &v1->tpu );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU_VOTE, &v1->tpu_vote );
@@ -646,7 +659,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     if (val->pongtime != 0)
       /* Success */
       return;
-    if (val->pingcount++ >= 50U) {
+    if (val->pingcount++ >= MAX_PEER_PING_COUNT) {
       /* Give up. This is a bad peer. */
       fd_active_table_remove(glob->actives, key);
       fd_peer_table_remove(glob->peers, key);
@@ -1127,41 +1140,33 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0)
     /* Ignore my own messages */
     return;
-  uchar buf[PACKET_DATA_SIZE];
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = buf;
-  ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
-    FD_LOG_ERR(("fd_crds_data_encode failed"));
-    return;
-  }
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                         /* sig */ crd->signature.uc,
-                         /* public_key */ pubkey->uc,
-                         sha )) {
-    FD_LOG_DEBUG(("received crds_value with invalid signature"));
+  if( crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) {
     return;
   }
 
   /* Perform the value hash to get the value table key */
+  uchar buf[PACKET_DATA_SIZE];
+  fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_value_encode( crd, &ctx ) ) {
     FD_LOG_ERR(("fd_crds_value_encode failed"));
     return;
   }
+  ulong datalen = (ulong)((uchar*)ctx.data - buf);
   fd_sha256_t sha2[1];
   fd_sha256_init( sha2 );
-  ulong datalen = (ulong)((uchar*)ctx.data - buf);
   fd_sha256_append( sha2, buf, datalen );
   fd_hash_t key;
   fd_sha256_fini( sha2, key.uc );
-
+  
+  fd_msg_stats_elem_t * msg_stat = &glob->msg_stats[ crd->data.discriminant ];
+  msg_stat->total_cnt++;
+  msg_stat->bytes_rx_cnt += datalen;
   fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
   if (msg != NULL) {
     /* Already have this value */
+    msg_stat->dups_cnt++;
     glob->recv_dup_cnt++;
     if (from != NULL) {
       /* Record the dup in the receive statistics table */
@@ -1187,6 +1192,23 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         found_origin: ;
       }
     }
+    return;
+  }
+
+  ctx.data = buf;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
+  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
+    FD_LOG_ERR(("fd_crds_data_encode failed"));
+    return;
+  }
+
+  fd_sha512_t sha[1];
+  if (fd_ed25519_verify( /* msg */ buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                         /* sig */ crd->signature.uc,
+                         /* public_key */ pubkey->uc,
+                         sha )) {
+    FD_LOG_DEBUG(("received crds_value with invalid signature"));
     return;
   }
 
@@ -1419,6 +1441,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       uchar min_key = 0;
 
       ushort gossip_port = glob->my_contact_info.gossip.port;
+      ushort serve_repair_port = glob->my_contact_info.serve_repair.port;
       ushort tvu_port = glob->my_contact_info.tvu.port;
       ushort tpu_port = glob->my_contact_info.tpu.port;
       ushort tpu_quic_port = (ushort)( glob->my_contact_info.tpu.port + 6 );
@@ -1427,6 +1450,11 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
         min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
         min_addr = &glob->my_contact_info.gossip.addr;
         min_port = glob->my_contact_info.gossip.port;
+      }
+      if( serve_repair_port > 0 && serve_repair_port > last_port && serve_repair_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR;
+        min_addr = &glob->my_contact_info.serve_repair.addr;
+        min_port = glob->my_contact_info.serve_repair.port;
       }
       if( tvu_port > 0 && tvu_port > last_port && tvu_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TVU;
@@ -1967,12 +1995,16 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if( glob->recv_pkt_cnt == 0 )
     FD_LOG_WARNING(("received no gossip packets!!"));
   else
-    FD_LOG_DEBUG(("received %lu packets", glob->recv_pkt_cnt));
+    FD_LOG_INFO(("received %lu packets", glob->recv_pkt_cnt));
   glob->recv_pkt_cnt = 0;
-  FD_LOG_DEBUG(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
+  FD_LOG_INFO(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
-  FD_LOG_DEBUG(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
+  FD_LOG_INFO(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
   glob->push_cnt = glob->not_push_cnt = 0;
+
+  for( ulong i = 0UL; i<FD_KNOWN_CRDS_ENUM_MAX; i++ ) {
+    FD_LOG_INFO(( "received values - type: %2lu, total: %12lu, dups: %12lu, bytes: %12lu", i, glob->msg_stats[i].total_cnt, glob->msg_stats[i].dups_cnt, glob->msg_stats[i].bytes_rx_cnt ));
+  }
 
   int need_inactive = (glob->inactives_cnt == 0);
 

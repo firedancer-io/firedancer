@@ -1,6 +1,7 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #define WKSP_TAG 2
 
+#include "../../fd_flamenco.h"
 #include "../../fd_flamenco_base.h"
 #include "fd_exec_instr_test.h"
 #include <errno.h>
@@ -59,6 +60,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_flamenco_boot( NULL, NULL );
 
   /* TODO switch to leap API and set up a thread pool once available */
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );

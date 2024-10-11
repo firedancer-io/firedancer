@@ -26,6 +26,7 @@ metric introduced.
 
 <enum name="PackTxnInsertReturn">
   <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
+  <int value="-11" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
   <int value="-10" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
   <int value="-9" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
   <int value="-8" name="DuplicateAccount" label="Transaction included an account address twice" />
@@ -138,11 +139,14 @@ metric introduced.
     <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
     <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
+    <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading." />
 </group>
 
 <group name="Tile" tile="all">
     <gauge name="Pid" summary="The process ID of the tile." />
     <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
+    <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
+    <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
 </group>
 
 <group name="Stem" tile="all">
@@ -364,7 +368,7 @@ metric introduced.
   <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </group>
 
-<group name="Replay" tile="storei">
+<group name="Replay" tile="storei" full="true">
   <gauge name="Behind"   summary="The total number of slots we are behind" />
   <gauge name="CaughtUp" summary="Boolean value which indicates if we have caught up" />
   <gauge name="Slot"     summary="The current turbine slot" />
@@ -377,7 +381,7 @@ metric introduced.
   <int value="4" name="IncrementalEnd" label="Set after fd_snapshot_load has completed" />
 </enum>
 
-<group name="Replay" tile="replay">
+<group name="Replay" tile="replay" full="true">
   <counter name="SnapshotStatus" enum="SnapshotStatus" summary="The snapshot and incremental snapshot progress" />
 </group>
 

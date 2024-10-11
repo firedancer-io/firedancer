@@ -138,6 +138,7 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
 void
 fd_sandbox_enter( uint                 desired_uid,                  /* User ID to switch the process to inside the sandbox */
                   uint                 desired_gid,                  /* Group ID to switch the process to inside the sandbox */
+                  int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
                   ulong                allowed_file_descriptor_cnt,  /* Number of entries in the allowed_file_descriptor array */

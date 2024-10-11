@@ -30,9 +30,6 @@
 // #include "../../util/fd_util.h"
 // #include "../../util/net/fd_eth.h"
 
-// #pragma GCC diagnostic ignored "-Wformat"
-// #pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 // #define MAX_ADDR_STRLEN      128
 // #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 
@@ -171,8 +168,8 @@
 //                          void *              arg,
 //                          int                 reason ) {
 //   (void)arg;
-//   FD_LOG_WARNING( ( "repair_deliver_fail_fun - shred: %32J, slot: %lu, idx: %u, reason: %d",
-//                     id,
+//   FD_LOG_WARNING( ( "repair_deliver_fail_fun - shred: %s, slot: %lu, idx: %u, reason: %d",
+//                     FD_BASE58_ENC_32_ALLOCA( id ),
 //                     slot,
 //                     shred_index,
 //                     reason ) );

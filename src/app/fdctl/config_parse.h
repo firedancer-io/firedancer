@@ -8,6 +8,9 @@ FD_PROTOTYPES_BEGIN
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
 
+extern uchar const fdctl_default_firedancer_config[];
+extern ulong const fdctl_default_firedancer_config_sz;
+
 /* fdctl_pod_to_cfg extracts configuration from pod to the typed config
    struct.  Any recognized keys are removed from pod.  Logs errors to
    warning log.  Returns config on success, NULL on error.  Does not

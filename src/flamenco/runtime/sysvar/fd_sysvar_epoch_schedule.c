@@ -82,7 +82,7 @@ fd_epoch_slot_cnt( fd_epoch_schedule_t const * schedule,
 
   if( FD_UNLIKELY( epoch < schedule->first_normal_epoch ) ) {
     ulong exp = fd_ulong_sat_add( epoch, (ulong)fd_ulong_find_lsb( FD_EPOCH_LEN_MIN ) );
-    return 1UL<<exp;
+    return ( exp<64UL ? 1UL<<exp : ULONG_MAX ); // saturating_pow
   }
 
   return schedule->slots_per_epoch;

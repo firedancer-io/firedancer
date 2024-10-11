@@ -468,7 +468,7 @@ add:
     if( FD_UNLIKELY( key_len > sizeof(parser->key)  ) ) {
       FD_LOG_WARNING(( "oversz key: \"%.*s%.*s\"",
                       (int)old_key_len, parser->key,
-                      (int)suffix_len,  parser->scratch ));
+                      (int)suffix_len,  (char *)parser->scratch ));
       parser->error = FD_TOML_ERR_KEY;
       return 0;
     }

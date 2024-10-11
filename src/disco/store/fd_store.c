@@ -199,8 +199,8 @@ int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
 
-  if( FD_UNLIKELY( store->expected_shred_version && shred->version != store->expected_shred_version ) ) {
-    FD_LOG_DEBUG(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
+  if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
+    FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
     return FD_BLOCKSTORE_OK;
   }
 
@@ -224,7 +224,6 @@ fd_store_shred_insert( fd_store_t * store,
   }
 
   fd_blockstore_start_write( blockstore );
-  /* TODO remove this check when we can handle duplicate shreds and blocks */
   if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;

@@ -130,7 +130,6 @@ typedef struct {
   struct {
     char affinity[ AFFINITY_SZ ];
     char agave_affinity[ AFFINITY_SZ ];
-    char solana_labs_affinity[ AFFINITY_SZ ];
 
     uint net_tile_count;
     uint quic_tile_count;
@@ -151,7 +150,6 @@ typedef struct {
     int no_agave;
     int bootstrap;
     uint debug_tile;
-    char topology[ 32 ];
 
     struct {
       int  enabled;
@@ -269,7 +267,7 @@ typedef struct {
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
-      uint  cluster_version;
+      char  cluster_version[ 32 ];
     } replay;
 
     struct {

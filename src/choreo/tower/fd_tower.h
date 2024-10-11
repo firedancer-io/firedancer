@@ -334,7 +334,7 @@
 
      2. We have a latest vote slot that is older than the SMR, meaning
         the cluster has rooted past our latest vote.  This can happen
-        when we don't vote for a while (eg. this validator was not
+        when we don't vote for a while (e.g. this validator was not
         running or we were stuck waiting for lockouts.)
    */
 
@@ -342,9 +342,6 @@
 #include "../fd_choreo_base.h"
 #include "../forks/fd_forks.h"
 #include "../ghost/fd_ghost.h"
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #define FD_TOWER_EQV_SAFE ( 0.52 )
 #define FD_TOWER_OPT_CONF ( 2.0 / 3.0 )

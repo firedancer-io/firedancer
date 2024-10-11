@@ -270,7 +270,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( FD_UNLIKELY( 0!=memcmp( lut_key->key, derived_tbl_key->key, sizeof(fd_pubkey_t) ) ) ) {
     /* Max msg_sz: 44 - 2 + 45 = 87 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Table address must match derived address: %s", FD_BASE58_ENCODE_32( derived_tbl_key ) );
+      "Table address must match derived address: %s", FD_BASE58_ENC_32_ALLOCA( derived_tbl_key ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -281,10 +281,13 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
-  ulong tbl_acct_data_len = 0x38UL;
-  ulong required_lamports = fd_rent_exempt_minimum_balance( ctx->slot_ctx, tbl_acct_data_len );
-        required_lamports = fd_ulong_max( required_lamports, 1UL );
-        required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+
+  fd_epoch_bank_t * epoch_bank        = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+  fd_rent_t       * rent              = &epoch_bank->rent;
+  ulong             tbl_acct_data_len = 0x38UL;
+  ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, tbl_acct_data_len );
+                    required_lamports = fd_ulong_max( required_lamports, 1UL );
+                    required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L144-L149 */
   if( required_lamports>0UL ) {
@@ -637,9 +640,11 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L317-L321 */
-  ulong required_lamports = fd_rent_exempt_minimum_balance( ctx->slot_ctx, new_table_data_sz );
-        required_lamports = fd_ulong_max    ( required_lamports, 1UL );
-        required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  fd_epoch_bank_t * epoch_bank        = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+  fd_rent_t       * rent              = &epoch_bank->rent;
+  ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
+                    required_lamports = fd_ulong_max    ( required_lamports, 1UL );
+                    required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   if( required_lamports ) {
     fd_pubkey_t const * payer_key = NULL;

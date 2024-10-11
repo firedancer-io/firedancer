@@ -100,6 +100,7 @@ fd_snapshot_http_new( void *               mem,
 
 void *
 fd_snapshot_http_delete( fd_snapshot_http_t * this ) {
+  if( FD_UNLIKELY( !this ) ) return NULL;
   if( this->socket_fd>=0 ) {
     close( this->socket_fd );
     this->socket_fd = -1;

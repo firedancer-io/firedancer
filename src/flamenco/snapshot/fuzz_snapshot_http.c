@@ -167,6 +167,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Launch a thread that does the HTTP client side */
   thrd_t thr;
   assert( thrd_create( &thr, target_task, &st )==thrd_success );
+  fd_msan_unpoison( &thr, sizeof(thrd_t) );
 
   /* Do the server side I/O */
   io_task( sockets[0], &st.done_sending, data, data_sz );

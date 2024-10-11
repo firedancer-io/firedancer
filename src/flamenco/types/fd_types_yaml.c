@@ -6,9 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define FD_FLAMENCO_YAML_INDENT_BUFSZ (2UL*FD_FLAMENCO_YAML_MAX_INDENT+1UL)
 
 /* STATE_{...} identify the state of the YAML writer.  This is used
@@ -330,7 +327,7 @@ fd_flamenco_yaml_walk( void *       _self,
     break;
   }
   case FD_FLAMENCO_TYPE_HASH1024:
-    fprintf( file, "'%32J%32J%32J%32J'\n", arg, ((uchar *) arg)+32, ((uchar *) arg)+64, ((uchar *) arg)+96 );
+    fprintf( file, "'%s%s%s%s'\n", FD_BASE58_ENC_32_ALLOCA( arg ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+32 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+64 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+96 ) );
     break;
   case FD_FLAMENCO_TYPE_SIG512: {
     char buf[ FD_BASE58_ENCODED_64_SZ ];

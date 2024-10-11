@@ -2,9 +2,6 @@
 
 #include <string.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 void *
 fd_voter_new( void * shmem ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -75,7 +72,7 @@ fd_voter_txn_generate( fd_voter_t const *                     voter,
                        fd_hash_t const *                      recent_blockhash,
                        uchar                                  txn_meta_out[static FD_TXN_MAX_SZ],
                        uchar                                  txn_out[static FD_TXN_MTU] ) {
-  FD_LOG_NOTICE( ( "[%s]: vote acc addr %32J", __func__, &voter->vote_acc_addr ) );
+  FD_LOG_NOTICE(( "[%s]: vote acc addr %s", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->vote_acc_addr ) ));
 
   int same_addr = !memcmp( &voter->validator_identity,
                            &voter->vote_authority,
@@ -181,9 +178,9 @@ fd_voter_txn_generate( fd_voter_t const *                     voter,
 //   if( FD_UNLIKELY( memcmp( program_account_addr,
 //                            fd_solana_vote_program_id.key,
 //                            sizeof( fd_pubkey_t ) ) ) ) {
-//     FD_LOG_WARNING( ( "[fd_voter_txn_parse] txn program %32J was not vote program id %32J",
-//                       program_account_addr,
-//                       fd_solana_vote_program_id.key ) );
+//     FD_LOG_WARNING(( "[fd_voter_txn_parse] txn program %s was not vote program id %s",
+//                      FD_BASE58_ENC_32_ALLOCA( program_account_addr ),
+//                      FD_BASE58_ENC_32_ALLOCA( fd_solana_vote_program_id.key ) ));
 //     return -1;
 //   }
 

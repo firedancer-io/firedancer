@@ -813,7 +813,7 @@
         { "name": "lockouts", "type": "deque", "element": "vote_lockout", "min": 32 },
         { "name": "root", "type": "option", "element": "ulong", "flat": true },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "long" }
+        { "name": "timestamp", "type": "option", "element": "long", "flat": true }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
     },
@@ -824,7 +824,7 @@
           { "name": "root", "type": "ulong" },
           { "name": "lockouts", "type": "vector", "element": "lockout_offset", "modifier": "compact" },
           { "name": "hash", "type": "hash" },
-          { "name": "timestamp", "type": "option", "element": "long" }
+          { "name": "timestamp", "type": "option", "element": "long", "flat": true }
       ]
     },
     {
@@ -956,7 +956,7 @@
       "name": "clock_timestamp_votes",
       "type": "struct",
       "fields": [
-          { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":10000 }
+          { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":15000 }
       ],
       "comment": "Validator timestamp oracle votes received from voting nodes. TODO: make this a map"
     },
@@ -1072,7 +1072,7 @@
         { "name": "eah_interval",          "type": "ulong" },
         { "name": "genesis_hash",          "type": "hash" },
         { "name": "cluster_type",          "type": "uint" },
-        { "name": "cluster_version",       "type": "uint" },
+        { "name": "cluster_version",       "type": "array", "element": "uint", "length": 3 },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"}
       ]
     },

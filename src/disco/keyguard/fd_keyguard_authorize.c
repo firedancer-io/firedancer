@@ -158,6 +158,14 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     /* no further restrictions on TLS CertificateVerify */
     return 1;
 
+  case FD_KEYGUARD_ROLE_BUNDLE:
+    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_BUNDLE ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for bundle (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    /* no further restrictions on bundle */
+    return 1;
+
   default:
     FD_LOG_WARNING(( "unsupported role=%#x", role ));
     return 0;

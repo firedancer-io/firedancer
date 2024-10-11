@@ -5,10 +5,8 @@
 #include "fd_rent_lists.h"
 #include "fd_rocksdb.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include "fd_system_ids.h"
 #include <assert.h>
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
@@ -65,7 +63,7 @@ fd_rent_lists_cb( fd_funk_rec_t * rec,
       fd_account_meta_t const * metadata = fd_type_pun_const( data );
 
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-      ulong required_balance = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, metadata->dlen);
+      ulong required_balance = fd_rent_exempt_minimum_balance( &epoch_bank->rent, metadata->dlen );
       if( required_balance <= metadata->info.lamports )
         return FD_FUNK_PART_NULL;
     }
@@ -131,7 +129,12 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
                  fd_borrowed_account_t * account) {
-
+  /* TODO: re-add this check after consulting on why this builtin program check.
+     Is it the case that the  */
+  // if( fd_pubkey_is_builtin_program( pubkey )
+  //     || memcmp(pubkey->uc, fd_solana_compute_budget_program_id.uc, sizeof(fd_pubkey_t))==0 ) {
+  //   txn = NULL;
+  // }
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
   if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
@@ -142,7 +145,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
   }
 
   if( FD_BORROWED_ACCOUNT_MAGIC != account->magic ) {
-    FD_LOG_ERR(( "bad magic for borrowed account - acc: %32J, expected: %016lx, got: %016lx", pubkey->uc, FD_BORROWED_ACCOUNT_MAGIC, account->magic ));
+    FD_LOG_ERR(( "bad magic for borrowed account - acc: %s, expected: %016lx, got: %016lx", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), FD_BORROWED_ACCOUNT_MAGIC, account->magic ));
   }
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
@@ -185,12 +188,12 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 //
 //    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
 //
-//    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s  rec_cnt: %d", rec->pair.key->uc, do_create ? "true" : "false", rec_cnt));
+//    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s  rec_cnt: %d", FD_BASE58_ENC_32_ALLOCA( rec->pair.key->uc ), do_create ? "true" : "false", rec_cnt));
 //
 //    rec_cnt++;
 //  }
 //
-//  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s", pubkey->uc, do_create ? "true" : "false"));
+//  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), do_create ? "true" : "false"));
 //#endif
 
   int funk_err = FD_FUNK_SUCCESS;
@@ -202,7 +205,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
       return NULL;
     }
     /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%32J) failed (%i-%s)", pubkey->key, funk_err, fd_funk_strerror( funk_err ) ));
+    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
   }
 
   if (NULL != opt_out_rec)
@@ -245,8 +248,13 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
 
 #ifdef VLOG
-  FD_LOG_DEBUG(( "fd_acc_mgr_modify: %32J create: %s  lamports: %ld  owner: %32J  executable: %s,  rent_epoch: %ld, data_len: %ld",
-      pubkey->uc, do_create ? "true" : "false", meta->info.lamports, meta->info.owner, meta->info.executable ? "true" : "false", meta->info.rent_epoch, meta->dlen ));
+  FD_LOG_DEBUG(( "fd_acc_mgr_modify: %s create: %s  lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld",
+                 FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
+                 do_create ? "true" : "false",
+                 meta->info.lamports,
+                 FD_BASE58_ENC_32_ALLOCA( meta->info.owner ),
+                 meta->info.executable ? "true" : "false",
+                 meta->info.rent_epoch, meta->dlen ));
 #endif
 
   account->orig_rec  = account->const_rec  = account->rec;
@@ -285,7 +293,7 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
                  fd_borrowed_account_t * account ) {
   if( account->meta == NULL || account->rec == NULL ) {
     // The meta is NULL so the account is not writable.
-    FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %32J", account->pubkey ));
+    FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) ));
     return FD_ACC_MGR_SUCCESS;
   }
 
@@ -306,7 +314,9 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
   fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
   if( rec == NULL ) {
     int err;
+    fd_funk_start_write( acc_mgr->funk );
     rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
+    fd_funk_end_write( acc_mgr->funk );
     if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
   }
   account->rec = rec;
@@ -447,7 +457,8 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     };
 
     /* Save accounts in a thread pool */
-    fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+
+    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     fd_funk_end_write( funk );
 

@@ -6,9 +6,6 @@
 #include "../../util/fd_util.h"
 #include <sys/random.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 #define TEST_VOTE_TXN_MAGIC ( 0x7e58UL )
 
 void
@@ -57,12 +54,12 @@ main( int argc, char ** argv ) {
   FD_PARAM_UNUSED fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
 
   /* create compact_vote_state_update with dummy values */
-  fd_compact_vote_state_update_t compact_vote_update;
-  memset( &compact_vote_update, 0, sizeof( fd_compact_vote_state_update_t ) );
+  fd_compact_vote_state_update_t compact_vote_update = {0};
   compact_vote_update.root         = 100;
   compact_vote_update.lockouts_len = 0;
   static long now                  = 1715701506716580798L;
-  compact_vote_update.timestamp    = &now;
+  compact_vote_update.has_timestamp = 1;
+  compact_vote_update.timestamp     = now;
   FD_TEST( 32UL == getrandom( compact_vote_update.hash.key, 32UL, 0 ) );
 
   fd_hash_t recent_blockhash = { 0 };
@@ -91,14 +88,14 @@ main( int argc, char ** argv ) {
   //                                            valloc,
   //                                            &parsed_recent_blockhash_off,
   //                                            &parsed_vote_update ) );
-  // FD_LOG_NOTICE( ( "recent blockhash: %32J == %32J",
-  //                  recent_blockhash,
-  //                  txn_buf + parsed_recent_blockhash_off ) );
-  // FD_LOG_NOTICE( ( "root: %ld == %ld", compact_vote_update.root, parsed_vote_update.root ) );
-  // FD_LOG_NOTICE( ( "timestamp: %lu == %lu",
-  //                  *compact_vote_update.timestamp,
-  //                  *parsed_vote_update.timestamp ) );
-  // FD_LOG_NOTICE( ( "hash: %32J == %32J",
-  //                  compact_vote_update.hash.key,
-  //                  parsed_vote_update.hash.key ) );
+  // FD_LOG_NOTICE(( "recent blockhash: %s == %s",
+  //                 FD_BASE58_ENC_32_ALLOCA( recent_blockhash ),
+  //                 FD_BASE58_ENC_32_ALLOCA( txn_buf + parsed_recent_blockhash_off ) ));
+  // FD_LOG_NOTICE(( "root: %ld == %ld", compact_vote_update.root, parsed_vote_update.root ) );
+  // FD_LOG_NOTICE(( "timestamp: %lu == %lu",
+  //                 *compact_vote_update.timestamp,
+  //                 *parsed_vote_update.timestamp ) );
+  // FD_LOG_NOTICE(( "hash: %s == %s",
+  //                 FD_BASE58_ENC_32_ALLOCA( compact_vote_update.hash.key ),
+  //                 FD_BASE58_ENC_32_ALLOCA( parsed_vote_update.hash.key ) ));
 }

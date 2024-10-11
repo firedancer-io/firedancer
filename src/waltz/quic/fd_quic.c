@@ -33,6 +33,19 @@
 #define PRQ_TIMEOUT_T ulong
 #include "../../util/tmpl/fd_prq.c"
 
+/* Using RB tree as priority queue for time based processing */
+#define REDBLK_T    fd_quic_rb_event_t
+#define REDBLK_NAME rb_service_queue
+#include "../../util/tmpl/fd_redblack.c"
+
+long
+rb_service_queue_compare( fd_quic_rb_event_t * left,
+                          fd_quic_rb_event_t * right) {
+  long dt = (long)( left->timeout  - right->timeout );
+  long di = (long)( left->conn_idx - right->conn_idx );
+  return dt == 0 ? di : dt;
+}
+
 /* Declare map type for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
 #define MAP_KEY               stream_id
@@ -158,9 +171,9 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   offs                    += conn_map_footprint;
 
   /* allocate space for events priority queue */
-  offs                        = fd_ulong_align_up( offs, service_queue_align() );
+  offs                        = fd_ulong_align_up( offs, rb_service_queue_align() );
   layout->event_queue_off     = offs;
-  ulong event_queue_footprint = service_queue_footprint( conn_cnt + 1 );
+  ulong event_queue_footprint = rb_service_queue_footprint( conn_cnt+1U );
   if( FD_UNLIKELY( !event_queue_footprint ) ) { FD_LOG_WARNING(( "invalid service_queue_footprint" )); return 0UL; }
   offs                       += event_queue_footprint;
 
@@ -468,12 +481,13 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: Initialize service queue */
 
   ulong  service_queue_laddr = (ulong)quic + layout.event_queue_off;
-  void * v_service_queue = service_queue_new( (void *)service_queue_laddr, limits->conn_cnt+1U );
-  state->service_queue = service_queue_join( v_service_queue );
-  if( FD_UNLIKELY( !state->service_queue ) ) {
+  void * v_service_queue = rb_service_queue_new( (void *)service_queue_laddr, limits->conn_cnt+1U );
+  state->rb_service_queue = rb_service_queue_join( v_service_queue );
+  if( FD_UNLIKELY( !state->rb_service_queue ) ) {
     FD_LOG_WARNING(( "NULL service_queue" ));
     return NULL;
   }
+  state->rb_service_queue_root = NULL;
 
   /* Check TX AIO */
 
@@ -844,8 +858,9 @@ fd_quic_fini( fd_quic_t * quic ) {
 
   /* Delete service queue */
 
-  service_queue_delete( service_queue_leave( state->service_queue ) );
-  state->service_queue = NULL;
+  rb_service_queue_delete( rb_service_queue_leave( state->rb_service_queue ) );
+  state->rb_service_queue      = NULL;
+  state->rb_service_queue_root = NULL;
 
   /* Delete conn ID map */
 
@@ -1000,8 +1015,9 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   /* stream_id & 2 == 0 is bidir
      stream_id & 1 == 0 is client */
   if( FD_UNLIKELY( ( ( (uint)stream_id & 2u ) == 2u ) &
-                   ( ( (uint)stream_id & 1u ) != (uint)conn->server ) ) )
+                   ( ( (uint)stream_id & 1u ) != (uint)conn->server ) ) ) {
     return FD_QUIC_SEND_ERR_INVAL_STREAM;
+  }
 
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE ) ) {
     if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ||
@@ -1385,19 +1401,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
         /* This is the initial packet before retry. */
         if( initial->token_len == 0 ) {
-          /* FIXME we pass the "tp" here to allow the function to add the retry_source_connection_ip
-           * transport parameter to be added.
-           * This is incorrect, since:
-           *   1. "tp" is transient, and will likely be modified before it is encoded into a packet
-           *   2. RETRY is supposed to be stateless
-           *
-           * The fix is thus:
-           *   1. put the new source connection id (or some seed from which it's generated)
-           *          into the token in the RETRY packet
-           *   2. upon receiving the token back in a new INITIAL packet, unpack the connection id
-           *          from the token and store in the newly created connection id
-           *   3. when the "tp" is about to be encoded, add the "retry_source_connection_ip"
-           *          from the appropriate member of "conn" */
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
                 &orig_dst_conn_id, &new_conn_id,
@@ -1750,7 +1753,7 @@ fd_quic_handle_v1_handshake(
      > receives its first Handshake packet. */
   fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = enc_level;
+    conn->peer_enc_level = (uchar) enc_level;
   }
 
   /* handle frames */
@@ -1988,7 +1991,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     }
 
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = enc_level;
+    conn->peer_enc_level = (uchar) enc_level;
   }
 
   /* handle frames */
@@ -2033,45 +2036,69 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
 void
 fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
-
   fd_quic_t *       quic    = conn->quic;
   fd_quic_state_t * state   = fd_quic_get_state( quic );
 
   ulong             timeout = conn->next_service_time;
 
+  fd_quic_rb_event_t * rb_service_queue = state->rb_service_queue;
+
+  fd_quic_rb_event_t * event = NULL;
+
   /* scheduled? */
-  if( conn->in_service ) {
+  if( conn->in_schedule ) {
+    fd_quic_rb_event_t key[1] = {{ .timeout  = conn->sched_service_time,
+                                   .conn_idx = conn->conn_idx }};
+
     /* find conn in events, then remove, update, insert */
-    fd_quic_event_t * event     = NULL;
-    ulong             event_idx = 0;
-    ulong             cnt   = service_queue_cnt( state->service_queue );
-    for( ulong j = 0; j < cnt; ++j ) {
-      fd_quic_event_t * cur_event = state->service_queue + j;
-      if( cur_event->conn == conn ) {
-        event     = cur_event;
-        event_idx = j;
-        break;
-      }
-    }
+    event = rb_service_queue_find( rb_service_queue,
+                                   state->rb_service_queue_root,
+                                   key );
 
-    if( FD_LIKELY( event ) ) {
-      /* remove key */
-      service_queue_remove( state->service_queue, event_idx );
-
-      /* TODO can use a priority queue key-reduce operation, which may be done more
-         quickly than remove, insert */
+    /* sanity check */
+    if( FD_UNLIKELY( !event ) ) {
+      FD_LOG_ERR(( "event expected in service queue, but not found" ));
     }
+  }
+
+  if( !event ) {
+    event = rb_service_queue_acquire( rb_service_queue );
+    if( FD_UNLIKELY( !event ) ) {
+      FD_LOG_ERR(( "service_queue pool empty - this should be logically impossible" ));
+    }
+  } else {
+    /* remove from the service queue */
+    rb_service_queue_remove( rb_service_queue,
+                             &state->rb_service_queue_root,
+                             event );
   }
 
   timeout = fd_ulong_max( timeout, state->now + 1UL );
 
+  event->conn     = conn;
+  event->timeout  = timeout;
+  event->conn_idx = conn->conn_idx;
+
+  /* only one entry allowed at each key */
+  /* sanity check */
+  /* this shouldn't be necessary, as conn_idx in the key should make */
+  /* it unique */
+  fd_quic_rb_event_t * find_event =
+                          rb_service_queue_find( rb_service_queue,
+                                                 state->rb_service_queue_root,
+                                                 event );
+  if( FD_UNLIKELY( find_event ) ) {
+    FD_LOG_ERR(( "event should not be in schedule, but is" ));
+  }
+
   /* insert key */
-  fd_quic_event_t event[1] = {{ .timeout = timeout, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
+  rb_service_queue_insert( rb_service_queue,
+                           &state->rb_service_queue_root,
+                           event );
 
   conn->sched_service_time = timeout;
   conn->next_service_time  = timeout;
-  conn->in_service         = 1;
+  conn->in_schedule        = 1;
 }
 
 /* get the service interval, while ensuring the value
@@ -2096,47 +2123,21 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
 
   ulong service_interval = fd_quic_get_service_interval( quic );
 
+  fd_rng_t * rng = state->_rng;
+  ulong jitter = fd_rng_uint( rng ) & 0x3ffUL;
   timeout = fd_ulong_min( timeout, now + service_interval );
-  timeout = fd_ulong_max( timeout, now + 1UL );
+  timeout = fd_ulong_max( timeout, now + jitter );
 
-  /* scheduled? */
-  if( conn->in_service ) {
-    timeout = fd_ulong_min( timeout, conn->next_service_time );
-
-    /* in the queue, but already scheduled sooner */
-    if( timeout >= conn->sched_service_time ) {
-      return;
-    }
-
-    /* find conn in events, then remove, update, insert */
-    fd_quic_event_t * event     = NULL;
-    ulong             event_idx = 0;
-    ulong             cnt   = service_queue_cnt( state->service_queue );
-    for( ulong j = 0; j < cnt; ++j ) {
-      fd_quic_event_t * cur_event = state->service_queue + j;
-      if( cur_event->conn == conn ) {
-        event     = cur_event;
-        event_idx = j;
-        break;
-      }
-    }
-
-    if( FD_LIKELY( event ) ) {
-      /* remove key */
-      service_queue_remove( state->service_queue, event_idx );
-
-      /* TODO can use a priority queue key-reduce operation, which may be done more
-         quickly than remove, insert */
-    }
-
+  if( conn->in_schedule ) {
+    if( timeout >= conn->sched_service_time ) return;
     conn->next_service_time = timeout;
     fd_quic_schedule_conn( conn );
-
-    return;
+  } else {
+    if( timeout >= conn->next_service_time ) return;
+    conn->next_service_time = timeout;
+    /* if we're not in the schedule, fd_quic_conn_service will */
+    /* insert us */
   }
-
-  /* since we're not in the service queue, just set the next_service_time */
-  conn->next_service_time = timeout;
 }
 
 /* fd_quic_ack_join is used to reduce the resources consumed managing acks */
@@ -2408,27 +2409,21 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
 }
 
 /* process v1 quic packets
-   only called for packets with long header
-   returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error
-   assumes cur_sz >= FD_QUIC_SHORTEST_PKT */
+   returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
 ulong
 fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 fd_quic_pkt_t * pkt,
                                 uchar *         cur_ptr,
                                 ulong           cur_sz ) {
 
-  /* do not respond to packets over 1500 bytes */
-  if( FD_UNLIKELY( cur_sz > 1500 ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
+  /* bounds check packet size */
+  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( cur_sz > 1500                 ) ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_state_t *    state = fd_quic_get_state( quic );
   fd_quic_conn_map_t * entry = NULL;
   fd_quic_conn_t *     conn  = NULL;
 
-  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
 
   /* keep end */
   uchar * orig_ptr = cur_ptr;
@@ -2774,7 +2769,7 @@ fd_quic_aio_cb_receive( void *                    context,
     t1 = fd_quic_now( quic );
     ulong delta = t1 - t0;
     if( delta > (ulong)500e3 ) {
-      FD_LOG_WARNING(( "CALLBACK - took %lu  t0: %lu  t1: %lu  batch_cnt: %lu", delta, t0, t1, (ulong)batch_cnt ));
+      FD_LOG_WARNING(( "CALLBACK - took %ld  t0: %lu  t1: %lu  batch_cnt: %lu", delta, t0, t1, (ulong)batch_cnt ));
     }
   )
 
@@ -3012,6 +3007,34 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
       /* Trigger allocation of streams to connections */
       fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+      /* allocate client initiated unidir streams */
+      uint stream_type = FD_QUIC_TYPE_UNIDIR << 1u;
+
+      if( conn->server ) {
+        fd_quic_stream_pool_t * stream_pool = state->stream_pool;
+
+        /* assign streams to connection */
+        while( conn->cur_stream_cnt[stream_type] < FD_QUIC_STREAM_MIN ) {
+          /* obtain stream from stream pool */
+          fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( stream_pool );
+          if( FD_UNLIKELY( !stream ) ) {
+            /* should never happen */
+            break;
+          }
+
+          int rtn = fd_quic_assign_stream( conn, stream_type, stream );
+          if( FD_UNLIKELY( rtn == FD_QUIC_FAILED ) ) {
+            /* should never happen */
+            /* return stream */
+            fd_quic_stream_pool_free( stream_pool, stream );
+            break;
+          }
+        }
+
+        fd_quic_conn_update_max_streams( conn, (uint)stream_type >> 1U );
+      }
+
       state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
       return;
 
@@ -3112,10 +3135,15 @@ fd_quic_service( fd_quic_t * quic ) {
     fd_quic_assign_streams( quic );
   }
 
+  fd_quic_rb_event_t * rb_service_queue = state->rb_service_queue;
+
   /* service events */
   fd_quic_conn_t * conn = NULL;
-  while( service_queue_cnt( state->service_queue ) ) {
-    fd_quic_event_t * event = &state->service_queue[0];
+  while( 1 ) {
+    fd_quic_rb_event_t * event =
+        rb_service_queue_minimum( rb_service_queue,
+                                  state->rb_service_queue_root );
+    if( !event ) break;
 
     /* copy before removing event */
     conn = event->conn;
@@ -3129,10 +3157,14 @@ fd_quic_service( fd_quic_t * quic ) {
     conn->next_service_time = now + fd_quic_get_service_interval( quic );
 
     /* remove event, later reinserted at new time */
-    service_queue_remove_min( state->service_queue );
+    rb_service_queue_remove( rb_service_queue,
+                             &state->rb_service_queue_root,
+                             event );
+    rb_service_queue_release( rb_service_queue, event );
 
     /* unset "in service queue" */
-    conn->in_service = 0;
+    conn->in_schedule        = 0;
+    conn->sched_service_time = ~0UL;
 
     if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
       /* connection shouldn't have been scheduled,
@@ -3186,7 +3218,7 @@ fd_quic_service( fd_quic_t * quic ) {
 
       default:
         /* only schedule if not already scheduled */
-        if( !conn->in_service ) {
+        if( !conn->in_schedule ) {
           fd_quic_schedule_conn( conn );
         }
     }
@@ -5020,8 +5052,11 @@ fd_quic_get_next_wakeup( fd_quic_t * quic ) {
   }
 
   ulong t = ~(ulong)0;
-  if( service_queue_cnt( state->service_queue ) ) {
-    t = state->service_queue[0].timeout;
+  fd_quic_rb_event_t * event =
+      rb_service_queue_minimum( state->rb_service_queue,
+                                state->rb_service_queue_root );
+  if( event ) {
+    t = event->timeout;
   }
 
   return t;
@@ -5942,13 +5977,31 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
 
   stream->stream_id = ~0UL;
 
-  /* add to stream_pool */
+  /* get state */
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  fd_quic_stream_pool_free( state->stream_pool, stream );
 
   /* decrement current stream count */
   ulong type = stream_id & 3UL;
   conn->cur_stream_cnt[type]--;
+
+  /* here, if the connection will become below the minimum streams */
+  /* we want to keep it allocated */
+  /* else we want to return it to the pool */
+  if( FD_UNLIKELY( conn->server
+                && conn->state == FD_QUIC_CONN_STATE_ACTIVE
+                && type == FD_QUIC_STREAM_TYPE_UNI_CLIENT
+                && conn->cur_stream_cnt[type] < FD_QUIC_STREAM_MIN ) ) {
+    int rtn = fd_quic_assign_stream( conn, type, stream );
+    if( FD_UNLIKELY( rtn == FD_QUIC_FAILED ) ) {
+      FD_DEBUG( FD_LOG_WARNING(( "fd_quic_assign_stream failed" )); )
+
+      /* add to stream_pool */
+      fd_quic_stream_pool_free( state->stream_pool, stream );
+    }
+  } else {
+    /* add to stream_pool */
+    fd_quic_stream_pool_free( state->stream_pool, stream );
+  }
 
   fd_quic_conn_update_max_streams( conn, (uint)type >> 1U );
 
@@ -6670,6 +6723,8 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
 
     if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE &&
                      conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) {
+      FD_DEBUG( FD_LOG_WARNING(( "ASSIGN - conn chosen has unusable state: %u",
+            (uint)conn->state )); )
       fd_quic_stream_pool_free( stream_pool, stream );
       break;
     }
@@ -6699,17 +6754,23 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   ulong next_stream_id = conn->next_stream_id[stream_type];
 
   /* check if connection is allowed to be assigned the stream */
-  if( FD_UNLIKELY( next_stream_id >= conn->tgt_sup_stream_id[stream_type] ) ) {
+  if( FD_UNLIKELY( conn->cur_stream_cnt[stream_type] >= FD_QUIC_STREAM_MIN &&
+                   next_stream_id >= conn->tgt_sup_stream_id[stream_type] ) ) {
+    FD_DEBUG( FD_LOG_NOTICE(( "ASSIGN FAILED" )); )
     return FD_QUIC_FAILED;
   }
 
   uint dirtype = ( (uint)stream_type & 2U ) >> 1U;
-  if( FD_UNLIKELY( dirtype==FD_QUIC_TYPE_BIDIR ) ) return FD_QUIC_FAILED;
+  if( FD_UNLIKELY( dirtype==FD_QUIC_TYPE_BIDIR ) ) {
+    FD_DEBUG( FD_LOG_NOTICE(( "ASSIGN FAILED" )); )
+    return FD_QUIC_FAILED;
+  }
 
   fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
   if( FD_UNLIKELY( !entry ) ) {
     /* stream_map should be large enough for maximum tgt_stream_id */
     /* TODO add metric */
+    FD_DEBUG( FD_LOG_NOTICE(( "ASSIGN FAILED" )); )
     return FD_QUIC_FAILED;
   }
 
