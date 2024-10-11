@@ -1772,6 +1772,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if ( !vm ) {
     goto error;
   }
+  uchar is_deprecated = !memcmp( input_instr_ctx->program_id, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
   fd_vm_init(
     vm,
     ctx,
@@ -1791,7 +1792,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     input_regions,
     input_regions_count,
     NULL,
-    input->vm_ctx.check_align );
+    is_deprecated );
 
   // Setup the vm state for execution
   if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {

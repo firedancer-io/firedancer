@@ -65,6 +65,21 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 #define EDWARDS   FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS
 #define RISTRETTO FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO
 
+  /* We need this check to avoid edge cases in MATCH_ID_OP(),
+     for example if curve_id is very large but crv_id << 4 is 0 or 1. */
+  switch( curve_id ) {
+  case EDWARDS:
+  case RISTRETTO:
+    break;
+  default:
+    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
+    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE );
+      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    }
+    goto soft_error; /* unknown curve op */
+  }
+
   ulong cost = 0UL;
   switch( MATCH_ID_OP( curve_id, group_op ) ) {
 
