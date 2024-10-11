@@ -1772,8 +1772,8 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
-    fd_sbpf_validated_program_t * prog = NULL;
-    if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->slot_ctx, &ctx->instr->program_id_pubkey, &prog ) ) ) {
+    /* Make sure the program is not in the blacklist */
+    if( FD_UNLIKELY( fd_bpf_is_in_program_blacklist( ctx->slot_ctx, &ctx->instr->program_id_pubkey ) ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -1847,6 +1847,10 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
     }
+
+    /* This should NEVER fail. */
+    fd_sbpf_validated_program_t * prog = NULL;
+    FD_TEST( !fd_bpf_load_cache_entry( ctx->slot_ctx, &ctx->instr->program_id_pubkey, &prog ) );
 
     return execute( ctx, prog, is_deprecated );
   } FD_SCRATCH_SCOPE_END;
