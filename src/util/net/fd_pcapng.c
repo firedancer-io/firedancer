@@ -632,6 +632,9 @@ fd_pcapng_fwrite_idb( uint                         link_type,
                                and payload. (meta is variable length) */
   };
 
+  uchar tsresol = FD_PCAPNG_TSRESOL_NS;
+  FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_TSRESOL, 1UL, &tsresol );
+
   if( opt ) {
 
     if( opt->name[0] )
@@ -640,8 +643,6 @@ fd_pcapng_fwrite_idb( uint                         link_type,
       FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_IPV4_ADDR, 4UL,                                 opt->ip4_addr );
     if( fd_ulong_load_6( opt->mac_addr ) )
       FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_MAC_ADDR,  6UL,                                 opt->mac_addr );
-
-  /**/FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_TSRESOL,   1UL,                                 &opt->tsresol );
 
     if( opt->hardware[0] )
       FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_HARDWARE,  fd_cstr_nlen( opt->hardware, 64UL ), opt->hardware );

@@ -229,9 +229,9 @@ static inline int
 fd_account_is_rent_exempt_at_data_length( fd_exec_instr_ctx_t const * ctx,
                                           fd_account_meta_t   const * meta ) {
   assert( meta != NULL );
-  fd_rent_t rent     = ctx->epoch_ctx->epoch_bank.rent;
-  ulong min_balanace = fd_rent_exempt_minimum_balance2( &rent, meta->dlen );
-  return meta->info.lamports >= min_balanace; 
+  fd_rent_t rent    = ctx->epoch_ctx->epoch_bank.rent;
+  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, meta->dlen );
+  return meta->info.lamports >= min_balance; 
 }
 
 /* fd_account_is_executable returns 1 if the given account has the
@@ -351,10 +351,11 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
     return 0;
   }
 
-  /* The resize can not exceed the per-transaction maximum */
+  /* The resize can not exceed the per-transaction maximum
+     https://github.com/firedancer-io/agave/blob/1e460f466da60a63c7308e267c053eec41dc1b1c/sdk/src/transaction_context.rs#L1107-L1111 */
   ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
-  instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
+  ulong new_accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
@@ -402,7 +403,7 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
 
 /* https://github.com/anza-xyz/agave/blob/92ad51805862fbb47dc40968dff9f93b57395b51/sdk/program/src/message/legacy.rs#L636 */
 static inline int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t * txn_ctx, int idx ) {
+fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
   int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
@@ -412,7 +413,8 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t * txn_ctx, int idx ) {
     return 0;
   }
 
-  if( fd_pubkey_is_builtin_program( &txn_ctx->accounts[idx] ) || fd_pubkey_is_sysvar_id( &txn_ctx->accounts[idx] ) ) {
+  if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) 
+      || ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
     return 0;
   }
 

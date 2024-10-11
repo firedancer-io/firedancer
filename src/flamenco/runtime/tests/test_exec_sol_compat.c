@@ -1,5 +1,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fd_flamenco_base.h"
+#include "../../fd_flamenco.h"
 #include "fd_exec_sol_compat.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -42,6 +43,8 @@ run_test( fd_exec_instr_test_runner_t * runner,
     ok = sol_compat_syscall_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_validate/" ) != NULL ) {
     ok = sol_compat_validate_vm_fixture( runner, buf, file_sz );
+  } else if( strstr( path, "/vm_interp/" ) != NULL ){
+    ok = sol_compat_vm_interp_fixture( runner, buf, file_sz );
   } else {
     FD_LOG_WARNING(( "Unknown test type: %s", path ));
   }
@@ -56,6 +59,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_flamenco_boot( NULL, NULL );
   sol_compat_wksp_init();
   ulong fmem[ 64 ];
 

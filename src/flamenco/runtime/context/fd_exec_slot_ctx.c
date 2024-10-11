@@ -143,23 +143,103 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
                            fd_solana_manifest_t * manifest ) {
 
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
+  fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   fd_valloc_t           slot_valloc = slot_ctx->valloc;
 
   /* Clean out prior bank */
-
   fd_bincode_destroy_ctx_t destroy = { .valloc = slot_valloc };
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
   fd_slot_bank_destroy( slot_bank, &destroy );
   fd_slot_bank_new( slot_bank );
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_epoch_bank_new( epoch_bank );
+  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
+          epoch_bank->stakes.vote_accounts.vote_accounts_pool,
+          epoch_bank->stakes.vote_accounts.vote_accounts_root );
+          n;
+          n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
 
-  /* Move stakes data structure */
+      const fd_pubkey_t null_pubkey = {{ 0 }};
+      if ( memcmp( &n->elem.key, &null_pubkey, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+        continue;
+      }
+  }
 
   fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
-  fd_memcpy( &epoch_bank->stakes, &oldbank->stakes, sizeof(fd_stakes_t) );
-  fd_memset( &oldbank->stakes, 0, sizeof(fd_stakes_t) );
+
+  /* Populate the epoch context, using the already-allocated statically allocated memory */
+  /* Copy stakes */
+  epoch_bank->stakes.epoch = oldbank->stakes.epoch;
+
+  /* Copy stakes->vote_accounts */
+  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
+          oldbank->stakes.vote_accounts.vote_accounts_pool,
+          oldbank->stakes.vote_accounts.vote_accounts_root );
+              n;
+              n = fd_vote_accounts_pair_t_map_successor( oldbank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
+
+      const fd_pubkey_t null_pubkey = {{ 0 }};
+      if ( memcmp( &n->elem.key, &null_pubkey, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+        continue;
+      }
+
+      FD_TEST( fd_vote_accounts_pair_t_map_free( epoch_bank->stakes.vote_accounts.vote_accounts_pool ) );
+      fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
+      FD_TEST( new_node );
+      fd_memcpy( &new_node->elem, &n->elem, FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT );
+      fd_vote_accounts_pair_t_map_insert(
+        epoch_bank->stakes.vote_accounts.vote_accounts_pool,
+        &epoch_bank->stakes.vote_accounts.vote_accounts_root,
+        new_node
+      );
+  }
+
+  /* Copy stakes->stake_delegations */
+  for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(
+          oldbank->stakes.stake_delegations_pool,
+          oldbank->stakes.stake_delegations_root );
+          n;
+          n = fd_delegation_pair_t_map_successor( oldbank->stakes.stake_delegations_pool, n ) ) {
+
+      const fd_pubkey_t null_pubkey = {{ 0 }};
+      if ( memcmp( &n->elem.account, &null_pubkey, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+        continue;
+      }
+
+      fd_delegation_pair_t_mapnode_t * new_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
+      FD_TEST( new_node );
+      fd_memcpy( &new_node->elem, &n->elem, FD_DELEGATION_PAIR_FOOTPRINT );
+      fd_delegation_pair_t_map_insert(
+        epoch_bank->stakes.stake_delegations_pool,
+        &epoch_bank->stakes.stake_delegations_root,
+        new_node
+      );
+  }
+
+  /* Copy stakes->stake_history */
+  for ( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init(
+          oldbank->stakes.stake_history.treap,
+          oldbank->stakes.stake_history.pool );
+          !fd_stake_history_treap_fwd_iter_done( iter );
+          iter = fd_stake_history_treap_fwd_iter_next( iter, oldbank->stakes.stake_history.pool ) ) {
+
+    fd_stake_history_entry_t const * ele = fd_stake_history_treap_fwd_iter_ele_const( iter, oldbank->stakes.stake_history.pool );
+
+    FD_TEST( fd_stake_history_pool_free( epoch_bank->stakes.stake_history.pool ) );
+    fd_stake_history_entry_t * new_ele = fd_stake_history_pool_ele_acquire( epoch_bank->stakes.stake_history.pool );
+
+    new_ele->epoch        = ele->epoch;
+    new_ele->activating   = ele->activating;
+    new_ele->deactivating = ele->deactivating;
+    new_ele->effective    = ele->effective;
+
+    epoch_bank->stakes.stake_history.treap = fd_stake_history_treap_ele_insert(
+      epoch_bank->stakes.stake_history.treap,
+      new_ele,
+      epoch_bank->stakes.stake_history.pool
+    );
+  }
+
+  fd_stakes_destroy( &oldbank->stakes, &destroy );
 
   /* Index vote accounts */
 
@@ -182,9 +262,10 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   epoch_bank->genesis_creation_time = oldbank->genesis_creation_time;
   epoch_bank->slots_per_year = oldbank->slots_per_year;
   slot_bank->max_tick_height = oldbank->max_tick_height;
-  epoch_bank->inflation = oldbank->inflation;
-  epoch_bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
+  fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, FD_INFLATION_FOOTPRINT );
+  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
   epoch_bank->rent = oldbank->rent_collector.rent;
+  fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, FD_RENT_FOOTPRINT );
 
   if( manifest->epoch_account_hash )
     slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
@@ -248,11 +329,25 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_epoch_epoch_stakes_pair_t * epochs  = oldbank->epoch_stakes;
     fd_epoch_stakes_t *            stakes0 = NULL;  /* current */
     fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
+    slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
+    slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
+
     for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
       if( epochs[i].key == epoch )
         stakes0 = &epochs[i].value;
       if( epochs[i].key == epoch+1UL )
         stakes1 = &epochs[i].value;
+
+      /* When loading from a snapshot, Agave's stake caches mean that we have to special-case the epoch stakes
+         that are used for the second epoch E+2 after the snapshot epoch E.
+
+         If the snapshot contains the epoch stakes for E+2, we should use those.
+
+         If the snapshot does not, we should use the stakes at the end of the E-1 epoch, instead of E-2 as we do for
+         all other epochs. */
+      if ( epochs[i].key == epoch+2UL ) {
+        slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
+      }
     }
     if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
       FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));
@@ -260,8 +355,29 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     }
 
     /* Move current EpochStakes */
-    slot_bank->epoch_stakes = stakes0->stakes.vote_accounts;
-    fd_memset( &stakes0->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
+    slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool =
+      fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
+    slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
+
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
+          stakes0->stakes.vote_accounts.vote_accounts_pool,
+          stakes0->stakes.vote_accounts.vote_accounts_root );
+          n;
+          n = fd_vote_accounts_pair_t_map_successor( stakes0->stakes.vote_accounts.vote_accounts_pool, n ) ) {
+
+        fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire(
+          slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
+        FD_TEST( elem );
+
+        fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+
+        fd_vote_accounts_pair_t_map_insert(
+          slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
+          &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
+          elem );
+    }
+
+    fd_vote_accounts_destroy( &stakes0->stakes.vote_accounts, &destroy );
 
     /* Move next EpochStakes
        TODO Can we derive this instead of trusting the snapshot? */
@@ -269,18 +385,24 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
 
-    // Delete all nodes from existing
-    fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root);
+          n;
+          n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
 
-    epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
-    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
+      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire(
+        epoch_bank->next_epoch_stakes.vote_accounts_pool );
+      FD_TEST( elem );
 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
-      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
       fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-      fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
+
+      fd_vote_accounts_pair_t_map_insert(
+        epoch_bank->next_epoch_stakes.vote_accounts_pool,
+        &epoch_bank->next_epoch_stakes.vote_accounts_root,
+        elem );
+
     }
-    fd_memset( &stakes1->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
+
+    fd_vote_accounts_destroy( &stakes1->stakes.vote_accounts, &destroy );
   } while(0);
 
   // TODO Backup to database

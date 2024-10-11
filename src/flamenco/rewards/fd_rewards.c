@@ -8,9 +8,6 @@
 #include "../../ballet/siphash13/fd_siphash13.h"
 #include "../runtime/program/fd_program_util.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/native_token.rs#L6 */
 #define LAMPORTS_PER_SOL   ( 1000000000UL )
 
@@ -360,11 +357,11 @@ calculate_reward_points_partitioned(
                 continue;
             }
             if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_DEBUG(( "stake account not found %32J", stake_acc->uc ));
+                FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
             if ( stake_acc_rec->const_meta->info.lamports == 0 ) {
-                FD_LOG_DEBUG(( "stake acc with zero lamports %32J", stake_acc->uc));
+                FD_LOG_DEBUG(( "stake acc with zero lamports %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
 
@@ -444,11 +441,11 @@ calculate_reward_points_partitioned(
                 continue;
             }
             if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_DEBUG(( "stake account not found %32J", stake_acc->uc ));
+                FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
             if ( stake_acc_rec->const_meta->info.lamports == 0 ) {
-                FD_LOG_DEBUG(( "stake acc with zero lamports %32J", stake_acc->uc));
+                FD_LOG_DEBUG(( "stake acc with zero lamports %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
 
@@ -533,13 +530,13 @@ calculate_stake_vote_rewards_account(
 
         FD_BORROWED_ACCOUNT_DECL( stake_acc_rec );
         if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec) != 0 ) {
-            FD_LOG_DEBUG(( "Stake acc not found %32J", stake_acc->uc ));
+            FD_LOG_DEBUG(( "Stake acc not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
             return;
         }
 
         fd_stake_state_v2_t stake_state[1] = {0};
         if ( fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, stake_state ) != 0 ) {
-            FD_LOG_DEBUG(( "Failed to read stake state from stake account %32J", stake_acc ));
+            FD_LOG_DEBUG(( "Failed to read stake state from stake account %s", FD_BASE58_ENC_32_ALLOCA( stake_acc ) ));
             return;
         }
         if ( !fd_stake_state_v2_is_stake( stake_state ) ) {
@@ -583,7 +580,7 @@ calculate_stake_vote_rewards_account(
         fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
         int err = redeem_rewards( stake_history, stake_state, vote_state_versioned, rewarded_epoch, point_value, calculated_stake_rewards );
         if ( err != 0) {
-            FD_LOG_DEBUG(( "redeem_rewards failed for %32J with error %d", stake_acc->key, err ));
+            FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( stake_acc->key ), err ));
             return;
         }
 
@@ -736,16 +733,14 @@ calculate_validator_rewards(
     }
 
     /* Calculate the epoch reward points from stake/vote accounts */
-    fd_point_value_t point_value_result[1] = {0};
-    calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, point_value_result );
-    result->total_points = point_value_result->points;
+    calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, &result->point_value );
 
     /* Calculate the stake and vote rewards for each account */
     calculate_stake_vote_rewards(
         slot_ctx,
         stake_history,
         rewarded_epoch,
-        point_value_result,
+        &result->point_value,
         &result->calculate_stake_vote_rewards_result );
 }
 
@@ -870,7 +865,7 @@ calculate_rewards_for_partitioning(
     result->foundation_rate = rewards.foundation_rate;
     result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
     result->capitalization = slot_bank->capitalization;
-    result->total_points = validator_result->total_points;
+    fd_memcpy( &result->point_value, &validator_result->point_value, FD_POINT_VALUE_FOOTPRINT );
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards 
@@ -916,7 +911,7 @@ calculate_rewards_and_distribute_vote_rewards(
 
     /* Cheap because this doesn't copy all the rewards, just pointers to the dlist */
     fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, FD_STAKE_REWARD_CALCULATION_PARTITIONED_FOOTPRINT );
-    result->total_points = rewards_calc_result->total_points;
+    fd_memcpy( &result->point_value, &rewards_calc_result->point_value, FD_POINT_VALUE_FOOTPRINT );
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -934,7 +929,7 @@ distribute_epoch_reward_to_stake_acc(
 
     fd_stake_state_v2_t stake_state[1] = {0};
     if ( fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, stake_state) != 0 ) {
-        FD_LOG_DEBUG(( "failed to read stake state for %32J", stake_pubkey ));
+        FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
         return 1;
     }
 
@@ -1031,7 +1026,9 @@ distribute_epoch_rewards_in_partition(
     }
 
     /* Update the epoch rewards sysvar with the amount distributed and burnt */
-    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) ) {
+    if ( FD_LIKELY( ( 
+        FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+        FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) ) {
         fd_sysvar_epoch_rewards_distribute( slot_ctx, lamports_distributed + lamports_burned );
     }
 
@@ -1141,7 +1138,7 @@ fd_begin_partitioned_rewards(
         rewards_result->distributed_rewards,
         distribution_starting_block_height,
         rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len,
-        rewards_result->total_points,
+        rewards_result->point_value,
         parent_blockhash
      );
 }

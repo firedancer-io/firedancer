@@ -999,6 +999,17 @@ fd_memcpy( void       * FD_RESTRICT d,
   return d;
 }
 
+#elif FD_HAS_MSAN
+
+void * __msan_memcpy( void * dest, void const * src, ulong n );
+
+static inline void *
+fd_memcpy( void       * FD_RESTRICT d,
+           void const * FD_RESTRICT s,
+           ulong                    sz ) {
+  return __msan_memcpy( d, s, sz );
+}
+
 #else
 
 static inline void *

@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 
 #include "../../../ballet/base64/fd_base64.h"
+#include "../../../ballet/utf8/fd_utf8.h"
 #include "../../runtime/sysvar/fd_sysvar.h"
 #include "../../runtime/sysvar/fd_sysvar_clock.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -17,39 +18,55 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
                      FD_PARAM_UNUSED ulong   r4,
                      FD_PARAM_UNUSED ulong   r5,
                      FD_PARAM_UNUSED ulong * _ret ) {
-
-  /* FIXME: this originally cleared *_ret, which would change r0 to 0 as
-     part of the abort.  This is commented out below to preserve VM
-     state at precisely the time of the abort (including the updaets to
-     ic and cu for the syscall itself).  It is trivial to flip back if
-     desired by uncommenting the below. */
-
-//*_ret = 0;
-
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L630 */
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_ABORT );
   return FD_VM_ERR_ABORT;
 }
 
+/* FD_TRANSLATE_STRING returns a read only pointer to the host address of
+   a valid utf8 string, or it errors.
+
+   Analogous of Agave's translate_string_and_do().
+   https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L601
+
+   As of v0.2.6, the only two usages are in syscall panic and syscall log. */
+#define FD_TRANSLATE_STRING( vm, vaddr, msg_sz ) (__extension__({                          \
+    char const * msg = FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, FD_VM_ALIGN_RUST_U8, msg_sz ); \
+    if( FD_UNLIKELY( !fd_utf8_verify( msg, msg_sz ) ) ) {                                  \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_STRING );                   \
+      return FD_VM_ERR_SYSCALL_INVALID_STRING;                                             \
+    }                                                                                      \
+    msg;                                                                                   \
+}))
+
 int
 fd_vm_syscall_sol_panic( /**/            void *  _vm,
-                         /**/            ulong   msg_vaddr,
-                         /**/            ulong   msg_sz,
-                         FD_PARAM_UNUSED ulong   r3,
-                         FD_PARAM_UNUSED ulong   r4,
+                         /**/            ulong   file_vaddr,
+                         /**/            ulong   file_sz,
+                         /**/            ulong   line,
+                         /**/            ulong   column,
                          FD_PARAM_UNUSED ulong   r5,
                          FD_PARAM_UNUSED ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* To avoid a DOS attack from the transactions calling panic with large
-     messages, we just append the message to the log caller (like
-     suggested in a pre-belt sanding TODO).  We defer to any
-     runtime handler of the syscall log UTF-8 validation, checking for
-     proper cstr termination, etc.  While we don't strictly need to
-     check the compute units here, it is a fast O(1) and can thus avoid
-     a large memcpy to further keep performance reasonable. */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L637
 
-  FD_VM_CU_UPDATE( vm, msg_sz );
-  fd_vm_log_append( vm, FD_VM_MEM_SLICE_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz ), msg_sz );
+     Note: this syscall is not used by the Rust SDK, only by the C SDK.
+     Rust transforms `panic!()` into a log, followed by an abort.
+     It's unclear if this syscall actually makes any sense... */
+  FD_VM_CU_UPDATE( vm, file_sz );
 
+  /* Validate string */
+  FD_TRANSLATE_STRING( vm, file_vaddr, file_sz );
+
+  /* Note: we truncate the log, ignoring file, line, column.
+     As mentioned above, it's unclear if anyone is even using this syscall,
+     so dealing with the complexity of Agave's log is a waste of time. */
+  (void)line;
+  (void)column;
+
+  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_PANIC );
   return FD_VM_ERR_PANIC;
 }
 
@@ -63,16 +80,12 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
                        /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: should this do things like UTF validation or what not and
-     fail the transaction for syscall cases that currently otherwise
-     return success? */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L5 */
 
   FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
 
-  /* https://github.com/anza-xyz/agave/blob/ba9bf247c312a7f5e309650f921d1e0e8e741fde/programs/bpf_loader/src/syscalls/logging.rs#L21-L30 */
-  const void * msg_content = FD_VM_MEM_SLICE_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz );
-  fd_vm_log_append( vm, "Program log: ", 13UL );
-  fd_vm_log_append( vm, msg_content, msg_sz );
+  /* Note: when msg_sz==0, msg can be undefined. fd_log_collector_program_log() handles it. */
+  fd_log_collector_program_log( vm->instr_ctx, FD_TRANSLATE_STRING( vm, msg_vaddr, msg_sz ), msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -88,59 +101,13 @@ fd_vm_syscall_sol_log_64( void *  _vm,
                           ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L37 */
+
   FD_VM_CU_UPDATE( vm, FD_VM_LOG_64_UNITS );
 
-  /* Note: The original version of this use sprintf to a stack buffer
-     and then copied the result into the log, not including the '\0'
-     termination.  This does the printf directly into the log buffer.
-     The tail region is large enough (128) to handle the worst case msg
-     (13+16*5+4+1).  Since only the strlen bytes of the message is
-     actually published to the log and the log API explicitly allows
-     message producers to clobber the entire log preparation region,
-     this replicates the old log behavior exactly published message
-     bytes but potentially has different bytes in the clobber region. */
-
-  /* FIXME: consider even lower overhead pretty printing? */
-  char * msg     = (char *)fd_vm_log_prepare( vm );
-  ulong  msg_max = fd_vm_log_prepare_max( vm );
-  ulong  msg_len;
-
-  fd_cstr_printf( msg, msg_max, &msg_len, "Program log: 0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx",
-                  r1, r2, r3, r4, r5 );
-
-  fd_vm_log_publish( vm, msg_len );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
-                              /**/            ulong   pubkey_vaddr,
-                              FD_PARAM_UNUSED ulong   r2,
-                              FD_PARAM_UNUSED ulong   r3,
-                              FD_PARAM_UNUSED ulong   r4,
-                              FD_PARAM_UNUSED ulong   r5,
-                              /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  FD_VM_CU_UPDATE( vm, FD_VM_LOG_PUBKEY_UNITS );
-  void const * pubkey = FD_VM_MEM_HADDR_LD( vm, pubkey_vaddr, 1UL, sizeof(fd_pubkey_t) );
-
-  /* Note that prepare_max is guaranteed large enough (128) to handle
-     the worst case len here (13+44+1).  See note in sol_log above about
-     tail clobbering. */
-
-  char * msg = (char *)fd_vm_log_prepare( vm );
-  ulong  msg_len;
-
-  char * p = fd_cstr_init( msg );
-  p = fd_cstr_append_text( p, "Program log: ", 13UL );
-  ulong  pubkey_len; fd_base58_encode_32( pubkey, &pubkey_len, p ); p += pubkey_len;
-  msg_len = (ulong)(p - msg);
-  fd_cstr_fini( p );
-
-  fd_vm_log_publish( vm, msg_len );
+  /* Max msg_sz: 46 - 15 + 16*5 = 111 < 127 => we can use printf */
+  fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+    "Program log: 0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx", r1, r2, r3, r4, r5 );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -156,20 +123,40 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
                                      /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L60 */
+
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  /* At this point, vm->cu is the remaining compute units between this
-     syscall and the following instruction. */
+  /* Max msg_sz: 40 - 3 + 20 = 57 < 127 => we can use printf */
+  fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+    "Program consumption: %lu units remaining", vm->cu );
 
-  /* See note in sol_log above about tail clobbering. */
+  *_ret = 0UL;
+  return FD_VM_SUCCESS;
+}
 
-  char * msg     = (char *)fd_vm_log_prepare( vm );
-  ulong  msg_max = fd_vm_log_prepare_max( vm );
-  ulong  msg_len;
+int
+fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
+                              /**/            ulong   pubkey_vaddr,
+                              FD_PARAM_UNUSED ulong   r2,
+                              FD_PARAM_UNUSED ulong   r3,
+                              FD_PARAM_UNUSED ulong   r4,
+                              FD_PARAM_UNUSED ulong   r5,
+                              /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  fd_cstr_printf( msg, msg_max, &msg_len, "Program consumption: %lu units remaining", vm->cu );
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L84 */
 
-  fd_vm_log_publish( vm, msg_len );
+  FD_VM_CU_UPDATE( vm, FD_VM_LOG_PUBKEY_UNITS );
+
+  void const * pubkey = FD_VM_MEM_HADDR_LD( vm, pubkey_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
+
+  char msg[ FD_BASE58_ENCODED_32_SZ ]; ulong msg_sz;
+  if( FD_UNLIKELY( fd_base58_encode_32( pubkey, &msg_sz, msg )==NULL ) ) {
+    return FD_VM_ERR_INVAL;
+  }
+
+  fd_log_collector_program_log( vm->instr_ctx, msg, msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -185,79 +172,61 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
                             /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* Make sure we have enough compute budget and every address range is
-     valid before we do any work to avoid DOS risk from a malicious
-     syscall that has a big slice count, a bunch of valid slices to
-     trigger a lot of work but then faults on the last slice. */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L109
+
+     Note: this is implemented following Agave's perverse behavior.
+     We need to loop the slice multiple times to match the exact error,
+     first compute budget, then memory mapping.
+     And finally we can loop to log. */
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L121 */
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  if( FD_UNLIKELY( slice_cnt>(ULONG_MAX/sizeof(fd_vm_vec_t)) ) ) return FD_VM_ERR_SIGSEGV; /* FIXME: SIGOVERFLOW maybe? */
-  ulong slice_sz = slice_cnt*sizeof(fd_vm_vec_t);
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L123-L128 */
 
-  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_SLICE_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN, slice_sz );
+  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
+    fd_ulong_sat_mul( slice_cnt, sizeof(fd_vm_vec_t) ) );
 
-  /* https://github.com/firedancer-io/solana/blob/06ec63044892e5ee14b6fa15d8c55da9953d0c09/programs/bpf_loader/src/syscalls/logging.rs#L135 */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L130-L135 */
+
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_mul( FD_VM_SYSCALL_BASE_COST, slice_cnt ) );
-  for( ulong slice_idx=0UL; slice_idx<slice_cnt; slice_idx++ ) {
-    FD_VM_CU_UPDATE( vm, slice[slice_idx].len );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L136-L141 */
+
+  for( ulong i=0UL; i<slice_cnt; i++ ) {
+    FD_VM_CU_UPDATE( vm, slice[i].len );
   }
 
-  /* Call is guaranteed to succeed at this point */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L145-L152 */
 
-  fd_vm_log_append( vm, "Program data: ", 14UL );
+  ulong msg_sz = 14UL; /* "Program data: ", with space */
+  for( ulong i=0UL; i<slice_cnt; i++ ) {
+    ulong cur_len = slice[i].len;
+    /* This fails the syscall in case of memory mapping issues */
+    FD_VM_MEM_SLICE_HADDR_LD( vm, slice[i].addr, FD_VM_ALIGN_RUST_U8, cur_len );
+    /* Every buffer will be base64 encoded + space separated */
+    msg_sz += (slice[i].len + 2)/3*4 + (i > 0);
+  }
 
-  for( ulong slice_idx=0UL; slice_idx<slice_cnt; slice_idx++ ) {
-    if( FD_UNLIKELY( !fd_vm_log_rem( vm ) ) ) break; /* If the log is at limit, don't waste time on fully discarded messages */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L156 */
 
-    /* Note that buf_sz requires:
+  char msg[ FD_LOG_COLLECTOR_MAX ];
+  ulong bytes_written = fd_log_collector_check_and_truncate( &vm->instr_ctx->txn_ctx->log_collector, msg_sz );
+  if( FD_LIKELY( bytes_written < ULONG_MAX ) ) {
+    fd_memcpy( msg, "Program data: ", 14 );
+    char * buf = msg + 14;
 
-         FD_BASE64_ENC_SZ( buf_sz ) == 4 ceil( buf_sz/3 )
+    for( ulong i=0UL; i<slice_cnt; i++ ) {
+      ulong cur_len = slice[i].len;
+      void const * bytes = FD_VM_MEM_SLICE_HADDR_LD( vm, slice[i].addr, FD_VM_ALIGN_RUST_U8, cur_len );
 
-       to encode.  This might be larger than msg_max-1 (note that we
-       also usually need to encode a space after the message).  We thus
-       want a safe maximum we can encode into msg_max-1 space; this is
-       similar to but not quite the same as FD_BASE64_DEC_SZ(msg_max-1).
-
-       That is, we want a buf_lim such that:
-
-            4 ceil( buf_lim/3 ) <= (msg_max-1)
-         ->   ceil( buf_lim/3 ) <= (msg_max-1)/4
-
-       Noting that, for integral buf_lim:
-
-         ceil( buf_lim/3 ) == floor( (buf_lim+2)/3 ) <= (buf_lim+2)/3
-
-       Thus, buf_lim is guaranteed safe if:
-
-            (buf_lim+2)/3 <= (msg_max-1)/4
-         -> buf_lim <= (3*(msg_max-1)/4)-2 == (3*msg_max-11)/4
-
-       Since buf_lim is integral, this implies a safe maximum to encode
-       is:
-
-             floor( (3*msg_max-11)/4 )
-
-       This is not necessarily the largest possible value but it will
-       be really close and the tail clobbering region in msg_max will
-       naturally give enough margin such that all buffer bytes that can
-       be encoded into the log will be whether or not this is tight
-       and/or we need to append a space.  We don't have to worry about
-       overflow with the multiplication because msg_max<<ULONG_MAX.  We
-       likewise don't have to worry about underflow from the
-       subtractions because msg_max>>4 due to LOG_TAIL. */
-
-    char * msg     = (char *)fd_vm_log_prepare( vm );
-    ulong  msg_max = fd_vm_log_prepare_max( vm );
-    ulong msg_len  = 0UL;
-    if ( FD_LIKELY( slice[ slice_idx ].len > 0UL ) ) {
-      msg_len = fd_base64_encode( msg,
-                                       FD_VM_MEM_HADDR_LD_FAST( vm, slice[ slice_idx ].addr ),
-                                       fd_ulong_min( slice[ slice_idx ].len, (3UL*msg_max-11UL)/4UL ) );
+      if( i ) { *buf = ' '; ++buf; } /* skip first */
+      buf += fd_base64_encode( buf, bytes, cur_len );
     }
-    msg[ msg_len ] = ' ';
-    msg_len += (ulong)( slice_idx < (slice_cnt-1UL) ); /* Note that slice cnt is at least 1 here */
-    fd_vm_log_publish( vm, msg_len );
+    FD_TEST( (ulong)(buf-msg)==msg_sz );
+
+    fd_log_collector_msg( vm->instr_ctx, msg, msg_sz );
   }
 
   *_ret = 0;
@@ -273,6 +242,8 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
                               FD_PARAM_UNUSED ulong   r5,
                               /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L666 */
 
   /* This syscall is ... uh ... problematic.  But the community has
      already recognized this and deprecated it:
@@ -328,15 +299,30 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      between different compilations of the Solana validator and the
      below. */
 
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L676-L680 */
+
+  ulong align = fd_vm_is_check_align_enabled( vm ) ? 8UL : FD_VM_ALIGN_RUST_U8;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L681-L683
+     Nothing to do. This section can't error, see:
+     https://doc.rust-lang.org/1.81.0/src/core/alloc/layout.rs.html#70
+     https://doc.rust-lang.org/1.81.0/src/core/alloc/layout.rs.html#100 */
+
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L684
+     Nothing to do.
+     TODO: unclear if it throw InstructionError::CallDepth
+     https://github.com/anza-xyz/agave/blob/v2.0.8/program-runtime/src/invoke_context.rs#L662 */
+
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L685-L693 */
+
   /* Non-zero free address implies that this is a free() call.  Since
      this is a bump allocator, free is a no-op. */
-
   if( FD_UNLIKELY( free_vaddr ) ) {
     *_ret = 0UL;
     return FD_VM_SUCCESS;
   }
 
-  ulong align = vm->check_align ? 8UL : 1UL;
 
   ulong heap_sz    = fd_ulong_align_up( vm->heap_sz, align                           );
   ulong heap_vaddr = fd_ulong_sat_add ( heap_sz,     FD_VM_MEM_MAP_HEAP_REGION_START );
@@ -363,8 +349,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: check cu model (this model seems to be using CPI related
-     parameters!) */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L18 */
+
   /* FIXME: confirm exact handling matches Solana for the NULL, sz==0
      and/or dst==src cases (see other mem syscalls ... they don't all
      fault in the same way though in principle that shouldn't break
@@ -372,13 +358,12 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
      ranges (the below is computed as though the ranges are in exact
      math and don't overlap), the below handling matches the original
      implementation. */
-  /* FIXME: consider what err code to use on overlap case further */
   /* FIXME: use overlap logic from runtime? */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  if( FD_UNLIKELY( ((src_vaddr> dst_vaddr) & ((src_vaddr-dst_vaddr)<sz)) |
-                   ((dst_vaddr>=src_vaddr) & ((dst_vaddr-src_vaddr)<sz)) ) ) return FD_VM_ERR_MEM_OVERLAP;
+  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L31 */
+  FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, src_vaddr, sz, dst_vaddr, sz );
 
   if( FD_UNLIKELY( !sz ) ) {
     *_ret = 0;
@@ -386,8 +371,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   }
 
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
-    void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-    void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, sz );
+    void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
 
     fd_memcpy( dst, src, sz );
 
@@ -417,7 +402,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
       }
 
     } else {
-      dst_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
+      dst_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     ulong src_region              = src_vaddr >> 32;
@@ -436,7 +421,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
       }
 
     } else {
-      src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
+      src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     /* Do a normal memcpy if regions do not overlap */
@@ -499,6 +484,8 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L59 */
+
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   /* Note: though this behaves like a normal C-style memcmp, we can't
@@ -507,14 +494,14 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
      only promises the sign). */
 
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
-    uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, 1UL, sz );
-    uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, 1UL, sz );
+    uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
 
     /* Silly that this doesn't use r0 to return ... slower, more edge
       case, different from libc style memcmp, harder to callers to use,
       etc ... probably too late to do anything about it now ... sigh */
 
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, 4UL, 4UL );
+    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
 
     int out = 0;
     for( ulong i=0UL; i<sz; i++ ) {
@@ -531,7 +518,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     *_ret = 0;
     return FD_VM_SUCCESS;
   } else {
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, 4UL, 4UL );
+    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
 
     int    out  = 0;
     /* Lookup host address chunks.  Try to do a standard memcpy if the regions
@@ -551,7 +538,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
         return FD_VM_ERR_ABORT;
       }
     } else {
-      m0_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, 1UL, sz );
+      m0_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     ulong   m1_region              = m1_vaddr >> 32;
@@ -569,7 +556,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
         return FD_VM_ERR_ABORT;
       }
     } else {
-      m1_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, 1UL, sz );
+      m1_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     /* Case where the operation spans multiple regions. Copy over the bytes
@@ -627,6 +614,8 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L115 */
+
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   ulong FD_FN_UNUSED dst_region = dst_vaddr >> 32;
@@ -634,9 +623,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
 
   if( dst_region!=4UL || !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
     void * dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-    if( FD_LIKELY( sz ) ) {
-      memset( dst, b, sz );
-    }
+    fd_memset( dst, b, sz );
   } else {
     /* Syscall manages the pointer accesses directly and will report in the 
        case of bad memory accesses. */
@@ -693,8 +680,8 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
-    void *       dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-    void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
+    void *       dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     if( FD_LIKELY( sz > 0 ) ) {
       memmove( dst, src, sz );
     }

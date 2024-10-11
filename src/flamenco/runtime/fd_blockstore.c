@@ -1,5 +1,32 @@
 #include "fd_blockstore.h"
 
+/* Check if we're seeing a different payload for the same shred key,
+   which indicates equivocation. */
+
+static int
+is_eqvoc_shred( fd_shred_t * old, fd_shred_t const * new ) {
+  if( FD_UNLIKELY( fd_shred_type( old->variant ) != fd_shred_type( new->variant ) ) ) {
+    FD_LOG_WARNING(( "[%s] shred %lu %u not both resigned", __func__, old->slot, old->idx ));
+    return 1;
+  }
+
+  if( FD_UNLIKELY( fd_shred_payload_sz( old ) != fd_shred_payload_sz( new ) ) ) {
+    FD_LOG_WARNING(( "[%s] shred %lu %u payload_sz not eq", __func__, old->slot, old->idx ));
+    return 1;
+  }
+
+  ulong memcmp_sz = fd_ulong_if( fd_shred_payload_sz( old ) > FD_SHRED_SIGNATURE_SZ &&
+                                     fd_shred_is_resigned( fd_shred_type( old->variant ) ),
+                                 fd_shred_payload_sz( old ) - FD_SHRED_SIGNATURE_SZ,
+                                 fd_shred_payload_sz( old ) );
+  if( FD_UNLIKELY( 0 != memcmp( fd_shred_data_payload( old ), fd_shred_data_payload( new ), memcmp_sz ) ) ) {
+    FD_LOG_WARNING(( "[%s] shred %lu %u payload not eq", __func__, old->slot, old->idx ));
+    return 1;
+  }
+
+  return 0;
+}
+
 ulong
 fd_blockstore_align( void ) {
   return alignof( fd_blockstore_t );
@@ -199,7 +226,7 @@ fd_blockstore_new( void * shmem,
   blockstore->seed             = seed;
 
   FD_COMPILER_MFENCE();
-  fd_readwrite_new( &blockstore->lock );
+  fd_rwseq_new( &blockstore->lock );
   FD_COMPILER_MFENCE();
 
   blockstore->smr              = 0;
@@ -365,7 +392,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 #define MAX_MICROS ( 16 << 10 )
   fd_block_micro_t micros[MAX_MICROS];
   ulong            micros_cnt = 0;
-#define MAX_TXNS ( 1 << 18 )
+#define MAX_TXNS ( 1 << 17 )
   fd_block_txn_ref_t txns[MAX_TXNS];
   ulong              txns_cnt = 0;
 
@@ -432,7 +459,6 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
           elem->sz         = pay_sz;
           elem->meta_gaddr = 0;
           elem->meta_sz    = 0;
-          elem->meta_owned = 0;
 
           if( txns_cnt < MAX_TXNS ) {
             fd_block_txn_ref_t * ref = &txns[txns_cnt++];
@@ -471,6 +497,12 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
   if( FD_UNLIKELY( !block_map_entry ) ) return;
 
+  /* Update min */
+  while( blockstore->min <= blockstore->max &&
+         fd_blockstore_block_map_query( blockstore, blockstore->min ) == NULL ) {
+    blockstore->min ++;
+  }
+
   /* It is not safe to remove a replaying block. */
 
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
@@ -491,7 +523,7 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   }
 
   /* block_gaddr 0 indicates it hasn't received all shreds yet.
-  
+
      TODO refactor to use FD_BLOCK_FLAG_COMPLETED. */
 
   if( FD_LIKELY( block_map_entry->block_gaddr == 0 ) ) {
@@ -530,16 +562,17 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   for( ulong j = 0; j < block->txns_cnt; ++j ) {
     fd_blockstore_txn_key_t sig;
     fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-    fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-    if( FD_LIKELY( txn_map_entry ) ) {
-      if( txn_map_entry->meta_gaddr && txn_map_entry->meta_owned ) {
-        fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, txn_map_entry->meta_gaddr ) );
-      }
-      fd_blockstore_txn_map_remove( txn_map, &sig );
-    }
+    fd_blockstore_txn_map_remove( txn_map, &sig );
   }
   if( block->micros_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
   if( block->txns_gaddr ) fd_alloc_free( alloc, txns );
+  ulong mgaddr = block->txns_meta_gaddr;
+  while( mgaddr ) {
+    ulong * laddr = fd_wksp_laddr_fast( wksp, mgaddr );
+    ulong mgaddr2 = laddr[0]; /* link to next allocation */
+    fd_alloc_free( alloc, laddr );
+    mgaddr = mgaddr2;
+  }
   fd_alloc_free( alloc, block );
   return;
 }
@@ -751,6 +784,13 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_SHREDDING );
     block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
 
+    if( slot < blockstore->min ) {
+      blockstore->min = slot;
+    }
+    if( slot > blockstore->max ) {
+      blockstore->max = blockstore->hcs = slot;
+    }
+
     return FD_BLOCKSTORE_OK;
   case FD_SHRED_EBATCH:
   case FD_SHRED_EPIPE:
@@ -787,27 +827,23 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
      it is invariant that we must have a connected, linear chain for the
      SMR and its ancestors. */
 
-  if( FD_UNLIKELY( shred->slot <= blockstore->smr ) ) {  
+  if( FD_UNLIKELY( shred->slot <= blockstore->smr ) ) {
     return FD_BLOCKSTORE_OK;
   }
-   
+
   /* Check if we already have this shred */
 
   fd_buf_shred_t *     shred_pool = fd_blockstore_buf_shred_pool( blockstore );
   fd_buf_shred_map_t * shred_map  = fd_blockstore_buf_shred_map( blockstore );
   fd_shred_key_t       shred_key  = { .slot = shred->slot, .idx = shred->idx };
-  fd_buf_shred_t const * shred_   = fd_buf_shred_map_ele_query_const( shred_map, &shred_key, NULL, shred_pool );
+  fd_buf_shred_t *     shred_     = fd_buf_shred_map_ele_query( shred_map, &shred_key, NULL, shred_pool );
   if( FD_UNLIKELY( shred_ ) ) {
 
-    /* Check if we're seeing a different payload for the same shred key,
-       which indicates equivocation. */
+    /* FIXME we currently cannot handle equivocating shreds. */
 
-    if( FD_UNLIKELY( fd_shred_payload_sz( &shred_->hdr ) != fd_shred_payload_sz( shred ) ) ) {
-      FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
-    }
-
-    if( FD_UNLIKELY( 0 != memcmp( fd_shred_data_payload( &shred_->hdr ), fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) ) ) {
-      FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
+    if( FD_UNLIKELY( is_eqvoc_shred( &shred_->hdr, shred ) ) ) {
+      FD_LOG_WARNING(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
+      return FD_BLOCKSTORE_OK;
     }
 
     /* Short-circuit if we already have the shred. */
@@ -1038,7 +1074,7 @@ fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong
 }
 
 int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz ) {
+fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_block_rewards_t * rewards_out, fd_hash_t * parent_block_hash_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1049,7 +1085,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
   fd_block_map_t const * block_map = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   for(;;) {
     uint seqnum;
-    if( FD_UNLIKELY( fd_readwrite_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
 
     fd_block_map_t const * query = fd_block_map_query_safe( block_map, &slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
@@ -1057,26 +1093,41 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
     ulong blk_gaddr = query->block_gaddr;
     if( FD_UNLIKELY( !blk_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
+    if( rewards_out ) memcpy( rewards_out, &blk->rewards, sizeof(fd_block_rewards_t) );
     ulong blk_data_gaddr = blk->data_gaddr;
     if( FD_UNLIKELY( !blk_data_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     ulong sz = *block_data_out_sz = blk->data_sz;
     if( sz >= FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ ) continue;
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     uchar * data_out = fd_valloc_malloc( alloc, 128UL, sz );
     if( FD_UNLIKELY( data_out == NULL ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     fd_memcpy( data_out, fd_wksp_laddr_fast( wksp, blk_data_gaddr ), sz );
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) {
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) {
       fd_valloc_free( alloc, data_out );
       continue;
     }
 
     *block_data_out = data_out;
+
+    if( parent_block_hash_out ) {
+      if( ( query = fd_block_map_query_safe( block_map, &block_map_entry_out->parent_slot, NULL ) ) == NULL ) {
+        memset( parent_block_hash_out, 0, sizeof(fd_hash_t) );
+      } else {
+        fd_memcpy( parent_block_hash_out, query->block_hash.uc, sizeof(fd_hash_t) );
+
+        if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) {
+          fd_valloc_free( alloc, data_out );
+          continue;
+        }
+      }
+    }
+
     return FD_BLOCKSTORE_OK;
   }
 }
@@ -1093,14 +1144,14 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore, ulong slot
   fd_block_map_t const * slot_map = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   for(;;) {
     uint seqnum;
-    if( FD_UNLIKELY( fd_readwrite_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
     fd_block_map_t const * query = fd_block_map_query_safe( slot_map, &slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     memcpy( block_map_entry_out, query, sizeof( fd_block_map_t ) );
     ulong blk_gaddr = query->block_gaddr;
     if( FD_UNLIKELY( !blk_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     return FD_BLOCKSTORE_OK;
   }
@@ -1129,7 +1180,7 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
   fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
   for(;;) {
     uint seqnum;
-    if( FD_UNLIKELY( fd_readwrite_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
 
     fd_blockstore_txn_key_t key;
     fd_memcpy( &key, sig, sizeof( key ) );
@@ -1137,14 +1188,14 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
     if( FD_UNLIKELY( txn_map_entry == NULL ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
     fd_memcpy( txn_out, txn_map_entry, sizeof(fd_blockstore_txn_map_t) );
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     fd_block_map_t const * query = fd_block_map_query_safe( slot_map, &txn_out->slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
     ulong blk_gaddr = query->block_gaddr;
     if( FD_UNLIKELY( !blk_gaddr ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
     if( blk_ts ) *blk_ts = query->ts;
@@ -1153,13 +1204,13 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
     ulong sz = blk->data_sz;
     if( txn_out->offset + txn_out->sz > sz || txn_out->sz > FD_TXN_MTU ) continue;
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     if( txn_data_out == NULL ) return FD_BLOCKSTORE_OK;
     uchar const * data = fd_wksp_laddr_fast( wksp, ptr );
     fd_memcpy( txn_data_out, data + txn_out->offset, txn_out->sz );
 
-    if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
+    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
     return FD_BLOCKSTORE_OK;
   }

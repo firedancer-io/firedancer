@@ -21,7 +21,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
 #define FD_KEYGUARD_ROLE_QUIC    (3)  /* QUIC tile */
 #define FD_KEYGUARD_ROLE_REPAIR  (4)  /* Repair tile */
-#define FD_KEYGUARD_ROLE_CNT     (5)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_BUNDLE  (5)  /* Bundle tile */
+#define FD_KEYGUARD_ROLE_CNT     (6)  /* number of known roles */
 
 /* Payload types ******************************************************/
 
@@ -32,6 +33,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_TLS_CV (4)  /* TLS 1.3 certificate verify payload */
 #define FD_KEYGUARD_PAYLOAD_LG_REPAIR (6)  /* RepairProtocol */
 #define FD_KEYGUARD_PAYLOAD_LG_PING   (7)  /* Gossip/Repair ping protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_BUNDLE (8)  /* Bundle block producer authentication */
 
 #define FD_KEYGUARD_PAYLOAD_TXN    (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN   )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP)
@@ -40,11 +42,13 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_TLS_CV (1UL<<FD_KEYGUARD_PAYLOAD_LG_TLS_CV)
 #define FD_KEYGUARD_PAYLOAD_REPAIR (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR)
 #define FD_KEYGUARD_PAYLOAD_PING   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PING  )
+#define FD_KEYGUARD_PAYLOAD_BUNDLE (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE)
 
 /* Sign types *********************************************************/
 
-#define FD_KEYGUARD_SIGN_TYPE_ED25519        (0)  /* ed25519_sign(input) */
-#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 (1)  /* ed25519_sign(sha256(data)) */
+#define FD_KEYGUARD_SIGN_TYPE_ED25519               (0)  /* ed25519_sign(input) */
+#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519        (1)  /* ed25519_sign(sha256(data)) */
+#define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 (2)  /* ed25519_sign(pubkey-data) */
 
 /* Type confusion/ambiguity checks ************************************/
 

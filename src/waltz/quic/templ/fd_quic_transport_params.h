@@ -212,7 +212,6 @@ fd_quic_dump_transport_param_desc( FILE * out );
   uchar  NAME[20];                                    \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_ZERO_LENGTH(NAME,TYPE)       \
-  uchar  NAME;                                        \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_TOKEN(NAME,TYPE)             \
   uint   NAME##_len;                                  \
@@ -239,8 +238,7 @@ typedef struct fd_quic_transport_params fd_quic_transport_params_t;
 /* parses the varint at *buf (capacity *buf_sz)
    advances the *buf and reduces *buf_sz by the number of bytes
    consumed */
-static inline
-ulong
+static inline ulong
 fd_quic_tp_parse_varint( uchar const ** buf,
                          ulong *        buf_sz ) {
 
@@ -259,22 +257,6 @@ fd_quic_tp_parse_varint( uchar const ** buf,
 
   return value;
 }
-
-/* parse a particular transport parameter into the corresponding
-   member(s) of params
-
-   args
-     params       the parameters to populate with parsed data
-     id           the id of the parameter to parse
-     buf          the start of the raw encoded transport parameter
-     sz           the size of the buffer
-
-   returns the number of bytes consumed or -1 upon failure to parse */
-int
-fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
-                                uint                         id,
-                                uchar const *                buf,
-                                ulong                        sz );
 
 /* parse the entire buffer into the supplied transport parameters
 

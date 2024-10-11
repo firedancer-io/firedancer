@@ -4,6 +4,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../info/fd_instr_info.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_executor_err.h"
 
 /* fd_exec_instr_ctx_t is the context needed to execute a single
    instruction (program invocation). */
@@ -20,11 +21,15 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   uint depth;      /* starts at 0 */
   uint index;      /* number of preceding instructions with same parent */
   uint child_cnt;  /* number of child instructions */
-  uint instr_err;
+  uint instr_err;  /* TODO: this is kind of redundant wrt instr_exec */
 
   fd_funk_txn_t * funk_txn;
   fd_acc_mgr_t *  acc_mgr;
   fd_valloc_t     valloc;
+
+  /* Most instructions log the base58 program id multiple times, so it's
+     convenient to compute it once and reuse it. */
+  char program_id_base58[ FD_BASE58_ENCODED_32_SZ ];
 
   fd_instr_info_t const * instr;
 };

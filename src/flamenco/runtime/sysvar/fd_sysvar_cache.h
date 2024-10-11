@@ -116,6 +116,16 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
                          fd_funk_txn_t *     funk_txn );
 
+/* fd_sysvar_cache_restore_{name} restores only the given sysvar object from the given slot context */
+
+# define X( type, name )                                               \
+void                                                                   \
+fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
+                         fd_acc_mgr_t *      acc_mgr,                  \
+                         fd_funk_txn_t *     funk_txn ); 
+  FD_SYSVAR_CACHE_ITER(X)
+# undef X
+
 /* Accessors for sysvars.  May return NULL. */
 
 FD_FN_PURE fd_sol_sysvar_clock_t             const * fd_sysvar_cache_clock              ( fd_sysvar_cache_t const * cache );

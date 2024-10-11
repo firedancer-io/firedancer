@@ -1,4 +1,5 @@
 #include "../../../util/fd_util.h"
+#include "../fd_quic_conn_id.h"
 #include "../fd_quic_enum.h"
 #include "../fd_quic_proto.h"
 #include "fd_quic_transport_params.h"
@@ -89,12 +90,125 @@ test_preferred_address( void ) {
 
 }
 
+/* test_max_size crafts the largest possible transport parameter object.
+   Use every single option and fill in the largest possible value. */
+
+static void
+test_max_size( void ) {
+
+  fd_quic_transport_params_t params = {
+    /* 0x00 */
+    .original_destination_connection_id_present = 1,
+    .original_destination_connection_id_len     = FD_QUIC_MAX_CONN_ID_SZ,
+
+    /* 0x01 */
+    .max_idle_timeout_present = 1,
+    .max_idle_timeout         = (1UL<<62)-1,
+
+    /* 0x02 */
+    .stateless_reset_token_present = 1,
+    .stateless_reset_token_len     = 16,
+
+    /* 0x03 */
+    .max_udp_payload_size_present = 1,
+    .max_udp_payload_size         = 65527, /* theoretically up to 2^62-1, but not semantically valid */
+
+    /* 0x04 */
+    .initial_max_data_present                    = 1,
+    .initial_max_data                            = (1UL<<62)-1,
+    /* 0x05 */
+    .initial_max_stream_data_bidi_local_present  = 1,
+    .initial_max_stream_data_bidi_local          = (1UL<<62)-1,
+    /* 0x06 */
+    .initial_max_stream_data_bidi_remote_present = 1,
+    .initial_max_stream_data_bidi_remote         = (1UL<<62)-1,
+    /* 0x07 */
+    .initial_max_stream_data_uni_present         = 1,
+    .initial_max_stream_data_uni                 = (1UL<<62)-1,
+    /* 0x08 */
+    .initial_max_streams_bidi_present            = 1,
+    .initial_max_streams_bidi                    = (1UL<<62)-1,
+    /* 0x09 */
+    .initial_max_streams_uni_present             = 1,
+    .initial_max_streams_uni                     = (1UL<<62)-1,
+
+    /* 0x0a */
+    .ack_delay_exponent_present = 1,
+    .ack_delay_exponent         = 20,
+
+    /* 0x0b */
+    .max_ack_delay_present = 1,
+    .max_ack_delay         = (1UL<<14)-1,
+
+    /* 0x0c */
+    .disable_active_migration_present = 1,
+
+    /* 0x0d */
+    .preferred_address_present = 1,
+    .preferred_address_len     = FD_QUIC_PREFERRED_ADDRESS_SZ_MAX,
+
+    /* 0x0e */
+    .active_connection_id_limit_present = 1,
+    .active_connection_id_limit         = (1UL<<62)-1,
+
+    /* 0x0f */
+    .initial_source_connection_id_present = 1,
+    .initial_source_connection_id_len     = FD_QUIC_MAX_CONN_ID_SZ,
+
+    /* 0x10 */
+    .retry_source_connection_id_present = 1,
+    .retry_source_connection_id_len     = FD_QUIC_MAX_CONN_ID_SZ
+  };
+
+  ulong sz = fd_quic_transport_params_footprint( &params );
+  FD_LOG_NOTICE(( "Largest RFC 9000 transport parameter blob: %lu bytes", sz ));
+
+}
+
+/* test_grease ensures that the decoder skips unknown transport params.
+
+   RFC 9000 Section 7.4.2. New Transport Parameters:
+   > New transport parameters can be used to negotiate new protocol
+   > behavior. An endpoint MUST ignore transport parameters that it does
+   > not support. */
+
+static void
+test_grease( void ) {
+
+  static uchar const unknown_params[] = {
+    /* Unknown transport param */
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* ID */
+    0x40, 0x00, /* length (64 bytes) */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+    /* Known zero length param */
+    0x0c, 0x00
+  };
+
+  fd_quic_transport_params_t params = {0};
+  FD_TEST(  0==fd_quic_decode_transport_params( &params, unknown_params, sizeof(unknown_params)-2 ) );
+  FD_TEST( -1==fd_quic_decode_transport_params( &params, unknown_params, sizeof(unknown_params)-1 ) );
+  FD_TEST( params.disable_active_migration_present==0 );
+  FD_TEST(  0==fd_quic_decode_transport_params( &params, unknown_params, sizeof(unknown_params)   ) );
+  FD_TEST( params.disable_active_migration_present==1 );
+
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_preferred_address();
+  test_max_size();
+  test_grease();
 
   fd_quic_dump_transport_param_desc( stdout );
 

@@ -2,7 +2,7 @@
 
 #include "../fd_metrics_base.h"
 
-#define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_OFF  (174UL)
+#define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_OFF  (176UL)
 #define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_NAME "dedup_gossiped_votes_received"
 #define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_DESC "Count of simple vote transactions received over gossip instead of via the normal TPU path"

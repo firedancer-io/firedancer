@@ -67,6 +67,8 @@ typedef struct {
     uint  limit_size;
     ulong account_indexes_cnt;
     char  account_indexes[ 4 ][ 32 ];
+    ulong account_index_include_keys_cnt;
+    char  account_index_include_keys[ 32 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
     int   require_tower;
@@ -118,13 +120,16 @@ typedef struct {
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
+    uint minimum_snapshot_download_speed;
+    uint maximum_full_snapshots_to_retain;
+    uint maximum_incremental_snapshots_to_retain;
     char path[ PATH_MAX ];
+    char incremental_path[ PATH_MAX ];
   } snapshots;
 
   struct {
     char affinity[ AFFINITY_SZ ];
     char agave_affinity[ AFFINITY_SZ ];
-    char solana_labs_affinity[ AFFINITY_SZ ];
 
     uint net_tile_count;
     uint quic_tile_count;
@@ -145,7 +150,6 @@ typedef struct {
     int no_agave;
     int bootstrap;
     uint debug_tile;
-    char topology[ 32 ];
 
     struct {
       int  enabled;
@@ -172,12 +176,13 @@ typedef struct {
     } genesis;
 
     struct {
-      uint benchg_tile_count;
-      uint benchs_tile_count;
-      char affinity[ AFFINITY_SZ ];
-      int  larger_max_cost_per_block;
-      int  larger_shred_limits_per_block;
-      int  disable_blockstore;
+      uint  benchg_tile_count;
+      uint  benchs_tile_count;
+      char  affinity[ AFFINITY_SZ ];
+      int   larger_max_cost_per_block;
+      int   larger_shred_limits_per_block;
+      ulong disable_blockstore_from_slot;
+      int   disable_status_cache;
     } bench;
   } development;
 
@@ -221,6 +226,7 @@ typedef struct {
 
     struct {
       uint max_pending_transactions;
+      int  use_consumed_cus;
     } pack;
 
     struct {
@@ -261,7 +267,7 @@ typedef struct {
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
-      uint  cluster_version;
+      char  cluster_version[ 32 ];
     } replay;
 
     struct {

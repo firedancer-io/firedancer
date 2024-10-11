@@ -35,12 +35,10 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   if( !fd_account_is_zeroed( meta ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
-  /* Don't touch the account if the owner does not change */
+  /* Don't copy the account if the owner does not change */
   if( !memcmp( account->const_meta->info.owner, owner, sizeof( fd_pubkey_t ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
-  /* self.touch()? */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
@@ -49,7 +47,8 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+  /* Agave self.touch() is a no-op */
+
   memcpy( account->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -85,7 +84,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE;
   }
 
-  /* Don't touch the account if the lamports do not change */
+  /* Don't copy the account if the lamports do not change */
   if( lamports==account->const_meta->info.lamports ) {
    return FD_EXECUTOR_INSTR_SUCCESS;
   }
@@ -97,8 +96,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  /* self.touch()? */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+  /* Agave self.touch() is a no-op */
 
   account->meta->info.lamports = lamports;
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -123,8 +121,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  /* self.touch() */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+  /* Agave self.touch() is a no-op */
 
   if (NULL != data_out)
     *data_out = account->data;
@@ -157,8 +154,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     return err;
   }
 
-  /* touch() */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+  /* Agave self.touch() is a no-op */
 
   if( FD_UNLIKELY( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, data_sz, &err ) ) ) {
     return err;
@@ -202,13 +198,12 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
 
   ulong old_len = account->const_meta->dlen;
 
-  /* Don't touch the account if the length does not change */
+  /* Don't copy the account if the length does not change */
   if( old_len==new_len ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* self.touch() */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+  /* Agave self.touch() is a no-op */
 
   if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, &err ) ) {
     return err;
@@ -249,7 +244,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
   /* To become executable an account must be rent exempt */
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
   fd_rent_t const * rent = &epoch_bank->rent;
-  if( FD_UNLIKELY( !fd_rent_exempt_minimum_balance2( rent, meta->dlen ) ) ) {
+  if( FD_UNLIKELY( !fd_rent_exempt_minimum_balance( rent, meta->dlen ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }
 
@@ -268,7 +263,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 
-  /* Don't touch the account if the exectuable flag does not change */
+  /* Don't copy the account if the exectuable flag does not change */
   if( fd_account_is_executable( meta ) == is_executable ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
@@ -280,8 +275,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  /* self.touch()? */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+  /* Agave self.touch() is a no-op */
 
   account->meta->info.executable = !!is_executable;
 

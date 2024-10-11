@@ -81,7 +81,10 @@ fd_feature_id_t const ids[] = {{""",
             end="",
         )
         if x.get("cleaned_up"):
-            print(f",\n    .cleaned_up = {x.get('cleaned_up')}", file=body, end="")
+            cleaned_up_values = ', '.join(map(str, x.get('cleaned_up')))
+            print(f",\n    .cleaned_up = {{{cleaned_up_values}}}", file=body, end="")
+        else:
+            print(f",\n    .cleaned_up = {{UINT_MAX, UINT_MAX, UINT_MAX}}", file=body, end="")
         if x.get("reverted"):
             print(f",\n    .reverted   = {x.get('reverted')}", file=body, end="")
         print(" },\n", file=body)

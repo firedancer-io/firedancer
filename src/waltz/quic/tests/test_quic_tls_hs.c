@@ -47,19 +47,8 @@ my_secrets( fd_quic_tls_hs_t *           hs,
   FD_TEST( secret );
   FD_LOG_INFO(( "callback secrets (%s, level=%u)",
                 hs->is_server ? "server" : "client", secret->enc_level ));
-  FD_LOG_HEXDUMP_INFO(( "read secret",  secret->read_secret,  secret->secret_len ));
-  FD_LOG_HEXDUMP_INFO(( "write secret", secret->write_secret, secret->secret_len ));
-}
-
-void
-my_alert( fd_quic_tls_hs_t * hs,
-          void *             context,
-          int                alert ) {
-  (void)hs;
-  (void)context;
-
-  FD_LOG_INFO(( "Alert: %d-%s",  alert, fd_tls_alert_cstr( (uint)alert ) ));
-  FD_LOG_INFO(( "Reason: %d-%s", hs->hs.base.reason, fd_tls_reason_cstr( hs->hs.base.reason ) ));
+  FD_LOG_HEXDUMP_INFO(( "read secret",  secret->read_secret,  FD_QUIC_SECRET_SZ ));
+  FD_LOG_HEXDUMP_INFO(( "write secret", secret->write_secret, FD_QUIC_SECRET_SZ ));
 }
 
 void
@@ -85,7 +74,6 @@ main( int     argc,
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
-    .alert_cb              = my_alert,
     .secret_cb             = my_secrets,
     .handshake_complete_cb = my_hs_complete,
     .peer_params_cb        = my_transport_params,

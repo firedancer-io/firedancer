@@ -42,7 +42,7 @@ file:
 ```toml [default.toml]
 [layout]
     affinity = "1-16"
-    solana_labs_affinity = "17-31"
+    agave_affinity = "17-31"
     net_tile_count = 1
     quic_tile_count = 1
     verify_tile_count = 4
@@ -60,7 +60,7 @@ string, which is documented fully in the
 [`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
 file itself. The Frankendancer validator currently starts an Agave
 process to perform functionality like replay, gossip, and repair that is
-not yet implemented in Firedancer. The `solana_labs_affinity` string
+not yet implemented in Firedancer. The `agave_affinity` string
 determines the CPU cores that are given to the threads of this Agave
 process.
 
@@ -162,7 +162,7 @@ TPS rate,
   # assign the tiles to cores. We only need 1 shred tile, since there is
   # only 1 node in the cluster it can handle a high TPS rate by itself
   affinity = "14-57,f1"
-  solana_labs_affinity = "58-63"
+  agave_affinity = "58-63"
   verify_tile_count = 30
   bank_tile_count = 6
   shred_tile_count = 1
@@ -228,7 +228,7 @@ as part of Frankendancer.
 
 ```toml [bench-zen3-32core.toml]
 [development.bench]
-  disable_blockstore = true // [!code ++]
+  disable_blockstore_from_slot = 1 // [!code ++]
 ```
 
 :::

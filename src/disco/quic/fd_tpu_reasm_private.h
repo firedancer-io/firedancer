@@ -139,13 +139,17 @@ slotq_remove( fd_tpu_reasm_t *      reasm,
   fd_tpu_reasm_slot_t * next = fd_tpu_reasm_slots_laddr( reasm ) + next_idx;
 
   if( slot_idx==reasm->head ) {
-    assert( next_idx < reasm->slot_cnt );
+    if( FD_UNLIKELY( next_idx >= reasm->slot_cnt ) ) {
+      FD_LOG_ERR(( "OOB next_idx (next_idx=%u, slot_cnt=%u)", next_idx, reasm->slot_cnt ));
+    }
     reasm->head    = next_idx;
     next->prev_idx = UINT_MAX;
     return;
   }
   if( slot_idx==reasm->tail ) {
-    assert( prev_idx < reasm->slot_cnt );
+    if( FD_UNLIKELY( prev_idx >= reasm->slot_cnt ) ) {
+      FD_LOG_ERR(( "OOB prev_idx (prev_idx=%u, slot_cnt=%u)", prev_idx, reasm->slot_cnt ));
+    }
     reasm->tail    = prev_idx;
     prev->next_idx = UINT_MAX;
     return;
@@ -153,6 +157,12 @@ slotq_remove( fd_tpu_reasm_t *      reasm,
 
   assert( prev_idx < reasm->slot_cnt );
   assert( next_idx < reasm->slot_cnt );
+  if( FD_UNLIKELY( prev_idx >= reasm->slot_cnt ) ) {
+    FD_LOG_ERR(( "OOB prev_idx (prev_idx=%u, slot_cnt=%u)", prev_idx, reasm->slot_cnt ));
+  }
+  if( FD_UNLIKELY( next_idx >= reasm->slot_cnt ) ) {
+    FD_LOG_ERR(( "OOB next_idx (next_idx=%u, slot_cnt=%u)", next_idx, reasm->slot_cnt ));
+  }
   prev->next_idx = next_idx;
   next->prev_idx = prev_idx;
 }

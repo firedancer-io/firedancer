@@ -1,17 +1,5 @@
 #include "fd_quic_pkt_meta.h"
 
-ulong
-fd_quic_get_pkt_meta_free_count( fd_quic_pkt_meta_pool_t * pool ) {
-  fd_quic_pkt_meta_t * pkt_meta = pool->free.head;
-  ulong cnt = 0;
-  while( pkt_meta ) {
-    cnt++;
-    pkt_meta = pkt_meta->next;
-  }
-  return cnt;
-}
-
-
 /* initialize pool with existing array of pkt_meta */
 void
 fd_quic_pkt_meta_pool_init( fd_quic_pkt_meta_pool_t * pool,

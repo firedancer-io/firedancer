@@ -27,7 +27,7 @@ main( int     argc,
     uint digest[ 5 ] __attribute__((aligned(4)));
     fd_sha1_hash( (uchar const *)inputs[ i ], strlen( inputs[ i ] ), (uchar *)digest );
     char hexdigest[ 41 ];
-    FD_TEST( fd_cstr_printf_check( hexdigest, 41, NULL, "%08x%08x%08x%08x%08x", digest[ 0 ], digest[ 1 ], digest[ 2 ], digest[ 3 ], digest[ 4 ] ) );
+    FD_TEST( fd_cstr_printf_check( hexdigest, 41, NULL, "%08x%08x%08x%08x%08x", fd_uint_bswap( digest[ 0 ] ), fd_uint_bswap( digest[ 1 ] ), fd_uint_bswap( digest[ 2 ] ), fd_uint_bswap( digest[ 3 ] ), fd_uint_bswap( digest[ 4 ] ) ) );
     FD_TEST( 0==strcmp( hexdigest, outputs[ i ] ) );
   }
 

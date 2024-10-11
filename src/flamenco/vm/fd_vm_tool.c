@@ -1,9 +1,24 @@
+#define _GNU_SOURCE
+
+#include "../../util/fd_util_base.h"
+#if defined(__linux__) && FD_HAS_X86
+#define FD_VM_TOOL_HAS_JIT 1
+#else
+#define FD_VM_TOOL_HAS_JIT 0
+#endif
+
+#include "fd_vm_base.h"
 #include "fd_vm_private.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/stat.h>
+
+#if FD_VM_TOOL_HAS_JIT
+#include "jit/fd_jit.h"
+#include <sys/mman.h>
+#endif
 
 struct fd_vm_tool_prog {
   void *               bin_buf;
@@ -244,7 +259,8 @@ cmd_trace( char const * bin_path,
 
 int
 cmd_run( char const * bin_path,
-         char const * input_path ) {
+         char const * input_path,
+         int          use_jit /* in [0,1] */ ) {
 
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path );
@@ -285,14 +301,68 @@ cmd_run( char const * bin_path,
   vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
-  long dt = -fd_log_wallclock();
-  int exec_err = fd_vm_exec( &vm );
-  dt += fd_log_wallclock();
+  int exec_err    = FD_VM_ERR_UNSUP;
+  long dt         = 0L;
+  long compile_dt = 0L;
+
+  if( use_jit ) {
+#   if FD_VM_TOOL_HAS_JIT
+
+    ulong   code_bufsz = fd_ulong_align_up( fd_jit_est_code_sz( tool_prog.prog->text_sz ), FD_SHMEM_NORMAL_PAGE_SZ );
+    uchar * code_buf   = mmap( 0, code_bufsz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+    if( FD_UNLIKELY( code_buf==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed" ));
+
+    ulong  scratch_bufsz = fd_jit_est_scratch_sz( tool_prog.prog->text_sz );
+    void * scratch_buf   = malloc( scratch_bufsz );
+
+    for( ulong j=0; j<code_bufsz; j+=2 ) {
+      code_buf[ j   ] = 0x0f;
+      code_buf[ j+1 ] = 0x0b;
+    }
+    fd_memset( scratch_buf, 0, scratch_bufsz );
+
+    compile_dt = -fd_log_wallclock();
+    int compile_err = FD_VM_ERR_EBPF_JIT_NOT_COMPILED;
+    fd_jit_prog_t _jit_prog[1];
+    fd_jit_prog_t * jit_prog = fd_jit_prog_new(
+        _jit_prog,
+        tool_prog.prog,
+        tool_prog.syscalls,
+        code_buf, code_bufsz,
+        scratch_buf, scratch_bufsz,
+        &compile_err
+    );
+    if( FD_UNLIKELY( !jit_prog ) ) {
+      FD_LOG_ERR(( "JIT compile failed (%d-%s)", compile_err, fd_vm_strerror( compile_err ) ));
+    }
+    compile_dt += fd_log_wallclock();
+
+    free( scratch_buf );
+    mprotect( code_buf, fd_ulong_align_up( jit_prog->code_sz, FD_SHMEM_NORMAL_PAGE_SZ ), PROT_READ | PROT_EXEC );
+
+    dt = -fd_log_wallclock();
+    exec_err = fd_jit_exec( jit_prog, &vm );
+    dt += fd_log_wallclock();
+
+    fd_jit_prog_delete( jit_prog );
+    munmap( code_buf, code_bufsz );
+
+#   endif
+  } else {
+
+    dt = -fd_log_wallclock();
+    exec_err = fd_vm_exec( &vm );
+    dt += fd_log_wallclock();
+
+  }
 
   printf( "Interp_res:          %i (%s)\n", exec_err, fd_vm_strerror( exec_err ) );
   printf( "Return value:        %lu\n",     vm.reg[0]                            );
   printf( "Instruction counter: %lu\n",     vm.ic                                );
   printf( "Time:                %lu\n",     dt                                   );
+  if( compile_dt ) {
+    printf( "Compile time:        %lu\n",     compile_dt                           );
+  }
 
   return FD_VM_SUCCESS;
 }
@@ -350,13 +420,22 @@ main( int     argc,
 
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
     char const * input_file   = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file",   NULL, NULL );
+    char const * backend      = fd_env_strip_cmdline_cstr( &argc, &argv, "--backend", NULL, "interp" );
+    int use_jit = 0;
+    if( 0==strcmp( backend, "interp" ) ) {
+      use_jit = 0;
+    } else if( FD_VM_TOOL_HAS_JIT && 0==strcmp( backend, "jit" ) ) {
+      use_jit = 1;
+    } else {
+      FD_LOG_ERR(( "Unsupported --backend \"%s\"", backend ));
+    }
 
     if( FD_UNLIKELY( !program_file ) ) FD_LOG_ERR(( "Please specify a --program-file" ));
     if( FD_UNLIKELY( !input_file   ) ) FD_LOG_ERR(( "Please specify a --input-file"   ));
 
-    FD_LOG_NOTICE(( "run --program-file %s --input-file %s", program_file, input_file ));
+    FD_LOG_NOTICE(( "run --program-file %s --input-file %s --backend %s", program_file, input_file, backend ));
 
-    int err = cmd_run( program_file, input_file );
+    int err = cmd_run( program_file, input_file, use_jit );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "run failed (%i-%s)", err, fd_vm_strerror( err ) ));
 
     FD_LOG_NOTICE(( "run success" ));

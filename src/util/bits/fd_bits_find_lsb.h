@@ -27,7 +27,7 @@ FD_FN_CONST static inline int fd_ulong_find_lsb ( ulong  x ) { return __builtin_
 
 #if FD_HAS_INT128
 
-#if FD_HAS_X86
+#if FD_HAS_X86 && !FD_HAS_MSAN
 
 FD_FN_CONST static inline int
 fd_uint128_find_lsb( uint128 x ) {
@@ -35,14 +35,14 @@ fd_uint128_find_lsb( uint128 x ) {
   ulong xh  = (ulong)(x>>64);
   int   _64 = 64;
   int   c   = 0;
-  __asm__( "testq %1, %1   # cc.zf = !xl;\n\t"                
+  __asm__( "testq %1, %1   # cc.zf = !xl;\n\t"
            "cmovz %3, %0   # if( !xl ) c = 64;\n\t"
            "cmovz %2, %1   # if( !xl ) xl = xh;"
          : "+&r" (c), "+&r" (xl) : "r" (xh), "r" (_64) : "cc" );
   return c + fd_ulong_find_lsb( xl );
 }
 
-#else /* all other architectures */ 
+#else /* all other architectures */
 
 FD_FN_CONST static inline int
 fd_uint128_find_lsb( uint128 x ) {
@@ -58,7 +58,7 @@ fd_uint128_find_lsb( uint128 x ) {
 
 /* find_lsb_w_default */
 
-#if FD_HAS_X86
+#if FD_HAS_X86 && !FD_HAS_MSAN
 
 /* FIXME: WHY UINT -> INT CAST THROUGH UNION? */
 
@@ -70,74 +70,74 @@ fd_uint128_find_lsb( uint128 x ) {
    below reuses the input register to that end, without affecting the
    performance on newer architectures. */
 
-FD_FN_CONST static inline int 
+FD_FN_CONST static inline int
 fd_uchar_find_lsb_w_default( uchar x,
-                             int   d ) { 
+                             int   d ) {
   union { int i; uint u; } r, c;
   c.i = d;
-  r.u = (uint)x;  
+  r.u = (uint)x;
 # if __BMI__
-  __asm__( " tzcnt %0, %0 # cc.cf = !x;\n\t" 
+  __asm__( " tzcnt %0, %0 # cc.cf = !x;\n\t"
            " cmovb %1, %0 # move if cf is set;"
-           : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+           : "+&r" (r.u) : "r" (c.u) : "cc" );
 # else
-  __asm__( " bsf   %0, %0 # cc.zf = !x;\n\t" 
+  __asm__( " bsf   %0, %0 # cc.zf = !x;\n\t"
            " cmovz %1, %0 # move if zf is set;"
-           : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+           : "+&r" (r.u) : "r" (c.u) : "cc" );
 # endif
   return r.i;
 }
 
-FD_FN_CONST static inline int 
+FD_FN_CONST static inline int
 fd_ushort_find_lsb_w_default( ushort x,
                               int    d ) {
   union { int i; uint u; } r, c;
   c.i = d;
-  r.u = (uint)x;  
+  r.u = (uint)x;
 # if __BMI__
-  __asm__( " tzcnt %0, %0 # cc.cf = !x;\n\t" 
+  __asm__( " tzcnt %0, %0 # cc.cf = !x;\n\t"
            " cmovb %1, %0 # move if cf is set;"
-           : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+           : "+&r" (r.u) : "r" (c.u) : "cc" );
 # else
-  __asm__( " bsf   %0, %0 # cc.zf = !x;\n\t" 
+  __asm__( " bsf   %0, %0 # cc.zf = !x;\n\t"
            " cmovz %1, %0 # move if zf is set;"
-           : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+           : "+&r" (r.u) : "r" (c.u) : "cc" );
 # endif
   return r.i;
 }
 
-FD_FN_CONST static inline int 
+FD_FN_CONST static inline int
 fd_uint_find_lsb_w_default( uint x,
                             int  d ) {
   union { int i; uint u; } r, c;
   c.i = d;
-  r.u = x;  
+  r.u = x;
 # if __BMI__
-  __asm__(  " tzcnt %0, %0 # cc.cf = !x;\n\t" 
+  __asm__(  " tzcnt %0, %0 # cc.cf = !x;\n\t"
             " cmovb %1, %0 # move if cf is set;"
-          : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+          : "+&r" (r.u) : "r" (c.u) : "cc" );
 # else
-  __asm__(  " bsf   %0, %0 # cc.zf = !x;\n\t" 
+  __asm__(  " bsf   %0, %0 # cc.zf = !x;\n\t"
             " cmovz %1, %0 # move if zf is set;"
-          : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+          : "+&r" (r.u) : "r" (c.u) : "cc" );
 # endif
   return r.i;
 }
 
-FD_FN_CONST static inline int 
+FD_FN_CONST static inline int
 fd_ulong_find_lsb_w_default( ulong x,
                              int   d ) {
   union { long l; ulong u; } r, c;
   c.l = (long)d;
   r.u = x;
 # if __BMI__
-  __asm__( " tzcnt %0, %0 # cc.cf = !x;\n\t" 
+  __asm__( " tzcnt %0, %0 # cc.cf = !x;\n\t"
            " cmovb %1, %0 # move if cf is set;"
-           : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+           : "+&r" (r.u) : "r" (c.u) : "cc" );
 # else
-  __asm__( " bsf   %0, %0 # cc.zf = !x;\n\t" 
+  __asm__( " bsf   %0, %0 # cc.zf = !x;\n\t"
            " cmovz %1, %0 # move if zf is set;"
-           : "+&r" (r.u) : "r" (c.u) : "cc" ); 
+           : "+&r" (r.u) : "r" (c.u) : "cc" );
 # endif
   return (int)r.l;
 }
@@ -153,11 +153,11 @@ FD_FN_CONST static inline int fd_ulong_find_lsb_w_default ( ulong   x, int d ) {
 
 #if FD_HAS_INT128
 
-#if FD_HAS_X86
+#if FD_HAS_X86 && !FD_HAS_MSAN
 
-FD_FN_CONST static inline int 
+FD_FN_CONST static inline int
 fd_uint128_find_lsb_w_default( uint128 x,
-                               int     d ) { 
+                               int     d ) {
   ulong xl  = (ulong) x;
   ulong xh  = (ulong)(x>>64);
   int   c   = 0;
@@ -173,7 +173,7 @@ fd_uint128_find_lsb_w_default( uint128 x,
   return r;
 }
 
-#else /* other architectures */ 
+#else /* other architectures */
 
 FD_FN_CONST static inline int fd_uint128_find_lsb_w_default( uint128 x, int d ) { return (!x) ? d : fd_uint128_find_lsb( x ); }
 

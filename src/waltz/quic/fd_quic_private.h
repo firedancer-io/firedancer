@@ -24,8 +24,6 @@
 enum {
   FD_QUIC_TYPE_INGRESS = 1 << 0,
   FD_QUIC_TYPE_EGRESS  = 1 << 1,
-
-  FD_QUIC_TRANSPORT_PARAMS_RAW_SZ = 1200,
 };
 
 #define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
@@ -44,6 +42,22 @@ struct fd_quic_event {
   /* possibly "type", etc., for other kinds of service */
 };
 typedef struct fd_quic_event fd_quic_event_t;
+
+struct fd_quic_rb_event {
+    // key is time of event and the connection id
+    // this makes the key uniq, suitable for the red black tree
+    ulong timeout;
+    ulong conn_idx;
+
+    fd_quic_conn_t * conn;
+
+    // required by redblack interface
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int   redblack_color;
+};
+typedef struct fd_quic_rb_event fd_quic_rb_event_t;
 
 /* structure for a cummulative summation tree */
 struct fd_quic_cs_tree {
@@ -85,6 +99,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   ulong                   free_conns;     /* count of free connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
+  fd_quic_rb_event_t *    rb_service_queue; /* priority queue of connections */
+  fd_quic_rb_event_t *    rb_service_queue_root;
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
 
   fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
@@ -95,9 +111,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
                                           /* not using fd_quic_conn_t* to avoid confusion */
                                           /* use fd_quic_conn_at_idx instead */
   ulong                   conn_sz;        /* size of one connection element */
-
-  /* crypto members */
-  fd_quic_crypto_ctx_t    crypto_ctx[1];  /* crypto context */
 
   fd_quic_pkt_meta_t *    pkt_meta;       /* records the metadata for the contents
                                              of each sent packet */
@@ -137,7 +150,6 @@ struct fd_quic_pkt {
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
   uint ping;
-# define ACK_FLAG_NOT_RQD 0
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
 };
@@ -184,7 +196,7 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
 
 fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
-                     fd_quic_conn_id_t const * our_conn_id,
+                     ulong                     our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
@@ -369,8 +381,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
    incoming QUIC frames.  {quic,conn,pkt} identify the frame context.
    Memory region [frame_ptr,frame_ptr+frame_sz) contains the serialized
    QUIC frame (may contain arbitrary zero padding at the beginning).
-   frame_scratch is used as scratch space for deserialization and frame
-   handling.
 
    Returns value in (0,buf_sz) if the frame was successfully processed.
    Returns FD_QUIC_PARSE_FAIL if the frame was inherently malformed.
@@ -383,8 +393,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_pkt_t *   pkt,
                          uint              pkt_type,
                          uchar const *     frame_ptr,
-                         ulong             frame_sz,
-                         fd_quic_frame_u * frame_scratch );
+                         ulong             frame_sz );
 
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause

@@ -120,9 +120,9 @@ fd_tls_estate_cli_new( void * mem ) {
 }
 
 void *
-fd_tls_hkdf_expand_label( uchar         out[ 32 ],
+fd_tls_hkdf_expand_label( uchar *       out,
                           ulong         out_sz,
-                          uchar const   secret[ static 32 ],
+                          uchar const   secret[ 32 ],
                           char const *  label,
                           ulong         label_sz,
                           uchar const * context,
@@ -1598,8 +1598,9 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
   /* Verify that client and server's transcripts match */
 
   int match = 0;
-  for( ulong i=0; i<32UL; i++ )
+  for( ulong i=0; i<32UL; i++ ) {
     match |= server_fin.verify[i] ^ server_finished_expected[i];
+  }
   if( FD_UNLIKELY( match!=0 ) )
     return fd_tls_alert( &hs->base, FD_TLS_ALERT_DECRYPT_ERROR, FD_TLS_REASON_FINI_FAIL );
 

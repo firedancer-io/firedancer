@@ -8,8 +8,17 @@
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
+#include "../log_collector/fd_log_collector.h"
 #include "tests/generated/invoke.pb.h"
 #include "tests/generated/txn.pb.h"
+
+/* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx
+   and fails in case of error. */
+#define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \
+  fd_exec_instr_ctx_t * _ctx = (ctx);                     \
+  int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
+  if( FD_UNLIKELY( err ) ) return err;                    \
+  } while(0)
 
 FD_PROTOTYPES_BEGIN
 
@@ -41,13 +50,10 @@ int
 fd_validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee );
 
 int
-fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
-
-int
-fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_scratch allocations.  Returns an
@@ -64,7 +70,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
 int
-fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
+fd_execute_txn_prepare_start( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx,
                                fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw );
@@ -73,9 +79,6 @@ int
 fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx,
                                fd_txn_p_t * txn );
-
-int
-fd_execute_txn_prepare_phase4( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
@@ -91,7 +94,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
 uint
 fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
-void
+int
+fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
+
+int
 fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 void
@@ -106,18 +112,6 @@ fd_executor_is_system_nonce_account( fd_borrowed_account_t * account );
 
 int
 fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
-
-int
-fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
-                                     fd_borrowed_account_t * rec );
-
-void
-fd_txn_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
-                                  void const *        addr );
-
-int
-fd_executor_collect_fee( fd_borrowed_account_t const * rec,
-                         ulong                         fee );
 
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
@@ -136,7 +130,13 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_executable_program_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
 
 static inline int
 fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,

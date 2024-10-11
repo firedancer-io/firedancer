@@ -37,6 +37,10 @@
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 
+#define FD_RENT_EXEMPT_RENT_EPOCH (ULONG_MAX)
+
+#define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
+
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
@@ -62,6 +66,17 @@ struct fd_block_txn_iter {
 };
 
 typedef struct fd_block_txn_iter fd_block_txn_iter_t;
+
+struct fd_raw_block_txn_iter {
+  ulong remaining_microblocks;
+  ulong remaining_txns;
+  ulong curr_offset;
+  ulong data_sz;
+
+  ulong curr_txn_sz;
+};
+
+typedef struct fd_raw_block_txn_iter fd_raw_block_txn_iter_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -174,10 +189,10 @@ void
 fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                      fd_execute_txn_task_info_t * task_info,
-                                      ulong txn_cnt,
-                                      fd_tpool_t * tpool );
+fd_runtime_prep_and_exec_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_execute_txn_task_info_t * task_info,
+                                     ulong txn_cnt,
+                                     fd_tpool_t * tpool );
 
 int
 fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
@@ -186,10 +201,10 @@ fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
                          ulong txn_cnt );
 
 int
-fd_runtime_prepare_txns_phase1( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_execute_txn_task_info_t * task_info,
-                         fd_txn_p_t * txns,
-                         ulong txn_cnt );
+fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
+                               fd_execute_txn_task_info_t * task_info,
+                               fd_txn_p_t *                 txns,
+                               ulong                        txn_cnt );
 
 int
 fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
@@ -209,10 +224,16 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_tpool_t * tpool );
 
 int
-fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_account_meta_t * acc,
-                                 fd_pubkey_t const * key,
-                                 ulong epoch );
+fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t * slot_ctx,
+                                      fd_account_meta_t  * acc,
+                                      fd_pubkey_t const  * key,
+                                      ulong                epoch );
+
+void
+fd_runtime_execute_txn( fd_execute_txn_task_info_t * task_info );
+
+void
+fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
 
 int
 fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
@@ -277,6 +298,18 @@ fd_block_txn_iter_next( fd_block_info_t const * block_info, fd_block_txn_iter_t 
 
 fd_txn_p_t *
 fd_block_txn_iter_ele( fd_block_info_t const * block_info, fd_block_txn_iter_t iter );
+
+fd_raw_block_txn_iter_t
+fd_raw_block_txn_iter_init( uchar const * data, ulong data_sz );
+
+ulong
+fd_raw_block_txn_iter_done( fd_raw_block_txn_iter_t iter );
+
+fd_raw_block_txn_iter_t
+fd_raw_block_txn_iter_next( uchar const * data, fd_raw_block_txn_iter_t iter );
+
+void
+fd_raw_block_txn_iter_ele( uchar const * data, fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 
 FD_PROTOTYPES_END
 

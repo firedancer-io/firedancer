@@ -49,8 +49,6 @@ struct fd_vm {
      non-trivial use of instr_ctx). */
 
   fd_exec_instr_ctx_t * instr_ctx;   /* FIXME: DOCUMENT */
-  int                   check_align; /* If non-zero, the vm does alignment checks where necessary (syscalls) */
-  int                   check_size;  /* If non-zero, the vm does size checks where necessary (syscalls) */
 
   /* FIXME: frame_max should be run time configurable by compute budget.
      If there is no reasonable upper bound on this, shadow and stack
@@ -92,11 +90,6 @@ struct fd_vm {
      syscall returns, the vm will update its internal execution state
      appropriately. */
 
-  /* Note that we try to match syscall log messages with the existing
-     Solana validator byte-for-byte (as there are things out there
-     scraping log messages from the existing validator) though this is
-     not strictly required for consensus. */
-
   /* IMPORTANT SAFETY TIP!  THE BEHAVIOR OF THE SYSCALL ALLOCATOR FOR
      HEAP_SZ MUST EXACTLY MATCH THE SOLANA VALIDATOR ALLOCATOR:
 
@@ -111,7 +104,6 @@ struct fd_vm {
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
   ulong heap_sz; /* Heap size in bytes, in [0,heap_max] */
-  ulong log_sz;  /* Log message bytes buffered, [0,FD_VM_LOG_MAX] */
 
   /* VM memory */
 
@@ -186,9 +178,6 @@ struct fd_vm {
                                                                 FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
                                                                 current stack frame.  Aligned 8. */
   uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
-  uchar                     log   [ FD_VM_LOG_MAX + FD_VM_LOG_TAIL ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.
-                                                                Aligned 8.  Includes a tail region large enough so various string
-                                                                operations can clobber to simplify a lot of string parsing code. */
 
    fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
@@ -207,7 +196,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (799552UL)
+#define FD_VM_FOOTPRINT (527264UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -294,6 +283,20 @@ fd_vm_delete( void * shmem );
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
 
+/* fd_vm_is_check_align_enabled returns 1 if the vm should check alignment
+   when doing memory translation. */
+FD_FN_PURE static inline int
+fd_vm_is_check_align_enabled( fd_vm_t const * vm ) {
+   return !vm->is_deprecated;
+}
+
+/* fd_vm_is_check_size_enabled returns 1 if the vm should check size
+   when doing memory translation. */
+FD_FN_PURE static inline int
+fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
+   return !vm->is_deprecated;
+}
+
 /* FIXME: make this trace-aware, and move into fd_vm_init
    This is a temporary hack to make the fuzz harness work. */
 int
@@ -303,8 +306,7 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) ;
    fault, appending an execution trace if vm is attached to a trace.
 
    Since this is running from program start, this will init r1 and r10,
-   pop all stack frames, free all heap allocations and flush out all
-   buffered log messages.
+   pop all stack frames and free all heap allocations.
 
    IMPORTANT SAFETY TIP!  This currently does not zero out any other
    registers, the user stack region or the user heap.  (FIXME: SHOULD

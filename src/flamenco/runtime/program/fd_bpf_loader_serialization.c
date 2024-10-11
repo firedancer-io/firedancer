@@ -1,9 +1,6 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_account.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* As a general note, copy_account_data implies that direct mapping is not being
    used/is inactive. This file is responsible for serializing and deserializing
    the input region of the BPF virtual machine. The input region contains
@@ -592,7 +589,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
 
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_DEBUG(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));
+        FD_LOG_DEBUG(( "failed to read account data - pubkey: %s, err: %d", FD_BASE58_ENC_32_ALLOCA( acc ), read_result ));
         return NULL;
       }
       fd_account_meta_t const * metadata = view_acc->const_meta;

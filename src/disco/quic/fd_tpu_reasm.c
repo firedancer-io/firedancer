@@ -246,7 +246,10 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
 void
 fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
                      fd_tpu_reasm_slot_t * slot ) {
+  if( FD_UNLIKELY( slot->state == FD_TPU_REASM_STATE_FREE ) ) return;
   slotq_remove( reasm, slot );
-  slot->state = FD_TPU_REASM_STATE_FREE;
+  slot->state     = FD_TPU_REASM_STATE_FREE;
+  slot->conn_id   = 0UL;
+  slot->stream_id = 0UL;
   slotq_push_tail( reasm, slot );
 }

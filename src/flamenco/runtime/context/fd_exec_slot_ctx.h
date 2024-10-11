@@ -46,38 +46,50 @@ fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
    transactions in a block. */
 
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
-  ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
+  ulong                        magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  fd_funk_txn_t *          funk_txn;
+  fd_funk_txn_t *             funk_txn;
 
   /* External joins, pointers to be set by caller */
 
-  fd_acc_mgr_t *           acc_mgr;
-  fd_blockstore_t *        blockstore;
-  fd_exec_epoch_ctx_t *    epoch_ctx;
-  fd_valloc_t              valloc;
+  fd_acc_mgr_t *              acc_mgr;
+  fd_blockstore_t *           blockstore;
+  fd_block_t *                block;
+  fd_exec_epoch_ctx_t *       epoch_ctx;
+  fd_valloc_t                 valloc;
 
-  fd_slot_bank_t           slot_bank;
-  fd_sysvar_cache_old_t    sysvar_cache_old; // TODO make const
+  fd_slot_bank_t              slot_bank;
+  fd_sysvar_cache_old_t       sysvar_cache_old; // TODO make const
   // TODO this leader pointer could become invalid if forks cross epoch boundaries
-  fd_pubkey_t const *      leader; /* Current leader */
-  ulong                    total_compute_units_requested;
+  fd_pubkey_t const *         leader; /* Current leader */
+  ulong                       total_compute_units_requested;
 
   /* TODO figure out what to do with this */
-  fd_epoch_reward_status_t epoch_reward_status;
+  fd_epoch_reward_status_t    epoch_reward_status;
 
   /* TODO remove this stuff */
-  ulong                    signature_cnt;
-  fd_hash_t                account_delta_hash;
-  fd_hash_t                prev_banks_hash;
-  ulong                    prev_lamports_per_signature;
-  ulong                    parent_signature_cnt;
+  ulong                       signature_cnt;
+  fd_hash_t                   account_delta_hash;
+  fd_hash_t                   prev_banks_hash;
+  ulong                       prev_lamports_per_signature;
+  ulong                       parent_signature_cnt;
+  ulong                       parent_transaction_count;
 
-  fd_sysvar_cache_t *      sysvar_cache;
+  fd_sysvar_cache_t *         sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
 
-  fd_txncache_t * status_cache;
-  fd_slot_history_t slot_history[1];
+  fd_txncache_t *             status_cache;
+  fd_slot_history_t           slot_history[1];
+
+  /* TODO: This could be implemented as a map-based data structure that would
+     allow for faster lookups. In practice this shouldn't matter too much as
+     this array is usually empty (e.g. in mainnet). */
+  fd_pubkey_t                 program_blacklist[1024];
+  ulong                       program_blacklist_cnt;
+
+  int                         enable_exec_recording; /* Enable/disable execution metadata
+                                                     recording, e.g. txn logs.  Analogue
+                                                     of Agave's ExecutionRecordingConfig. */
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

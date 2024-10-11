@@ -6,9 +6,9 @@ typedef enum {
 
 enum fd_block_detail { FD_BLOCK_DETAIL_FULL, FD_BLOCK_DETAIL_ACCTS, FD_BLOCK_DETAIL_SIGS, FD_BLOCK_DETAIL_NONE };
 
-int fd_txn_meta_to_json( fd_webserver_t * ws,
-                         const void * meta_raw,
-                         ulong meta_raw_sz );
+const char* fd_txn_meta_to_json( fd_webserver_t * ws,
+                                 const void * meta_raw,
+                                 ulong meta_raw_sz );
 
 const char* fd_txn_to_json( fd_webserver_t * ws,
                             fd_txn_t* txn,
@@ -16,18 +16,19 @@ const char* fd_txn_to_json( fd_webserver_t * ws,
                             ulong raw_sz,
                             fd_rpc_encoding_t encoding,
                             long maxvers,
-                            enum fd_block_detail detail,
-                            int rewards );
+                            enum fd_block_detail detail );
 
 const char* fd_block_to_json( fd_webserver_t * ws,
+                              fd_blockstore_t * blockstore,
                               const char * call_id,
                               const uchar * blk_data,
                               ulong blk_sz,
                               fd_block_map_t * meta,
+                              fd_hash_t * parent_hash,
                               fd_rpc_encoding_t encoding,
                               long maxvers,
                               enum fd_block_detail detail,
-                              int rewards);
+                              fd_block_rewards_t * rewards );
 
 #define FD_LONG_UNSET (1L << 63L)
 

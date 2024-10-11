@@ -15,7 +15,8 @@ class Enum:
         self.values = values
 
 class Metric:
-    def __init__(self, _type, link, linkside, group_id, group_name, enum, enum_idx, enum_cnt, tile, shortname, name, summary, min, max, converter):
+    def __init__(self, _type, full, link, linkside, group_id, group_name, enum, enum_idx, enum_cnt, tile, shortname, name, summary, min, max, converter):
+        self.full = full
         self.type = _type
         self.link = link
         self.linkside = linkside
@@ -87,6 +88,7 @@ def parse_metrics(xml_data):
                 for (i, value) in enumerate(enum.values):
                     summary = metric_element.find('summary').text if metric_element.find('summary') is not None else metric_element.attrib['summary']
                     metrics.append(Metric(_type=metric_element.tag,
+                                          full=group_element.attrib['full'] if 'full' in group_element.attrib else False,
                                         link='link' in group_element.attrib,
                                         linkside=group_element.attrib['linkside'] if 'linkside' in group_element.attrib else None,
                                         group_id=group_id,
@@ -103,6 +105,7 @@ def parse_metrics(xml_data):
                                         converter=converter))
             else:
                 metrics.append(Metric(_type=metric_element.tag,
+                                      full=group_element.attrib['full'] if 'full' in group_element.attrib else False,
                                     link='link' in group_element.attrib,
                                     linkside=group_element.attrib['linkside'] if 'linkside' in group_element.attrib else None,
                                     group_id=group_id,
@@ -134,8 +137,12 @@ if __name__ == '__main__':
     (enums, metrics) = parse_metrics(xml_data)
     os.makedirs('generated', exist_ok=True)  # Ensure the directory exists
 
+    tiles = sorted(list(set([x.tile for x in metrics if x.tile != 'all'])))
+    agave_tiles = sorted(list(set([x.tile for x in metrics if x.tile != 'all' and not x.full])))
+    non_agave_tiles = sorted(list(set([x.tile for x in metrics if x.tile != 'all' and x.full])))
+
     max_offset = 0
-    for tile in ['all', 'quic', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred', 'replay', 'storei']:
+    for tile in ['all'] + tiles:
         tile_metrics = [x for x in metrics if x.tile == tile]
         max_offset = max(max_offset, sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' or x.tile == tile]))
 
@@ -145,6 +152,12 @@ if __name__ == '__main__':
 
             if tile == 'all':
                 offset = 0
+                for tile2 in agave_tiles:
+                    f.write('#include "fd_metrics_{}.h"\n'.format(tile2))
+                f.write('#ifdef FD_HAS_NO_AGAVE\n')
+                for tile2 in non_agave_tiles:
+                    f.write('#include "fd_metrics_{}.h"\n'.format(tile2))
+                f.write('#endif\n\n')
             else:
                 # Tiles have their tile specific metrics placed after the 'all' section
                 offset = sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' and not x.link])
@@ -219,10 +232,6 @@ if __name__ == '__main__':
                     f.write(f'    {metric.declare()}( {metric.group_name}, {metric.name} ),\n')
                 f.write('};\n')
 
-    with open('generated/fd_metrics_all.h', 'a') as f:
-        # Kind of a hack for now.  Different tiles should get a different size.
-        f.write(f'\n#define FD_METRICS_TOTAL_SZ (8UL*{max_offset}UL)\n')
-
     with open('../../../book/api/metrics-generated.md', 'w') as f:
         f.write('\n## All Links\n<!--@include: ./metrics-link-preamble.md-->\n')
         f.write('| Metric | Type | Description |\n')
@@ -231,7 +240,7 @@ if __name__ == '__main__':
             if metric.link:
                 f.write(f'| {metric.full_name().lower().replace("_", "_&#8203;")} | `{metric.type}` | {metric.summary} |\n')
 
-        for tile in ['all', 'quic', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred']:
+        for tile in ['all', 'net', 'quic', 'verify', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred']:
             tile_metrics = [x for x in metrics if x.tile == tile]
             if tile == 'all':
                 f.write('\n## All Tiles\n<!--@include: ./metrics-tile-preamble.md-->\n')
@@ -242,3 +251,45 @@ if __name__ == '__main__':
             for metric in tile_metrics:
                 if not metric.link:
                     f.write(f'| {metric.full_name().lower().replace("_", "_&#8203;")} | `{metric.type}` | {metric.summary} |\n')
+
+    with open('generated/fd_metrics_all.h', 'a') as f:
+        # Kind of a hack for now.  Different tiles should get a different size.
+        f.write(f'\n#define FD_METRICS_TOTAL_SZ (8UL*{max_offset}UL)\n')
+        f.write(f'#ifndef FD_HAS_NO_AGAVE')
+        f.write(f'\n#define FD_METRICS_TILE_KIND_CNT {len(agave_tiles)}\n')
+        f.write(f'#else')
+        f.write(f'\n#define FD_METRICS_TILE_KIND_CNT {len(agave_tiles)+len(non_agave_tiles)}\n')
+        f.write(f'#endif\n')
+        f.write(f'extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];\n')
+        f.write(f'extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];\n')
+        f.write(f'extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];\n')
+
+    with open('generated/fd_metrics_all.c', 'a') as f:
+        f.write(f'const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT] = {{\n')
+        for tile in agave_tiles:
+            f.write(f'    "{tile}",\n')
+        f.write(f'#ifdef FD_HAS_NO_AGAVE\n')
+        for tile in non_agave_tiles:
+            f.write(f'    "{tile}",\n')
+        f.write(f'#endif\n')
+        f.write('};\n')
+
+        f.write(f'const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {{\n')
+        for tile in agave_tiles:
+            f.write(f'    FD_METRICS_{tile.upper()}_TOTAL,\n')
+        f.write(f'#ifdef FD_HAS_NO_AGAVE\n')
+        for tile in non_agave_tiles:
+            f.write(f'    FD_METRICS_{tile.upper()}_TOTAL,\n')
+        f.write(f'#endif\n')
+        f.write('};\n')
+
+        f.write(f'const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT] = {{\n')
+        for tile in agave_tiles:
+            f.write(f'    FD_METRICS_{tile.upper()},\n')
+        f.write(f'#ifdef FD_HAS_NO_AGAVE\n')
+        for tile in non_agave_tiles:
+            f.write(f'    FD_METRICS_{tile.upper()},\n')
+        f.write(f'#endif\n')
+        f.write('};\n')
+
+    print(f'Generated {len(metrics)} metrics for {len(tiles)} tiles')

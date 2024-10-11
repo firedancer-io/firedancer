@@ -131,15 +131,13 @@ fd_quic_tls_new( void *              mem,
 
   fd_quic_tls_t * self = (fd_quic_tls_t *)mem;
 
-  if( FD_UNLIKELY( (!cfg->alert_cb             ) |
-                   (!cfg->secret_cb            ) |
+  if( FD_UNLIKELY( (!cfg->secret_cb            ) |
                    (!cfg->handshake_complete_cb) |
                    (!cfg->peer_params_cb       ) ) ) {
     FD_LOG_WARNING(( "Missing callbacks" ));
     return NULL;
   }
 
-  self->alert_cb              = cfg->alert_cb;
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
   self->peer_params_cb        = cfg->peer_params_cb;
@@ -187,7 +185,7 @@ fd_quic_tls_init( fd_tls_t *    tls,
 
   /* Generate X25519 key */
   if( FD_UNLIKELY( !fd_rng_secure( tls->kex_private_key, 32UL ) ) )
-    FD_LOG_ERR(( "getrandom failed: %s", fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "fd_rng_secure failed: %s", fd_io_strerror( errno ) ));
   fd_x25519_public( tls->kex_public_key, tls->kex_private_key );
 
   /* Set up Ed25519 key */
@@ -349,7 +347,6 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
     if( FD_UNLIKELY( res<0L ) ) {
       int alert = (int)-res;
       self->alert = (uint)alert;
-      self->quic_tls->alert_cb( self, self->context, alert );
       return FD_QUIC_TLS_FAILED;
     }
     if( FD_UNLIKELY( res==0UL ) ) {
@@ -517,13 +514,9 @@ fd_quic_tls_secrets( void const * handshake,
 
   fd_quic_tls_hs_t * hs = (fd_quic_tls_hs_t *)handshake;
 
-  /* TODO: For now AES-128-GCM hardcoded */
-  fd_quic_tls_secret_t secret = {
-    .suite_id     = 0x1301,
-    .enc_level    = enc_level,
-    .secret_len   = 32 };
-  fd_memcpy( secret.read_secret,  recv_secret, 32UL );
-  fd_memcpy( secret.write_secret, send_secret, 32UL );
+  fd_quic_tls_secret_t secret = { .enc_level = enc_level };
+  memcpy( secret.read_secret,  recv_secret, 32UL );
+  memcpy( secret.write_secret, send_secret, 32UL );
 
   hs->quic_tls->secret_cb( hs, hs->context, &secret );
 }

@@ -3,6 +3,7 @@
 
 #include "fd_exec_instr_ctx.h"
 #include "../../../util/fd_util_base.h"
+#include "../../log_collector/fd_log_collector_base.h"
 
 #include "../fd_borrowed_account.h"
 
@@ -50,6 +51,8 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 
 /* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
+/* https://github.com/firedancer-io/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
+#define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
 
 struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
@@ -62,37 +65,36 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_valloc_t           valloc;
 
   ulong                 paid_fees;
-  ulong                 compute_unit_limit;              /* Compute unit limit for this transaction. */
-  ulong                 compute_unit_price;              /* Compute unit price for this transaction. */
-  ulong                 compute_meter;                   /* Remaining compute units */
-  ulong                 heap_size;                       /* Heap size for VMs for this transaction. */
-  ulong                 loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
-  uint                  prioritization_fee_type;         /* The type of prioritization fee to use. */
-  fd_txn_t const *      txn_descriptor;                  /* Descriptor of the transaction. */
-  fd_rawtxn_b_t         _txn_raw[1];                     /* Raw bytes of the transaction. */
-  uint                  custom_err;                      /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar                 instr_stack_sz;                  /* Current depth of the instruction execution stack. */
-  fd_exec_instr_ctx_t   instr_stack[6];                  /* Instruction execution stack. */
+  ulong                 compute_unit_limit;                          /* Compute unit limit for this transaction. */
+  ulong                 compute_unit_price;                          /* Compute unit price for this transaction. */
+  ulong                 compute_meter;                               /* Remaining compute units */
+  ulong                 heap_size;                                   /* Heap size for VMs for this transaction. */
+  ulong                 loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
+  uint                  prioritization_fee_type;                     /* The type of prioritization fee to use. */
+  fd_txn_t const *      txn_descriptor;                              /* Descriptor of the transaction. */
+  fd_rawtxn_b_t         _txn_raw[1];                                 /* Raw bytes of the transaction. */
+  uint                  custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
+  uchar                 instr_stack_sz;                              /* Current depth of the instruction execution stack. */
+  fd_exec_instr_ctx_t   instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
   fd_exec_instr_ctx_t * failed_instr;
   int                   instr_err_idx;
-  ulong                 accounts_cnt;                    /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t           accounts[128];                   /* Array of account pubkeys accessed by this transaction. */
-  ulong                 executable_cnt;                  /* Number of BPF upgradeable loader accounts. */
-  fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
-  fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
-  uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
-  uchar                 nonce_accounts[128];             /* Nonce accounts in the txn to be saved */
-  uint                  num_instructions;                /* Counter for number of instructions in txn */
-  fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
-  fd_vote_account_cache_t * vote_accounts_map;           /* Cache of bank's deserialized vote accounts to support fork choice */
-  fd_vote_account_cache_entry_t * vote_accounts_pool;    /* Memory pool for deserialized vote account cache */
-  ulong                 accounts_resize_delta;           /* Transaction level tracking for account resizing */
-  fd_hash_t             blake_txn_msg_hash;              /* Hash of raw transaction message used by the status cache */
-  ulong                 execution_fee;                   /* Execution fee paid by the fee payer in the transaction */
-  ulong                 priority_fee;                    /* Priority fee paid by the fee payer in the transaction */
+  ulong                 accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
+  fd_pubkey_t           accounts[128];                               /* Array of account pubkeys accessed by this transaction. */
+  ulong                 executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
+  fd_borrowed_account_t executable_accounts[128];                    /* Array of BPF upgradeable loader program data accounts */
+  fd_borrowed_account_t borrowed_accounts[128];                      /* Array of borrowed accounts accessed by this transaction. */
+  uchar                 nonce_accounts[128];                         /* Nonce accounts in the txn to be saved */
+  uint                  num_instructions;                            /* Counter for number of instructions in txn */
+  fd_txn_return_data_t  return_data;                                 /* Data returned from `return_data` syscalls */
+  fd_vote_account_cache_t * vote_accounts_map;                       /* Cache of bank's deserialized vote accounts to support fork choice */
+  fd_vote_account_cache_entry_t * vote_accounts_pool;                /* Memory pool for deserialized vote account cache */
+  ulong                 accounts_resize_delta;                       /* Transaction level tracking for account resizing */
+  fd_hash_t             blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
+  ulong                 execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
+  ulong                 priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
 
-  uchar dirty_vote_acc  : 1;  /* 1 if this transaction maybe modified a vote account */
-  uchar dirty_stake_acc : 1;  /* 1 if this transaction maybe modified a stake account */
+  uchar dirty_vote_acc  : 1;                                         /* 1 if this transaction maybe modified a vote account */
+  uchar dirty_stake_acc : 1;                                         /* 1 if this transaction maybe modified a stake account */
 
   fd_capture_ctx_t * capture_ctx;
 
@@ -109,6 +111,12 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
   ulong                       instr_trace_length;                           /* Number of instructions in the trace */
+
+  fd_log_collector_t          log_collector;             /* Log collector instance */
+
+  /* Execution error and type, to match Agave. */
+  int exec_err;
+  int exec_err_kind;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
@@ -116,6 +124,12 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 #define FD_EXEC_TXN_CTX_MAGIC     (0x9AD93EE71469F4D7UL      ) /* random */
 
 FD_PROTOTYPES_BEGIN
+
+#define FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, idx ) (__extension__({ \
+    txn_ctx->exec_err = err;                                           \
+    txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;               \
+    txn_ctx->instr_err_idx = idx;                                      \
+  }))
 
 void *
 fd_exec_txn_ctx_new( void * mem );

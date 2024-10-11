@@ -229,6 +229,11 @@ fd_sbpf_load_phdrs( fd_sbpf_elf_info_t *  info,
   return 0;
 }
 
+/* FD_SBPF_SECTION_NAME_SZ_MAX is the maximum length of a symbol name cstr
+   including zero terminator. 
+   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L12 */
+#define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
+
 /* fd_sbpf_load_shdrs walks the section header table.  Remembers info
    along the way, and performs various validations.
 
@@ -335,10 +340,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Create name cstr */
 
-    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 63UL, NULL );
+    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, FD_SBPF_SECTION_NAME_SZ_MAX-1UL, NULL );
     REQUIRE( name_ptr );
-    char __attribute__((aligned(16UL))) name[ 65UL ] = {0};
-    strncpy( name, name_ptr, 64UL );
+    char __attribute__((aligned(16UL))) name[ FD_SBPF_SECTION_NAME_SZ_MAX ] = {0};
+    strncpy( name, name_ptr, FD_SBPF_SECTION_NAME_SZ_MAX-1UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -638,9 +643,10 @@ struct fd_sbpf_loader {
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
 /* FD_SBPF_SYM_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator. */
-
+   including zero terminator. 
+   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L13 */
 #define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
+
 
 static int
 fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
@@ -735,21 +741,16 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
     for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
       if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
         /* TODO: verify this ... */
+        /* Check section type */
         uint sh_type = shdrs[ i ].sh_type;
-        if( !( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) ) ) {
-          continue;
-        }
+        // https://github.com/solana-labs/rbpf/blob/v0.8.5/src/elf_parser/mod.rs#L500
+        REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
 
         shdr_dynsym = &shdrs[ i ];
         break;
       }
     }
     REQUIRE( shdr_dynsym );
-
-    /* Check section type */
-
-    uint sh_type = shdr_dynsym->sh_type;
-    REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
 
     /* Check if out of bounds or misaligned */
 
@@ -979,9 +980,6 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
 
     /* TODO bounds check the target? */
 
-    /* Check for collision with syscall ID */
-    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (uint)target_pc, NULL ) );
-
     /* Register new entry */
     uint hash;
     if( name_len >= 10UL && 0==strncmp( name, "entrypoint", name_len ) ) {
@@ -992,10 +990,14 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
          Hash is still applied. */
       hash = 0x71e3cf81;
     } else {
-      hash = fd_murmur3_32( &target_pc, 8UL, 0U );
+      hash = fd_pchash( (uint)target_pc );
       if( FD_LIKELY( target_pc < (info->rodata_sz / 8UL ) ) )
         fd_sbpf_calldests_insert( loader->calldests, target_pc );
     }
+
+    /* Check for collision with syscall ID
+       https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
+    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, hash, NULL ) );
     V = (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
@@ -1084,7 +1086,12 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
     fd_sbpf_calldests_insert( calldests, target_pc );
 
     /* Replace immediate with hash */
-    FD_STORE( uint, ptr+4UL, fd_pchash( (uint)target_pc ) );
+    uint pc_hash = fd_pchash( (uint)target_pc );
+    /* Check for collision with syscall ID
+       https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
+    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) );
+    
+    FD_STORE( uint, ptr+4UL, pc_hash );
   }
 
   return 0;

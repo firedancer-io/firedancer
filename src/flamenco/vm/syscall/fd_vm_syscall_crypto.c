@@ -44,6 +44,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
     break;
 
   default:
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE );
     return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
   }
 
@@ -124,6 +125,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     break;
 
   default:
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE );
     return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
   }
   cost = fd_ulong_sat_add( cost, FD_VM_SYSCALL_BASE_COST );
@@ -205,6 +207,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1688 */
 
   if( FD_UNLIKELY( params!=0UL ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS );
     return FD_VM_ERR_INVAL; /* PoseidonSyscallError::InvalidParameters */
   }
 
@@ -214,13 +217,17 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
        endianness!=0UL /* Big endian */
     && endianness!=1UL /* Little endian */
   ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS );
     return FD_VM_ERR_INVAL; /* PoseidonSyscallError::InvalidEndianness */
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1691-L1698 */
 
   if( FD_UNLIKELY( vals_len > FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ) ) {
-    fd_vm_log_append_printf( vm, "Poseidon hashing %lu sequences is not supported", vals_len );
+    /* Max msg_sz = 47 - 3 + 20 = 64 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+      "Poseidon hashing %lu sequences is not supported", vals_len );
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );
     return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
   }
 

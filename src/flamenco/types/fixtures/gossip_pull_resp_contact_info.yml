@@ -1,6 +1,6 @@
 pull_resp: 
   pubkey: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
-  (null): 
+  crds: 
     - signature: '39P8nJ2kNPZBLkJ4YmMimiCBNSto4qBijbGNVKbbwKoQJCm1s3kEuPPijzqR52rgvrKicpDVLptQ3SeNZvKwc1p6'
       data: 
         contact_info_v1: 

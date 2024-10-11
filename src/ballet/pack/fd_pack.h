@@ -45,8 +45,8 @@
    consider the data shreds limit. */
 #define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
-/* Optionally allow up to 128k shreds per block for benchmarking. */
-#define LARGER_MAX_DATA_PER_BLOCK  (((4UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
+/* Optionally allow up to 1M shreds per block for benchmarking. */
+#define LARGER_MAX_DATA_PER_BLOCK  (((32UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
 /* ---- End consensus-critical constants */
 
@@ -153,7 +153,13 @@ fd_pack_t * fd_pack_join( void * mem );
    scheduled yet. pack must be a valid local join.  The return value
    will be in [0, pack_depth). */
 
-FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack );
+/* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
+   in fd_pack.c. */
+#define FD_PACK_PENDING_TXN_CNT_OFF 64
+FD_FN_PURE static inline ulong
+fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
+  return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
+}
 
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
@@ -222,28 +228,29 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
-#define FD_PACK_INSERT_ACCEPT_VOTE_REPLACE    ( 3)
-#define FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE ( 2)
-#define FD_PACK_INSERT_ACCEPT_VOTE_ADD        ( 1)
-#define FD_PACK_INSERT_ACCEPT_NONVOTE_ADD     ( 0)
-#define FD_PACK_INSERT_REJECT_PRIORITY        (-1)
-#define FD_PACK_INSERT_REJECT_DUPLICATE       (-2)
-#define FD_PACK_INSERT_REJECT_UNAFFORDABLE    (-3)
-#define FD_PACK_INSERT_REJECT_ADDR_LUT        (-4)
-#define FD_PACK_INSERT_REJECT_EXPIRED         (-5)
-#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-6)
-#define FD_PACK_INSERT_REJECT_ACCOUNT_CNT     (-7)
-#define FD_PACK_INSERT_REJECT_DUPLICATE_ACCT  (-8)
-#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-9)
-#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-10)
+#define FD_PACK_INSERT_ACCEPT_VOTE_REPLACE     (  3)
+#define FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE  (  2)
+#define FD_PACK_INSERT_ACCEPT_VOTE_ADD         (  1)
+#define FD_PACK_INSERT_ACCEPT_NONVOTE_ADD      (  0)
+#define FD_PACK_INSERT_REJECT_PRIORITY         ( -1)
+#define FD_PACK_INSERT_REJECT_DUPLICATE        ( -2)
+#define FD_PACK_INSERT_REJECT_UNAFFORDABLE     ( -3)
+#define FD_PACK_INSERT_REJECT_ADDR_LUT         ( -4)
+#define FD_PACK_INSERT_REJECT_EXPIRED          ( -5)
+#define FD_PACK_INSERT_REJECT_TOO_LARGE        ( -6)
+#define FD_PACK_INSERT_REJECT_ACCOUNT_CNT      ( -7)
+#define FD_PACK_INSERT_REJECT_DUPLICATE_ACCT   ( -8)
+#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL  ( -9)
+#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR    (-10)
+#define FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST (-11)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 10
-#define FD_PACK_INSERT_RETVAL_CNT 14
+#define FD_PACK_INSERT_RETVAL_OFF 11
+#define FD_PACK_INSERT_RETVAL_CNT 15
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_WRITES_SYSVAR>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
@@ -375,6 +382,12 @@ void fd_pack_end_block( fd_pack_t * pack );
    All pending transactions are removed from the pool of available
    transactions and all limits are reset. */
 void fd_pack_clear_all( fd_pack_t * pack );
+
+
+/* fd_pack_metrics_write writes period metric values to the metrics
+   system.  pack must be a valid local join. */
+void
+fd_pack_metrics_write( fd_pack_t const * pack );
 
 
 /* fd_pack_leave leaves a local join of a pack object.  Returns pack. */

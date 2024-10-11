@@ -6,9 +6,6 @@
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
@@ -196,11 +193,11 @@ slot_ctx_restore( ulong                 slot,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  fd_hash_t const * block_hash = fd_blockstore_block_hash_query( blockstore, slot );
+  fd_block_map_t *  block = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
   FD_LOG_DEBUG(( "Current slot %lu", slot ));
-  if( !block_hash ) FD_LOG_ERR(( "missing block hash of slot we're trying to restore" ));
+  if( !block || !block->block_gaddr ) FD_LOG_ERR(( "missing block at slot we're trying to restore" ));
   fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, block_hash, sizeof(fd_funk_txn_xid_t) );
+  memcpy( xid.uc, block->block_hash.uc, sizeof(fd_funk_txn_xid_t) );
   xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
@@ -254,10 +251,10 @@ slot_ctx_restore( ulong                 slot,
   // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
   // hash calculation and not needed when restoring parent
 
-  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
+  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%s poh_hash %s",
                    slot_ctx_out->slot_bank.slot,
-                   slot_ctx_out->slot_bank.banks_hash.hash,
-                   slot_ctx_out->slot_bank.poh.hash ));
+                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.banks_hash.hash ),
+                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.poh.hash ) ));
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot_bank.slot                     = slot;

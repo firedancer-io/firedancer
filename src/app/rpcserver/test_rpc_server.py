@@ -2,12 +2,26 @@ import asyncio
 import websockets
 import requests
 import json
+import argparse
+import random
 
-url = 'http://localhost:8123/'
+parser = argparse.ArgumentParser(
+    prog='test_rpc_server',
+    description='Unit test/fuzzer for rpcserver')
+parser.add_argument('-u', '--url', default='http://localhost:8123/')
+parser.add_argument('-f', '--fuzz', action='store_true', default=False)
+args = parser.parse_args()
+url=args.url
+fuzz=args.fuzz
+
+fixtures = []
 
 def good_method(arg):
     print(arg)
-    x = requests.post(url,json=arg)
+    data = json.dumps(arg).encode('utf-8')
+    if fuzz:
+        fixtures.append(data)
+    x = requests.post(url,headers={'Content-Type':'application/json'},data=data)
     res = json.loads(x.content)
     print(res)
     assert arg['id'] == res['id']
@@ -15,7 +29,10 @@ def good_method(arg):
 
 def bad_method(arg):
     print(arg)
-    x = requests.post(url,json=arg)
+    data = json.dumps(arg).encode('utf-8')
+    if fuzz:
+        fixtures.append(data)
+    x = requests.post(url,headers={'Content-Type':'application/json'},data=data)
     print(x.content)
     res = json.loads(x.content)
     print(res)
@@ -127,6 +144,10 @@ bad_method({"id":3,"jsonrpc":"2.0","method":"sendTransaction","params":[{"encodi
 bad_method({"id":3,"jsonrpc":"2.0","method":"sendTransaction","params":["\x0001ASo+eUIKwuSWNkIUSGYqsCyMl8laigvXBY0voPWtK+spyJ6aoKx6aD92w8debhg4OOtIcLmWcpiczHY0IuMFDwcBAAEDdyLB10ajX5sIZk3tYD6EBxTn7SNadMPcbamf1i/4s5Q5gs3samJ1XGBBSM+gZo2HLoRzniskcYjPZjKIdB2iqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1nrHFeO6WRyL7j0okdIcbRu3jwqxJ7McfyD/5KbTM8wBAgIAAQwCAAAAAACKXXhFYwE=",{"encoding":"base64","maxRetries":None,"minContextSlot":None,"preflightCommitment":"confirmed","skipPreflight":False}]})
 bad_method({"id":3,"jsonrpc":"2.0","method":"sendTransaction","params":["eUIKwuSWNkIUSGYqsCyMl8laigvXBY0voPWtK+spyJ6aoKx6aD92w8debhg4OOtIcLmWcpiczHY0IuMFDwcBAAEDdyLB10ajX5sIZk3tYD6EBxTn7SNadMPcbamf1i/4s5Q5gs3samJ1XGBBSM+gZo2HLoRzniskcYjPZjKIdB2iqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1nrHFeO6WRyL7j0okdIcbRu3jwqxJ7McfyD/5KbTM8wBAgIAAQwCAAAAAACKXXhFYwE=",{"encoding":"base64","maxRetries":None,"minContextSlot":None,"preflightCommitment":"confirmed","skipPreflight":False}]})
 
+good_method({"jsonrpc":"2.0", "id": 1, "method": "getSlotLeader"})
+
+good_method({"jsonrpc":"2.0", "id": 1, "method": "getSlotLeaders", "params": [slot, 10]})
+
 async def hello():
     async with websockets.connect(url.replace('http:','ws:')) as websocket:
         for a in accts:
@@ -147,5 +168,47 @@ async def hello():
         await websocket.close()
 
 asyncio.get_event_loop().run_until_complete(hello())
+
+def fuzz_test(f):
+    def try_bytes(data):
+        return requests.post(url,headers={'Content-Type':'application/json'},data=data).content
+
+    print()
+    print(f)
+    print(try_bytes(f))
+
+    for i in range(len(f)):
+        try_bytes(f[:i] + b'\x00' + f[i:])
+        try_bytes(f[:i] + b'\x01' + f[i:])
+        try_bytes(f[:i] + b'x' + f[i:])
+        try_bytes(f[:i] + b'000' + f[i:])
+        try_bytes(f[:i] + b' ' + f[i:])
+        if i > 0:
+            try_bytes(f[:i-1] +  f[i:])
+
+    i = 0
+    while True:
+        while i < len(f) and f[i] != 34:
+            i = i+1
+            continue
+        if i == len(f):
+            break
+        j = i+1
+        while j < len(f) and f[j] != 34:
+            j = j+1
+            continue
+        if j == len(f):
+            break
+
+        try_bytes(f[:i+1] + f[j:])
+        try_bytes(f[:i+1] + b'xxx' + f[j:])
+        try_bytes(f[:i+1] + b'0123' + f[j:])
+        try_bytes(f[:i+1] + b'cat' + f[j:])
+
+        i = j+1
+
+if fuzz:
+    for f in fixtures:
+        fuzz_test(f)
 
 print('Test passed!')

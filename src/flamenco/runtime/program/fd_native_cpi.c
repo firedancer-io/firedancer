@@ -20,6 +20,10 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
 
+  /* fd_vm_prepare_instruction will handle missing/invalid account case */
+  instr_info->program_id_pubkey = fd_solana_system_program_id;
+  instr_info->program_id = UCHAR_MAX;
+
   for( ulong i = 0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) ) {
       instr_info->program_id = (uchar)i;
@@ -33,7 +37,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   uchar acc_idx_seen[256];
   memset( acc_idx_seen, 0, 256 );
 
-  instr_info->program_id_pubkey = fd_solana_system_program_id;
   instr_info->acct_cnt = (ushort)acct_metas_len;
   for ( ulong j = 0; j < acct_metas_len; j++ ) {
     fd_vm_rust_account_meta_t const * acct_meta = &acct_metas[j];

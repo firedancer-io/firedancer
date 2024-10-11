@@ -85,7 +85,10 @@ typedef union {
     ulong   benchg;
     ulong   benchs;
     int     no_quic;
-  } spammer;
+    int     transaction_mode;
+    float   contending_fraction;
+    float   cu_price_spread;
+  } load;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;

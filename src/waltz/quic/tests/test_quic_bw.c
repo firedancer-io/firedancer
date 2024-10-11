@@ -80,15 +80,15 @@ main( int     argc,
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt           = 10,
-    .conn_id_cnt        = 10,
+    .conn_cnt           = 1,
+    .conn_id_cnt        = 4,
     .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
     .stream_cnt         = { 0, 0, 10, 0 },
     .initial_stream_cnt = { 0, 0, 10, 0 },
-    .stream_pool_cnt    = 200,
-    .inflight_pkt_cnt   = 100,
-    .tx_buf_sz          = 1<<20
+    .stream_pool_cnt    = 400,
+    .inflight_pkt_cnt   = 1024,
+    .tx_buf_sz          = 1<<11
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -111,9 +111,10 @@ main( int     argc,
   server_quic->cb.stream_receive   = my_stream_receive_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
+  client_quic->cb.conn_final       = my_conn_final;
 
-  server_quic->config.initial_rx_max_stream_data = 1<<20;
-  client_quic->config.initial_rx_max_stream_data = 1<<20;
+  server_quic->config.initial_rx_max_stream_data = quic_limits.tx_buf_sz;
+  client_quic->config.initial_rx_max_stream_data = quic_limits.tx_buf_sz;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -175,17 +176,15 @@ main( int     argc,
   FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
-  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
   FD_TEST( client_stream );
 
-  char buf[ 256UL ] = "Hello world!\x00-   ";
+  char buf[ 1232UL ] = "Hello world!\x00-   ";
   ulong buf_sz = sizeof(buf);
   fd_aio_pkt_info_t batch[1] = {{ buf, (ushort)buf_sz }};
-  int rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
-
+  int rc = fd_quic_stream_send( client_stream, batch, 1, 1 );
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
-  ulong tot     = 0;
   long last_ts = fd_log_wallclock();
   long rprt_ts = fd_log_wallclock() + (long)1e9;
 
@@ -195,20 +194,19 @@ main( int     argc,
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
-    rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
-    if( rc == 1 ) {
-      tot += buf_sz;
-    }
+    client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+    if( !client_stream ) continue;
+    fd_quic_stream_send( client_stream, batch, 1, 1 );
 
     long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
       long dt = t - last_ts;
-      float bps = (float)tot / (float)dt;
-      FD_LOG_NOTICE(( "bw: %f  dt: %f  bytes: %f", (double)bps, (double)dt, (double)tot ));
+      float bps = (float)rx_tot_sz / (float)dt;
+      FD_LOG_NOTICE(( "bw: %f  dt: %f  bytes: %f", (double)bps, (double)dt, (double)rx_tot_sz ));
 
-      tot     = 0;
-      last_ts = t;
-      rprt_ts = t + (long)1e9;
+      rx_tot_sz = 0;
+      last_ts   = t;
+      rprt_ts   = t + (long)1e9;
 
       if( t > end_ts ) break;
     }
@@ -217,6 +215,9 @@ main( int     argc,
   /* close the connections */
   fd_quic_conn_close( client_conn, 0 );
   fd_quic_conn_close( server_conn, 0 );
+
+  FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_CLOSE_PENDING );
+  FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_CLOSE_PENDING );
 
   /* allow acks to go */
   for( unsigned j = 0; j < 10; ++j ) {
@@ -236,6 +237,8 @@ main( int     argc,
     fd_quic_service( server_quic );
   }
 
+  FD_TEST( client_quic->metrics.conn_closed_cnt==1 );
+  FD_TEST( server_quic->metrics.conn_closed_cnt==1 );
   FD_TEST( conn_final_cnt==2 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));

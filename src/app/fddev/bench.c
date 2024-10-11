@@ -46,7 +46,7 @@ bench_cmd_args( int *    pargc,
   (void)pargc;
   (void)pargv;
   (void)args;
-  args->spammer.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
+  args->load.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
 }
 
 static void *
@@ -65,6 +65,9 @@ add_bench_topo( fd_topo_t  * topo,
                 ulong        benchg_tile_cnt,
                 ulong        benchs_tile_cnt,
                 ulong        accounts_cnt,
+                int          transaction_mode,
+                float        contending_fraction,
+                float        cu_price_spread,
                 ulong        conn_cnt,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
@@ -94,7 +97,10 @@ add_bench_topo( fd_topo_t  * topo,
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
     fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", tile_to_cpu[ i+1UL ], 0, "benchg_s", i );
-    benchg->benchg.accounts_cnt = accounts_cnt;
+    benchg->benchg.accounts_cnt        = accounts_cnt;
+    benchg->benchg.mode                = transaction_mode;
+    benchg->benchg.contending_fraction = contending_fraction;
+    benchg->benchg.cu_price_spread     = cu_price_spread;
   }
   for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
     fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, NULL, 0 );
@@ -121,7 +127,7 @@ bench_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  ushort dest_port = fd_ushort_if( args->spammer.no_quic,
+  ushort dest_port = fd_ushort_if( args->load.no_quic,
                                    config->tiles.quic.regular_transaction_listen_port,
                                    config->tiles.quic.quic_transaction_listen_port );
 
@@ -133,12 +139,13 @@ bench_cmd_fn( args_t *         args,
                   config->development.bench.benchg_tile_count,
                   config->development.bench.benchs_tile_count,
                   config->development.genesis.fund_initial_accounts,
+                  0, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
                   dest_port,
                   config->tiles.net.ip_addr,
                   config->rpc.port,
                   config->tiles.net.ip_addr,
-                  args->spammer.no_quic );
+                  args->load.no_quic );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {

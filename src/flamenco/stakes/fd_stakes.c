@@ -5,9 +5,6 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
    => (active stake) ordered by node identity).  Returns the tree root. */
@@ -40,7 +37,7 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
 
     fd_pubkey_t null_key = {0};
     if( memcmp( node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
-      FD_LOG_WARNING(( "vote account %32J skipped", n->elem.key.key ));
+      FD_LOG_WARNING(( "vote account %s skipped", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
       continue;
     }
     /* Check if node identity was previously visited */
@@ -381,6 +378,12 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx) {
 
   fd_valloc_free( slot_ctx->valloc,
     fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
+
+  /* Refresh the sysvar cache stake history entry after updating the sysvar.
+      We need to do this here because it is used in subsequent places in the epoch boundary. */
+  fd_bincode_destroy_ctx_t sysvar_cache_destroy_ctx = { .valloc = slot_ctx->sysvar_cache->valloc };
+  fd_stake_history_destroy( slot_ctx->sysvar_cache->val_stake_history, &sysvar_cache_destroy_ctx );
+  fd_sysvar_cache_restore_stake_history( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
 }
 
 int

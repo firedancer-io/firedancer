@@ -1840,7 +1840,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_update {
   ulong root;
   uchar has_root;
   fd_hash_t hash;
-  long* timestamp;
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
@@ -1862,7 +1863,8 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
   ushort lockouts_len;
   fd_lockout_offset_t * lockouts;
   fd_hash_t hash;
-  long* timestamp;
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
@@ -2403,7 +2405,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   ulong eah_interval;
   fd_hash_t genesis_hash;
   uint cluster_type;
-  uint cluster_version;
+  uint cluster_version[3];
   fd_vote_accounts_t next_epoch_stakes;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
@@ -2457,6 +2459,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong transaction_count;
   uchar lthash[2048];
   fd_block_hash_queue_t block_hash_queue;
+  ulong use_preceeding_epoch_stakes;
+  uchar has_use_preceeding_epoch_stakes;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2485,6 +2489,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint transaction_count_off;
   uint lthash_off;
   uint block_hash_queue_off;
+  uint use_preceeding_epoch_stakes_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)
@@ -4639,24 +4644,6 @@ struct __attribute__((aligned(8UL))) fd_calculated_stake_points_off {
 typedef struct fd_calculated_stake_points_off fd_calculated_stake_points_off_t;
 #define FD_CALCULATED_STAKE_POINTS_OFF_FOOTPRINT sizeof(fd_calculated_stake_points_off_t)
 #define FD_CALCULATED_STAKE_POINTS_OFF_ALIGN (8UL)
-
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21 */
-/* Encoded Size: Fixed (24 bytes) */
-struct __attribute__((aligned(8UL))) fd_point_value {
-  ulong rewards;
-  uint128 points;
-};
-typedef struct fd_point_value fd_point_value_t;
-#define FD_POINT_VALUE_FOOTPRINT sizeof(fd_point_value_t)
-#define FD_POINT_VALUE_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_point_value_off {
-  uint rewards_off;
-  uint points_off;
-};
-typedef struct fd_point_value_off fd_point_value_off_t;
-#define FD_POINT_VALUE_OFF_FOOTPRINT sizeof(fd_point_value_off_t)
-#define FD_POINT_VALUE_OFF_ALIGN (8UL)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
 /* Encoded Size: Fixed (24 bytes) */
@@ -7857,18 +7844,6 @@ void fd_calculated_stake_points_walk( void * w, fd_calculated_stake_points_t con
 ulong fd_calculated_stake_points_size( fd_calculated_stake_points_t const * self );
 ulong fd_calculated_stake_points_footprint( void );
 ulong fd_calculated_stake_points_align( void );
-
-void fd_point_value_new( fd_point_value_t * self );
-int fd_point_value_decode( fd_point_value_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_point_value_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_point_value_decode_unsafe( fd_point_value_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_point_value_decode_offsets( fd_point_value_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_point_value_encode( fd_point_value_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_point_value_destroy( fd_point_value_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_point_value_walk( void * w, fd_point_value_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_point_value_size( fd_point_value_t const * self );
-ulong fd_point_value_footprint( void );
-ulong fd_point_value_align( void );
 
 void fd_calculated_stake_rewards_new( fd_calculated_stake_rewards_t * self );
 int fd_calculated_stake_rewards_decode( fd_calculated_stake_rewards_t * self, fd_bincode_decode_ctx_t * ctx );

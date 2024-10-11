@@ -7,14 +7,13 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 cd ../test-ledger/
 
+FD_DIR="$SCRIPT_DIR/../.."
+
 cleanup() {
   sudo killall -9 -q fddev || true
-  fddev configure fini all >/dev/null 2>&1 || true
+  $FD_DIR/build/native/$CC/bin/fddev configure fini all
 }
-
 trap cleanup EXIT SIGINT SIGTERM
-
-FD_DIR="$SCRIPT_DIR/../.."
 
 sudo killall -9 -q fddev || true
 
@@ -33,7 +32,7 @@ done
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
 
 echo "
-name = \"fd1test\"
+name = \"fd1\"
 [layout]
     affinity = \"1-37\"
     bank_tile_count = 1
@@ -59,13 +58,16 @@ name = \"fd1test\"
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
-        cluster_version = 2000
+        cluster_version = \"2.0.3\"
+    [tiles.pack]
+        use_consumed_cus = false
 [log]
     path = \"fddev.log\"
     level_stderr = \"INFO\"
     level_flush = \"ERR\"
 [development]
     topology = \"firedancer\"
+
 [consensus]
     vote = true
     identity_path = \"fd-identity-keypair.json\"

@@ -15,18 +15,18 @@ mainnet_gs_ledger=""
 get_endpoint_by_location() {
   local country=$(curl -s https://ipinfo.io | jq -r '.country')
   case $country in
-    "JP" | "KR" | "IN" | "ID" | "HK" | "SG")
-      mainnet_gs_ledger=$MAINNET_GS_LEDGER_ASIA
-      ;;
-    "US" | "CA" | "MX" | "BR" | "AR" | "CL")
-      mainnet_gs_ledger=$MAINNET_GS_LEDGER_US
-      ;;
-    "FR" | "DE" | "GB" | "IT" | "ES" | "NL")
-      mainnet_gs_ledger=$MAINNET_GS_LEDGER_EU
-      ;;
-    *)
-      mainnet_gs_ledger=$MAINNET_GS_LEDGER_US
-      ;;
+  "JP" | "KR" | "IN" | "ID" | "HK" | "SG")
+    mainnet_gs_ledger=$MAINNET_GS_LEDGER_ASIA
+    ;;
+  "US" | "CA" | "MX" | "BR" | "AR" | "CL")
+    mainnet_gs_ledger=$MAINNET_GS_LEDGER_US
+    ;;
+  "FR" | "DE" | "GB" | "IT" | "ES" | "NL")
+    mainnet_gs_ledger=$MAINNET_GS_LEDGER_EU
+    ;;
+  *)
+    mainnet_gs_ledger=$MAINNET_GS_LEDGER_US
+    ;;
   esac
 }
 
@@ -45,13 +45,6 @@ download_ext_rocksdb() {
   cd "$LEDGER" || exit
 
   LATEST_SNAPSHOT="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -1)"
-
-  local rocksdb_in_gs=$(gsutil ls $LATEST_SNAPSHOT/rocksdb.tar.zst 2>&1)
-  if echo "$rocksdb_in_gs" | grep -q -e "No such file or directory" -e "matched no objects"; then
-    local second_latest_snapshot="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -2 | head -1)"
-    LATEST_SNAPSHOT=$second_latest_snapshot
-  fi
-
   LATEST_SNAPSHOT_SLOT=$(echo "$LATEST_SNAPSHOT" | sed 's#.*/\([0-9]\+\)/#\1#')
 
   gcloud storage cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
@@ -96,9 +89,9 @@ download_ext_snapshot() {
           echo "[~] getting hourly snapshot, using $fetch_snap"
           fetch_snapshot=$fetch_snap
           break
-        else 
+        else
           echo "[~] hourly snapshot $fetch_hourly_slot is not rooted"
-          continue 
+          continue
         fi
       fi
     done
@@ -151,7 +144,7 @@ elif [[ "$NETWORK" == "testnet" ]]; then
     download_ext_rocksdb $TESTNET_GS_LEDGER $TESTNET_GS_GENESIS
     rocksdb_bounds
   fi
-  download_ext_snapshot $TESTNET_GS_LEDGER 
+  download_ext_snapshot $TESTNET_GS_LEDGER
 elif [[ "$NETWORK" == "internal" ]]; then
   cp "$LEDGER_INT"/genesis.bin "$LEDGER"
   cp "$LEDGER_INT"/genesis.tar.bz2 "$LEDGER"

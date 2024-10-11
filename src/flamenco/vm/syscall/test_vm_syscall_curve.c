@@ -1,4 +1,5 @@
 #include "fd_vm_syscall.h"
+#include "../test_vm_util.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -63,20 +64,6 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  ulong const rodata_sz = 500UL;
-  uchar       rodata[ rodata_sz ];
-  set_memory_region( rodata, rodata_sz );
-
-  /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
-  fd_exec_epoch_ctx_t epoch_ctx = {
-    .magic = FD_EXEC_EPOCH_CTX_MAGIC,
-  };
-  fd_exec_slot_ctx_t slot_ctx = {
-    .epoch_ctx = &epoch_ctx,
-  };
-  fd_exec_instr_ctx_t instr_ctx = {
-    .slot_ctx = &slot_ctx,
-  };
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
@@ -84,9 +71,16 @@ main( int     argc,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
   FD_TEST( vm );
 
+  ulong const rodata_sz = 500UL;
+  uchar       rodata[ rodata_sz ];
+  set_memory_region( rodata, rodata_sz );
+
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
+  fd_features_enable_all( &((fd_exec_epoch_ctx_t *)instr_ctx->epoch_ctx)->features );
+
   int vm_ok = !!fd_vm_init(
       /* vm               */ vm,
-      /* instr_ctx        */ &instr_ctx,  /* required for FD_FEATURE_ACTIVE */
+      /* instr_ctx        */ instr_ctx,  /* required for FD_FEATURE_ACTIVE */
       /* heap_max         */ FD_VM_HEAP_DEFAULT,
       /* entry_cu         */ FD_VM_COMPUTE_UNIT_LIMIT,
       /* rodata           */ rodata,
@@ -389,6 +383,7 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
+  test_vm_exec_instr_ctx_delete( instr_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

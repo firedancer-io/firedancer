@@ -246,19 +246,6 @@ fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint dirtype, ulong stream_
   fd_quic_assign_streams( conn->quic );
 }
 
-
-/* get the current value for the concurrent streams for the specified type
-
-   type is one of:
-     FD_QUIC_TYPE_UNIDIR
-     FD_QUIC_TYPE_BIDIR */
-FD_QUIC_API ulong
-fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint dirtype ) {
-  uint peer = (uint)!conn->server;
-  uint type = peer + ( (uint)dirtype << 1u );
-  return conn->max_concur_streams[type];
-}
-
 /* update the tree weight
    called whenever weight may have changed */
 void

@@ -68,7 +68,9 @@ fd_exec_epoch_ctx_new( void * mem,
   fd_exec_epoch_ctx_bank_mem_setup( self );
 
   fd_features_disable_all( &self->features );
-  self->epoch_bank.cluster_version = FD_DEFAULT_AGAVE_CLUSTER_VERSION;
+  self->epoch_bank.cluster_version[0] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR;
+  self->epoch_bank.cluster_version[1] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR;
+  self->epoch_bank.cluster_version[2] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH;  
   fd_features_enable_cleaned_up( &self->features, self->epoch_bank.cluster_version );
 
   FD_COMPILER_MFENCE();
@@ -191,11 +193,13 @@ fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx ) {
     fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
     fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+    epoch_bank->stakes.vote_accounts.vote_accounts_root = NULL;
   }
   {
     fd_delegation_pair_t_mapnode_t * old_pool = epoch_bank->stakes.stake_delegations_pool;
     fd_delegation_pair_t_mapnode_t * old_root = epoch_bank->stakes.stake_delegations_root;
     fd_delegation_pair_t_map_release_tree( old_pool, old_root );
+    epoch_bank->stakes.stake_delegations_root = NULL;
   }
   {
     fd_stake_history_entry_t * old_pool  = epoch_bank->stakes.stake_history.pool;
@@ -221,6 +225,7 @@ fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx ) {
     fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->next_epoch_stakes.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->next_epoch_stakes.vote_accounts_root;
     fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
   }
 }
 

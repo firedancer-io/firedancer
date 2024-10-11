@@ -44,6 +44,7 @@ extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
+extern fd_topo_run_tile_t fd_tile_cswtch;
 extern fd_topo_run_tile_t fd_tile_blackhole;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
@@ -72,6 +73,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_store,
   &fd_tile_sign,
   &fd_tile_metric,
+  &fd_tile_cswtch,
   &fd_tile_blackhole,
   &fd_tile_bencho,
   &fd_tile_benchg,
@@ -94,7 +96,7 @@ static action_t DEV_ACTIONS[] = {
   { .name = "dev1",    .args = dev1_cmd_args,    .fn = dev1_cmd_fn,    .perm = dev_cmd_perm     },
   { .name = "txn",     .args = txn_cmd_args,     .fn = txn_cmd_fn,     .perm = txn_cmd_perm     },
   { .name = "bench",   .args = bench_cmd_args,   .fn = bench_cmd_fn,   .perm = bench_cmd_perm   },
-  { .name = "spammer", .args = spammer_cmd_args, .fn = spammer_cmd_fn, .perm = spammer_cmd_perm },
+  { .name = "load",    .args = load_cmd_args,    .fn = load_cmd_fn,    .perm = load_cmd_perm    },
   { .name = "dump",    .args = dump_cmd_args,    .fn = dump_cmd_fn,    .perm = NULL             },
   { .name = "flame",   .args = flame_cmd_args,   .fn = flame_cmd_fn,   .perm = flame_cmd_perm   },
 };

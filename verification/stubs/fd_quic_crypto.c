@@ -51,11 +51,8 @@ fd_quic_gen_secrets(
 int
 fd_quic_gen_initial_secret(
     fd_quic_crypto_secrets_t * secrets,
-    uchar const *              initial_salt,
-    ulong                      initial_salt_sz,
     uchar const *              conn_id,
     ulong                      conn_id_sz ) {
-  __CPROVER_r_ok( initial_salt, initial_salt_sz );
   __CPROVER_r_ok( conn_id,      conn_id_sz      );
   __CPROVER_havoc_slice( secrets->secret, 32UL );
   int res;  __CPROVER_assume( res==FD_QUIC_SUCCESS || res==FD_QUIC_FAILED );

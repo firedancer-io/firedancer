@@ -37,14 +37,15 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             fd_pubkey_t const * program_id,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
+  /* fd_vm_prepare_instruction will handle the case where pubkey is missing */
+  out_instr->program_id_pubkey = *program_id;
+  out_instr->program_id = UCHAR_MAX;
 
   /* Find the index of the CPI instruction's program account in the transaction */
-  /* TODO: what if this is not present? */
   fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
   for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( program_id, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
       out_instr->program_id = (uchar)i;
-      out_instr->program_id_pubkey = txn_accs[i];
       break;
     }
   }
@@ -170,8 +171,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
 
     /* Translate and get the account data */
-    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, 
-                                                        sizeof(ulong), caller_acc_data_len ); 
+    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len ); 
 
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
         fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
@@ -236,7 +236,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
            smartly look up the right region and don't need to worry about 
            multiple region access.We just need to load in the bytes from 
            (original len, post_len]. */
-        uchar const * realloc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(ulong), realloc_bytes_used );
+        uchar const * realloc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(uchar), realloc_bytes_used );
 
         uchar * data = NULL;
         ulong   dlen = 0UL;
@@ -596,7 +596,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Pre-flight checks ************************************************/
   int err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
+    return err;
+  }
   
   /* Translate instruction ********************************************/
   VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
@@ -609,6 +612,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
   fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
+  /* fd_ulong_sat_mul: signers_seeds_cnt<=16 => no need for sat_mul */
   fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
     int err = fd_vm_derive_pda( vm, caller_program_id, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
@@ -621,13 +625,13 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
     FD_VM_MEM_SLICE_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
                               VM_SYSCALL_CPI_ACC_META_ALIGN,
-                              VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction )*VM_SYSCALL_CPI_ACC_META_SIZE );
+                              fd_ulong_sat_mul( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_ACC_META_SIZE ) );
 
   /* Translate instruction data *************************************************/
 
   uchar const * data = FD_VM_MEM_SLICE_HADDR_LD( 
     vm, VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
-    alignof(uchar),
+    FD_VM_ALIGN_RUST_U8,
     VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ));
 
   /* Authorized program check *************************************************/
@@ -640,7 +644,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Instruction checks ***********************************************/
 
   err = fd_vm_syscall_cpi_check_instruction( vm, VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
+    return err;
+  }
 
   /* Translate account infos ******************************************/
   VM_SYSCALL_CPI_ACC_INFO_T * acc_infos =
@@ -675,18 +682,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len );
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* Check that the caller lamports haven't changed */
-  ulong caller_lamports_h = 0UL;
-  ulong caller_lamports_l = 0UL;
-
-  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
-  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
-
-  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
-      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_ERR_INSTR_ERR;
-  }
-  
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
@@ -701,7 +696,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   *_ret = instr_exec_res;
 
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
+  if( FD_UNLIKELY( err_exec ) ) return err_exec;
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/syscalls/cpi.rs#L1128-L1145 */
   /* Update all account permissions before updating the account data updates.
@@ -742,16 +737,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) return err;
     }
-  }
-
-  caller_lamports_h = 0UL;
-  caller_lamports_l = 0UL;
-  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
-  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
-
-  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
-      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_ERR_INSTR_ERR;
   }
 
   return FD_VM_SUCCESS;

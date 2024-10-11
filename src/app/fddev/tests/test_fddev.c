@@ -167,6 +167,7 @@ fddev_test_run( int     argc,
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();
       config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+      config->consensus.poh_speed_test = 0;
 
       return run( config );
     } else {

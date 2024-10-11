@@ -24,7 +24,7 @@
   affinity = "f1,0-13"
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
-  disable_blockstore = true
+  disable_blockstore_from_slot = 1
 
 [rpc]
   transaction_history = false

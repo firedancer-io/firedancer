@@ -50,6 +50,7 @@ void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
+                  int                  keep_controlling_terminal,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
@@ -95,7 +96,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( FD_LIKELY( sandbox) ) {
     fd_sandbox_enter( uid,
                       gid,
-                      0,
+                      tile_run->keep_host_networking,
+                      keep_controlling_terminal,
                       tile_run->rlimit_file_cnt,
                       allow_fds_cnt+allow_fds_offset,
                       allow_fds,
@@ -209,7 +211,7 @@ run_tile_thread_main( void * _args ) {
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", args.tile->name, args.tile->kind_id ) );
   if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_topo_run_tile( args.topo, args.tile, 0, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
+  fd_topo_run_tile( args.topo, args.tile, 0, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
   if( FD_UNLIKELY( args.done_futex ) ) {
     for(;;) {
       if( FD_LIKELY( INT_MAX==FD_ATOMIC_CAS( args.done_futex, INT_MAX, (int)args.tile->id ) ) ) break;
