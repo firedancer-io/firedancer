@@ -8,6 +8,7 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../util/shmem/fd_shmem_private.h"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -79,19 +80,33 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 0, 65536UL, FD_TXN_MTU, 1UL );
 
-  ushort tile_to_cpu[ FD_TILE_MAX ];
-  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
-  ulong affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, tile_to_cpu );
+  int is_bench_auto_affinity = !strcmp( affinity, "auto" );
 
-  if( FD_UNLIKELY( affinity_tile_cnt<benchg_tile_cnt+1UL+benchs_tile_cnt ) )
-    FD_LOG_ERR(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
-                 "in the [development.bench.affinity] only provides for %lu cores. ",
-                 benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
-  else if( FD_UNLIKELY( affinity_tile_cnt>benchg_tile_cnt+1UL+benchs_tile_cnt ) )
-    FD_LOG_WARNING(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
-                     "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
-                     benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
+  ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
+  ulong affinity_tile_cnt = 0UL;
+  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu );
+
+  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
+  for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=fd_numa_cpu_cnt() ) )
+      FD_LOG_ERR(( "The CPU affinity string in the configuration file under [development.bench.affinity] specifies a CPU index of %hu, but the system "
+                   "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
+                   "in the system.",
+                   parsed_tile_to_cpu[ i ], fd_numa_cpu_cnt() ));
+    tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
+  }
+  if( FD_LIKELY( !is_bench_auto_affinity ) ) {
+    if( FD_UNLIKELY( affinity_tile_cnt<benchg_tile_cnt+1UL+benchs_tile_cnt ) )
+      FD_LOG_ERR(( "The benchmark topology you are using has %lu bench tiles, but the CPU affinity specified "
+                   "in the [development.bench.affinity] only provides for %lu cores. ",
+                   benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
+    else if( FD_UNLIKELY( affinity_tile_cnt>benchg_tile_cnt+1UL+benchs_tile_cnt ) )
+      FD_LOG_WARNING(( "The benchmark topology you are using has %lu bench tiles, but the CPU affinity specified "
+                       "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
+                       benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
+  }
   fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", tile_to_cpu[ 0 ], 0, "bencho_out", 0 );
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
@@ -117,6 +132,8 @@ add_bench_topo( fd_topo_t  * topo,
     }
   }
 
+  /* This will blow away previous auto topology layouts and recompute an auto topology. */
+  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo );
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
 }
 
