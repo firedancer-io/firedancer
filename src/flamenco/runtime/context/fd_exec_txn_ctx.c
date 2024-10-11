@@ -219,10 +219,13 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
 
 /* TODO:FIXME: fd_spad_t move it around */
-  uchar     * mem  = fd_valloc_malloc( txn_ctx->valloc, 8UL, 128UL * 10000000UL );
-  fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, 128UL * 10000000UL ) ); /* 128 accounts for 10MB per account */
-  ulong mem_max = fd_spad_alloc_max( spad, 128UL * 10000000UL );
-  FD_TEST( 128UL*10000000UL == mem_max );
+  ulong acc_size = fd_ulong_align_up( 128UL * 10000000UL, FD_SPAD_ALIGN );
+  FD_LOG_NOTICE(("acc size %lu", acc_size));
+  uchar     * mem  = fd_valloc_malloc( txn_ctx->valloc, FD_SPAD_ALIGN, acc_size );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, acc_size ) ); /* 128 accounts for 10MB per account */
+  FD_TEST(spad);
+  ulong mem_max = fd_spad_alloc_max( spad, acc_size );
+  FD_TEST( acc_size <= mem_max );
   txn_ctx->spad = spad;
 }
 

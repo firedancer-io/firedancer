@@ -1896,6 +1896,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
           fd_valloc_free( txn_ctx->valloc, acc_rec_data );
         }
       }
+      fd_valloc_free( txn_ctx->valloc, txn_ctx->spad);
     }
 
     fd_funk_start_write( slot_ctx->acc_mgr->funk );

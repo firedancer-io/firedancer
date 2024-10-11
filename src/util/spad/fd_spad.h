@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_util_spad_fd_spad_h
 #define HEADER_fd_src_util_spad_fd_spad_h
 
+#include "../log/fd_log.h"
+
 /* APIs for high performance persistent inter-process shared scratch pad
    memories.  A spad as a scratch pad that behaves very much like a
    thread's stack:
@@ -193,9 +195,18 @@ fd_spad_new( void * shmem,
              ulong  mem_max ) {
   fd_spad_t * spad = (fd_spad_t *)shmem;
 
-  if( FD_UNLIKELY( !spad                                              ) ) return NULL;
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)spad, FD_SPAD_ALIGN ) ) ) return NULL;
-  if( FD_UNLIKELY( !fd_spad_footprint( mem_max )                      ) ) return NULL;
+  if( FD_UNLIKELY( !spad                                              ) ) { 
+    FD_LOG_WARNING(("asdf"));
+    return NULL; 
+    }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)spad, FD_SPAD_ALIGN ) ) ) {
+    FD_LOG_WARNING(("asdf2 %lu", (ulong)spad)); 
+    return NULL;
+     }
+  if( FD_UNLIKELY( !fd_spad_footprint( mem_max )                      ) ) { 
+    FD_LOG_WARNING(("asdf3"));
+    return NULL;
+     }
 
   spad->mem_max = mem_max;
 

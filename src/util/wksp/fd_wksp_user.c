@@ -263,7 +263,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   ulong i = fd_wksp_private_free_treap_query( footprint, wksp, pinfo );
   if( FD_UNLIKELY( fd_wksp_private_pinfo_idx_is_null( i ) ) ) {
     fd_wksp_private_unlock( wksp );
-    FD_LOG_WARNING(( "no free space available in workspace %s with data size %lu", wksp->name, wksp->data_max ));
+    FD_LOG_WARNING(( "no free space available in workspace %s with data size %lu %lu", wksp->name, wksp->data_max, sz ));
     goto fail;
   }
 
