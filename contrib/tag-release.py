@@ -39,7 +39,7 @@ def main():
         print('Error: version patch number is too high')
         exit(1)
 
-    solana_version = subprocess.run(['cargo', 'pkgid'], cwd='solana/validator', stdout=subprocess.PIPE, check=True)
+    solana_version = subprocess.run(['cargo', 'pkgid'], cwd='agave/validator', stdout=subprocess.PIPE, check=True)
     solana_version = solana_version.stdout.decode('utf-8').strip().split('@')[1]
     solana_version_major = int(solana_version.split('.')[0])
     solana_version_minor = int(solana_version.split('.')[1])

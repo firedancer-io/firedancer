@@ -428,11 +428,6 @@ quic_stream_notify( fd_quic_stream_t * stream,
   fd_frag_meta_t *      mcache = mux->mcache;
   void *                base   = ctx->verify_out_mem;
 
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
-    fd_tpu_reasm_cancel( reasm, slot );
-    return;  /* not a successful stream close */
-  }
-
   /* Check if reassembly slot is still valid */
 
   ulong conn_id   = stream->conn->local_conn_id;
@@ -444,12 +439,21 @@ quic_stream_notify( fd_quic_stream_t * stream,
     return;  /* clobbered */
   }
 
+  /* Abort reassembly slot if QUIC stream closes non-gracefully */
+
+  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
+    fd_tpu_reasm_cancel( reasm, slot );
+    return;  /* not a successful stream close */
+  }
+
   /* Publish message */
 
   ulong  seq   = *mux->seq;
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
   ctx->metrics.reasm_publish[ pub_err ]++;
+  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
   fd_mux_advance( mux );
 }

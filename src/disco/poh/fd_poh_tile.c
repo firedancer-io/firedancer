@@ -1,8 +1,5 @@
 #include "fd_poh_tile.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 ulong
 fd_poh_tile_align( void ) {
   return 128UL;
@@ -25,7 +22,7 @@ fd_poh_tile_initialize( fd_poh_tile_ctx_t * ctx,
                         ulong               tick_height,         /* The counter (height) of the tick to start hashing on top of. */
                         uchar const *       last_entry_hash      /* Points to start of a 32 byte region of memory, the hash itself at the tick height. */ ) {
   FD_LOG_WARNING(( "tick_duration_ns: %lu",tick_duration_ns ));
-  ctx->slot                = tick_height/ticks_per_slot;
+  ctx->slot                = (tick_height/ticks_per_slot)+1UL;
   ctx->hashcnt             = 0UL;
   ctx->last_slot           = ctx->slot;
   ctx->last_hashcnt        = 0UL;

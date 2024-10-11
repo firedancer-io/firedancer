@@ -56,6 +56,9 @@ typedef struct {
   ulong in_backp;
   ulong backp_cnt;
 
+  ulong nvcsw;
+  ulong nivcsw;
+
   ulong housekeeping_ticks;
   ulong backpressure_ticks;
   ulong caught_up_ticks;
@@ -106,6 +109,8 @@ tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,til
 
     FD_COMPILER_MFENCE();
     snap->pid                      = FD_MGAUGE_GET( TILE, PID );
+    snap->nvcsw                    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT );
+    snap->nivcsw                   = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT );
     snap->in_backp                 = FD_MGAUGE_GET( STEM, IN_BACKPRESSURE );
     snap->backp_cnt                = FD_MCNT_GET( STEM, BACKPRESSURE_COUNT );
     snap->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS );
@@ -223,7 +228,7 @@ static void write_stdout( char * buf, ulong buf_sz ) {
 
 static int stop1 = 0;
 
-#define FD_MONITOR_TEXT_BUF_SZ 65536
+#define FD_MONITOR_TEXT_BUF_SZ 131072
 char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
 char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
 
@@ -338,20 +343,24 @@ run_monitor( config_t * const config,
     char * mon_start = buf;
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) PRINT( TEXT_NEWLINE );
 
+    long dt = now-then;
+
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    PRINT( "    tile |     pid |      stale | heart |        sig | in backp |           backp cnt |  %% hkeep |  %% backp |   %% wait |  %% ovrnp |  %% ovrnr |  %% filt1 |  %% filt2 | %% finish" TEXT_NEWLINE );
-    PRINT( "---------+---------+------------+-------+------------+----------+---------------------+----------+----------+----------+----------+----------+----------+----------+----------" TEXT_NEWLINE );
+    PRINT( "    tile |     pid |      stale | heart |        sig | nivcsw | nvcsw  | in backp |           backp cnt |  %% hkeep |  %% backp |   %% wait |  %% ovrnp |  %% ovrnr |  %% filt1 |  %% filt2 | %% finish" TEXT_NEWLINE );
+    PRINT( "---------+---------+------------+-------+------------+--------+-------+----------+---------------------+----------+----------+----------+----------+----------+----------+----------+----------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
       tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
       tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
       PRINT( " %7s", topo->tiles[ tile_idx ].name );
       PRINT( " | %7lu", cur->pid );
       PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), 1e8 /* 100 millis */ );
-      PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat, prv->cnc_heartbeat        );
-      PRINT( " | " ); printf_sig     ( &buf, &buf_sz, cur->cnc_signal,    prv->cnc_signal           );
-      PRINT( " | " ); printf_err_bool( &buf, &buf_sz, cur->in_backp,      prv->in_backp             );
-      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->backp_cnt,     prv->backp_cnt            );
+      PRINT( " | " ); printf_heart   ( &buf, &buf_sz,          cur->cnc_heartbeat, prv->cnc_heartbeat        );
+      PRINT( " | " ); printf_sig     ( &buf, &buf_sz,          cur->cnc_signal,    prv->cnc_signal           );
+      PRINT( " | " ); printf_rate    ( &buf, &buf_sz, 1e9, 0., cur->nivcsw,        prv->nivcsw, dt );
+      PRINT( " | " ); printf_rate    ( &buf, &buf_sz, 1e9, 0., cur->nvcsw,         prv->nvcsw,  dt );
+      PRINT( " | " ); printf_err_bool( &buf, &buf_sz,          cur->in_backp,      prv->in_backp             );
+      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz,          cur->backp_cnt,     prv->backp_cnt            );
 
       PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->housekeeping_ticks,       prv->housekeeping_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
       PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->backpressure_ticks,       prv->backpressure_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
@@ -366,7 +375,6 @@ run_monitor( config_t * const config,
     PRINT( TEXT_NEWLINE );
     PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
     PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
-    long dt = now-then;
 
     ulong link_idx = 0UL;
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
@@ -582,6 +590,7 @@ monitor_cmd_fn( args_t *         args,
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
                       0UL,
                       allow_fds_cnt,

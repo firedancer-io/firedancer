@@ -18,6 +18,7 @@ fd_zstd_peek( fd_zstd_peek_t * peek,
   ulong const err = ZSTD_getFrameHeader( hdr, buf, bufsz );
   if( FD_UNLIKELY( ZSTD_isError( err ) ) ) return NULL;
   if( FD_UNLIKELY( err>0               ) ) return NULL;
+  fd_msan_unpoison( hdr, sizeof(ZSTD_frameHeader) );
   if( FD_UNLIKELY( hdr->windowSize > (1U<<ZSTD_WINDOWLOG_MAX) ) ) return NULL;
   peek->window_sz          = hdr->windowSize;
   peek->frame_content_sz   = hdr->frameContentSize;

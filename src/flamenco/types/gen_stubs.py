@@ -572,7 +572,7 @@ class VectorMember:
             return
         else:
             print(f'  if( self->{self.name}_len ) {{', file=body)
-            print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "{self.name}", level++ );', file=body)
+            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "array", level++ );', file=body)
             print(f'    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
 
         if self.element in VectorMember.emitWalkMap:
@@ -581,7 +581,7 @@ class VectorMember:
         else:
             print(f'      {namespace}_{self.element}_walk(w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
 
-        print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "{self.name}", level-- );', file=body)
+        print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );', file=body)
         print('  }', file=body)
 
 
@@ -1473,6 +1473,11 @@ class ArrayMember:
         self.element = json["element"]
         self.length = int(json["length"])
 
+    def propogateArchival(self, nametypes):
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
+
     def metaTag(self):
         return "FD_ARCHIVE_META_ARRAY"
 
@@ -2227,16 +2232,19 @@ class EnumType:
         print("", file=body)
 
         print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
-        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "{n}", level++);', file=body)
         print('  switch( self->discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
+            print(f'  case {i}: {{', file=body)
             if not isinstance(v, str):
-                print(f'  case {i}: {{', file=body)
+                print(f'    fun( w, self, "{v.name}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
                 v.emitWalk("inner.")
-                print('    break;', file=body)
-                print('  }', file=body)
+            else:
+                print(f'    fun( w, self, "{v}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
+            print('    break;', file=body)
+            print('  }', file=body)
         print('  }', file=body)
-        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level-- );', file=body)
+        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "{n}", level-- );', file=body)
         print("}", file=body)
 
         print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)

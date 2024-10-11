@@ -30,7 +30,7 @@ default_enable_features( fd_features_t * features ) {
   features->incremental_snapshot_only_incremental_hash_calculation = 0UL;
   features->timely_vote_credits = 0UL;
   features->apply_cost_tracker_during_replay = 0UL;
-  features->reject_callx_r10 = 0UL;
+  features->reject_callx_r10 = 1UL;
   features->update_hashes_per_tick = 0UL;
   features->enable_partitioned_epoch_reward = 0UL;
   features->pico_inflation = 0UL;
@@ -189,7 +189,8 @@ create_genesis( config_t * const config,
 
   fd_features_t features[1];
   fd_features_disable_all( features );
-  fd_features_enable_cleaned_up( features, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
+  uint version[] = {FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR, FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR, FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH};
+  fd_features_enable_cleaned_up(features, version);
   default_enable_features( features );
 
   options->features = features;

@@ -21,7 +21,7 @@ INDEX_MAX="--index-max 5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
-CLUSTER_VERSION="--cluster-version 2003"
+CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 

@@ -288,7 +288,7 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1043
   ulong destination_rent_exempt_reserve =
-      fd_rent_exempt_minimum_balance2( rent, destination_data_len );
+      fd_rent_exempt_minimum_balance( rent, destination_data_len );
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1048
   if( FD_UNLIKELY(
@@ -1203,7 +1203,7 @@ initialize( fd_exec_instr_ctx_t const *   ctx,
 
   if( FD_LIKELY( stake_state.discriminant==fd_stake_state_v2_enum_uninitialized ) ) {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L225
-    ulong rent_exempt_reserve = fd_rent_exempt_minimum_balance2( rent, stake_account->const_meta->dlen );
+    ulong rent_exempt_reserve = fd_rent_exempt_minimum_balance( rent, stake_account->const_meta->dlen );
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L226
     if( FD_LIKELY( stake_account->const_meta->info.lamports>=rent_exempt_reserve ) ) {

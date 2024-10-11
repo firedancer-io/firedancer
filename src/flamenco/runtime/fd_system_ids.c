@@ -109,6 +109,7 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
 #define MAP_PERFECT_9       ( SYSVAR_PROG_ID          ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
+#undef PERFECT_HASH
 
 int fd_pubkey_is_active_reserved_key ( fd_pubkey_t const * acct ) { return fd_pubkey_active_reserved_keys_tbl_contains( acct );  }
 int fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct ) { return fd_pubkey_pending_reserved_keys_tbl_contains( acct ); }

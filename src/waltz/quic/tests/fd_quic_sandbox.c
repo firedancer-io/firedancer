@@ -291,7 +291,6 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   /* fd_quic_t conn IDs are always 8 bytes */
   ulong             our_conn_id_u64 = fd_rng_ulong( rng );
-  fd_quic_conn_id_t our_conn_id     = fd_quic_conn_id_new( &our_conn_id_u64, 8UL );
 
   /* the peer may choose a conn ID size 1 to 16 bytes
      For now, pick 8 bytes too */
@@ -300,7 +299,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       /* quic         */ quic,
-      /* our_conn_id  */ &our_conn_id,
+      /* our_conn_id  */ our_conn_id_u64,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,
@@ -313,7 +312,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   conn->state       = FD_QUIC_CONN_STATE_ACTIVE;
   conn->established = 1;
-  conn->in_service  = 1;
+  conn->in_schedule = 1;
 
   /* Mock a completed handshake */
   conn->handshake_complete = 1;
@@ -352,9 +351,7 @@ fd_quic_sandbox_send_frame( fd_quic_sandbox_t * sandbox,
    * frame types */
   uint pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT;
 
-  /* Scratch space to deserialize frame data into */
-  fd_quic_frame_u frame[1];
-  ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz, frame );
+  ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return;
   if( FD_UNLIKELY( rc==0UL || rc>frame_sz ) ) {
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );

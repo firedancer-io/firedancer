@@ -29,9 +29,6 @@
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
 struct fd_ledger_args {
@@ -90,7 +87,7 @@ struct fd_ledger_args {
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
-  uint                  cluster_version;         /* What version of solana is the genesis block? */
+  uint                  cluster_version[3];         /* What version of solana is the genesis block? */
   char const *          one_off_features[32];    /* List of one off feature pubkeys to enable for execution agnostic of cluster version */
   uint                  one_off_features_cnt;    /* Number of one off features */
 
@@ -231,10 +228,14 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_hash_t const * expected = fd_blockstore_block_hash_query( blockstore, slot );
     if( FD_UNLIKELY( !expected ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
     else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected->hash, 32UL ) ) ) {
-      FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%32J, got=%32J",
+      char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( expected_hash, expected->hash );
+      char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( poh_hash, ledger_args->slot_ctx->slot_bank.poh.hash );
+      FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
-                        expected->hash,
-                        ledger_args->slot_ctx->slot_bank.poh.hash ));
+                        expected_hash,
+                        poh_hash ));
 
       if( ledger_args->checkpt_mismatch ) {
         fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
@@ -251,10 +252,16 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
                                          expected->hash,
                                          32UL ) ) ) {
-      FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+
+      char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( expected_hash, expected->hash );
+      char bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( bank_hash, ledger_args->slot_ctx->slot_bank.banks_hash.hash );
+
+      FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
-                        expected->hash,
-                        ledger_args->slot_ctx->slot_bank.banks_hash.hash ));
+                        expected_hash,
+                        bank_hash ));
 
       if( ledger_args->checkpt_mismatch ) {
         fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
@@ -408,12 +415,12 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   fd_runtime_recover_banks( args->slot_ctx, 0, args->genesis==NULL );
 
-  /* Finish other runtime setup steps  */
+  /* Finish other runtime setup steps */
   fd_funk_start_write( funk );
   fd_features_restore( args->slot_ctx );
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn, 1 );
   fd_funk_end_write( funk );
 
 }
@@ -526,7 +533,7 @@ parse_one_off_features( fd_ledger_args_t * args, char const * one_off_features )
     token = strtok( NULL, "," );
   }
 
-  FD_LOG_NOTICE(( "Found %lu one off features to include", args->one_off_features_cnt ));
+  FD_LOG_NOTICE(( "Found %u one off features to include", args->one_off_features_cnt ));
 
   /* TODO: Fix the leak here and in parse_rocksdb_list */
 }
@@ -889,7 +896,7 @@ ingest( fd_ledger_args_t * args ) {
                                 id = fd_feature_iter_next( id ) ) {
     ulong activated_at = fd_features_get( &slot_ctx->epoch_ctx->features, id );
     if( activated_at ) {
-      FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
+      FD_LOG_DEBUG(( "feature %s activated at slot %lu", FD_BASE58_ENC_32_ALLOCA( id->id.key ), activated_at ));
     }
   }
 
@@ -963,7 +970,10 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
 
-  args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
+  args->epoch_ctx->epoch_bank.cluster_version[0] = args->cluster_version[0];
+  args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
+  args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
+
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
@@ -1239,7 +1249,7 @@ prune( fd_ledger_args_t * args ) {
     fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
     if( !original_rec ) {
       /* Some sysvars aren't touched during execution. Not a problem. */
-      FD_LOG_DEBUG(("Record is not in account pubkey=%32J at index=%lu", &records[i], i));
+      FD_LOG_DEBUG(( "Record is not in account pubkey=%s at index=%u", FD_BASE58_ENC_32_ALLOCA( &records[i] ), i ));
       continue;
     }
     fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &records[i], 0, 1, NULL, NULL );
@@ -1251,15 +1261,15 @@ prune( fd_ledger_args_t * args ) {
              fd_funk_val_sz( original_rec ) ) == 0 );
     FD_TEST(( !!new_rec ));
   }
-  FD_LOG_NOTICE(("Copied over all sysvars and bank keys"));
+  FD_LOG_NOTICE(( "Copied over all sysvars and bank keys" ));
 
   /* Publish transaction with pruned records to the root of funk */
   if( fd_funk_txn_publish( pruned_funk, prune_txn, 1 )==0 ) {
-    FD_LOG_ERR(("failed to publish transaction into pruned funk"));
+    FD_LOG_ERR(( "failed to publish transaction into pruned funk" ));
   }
 
   /* Verify that the pruned records are in the funk */
-  FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp )));
+  FD_LOG_NOTICE(( "Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp ) ));
 
   fd_funk_leave( unpruned_funk );
 
@@ -1336,7 +1346,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
-  uint         cluster_version         = fd_env_strip_cmdline_uint ( &argc, &argv, "--cluster-version",         NULL, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
+  char const * cluster_version         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cluster-version",         NULL, "2.0.0"   );
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
   char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
 
@@ -1442,7 +1452,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->checkpt_path            = checkpt_path;
   args->checkpt_freq            = checkpt_freq;
   args->checkpt_mismatch        = checkpt_mismatch;
-  args->cluster_version         = cluster_version;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
   args->on_demand_block_ingest  = on_demand_block_ingest;
@@ -1458,6 +1467,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->one_off_features_cnt    = 0UL;
   parse_one_off_features( args, one_off_features );
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
+
+  if( FD_UNLIKELY( sscanf( cluster_version, "%u.%u.%u", &args->cluster_version[0], &args->cluster_version[1], &args->cluster_version[2] )!=3 ) ) {
+    FD_LOG_ERR(( "failed to decode cluster version" ));;
+  }
 
   if( args->rocksdb_list_cnt==1UL ) {
     FD_LOG_NOTICE(( "rocksdb=%s", args->rocksdb_list[0] ));

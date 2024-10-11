@@ -11,6 +11,7 @@
 | link_&#8203;overrun_&#8203;polling_&#8203;count | `counter` | The number of times the link has been overrun while polling. |
 | link_&#8203;overrun_&#8203;polling_&#8203;frag_&#8203;count | `counter` | The number of fragments the link has not processed because it was overrun while polling. |
 | link_&#8203;overrun_&#8203;reading_&#8203;count | `counter` | The number of input overruns detected while reading metadata by the consumer. |
+| link_&#8203;overrun_&#8203;reading_&#8203;frag_&#8203;count | `counter` | The number of fragments the link has not processed because it was overrun while reading. |
 
 ## All Tiles
 <!--@include: ./metrics-tile-preamble.md-->
@@ -18,6 +19,8 @@
 |--------|------|-------------|
 | tile_&#8203;pid | `gauge` | The process ID of the tile. |
 | tile_&#8203;tid | `gauge` | The thread ID of the tile. Always the same as the Pid in production, but might be different in development. |
+| tile_&#8203;context_&#8203;switch_&#8203;involuntary_&#8203;count | `counter` | The number of involuntary context switches. |
+| tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count | `counter` | The number of voluntary context switches. |
 | stem_&#8203;in_&#8203;backpressure | `gauge` | Whether the tile is currently backpressured or not, either 1 or 0. |
 | stem_&#8203;backpressure_&#8203;count | `counter` | Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing. |
 | stem_&#8203;loop_&#8203;housekeeping_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which did housekeeping. The various loop durations are mutually exclusive and exhaustive, so the sum of time across all of them is roughly the total running time of the tile. Loop durations are per iteration of the run loop and non-blocking, so for example each 'caught up' sample does not represent the time we waited for new input data, but rather how long each iteration of the spin loop waiting for the data took. |
@@ -30,6 +33,14 @@
 | stem_&#8203;loop_&#8203;finish_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which received, did not filter, and processed the fragment. |
 | stem_&#8203;fragment_&#8203;filtered_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was filtered and not processed by the tile. |
 | stem_&#8203;fragment_&#8203;handled_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was processed (not filtered) by the tile. |
+
+## Net Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| net_&#8203;tile_&#8203;received_&#8203;packets | `counter` | Number of IP packets received. |
+| net_&#8203;tile_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP headers). |
+| net_&#8203;tile_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
+| net_&#8203;tile_&#8203;sent_&#8203;bytes | `counter` | Total bytes sent (including IP, UDP headers). |
 
 ## Quic Tile
 | Metric | Type | Description |
@@ -50,6 +61,7 @@
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Oversize message) |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Out-of-order data within QUIC stream) |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Unexpected slot state) |
+| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;aborted | `counter` | Reassembly slot was aborted before it was notified. |
 | quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;clobbered | `counter` | Reassembly slot was clobbered before it was notified. |
 | quic_&#8203;tile_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
@@ -83,6 +95,13 @@
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
 
+## Verify Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| verify_&#8203;transaction_&#8203;parse_&#8203;failure | `counter` | Count of transactions that failed to parse |
+| verify_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
+| verify_&#8203;transaction_&#8203;verify_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
+
 ## Dedup Tile
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -96,6 +115,7 @@
 | pack_&#8203;total_&#8203;transactions_&#8203;per_&#8203;microblock_&#8203;count | `histogram` | Count of transactions in a scheduled microblock, including both votes and non-votes |
 | pack_&#8203;votes_&#8203;per_&#8203;microblock_&#8203;count | `histogram` | Count of simple vote transactions in a scheduled microblock |
 | pack_&#8203;normal_&#8203;transaction_&#8203;received | `counter` | Count of transactions received via the normal TPU path |
+| pack_&#8203;transaction_&#8203;inserted_&#8203;bundle_&#8203;blacklist | `counter` | Result of inserting a transaction into the pack object (Transaction uses an account on the bundle blacklist) |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;write_&#8203;sysvar | `counter` | Result of inserting a transaction into the pack object (Transaction tries to write to a sysvar) |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;estimation_&#8203;fail | `counter` | Result of inserting a transaction into the pack object (Estimating compute cost and/or fee failed) |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;duplicate_&#8203;account | `counter` | Result of inserting a transaction into the pack object (Transaction included an account address twice) |

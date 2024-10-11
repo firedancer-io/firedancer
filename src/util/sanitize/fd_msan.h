@@ -34,7 +34,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-#if FD_HAS_ASAN
+#if FD_HAS_MSAN
 
 /* These are for internal use only */
 
@@ -42,15 +42,15 @@ void __msan_poison                  ( void const volatile * addr, ulong sz );
 void __msan_unpoison                ( void const volatile * addr, ulong sz );
 void __msan_check_mem_is_initialized( void const volatile * addr, ulong sz );
 
-static inline void * fd_msan_poison  ( void * addr, ulong sz ) { __msan_poison  ( addr, sz ); return addr; }
-static inline void * fd_msan_unpoison( void * addr, ulong sz ) { __msan_unpoison( addr, sz ); return addr; }
-static inline void   fd_msan_check   ( void * addr, ulong sz ) { __msan_check_mem_is_initialized( addr, sz ); }
+static inline void * fd_msan_poison  ( void *       addr, ulong sz ) { __msan_poison  ( addr, sz ); return addr; }
+static inline void * fd_msan_unpoison( void *       addr, ulong sz ) { __msan_unpoison( addr, sz ); return addr; }
+static inline void   fd_msan_check   ( void const * addr, ulong sz ) { __msan_check_mem_is_initialized( addr, sz ); }
 
 #else
 
-static inline void * fd_msan_poison  ( void * addr, ulong sz ) { (void)sz; return addr; }
-static inline void * fd_msan_unpoison( void * addr, ulong sz ) { (void)sz; return addr; }
-static inline void   fd_msan_check   ( void * addr, ulong sz ) { (void)addr; (void)sz; }
+static inline void * fd_msan_poison  ( void *       addr, ulong sz ) { (void)sz; return addr; }
+static inline void * fd_msan_unpoison( void *       addr, ulong sz ) { (void)sz; return addr; }
+static inline void   fd_msan_check   ( void const * addr, ulong sz ) { (void)addr; (void)sz; }
 
 #endif
 

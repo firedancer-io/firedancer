@@ -3,6 +3,7 @@
 #include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
+#include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
 #include <assert.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #include "../../features/fd_features.h"
 #include "../fd_executor_err.h"
 #include "../../fd_flamenco.h"
+#include "../../../ballet/shred/fd_shred.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -67,8 +69,8 @@ sol_compat_wksp_init( void ) {
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
-  
-    if( current_feature->cleaned_up ) {
+
+    if( current_feature->cleaned_up[0]!=UINT_MAX ) {
       memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
     } else {
       memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );
@@ -165,7 +167,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  
+
   assert( fd_scratch_prepare_is_safe( 1UL ) );
   ulong out_bufsz = 100000000;  /* 100 MB */
   void * out0 = fd_scratch_prepare( 1UL );
@@ -320,7 +322,7 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
   if( !_diff_resulting_states( &expected->resulting_state, &actual->resulting_state ) ) {
     return 0;
   }
-  
+
   /* TxnResult -> rent */
   if( expected->rent != actual->rent ) {
     FD_LOG_WARNING(( "Rent mismatch: expected=%lu actual=%lu", expected->rent, actual->rent ));
@@ -554,7 +556,7 @@ sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
-int 
+int
 sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 uchar const *                 in,
                                 ulong                         in_sz ) {
@@ -780,7 +782,7 @@ sol_compat_vm_validate_v1(  uchar *       out,
   return ok;
 }
 
-/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave) 
+/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave)
    do something other than wrap their vm_syscall equivalent */
 int
 sol_compat_vm_cpi_syscall_v1( uchar *       out,
@@ -790,6 +792,7 @@ sol_compat_vm_cpi_syscall_v1( uchar *       out,
   /* Just a wrapper to vm_syscall_execute_v1 */
   return sol_compat_vm_syscall_execute_v1( out, out_sz, in, in_sz );
 }
+
 int
 sol_compat_vm_interp_v1( uchar *       out,
                          ulong *       out_sz,
@@ -825,4 +828,23 @@ sol_compat_vm_interp_v1( uchar *       out,
   sol_compat_check_wksp_usage();
 
   return ok;
+}
+
+int sol_compat_shred_parse_v1( uchar *       out,
+                               ulong *       out_sz,
+                               uchar const * in,
+                               ulong         in_sz ) {
+    fd_exec_test_shred_binary_t input[1] = {0};
+    void                      * res      = sol_compat_decode( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
+    if( FD_UNLIKELY( res==NULL ) ) {
+        return 0;
+    }
+    if( FD_UNLIKELY( input[0].data==NULL ) ) {
+        pb_release( &fd_exec_test_shred_binary_t_msg, input );
+        return 0;
+    }
+    fd_exec_test_accepts_shred_t output[1] = {0};
+    output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
+    pb_release( &fd_exec_test_shred_binary_t_msg, input );
+    return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
 }

@@ -13,11 +13,11 @@ fd_vm_syscall_noop( void * _vm,
                     ulong arg3,
                     ulong arg4,
                     ulong* _ret){
-  /* TODO: have input message determine CUs to deduct? 
+  /* TODO: have input message determine CUs to deduct?
   fd_vm_t * vm = (fd_vm_t *) _vm;
   vm->cu = vm->cu - 5;
   */
-  
+
   (void) _vm;
   (void) arg0;
   (void) arg1;
@@ -42,16 +42,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
     return 0UL;
   }
 
-  int rej_callx_r10 = 0;
-  if( input->has_features ) {
-    for( ulong i=0UL; i < input->features.features_count; i++ ) {
-      if( input->features.features[i] == TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ) {
-        rej_callx_r10 = 1;
-        break;
-      }
-    }
-  }
-  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), rej_callx_r10 );
+  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   FD_TEST( output_bufsz >= sizeof(fd_exec_test_validate_vm_effects_t) );
 
@@ -75,7 +66,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       rodata_sz = vm_ctx->rodata->size;
     }
 
-    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);    
+    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);
     ulong text_cnt = vm_ctx->rodata_text_section_length / 8UL;
 
     fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
@@ -107,13 +98,13 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
     fd_valloc_free( valloc, fd_vm_delete( fd_vm_leave( vm ) ) );
 
   } while(0);
-  
+
 
   /* Run vm validate and capture result */
-  
+
   effects->success = (effects->result == FD_VM_SUCCESS);
   *output = effects;
-  
+
   test_vm_exec_instr_ctx_delete( ctx );
   return sizeof (fd_exec_test_validate_vm_effects_t);
 }
@@ -224,7 +215,7 @@ do{
   FD_TEST( vm );
 
   /* Override some execution state values from the interp fuzzer input
-     This is so we can test if the interp (or vm setup) mutates any of 
+     This is so we can test if the interp (or vm setup) mutates any of
      these erroneously */
   vm->reg[0]  = input->vm_ctx.r0;
   vm->reg[1]  = input->vm_ctx.r1;
@@ -271,9 +262,6 @@ do{
     break;
   }
 
-  vm->check_align = input->vm_ctx.check_align;
-  vm->check_size  = input->vm_ctx.check_size;
-
   if( input->syscall_invocation.stack_prefix ) {
     uchar * stack    = input->syscall_invocation.stack_prefix->bytes;
     ulong   stack_sz = fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX);
@@ -306,7 +294,7 @@ do{
 
   /* CU error is difficult to properly compare as there may have been
      valid writes to the memory regions prior to capturing the error. And
-     the pc might be well past (by an arbitrary amount) the instruction 
+     the pc might be well past (by an arbitrary amount) the instruction
      where the CU error occurred. */
   if( exec_res == FD_VM_ERR_SIGCOST ) break;
 
@@ -336,7 +324,7 @@ do{
                                                               (void *) tmp_end,
                                                               fd_ulong_sat_sub( output_end, tmp_end) );
   FD_SCRATCH_ALLOC_APPEND( l, 1UL, input_data_regions_size );
-  
+
 
 } while(0);
 

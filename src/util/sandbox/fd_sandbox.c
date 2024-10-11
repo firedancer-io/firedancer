@@ -561,6 +561,7 @@ fd_sandbox_private_read_cap_last_cap( void ) {
 void
 fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      uint        desired_gid,
+                                     int         keep_host_networking,
                                      int         keep_controlling_terminal,
                                      ulong       rlimit_file_cnt,
                                      ulong       allowed_file_descriptor_cnt,
@@ -633,8 +634,10 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 
   /* Unshare everything in the parent user namespace, so that the nested
      user namespace does not have privileges over them. */
-  if( -1==unshare( CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) )
-    FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int flags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS;
+  if( !keep_host_networking ) flags |= CLONE_NEWNET;
+
+  if( -1==unshare( flags ) ) FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_sandbox_private_deny_namespaces();
 
@@ -665,6 +668,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 void
 fd_sandbox_enter( uint                 desired_uid,
                   uint                 desired_gid,
+                  int                  keep_host_networking,
                   int                  keep_controlling_terminal,
                   ulong                rlimit_file_cnt,
                   ulong                allowed_file_descriptor_cnt,
@@ -675,6 +679,7 @@ fd_sandbox_enter( uint                 desired_uid,
 
   fd_sandbox_private_enter_no_seccomp( desired_uid,
                                        desired_gid,
+                                       keep_host_networking,
                                        keep_controlling_terminal,
                                        rlimit_file_cnt,
                                        allowed_file_descriptor_cnt,

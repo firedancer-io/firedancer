@@ -85,13 +85,18 @@ install_parent_signals( void ) {
 
 void
 update_config_for_dev( config_t * const config ) {
-  /* when starting from a new genesis block, this needs to be off else the
+  /* By default only_known is true for validators to ensure secure
+     snapshot download, but in development it doesn't matter and
+     often the developer does not provide known peers. */
+  config->rpc.only_known = 0;
+
+  /* When starting from a new genesis block, this needs to be off else the
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
   /* We have to wait until we get a snapshot before we can join a second
      validator to this one, so make this smaller than the default.  */
-  config->snapshots.full_snapshot_interval_slots = 200U;
+  config->snapshots.full_snapshot_interval_slots = fd_uint_min( config->snapshots.full_snapshot_interval_slots, 200U );
 
   /* Automatically compute the shred version from genesis if it
      exists and we don't know it.  If it doesn't exist, we'll keep it
@@ -105,6 +110,13 @@ update_config_for_dev( config_t * const config ) {
     fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
     if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
       shred->shred.expected_shred_version = shred_version;
+    }
+  }
+  ulong store_id = fd_topo_find_tile( &config->topo, "storei", 0 );
+  if( FD_UNLIKELY( store_id!=ULONG_MAX ) ) {
+    fd_topo_tile_t * storei = &config->topo.tiles[ store_id ];
+    if( FD_LIKELY( storei->store_int.expected_shred_version==(ushort)0 ) ) {
+      storei->store_int.expected_shred_version = shred_version;
     }
   }
 

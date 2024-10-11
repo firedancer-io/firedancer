@@ -212,6 +212,12 @@ dynamic_port_range = "8900-9000"
     # `--account-index-exclude-key` argument.
     account_index_exclude_keys = []
 
+    # If account indexes are enabled, only include these keys in the
+    # index.  This overrides `account_index_exclude_keys` if specified
+    # and that value will be ignored.  These options are passed to the
+    # Agave client with the `--account-index-include-key` argument.
+    account_index_include_keys = []
+
     # Whether to use compression when storing snapshots.  This option is
     # passed to the Agave client with the
     # `--snapshot-archive-format` argument.
@@ -288,7 +294,7 @@ dynamic_port_range = "8900-9000"
     # If true, use the RPC service of known validators only.  This
     # option is passed to the Agave client with the
     # `--only-known-rpc` argument.
-    only_known = false
+    only_known = true
 
     # If true, enable the unstable RPC PubSub `blockSubscribe`
     # subscription.  This option is passed to the Agave client
@@ -329,6 +335,25 @@ dynamic_port_range = "8900-9000"
     # 100 by default).
     incremental_snapshot_interval_slots = 100
 
+    # Set the maximum number of full snapshot archives to keep when
+    # purging older snapshots.  This option is passed to the Agave
+    # client with the `--maximum-full-snapshots-to-retain` argument.
+    maximum_full_snapshots_to_retain = 2
+
+    # Set the maximum number of incremental snapshot archives to keep
+    # when purging older snapshots.  This option is passed to the Agave
+    # client with the `--maximum-incremental-snapshots-to-retain`
+    # argument.
+    maximum_incremental_snapshots_to_retain = 4
+
+    # Set the minimum snapshot download speed in bytes per second.  If
+    # the initial download speed falls below this threshold, the
+    # validator will retry the download against a different RPC node.
+    #
+    # The default value is 10MB/s.  This option is passed to the Agave
+    # client with the `--minimum-snapshot-download-speed` argument.
+    minimum_snapshot_download_speed = 10485760
+
     # Absolute directory path for storing snapshots.  If no path is
     # provided, it defaults to the [ledger.path] option from above.
     #
@@ -340,6 +365,19 @@ dynamic_port_range = "8900-9000"
     # The snapshot path constructed here is passed to the Agave
     # client with the `--snapshots` argument.
     path = ""
+
+    # Absolute directory path for storing incremental snapshots.  If no
+    # path is provided, defaults to the [snapshots.path] option above,
+    # or if that is not provided, the [ledger.path] option above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # The snapshot path constructed here is passed to the Agave
+    # client with the `--incremental-snapshot-archive-path` argument.
+    incremental_path = ""
 
 [consensus]
     # Absolute path to a `keypair.json` file containing the identity of
@@ -575,7 +613,13 @@ dynamic_port_range = "8900-9000"
     #    3 | 2
     #    4 | 4
     #    5 | floating
-    affinity = "1-16"
+    #
+    # If the value is specified as auto, Firedancer will attempt to
+    # determine the best layout for the system.  This is the default
+    # value although for best performance it is recommended to specify
+    # the layout manually.  If the layout is specified as auto, the
+    # agave_affinity below must also be set to auto.
+    affinity = "auto"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Agave validator as
@@ -589,11 +633,11 @@ dynamic_port_range = "8900-9000"
     # affinity with the Agave affinity, as Firedancer tiles expect
     # to have exclusive use of their core.  Unexpected latency spikes
     # due to context switching may decrease performance overall.
-    agave_affinity = ""
-
-    # The following option is retained for backwards compatibility.  It
-    # will be ignored if agave_affinity is specified.
-    solana_labs_affinity = "17-31"
+    #
+    # If the value is specified as "auto", the [layout.affinity] field
+    # must also be set to "auto", and the Agave affinity will be
+    # determined automatically as well.
+    agave_affinity = "auto"
 
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -817,7 +861,7 @@ dynamic_port_range = "8900-9000"
         # underlying link bandwidth.  Supporting more streams per
         # connection currently has a memory footprint cost on the order
         # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 2048
+        max_concurrent_streams_per_connection = 32
 
         # QUIC uses a fixed-size pool of streams to use for all the
         # connections in the QUIC instance.  When a new connection is
@@ -828,7 +872,7 @@ dynamic_port_range = "8900-9000"
         # this value must be at least as high as the value of
         # `max_concurrent_connections` above multiplied by 16, or else
         # the validator will refuse to start.
-        stream_pool_cnt = 32768
+        stream_pool_cnt = 65536
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -875,7 +919,7 @@ dynamic_port_range = "8900-9000"
         #
         # An idle connection will be terminated if it remains idle
         # longer than this threshold.
-        idle_timeout_millis = 10000
+        idle_timeout_millis = 2000
 
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag
@@ -934,6 +978,21 @@ dynamic_port_range = "8900-9000"
         # This option specifies how many transactions will be buffered
         # in the pack tile.
         max_pending_transactions = 4096
+
+        # When a transaction consumes fewer CUs than it requests, the
+        # bank and pack tiles work together to adjust the block limits
+        # so that a different transaction can consmume the unspent CUs.
+        # This is normally desireable, as it typically leads to
+        # producing blocks with more transactions.
+        #
+        # In situations where transactions typically do not
+        # significantly over-request CUs, or when the CU limit is high
+        # enough so that over-requesting CUs does not impact how many
+        # transactions fit in a block, this can be disabled to improve
+        # performance.  It's not recommended (but allowed) to disable
+        # this option in a production cluster.
+        use_consumed_cus = true
+
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the
@@ -1025,13 +1084,6 @@ dynamic_port_range = "8900-9000"
     # [consensus.vote_account_path].  This option will not be effective
     # if [gossip.entrypoints] is non-empty.
     bootstrap = false
-
-    # The current topology type that will be set up and run. Currently the
-    # supported topology types are:
-    #   - "frankendancer"   The Frankendancer topology for running the
-    #                       mixed client with Firedancer networking
-    #                       and Agave runtime.
-    topology = "frankendancer"
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
@@ -1170,7 +1222,11 @@ dynamic_port_range = "8900-9000"
         # The tiles included in this affinity are,
         #
         #      bencho, benchg1, .... benchgN, benchs1, ... benchsN
-        affinity = "f7"
+        #
+        # If the [layout.affinity] above is set to "auto" then this
+        # value must also be set to "auto" and it will be determined
+        # automatically.
+        affinity = "auto"
 
         # Solana has a hard-coded maximum CUs per block limit of
         # 48,000,000 which works out to around 80,000 transfers a
@@ -1202,14 +1258,24 @@ dynamic_port_range = "8900-9000"
         # Frankendancer currently depends on the Agave blockstore
         # component for storing block data to disk.  This component can
         # frequently be a bottleneck when testing the throughput of the
-        # leader pipeline, so this option is provided to disable it.
+        # leader pipeline, so this option is provided to disable it
+        # starting from a certain slot.
         #
         # This option should not be used in a production network; it
         # causes the validator to not be able to serve repair requests,
         # snapshots, or participate in other consensus critical
         # operations.  It is only useful for benchmarking the leader
         # TPU performance in a single node cluster case.
-        disable_blockstore = false
+        #
+        # A value of 0 means this option will not be used.  A value of 1
+        # disables the blockstore entirely.  A common use case for any
+        # other positive value is to create a snapshot before disabling
+        # the blockstore.  This is useful in cases when benchmarking an
+        # entire cluster.  The leader needs to create a first snapshot
+        # that the followers need to fetch in order to join the cluster.
+        # In such a case, it is useful to set this value to the same
+        # number as [snapshots.full_snapshot_interval_slots].
+        disable_blockstore_from_slot = 0
 
         # Frankendancer currently depends on the Agave status cache to
         # prevent double-spend attacks.  The data structure that backs

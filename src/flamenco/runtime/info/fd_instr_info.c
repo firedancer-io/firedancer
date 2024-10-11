@@ -5,7 +5,7 @@
 
 /* https://github.com/anza-xyz/agave/blob/1ca8cb866a8a1bcb33cea23613649b82d48ed62c/sdk/program/src/message/versions/v0/loaded.rs#L162 */
 int
-fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx )
+fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
 {
   uint is_program = 0;
   for ( ulong j = 0; j < txn_ctx->txn_descriptor->instr_cnt; j++ ) {

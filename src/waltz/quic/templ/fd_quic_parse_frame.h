@@ -36,7 +36,7 @@
 
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME) \
   do { \
-    fd_quic_##NAME##_t * data = &frame_union->NAME;
+    fd_quic_##NAME##_t data[1];
 
 #define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI) \
     id_lo = ID_LO;                                \

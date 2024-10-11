@@ -23,7 +23,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   return 0;
 }
 
-int __attribute__((optnone))
+int
 LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   json_lex_state_new(lex_state, (const char *)data, size);
 

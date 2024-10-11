@@ -43,13 +43,20 @@
       }
     ``` */
 
-#define FD_VM_ALIGN_RUST_U8           (1UL)
-#define FD_VM_ALIGN_RUST_U32          (4UL)
-#define FD_VM_ALIGN_RUST_U64          (8UL)
-#define FD_VM_ALIGN_RUST_U128        (16UL)
-#define FD_VM_ALIGN_RUST_SLICE_U8_REF (8UL)
-#define FD_VM_ALIGN_RUST_POD_U8_ARRAY (1UL)
-#define FD_VM_ALIGN_RUST_PUBKEY       (1UL)
+#define FD_VM_ALIGN_RUST_U8                       (1UL)
+#define FD_VM_ALIGN_RUST_U32                      (4UL)
+#define FD_VM_ALIGN_RUST_I32                      (4UL)
+#define FD_VM_ALIGN_RUST_U64                      (8UL)
+#define FD_VM_ALIGN_RUST_U128                     (16UL)
+#define FD_VM_ALIGN_RUST_SLICE_U8_REF             (8UL)
+#define FD_VM_ALIGN_RUST_POD_U8_ARRAY             (1UL)
+#define FD_VM_ALIGN_RUST_PUBKEY                   (1UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_CLOCK             (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE    (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_FEES              (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_RENT              (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT (8UL)
+#define FD_VM_ALIGN_RUST_STABLE_INSTRUCTION       (8UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
    Equal in layout to the Rust slice header &[_] and various vector
@@ -305,15 +312,27 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   ulong vaddr_hi  = vaddr >> 32;
   ulong region    = fd_ulong_min( vaddr_hi, 5UL );
   ulong offset    = vaddr & 0xffffffffUL;
-  ulong region_sz = (ulong)vm_region_sz[ region ];
-  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
-     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
+    https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
     */
-  if( FD_UNLIKELY( ( region == 2 ) && !!( vaddr & 0x1000 ) ) ) {
-    return sentinel;
+  if ( FD_UNLIKELY( region == 2UL ) ) {
+    /* If an access starts in a gap region, that is an access violation */
+    if ( !!( vaddr & 0x1000 ) ) {
+      return sentinel;
+    }
+
+    /* To account for the fact that we have gaps in the virtual address space but not in the 
+       physical address space, we need to subtract from the offset the size of all the virtual
+       gap frames underneath it.
+       
+       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
+    ulong gap_mask = 0xFFFFFFFFFFFFF000;
+    offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask ); 
   }
+
+  ulong region_sz = (ulong)vm_region_sz[ region ];
+  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
   if( region==4UL ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
@@ -499,10 +518,18 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) {                                                  \
+    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
+      return FD_VM_ERR_SIGSEGV;                                                                             \
+    }                                                                                                       \
+    if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
+      return FD_VM_ERR_SIGSEGV;                                                                             \
+    }                                                                                                       \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
       return FD_VM_ERR_SIGSEGV;                                                                             \
     }                                                                                                       \
     (void const *)_haddr;                                                                                   \
@@ -520,10 +547,18 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi) ) {                                                   \
+    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
+      return FD_VM_ERR_SIGSEGV;                                                                             \
+    }                                                                                                       \
+    if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
+      return FD_VM_ERR_SIGSEGV;                                                                             \
+    }                                                                                                       \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
       return FD_VM_ERR_SIGSEGV;                                                                             \
     }                                                                                                       \
     (void *)_haddr;                                                                                         \
@@ -533,10 +568,18 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) {                                                  \
+    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
+      return FD_VM_ERR_SIGSEGV;                                                                             \
+    }                                                                                                       \
+    if( FD_UNLIKELY( (!_haddr) | _is_multi ) ) {                                                            \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
+      return FD_VM_ERR_SIGSEGV;                                                                             \
+    }                                                                                                       \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
       return FD_VM_ERR_SIGSEGV;                                                                             \
     }                                                                                                       \
     (void *)_haddr;                                                                                         \
@@ -570,8 +613,8 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
 
 #define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, vaddr0, sz0, vaddr1, sz1 ) do {                                    \
-  if( FD_UNLIKELY( ((vaddr0> vaddr1) & ((vaddr0-vaddr1)<sz1)) |                                                 \
-                   ((vaddr1>=vaddr0) & ((vaddr1-vaddr0)<sz0)) ) ) {                                             \
+  if( FD_UNLIKELY( ((vaddr0> vaddr1) && ((vaddr0-vaddr1)<sz1)) ||                                               \
+                   ((vaddr1>=vaddr0) && ((vaddr1-vaddr0)<sz0)) ) ) {                                            \
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_COPY_OVERLAPPING );                                        \
     return FD_VM_ERR_MEM_OVERLAP;                                                                               \
   }                                                                                                             \

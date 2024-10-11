@@ -29,7 +29,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
                   uchar *             bump_seed,
                   fd_pubkey_t *       out ) {
 
-  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_VEC_ALIGN,
+  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_U8,
     fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
   if ( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) {
@@ -113,7 +113,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L723
      TODO: program_id is mapped *after* seeds. */
-  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
+  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   fd_pubkey_t derived[1];
   int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
@@ -124,8 +124,8 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
-  memcpy( out_haddr, derived->uc, sizeof(fd_pubkey_t) );
+  fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, FD_PUBKEY_FOOTPRINT );
+  memcpy( out_haddr, derived->uc, FD_PUBKEY_FOOTPRINT );
 
   /* Success */
   *_ret = 0UL;
@@ -174,7 +174,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
     int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
     if ( FD_LIKELY( err == FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
-      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
+      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t) );
       uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL );
 
       /* Do the overlap check, which is only included for this syscall */

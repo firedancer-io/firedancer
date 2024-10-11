@@ -8,9 +8,6 @@
 #include "../../ballet/siphash13/fd_siphash13.h"
 #include "../runtime/program/fd_program_util.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/native_token.rs#L6 */
 #define LAMPORTS_PER_SOL   ( 1000000000UL )
 
@@ -360,11 +357,11 @@ calculate_reward_points_partitioned(
                 continue;
             }
             if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_DEBUG(( "stake account not found %32J", stake_acc->uc ));
+                FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
             if ( stake_acc_rec->const_meta->info.lamports == 0 ) {
-                FD_LOG_DEBUG(( "stake acc with zero lamports %32J", stake_acc->uc));
+                FD_LOG_DEBUG(( "stake acc with zero lamports %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
 
@@ -444,11 +441,11 @@ calculate_reward_points_partitioned(
                 continue;
             }
             if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_DEBUG(( "stake account not found %32J", stake_acc->uc ));
+                FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
             if ( stake_acc_rec->const_meta->info.lamports == 0 ) {
-                FD_LOG_DEBUG(( "stake acc with zero lamports %32J", stake_acc->uc));
+                FD_LOG_DEBUG(( "stake acc with zero lamports %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
                 continue;
             }
 
@@ -533,13 +530,13 @@ calculate_stake_vote_rewards_account(
 
         FD_BORROWED_ACCOUNT_DECL( stake_acc_rec );
         if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec) != 0 ) {
-            FD_LOG_DEBUG(( "Stake acc not found %32J", stake_acc->uc ));
+            FD_LOG_DEBUG(( "Stake acc not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
             return;
         }
 
         fd_stake_state_v2_t stake_state[1] = {0};
         if ( fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, stake_state ) != 0 ) {
-            FD_LOG_DEBUG(( "Failed to read stake state from stake account %32J", stake_acc ));
+            FD_LOG_DEBUG(( "Failed to read stake state from stake account %s", FD_BASE58_ENC_32_ALLOCA( stake_acc ) ));
             return;
         }
         if ( !fd_stake_state_v2_is_stake( stake_state ) ) {
@@ -583,7 +580,7 @@ calculate_stake_vote_rewards_account(
         fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
         int err = redeem_rewards( stake_history, stake_state, vote_state_versioned, rewarded_epoch, point_value, calculated_stake_rewards );
         if ( err != 0) {
-            FD_LOG_DEBUG(( "redeem_rewards failed for %32J with error %d", stake_acc->key, err ));
+            FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( stake_acc->key ), err ));
             return;
         }
 
@@ -932,7 +929,7 @@ distribute_epoch_reward_to_stake_acc(
 
     fd_stake_state_v2_t stake_state[1] = {0};
     if ( fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, stake_state) != 0 ) {
-        FD_LOG_DEBUG(( "failed to read stake state for %32J", stake_pubkey ));
+        FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
         return 1;
     }
 

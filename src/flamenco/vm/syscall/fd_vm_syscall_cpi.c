@@ -36,7 +36,7 @@ dump_vm_cpi_state(fd_vm_t *vm,
                   ulong   signers_seeds_cnt ) {
   char filename[100];
   fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%hu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
 
   // Check if file exists
   if( access (filename, F_OK) != -1 ) {
@@ -329,14 +329,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   }
 
   if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
-    FD_LOG_WARNING(( "Unknown program %32J", &callee_instr->program_id_pubkey ));
+    FD_LOG_WARNING(( "Unknown program %s", FD_BASE58_ENC_32_ALLOCA( &callee_instr->program_id_pubkey ) ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
   if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
-    FD_LOG_WARNING(( "Account %32J is not executable", &callee_instr->program_id_pubkey ));
+    FD_LOG_WARNING(( "Account %s is not executable", FD_BASE58_ENC_32_ALLOCA( &callee_instr->program_id_pubkey ) ));
     return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
   }
 
@@ -398,7 +398,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     // TODO: return SyscallError::TooManySigners
     FD_LOG_WARNING(("TODO: return too many signers" ));
-    return FD_VM_CPI_ERR_TOO_MANY_SIGNERS;
+    return FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS;
   }
 
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
@@ -406,7 +406,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {
       // TODO: return SyscallError::MaxInstructionAccountInfosExceeded
       FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
-      return FD_VM_CPI_ERR_TOO_MANY_ACC_INFOS;
+      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
     }
   } else {
     ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
@@ -415,7 +415,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
          maximum that accounts that could be passed in an instruction
          TODO: return SyscallError::TooManyAccounts */
       FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
-      return FD_VM_CPI_ERR_TOO_MANY_ACC_INFOS;
+      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
     }
   }
 
@@ -435,12 +435,12 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_CPI_ERR_INSTR_DATA_TOO_LARGE;
+      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
     }
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
       // SyscallError::MaxInstructionAccountsExceeded
-      return FD_VM_CPI_ERR_TOO_MANY_ACC_METAS;
+      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
@@ -448,7 +448,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
       // SyscallError::InstructionTooLarge
-      return FD_VM_CPI_ERR_INSTR_TOO_LARGE;
+      return FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE;
     }
   }
 
@@ -503,14 +503,6 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                     || (instruction_data_len != 0 && instruction_data[0] == 5))) /* is_close_instruction */
             || fd_vm_syscall_cpi_is_precompile(program_id));
 }
-
-/*
-TODO: check_align is set wrong in the runtime, ensure that it is set correctly:
-https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L869-L881.
-- Programs owned by the bpf_loader_deprecated should set this to false.
-- All other programs should set this to true.
-*/
-
 
 /**********************************************************************
   CROSS PROGRAM INVOCATION (C ABI)

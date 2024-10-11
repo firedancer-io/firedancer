@@ -31,13 +31,13 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
    https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L601
 
    As of v0.2.6, the only two usages are in syscall panic and syscall log. */
-#define FD_TRANSLATE_STRING( vm, vaddr, msg_sz ) (__extension__({          \
-    char const * msg = FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, 1UL, msg_sz ); \
-    if( FD_UNLIKELY( !fd_utf8_verify( msg, msg_sz ) ) ) {                  \
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_STRING );   \
-      return FD_VM_ERR_SYSCALL_INVALID_STRING;                             \
-    }                                                                      \
-    msg;                                                                   \
+#define FD_TRANSLATE_STRING( vm, vaddr, msg_sz ) (__extension__({                          \
+    char const * msg = FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, FD_VM_ALIGN_RUST_U8, msg_sz ); \
+    if( FD_UNLIKELY( !fd_utf8_verify( msg, msg_sz ) ) ) {                                  \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_STRING );                   \
+      return FD_VM_ERR_SYSCALL_INVALID_STRING;                                             \
+    }                                                                                      \
+    msg;                                                                                   \
 }))
 
 int
@@ -149,7 +149,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_LOG_PUBKEY_UNITS );
 
-  void const * pubkey = FD_VM_MEM_HADDR_LD( vm, pubkey_vaddr, 1UL, sizeof(fd_pubkey_t) );
+  void const * pubkey = FD_VM_MEM_HADDR_LD( vm, pubkey_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
 
   char msg[ FD_BASE58_ENCODED_32_SZ ]; ulong msg_sz;
   if( FD_UNLIKELY( fd_base58_encode_32( pubkey, &msg_sz, msg )==NULL ) ) {
@@ -185,7 +185,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L123-L128 */
 
-  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN,
+  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
     fd_ulong_sat_mul( slice_cnt, sizeof(fd_vm_vec_t) ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L130-L135 */
@@ -301,7 +301,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L676-L680 */
 
-  ulong align = vm->check_align ? 8UL : 1UL;
+  ulong align = fd_vm_is_check_align_enabled( vm ) ? 8UL : FD_VM_ALIGN_RUST_U8;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L681-L683
      Nothing to do. This section can't error, see:
@@ -322,6 +322,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
     *_ret = 0UL;
     return FD_VM_SUCCESS;
   }
+
 
   ulong heap_sz    = fd_ulong_align_up( vm->heap_sz, align                           );
   ulong heap_vaddr = fd_ulong_sat_add ( heap_sz,     FD_VM_MEM_MAP_HEAP_REGION_START );
@@ -370,8 +371,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   }
 
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
-    void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-    void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, sz );
+    void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
 
     fd_memcpy( dst, src, sz );
 
@@ -401,7 +402,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
       }
 
     } else {
-      dst_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
+      dst_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     ulong src_region              = src_vaddr >> 32;
@@ -420,7 +421,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
       }
 
     } else {
-      src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
+      src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     /* Do a normal memcpy if regions do not overlap */
@@ -493,14 +494,14 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
      only promises the sign). */
 
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
-    uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, 1UL, sz );
-    uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, 1UL, sz );
+    uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
 
     /* Silly that this doesn't use r0 to return ... slower, more edge
       case, different from libc style memcmp, harder to callers to use,
       etc ... probably too late to do anything about it now ... sigh */
 
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, 4UL, 4UL );
+    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
 
     int out = 0;
     for( ulong i=0UL; i<sz; i++ ) {
@@ -517,7 +518,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     *_ret = 0;
     return FD_VM_SUCCESS;
   } else {
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, 4UL, 4UL );
+    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
 
     int    out  = 0;
     /* Lookup host address chunks.  Try to do a standard memcpy if the regions
@@ -537,7 +538,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
         return FD_VM_ERR_ABORT;
       }
     } else {
-      m0_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, 1UL, sz );
+      m0_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     ulong   m1_region              = m1_vaddr >> 32;
@@ -555,7 +556,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
         return FD_VM_ERR_ABORT;
       }
     } else {
-      m1_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, 1UL, sz );
+      m1_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     }
 
     /* Case where the operation spans multiple regions. Copy over the bytes
@@ -679,8 +680,8 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
-    void *       dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-    void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
+    void *       dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+    void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
     if( FD_LIKELY( sz > 0 ) ) {
       memmove( dst, src, sz );
     }

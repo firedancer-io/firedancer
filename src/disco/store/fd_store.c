@@ -199,8 +199,8 @@ int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
 
-  if( FD_UNLIKELY( store->expected_shred_version && shred->version != store->expected_shred_version ) ) {
-    FD_LOG_DEBUG(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
+  if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
+    FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
     return FD_BLOCKSTORE_OK;
   }
 
@@ -224,7 +224,6 @@ fd_store_shred_insert( fd_store_t * store,
   }
 
   fd_blockstore_start_write( blockstore );
-  /* TODO remove this check when we can handle duplicate shreds and blocks */
   if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;
@@ -377,7 +376,7 @@ fd_store_slot_repair( fd_store_t * store,
 
     if( repair_req_cnt==out_repair_reqs_sz ) {
       backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
-      FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
+      FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
       return repair_req_cnt;
     }
 
@@ -410,13 +409,13 @@ fd_store_slot_repair( fd_store_t * store,
 
       if( repair_req_cnt == out_repair_reqs_sz ) {
         backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
-        FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
+        FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
         return repair_req_cnt;
       }
     }
     if( repair_req_cnt ) {
       backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
-      FD_LOG_INFO( ( "[repair] need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
+      FD_LOG_INFO( ( "[repair] need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
     }
   }
   return repair_req_cnt;

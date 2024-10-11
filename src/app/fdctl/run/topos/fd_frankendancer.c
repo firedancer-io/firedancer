@@ -4,11 +4,10 @@
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../util/tile/fd_tile_private.h"
-
-#include <sys/sysinfo.h>
+#include "../../../../util/shmem/fd_shmem_private.h"
 
 void
-fd_topo_frankendancer( config_t * config ) {
+fd_topo_initialize( config_t * config ) {
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
@@ -48,6 +47,7 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topob_wksp( topo, "store"        );
   fd_topob_wksp( topo, "sign"         );
   fd_topob_wksp( topo, "metric"       );
+  fd_topob_wksp( topo, "cswtch"       );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -81,15 +81,26 @@ fd_topo_frankendancer( config_t * config ) {
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
-  ulong affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
 
-  ulong tile_to_cpu[ FD_TILE_MAX ];
+  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+  int is_agave_auto_affinity = !strcmp( config->layout.agave_affinity, "auto" );
+  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
+
+  if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ||
+                   is_auto_affinity != is_bench_auto_affinity ) ) {
+    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
+  }
+
+  ulong affinity_tile_cnt = 0UL;
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+
+  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
-    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=65535 && parsed_tile_to_cpu[ i ]>=get_nprocs() ) )
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=65535 && parsed_tile_to_cpu[ i ]>=fd_numa_cpu_cnt() ) )
       FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
-                   "only has %d CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
+                   "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
                    "in the system.",
-                   parsed_tile_to_cpu[ i ], get_nprocs() ));
+                   parsed_tile_to_cpu[ i ], fd_numa_cpu_cnt() ));
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==65535, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
@@ -105,17 +116,45 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                 fd_topob_tile( topo, "cswtch",  "cswtch",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
-  if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
-    FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
-                 "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
-                 "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                 topo->tile_cnt, affinity_tile_cnt ));
-  if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
-    FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
-                     "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
-                     "individual tile counts in the [layout] section of the configuration file.",
-                     topo->tile_cnt, affinity_tile_cnt ));
+  if( FD_LIKELY( !is_auto_affinity ) ) {
+    if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
+      FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                   "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                   "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                   topo->tile_cnt, affinity_tile_cnt ));
+    if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
+      FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                       "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                       "individual tile counts in the [layout] section of the configuration file.",
+                       topo->tile_cnt, affinity_tile_cnt ));
+
+    if( FD_LIKELY( strcmp( "", config->layout.agave_affinity ) ) ) {
+      ushort agave_cpu[ FD_TILE_MAX ];
+      ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
+
+      for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
+        if( FD_UNLIKELY( agave_cpu[ i ]>=fd_numa_cpu_cnt() ) )
+          FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies a CPU index of %hu, but the system "
+                       "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
+                       "in the system.",
+                       agave_cpu[ i ], fd_numa_cpu_cnt() ));
+
+        for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+          fd_topo_tile_t * tile = &topo->tiles[ j ];
+          if( tile->cpu_idx==agave_cpu[ i ] ) FD_LOG_WARNING(( "Tile `%s:%lu` is already assigned to CPU %hu, but the CPU is also assigned to Agave. "
+                                                               "This may cause contention between the two tiles.", tile->name, tile->kind_id, agave_cpu[ i ] ));
+        }
+
+        if( FD_UNLIKELY( topo->agave_affinity_cnt>FD_TILE_MAX ) ) {
+          FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies more CPUs than Firedancer can use. "
+                        "You should either reduce the number of CPUs in the affinity string." ));
+        }
+        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = agave_cpu[ i ];
+      }
+    }
+  }
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
@@ -148,7 +187,8 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) )
+    FOR(bank_tile_cnt) fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );
@@ -239,8 +279,6 @@ fd_topo_frankendancer( config_t * config ) {
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
 
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) {
-
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
@@ -269,6 +307,7 @@ fd_topo_frankendancer( config_t * config ) {
       tile->pack.bank_tile_count               = config->layout.bank_tile_count;
       tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+      tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 
@@ -281,14 +320,15 @@ fd_topo_frankendancer( config_t * config ) {
       fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
-      tile->shred.depth                  = topo->links[ tile->out_link_id_primary ].depth;
-      tile->shred.ip_addr                = config->tiles.net.ip_addr;
-      tile->shred.fec_resolver_depth     = config->tiles.shred.max_pending_shred_sets;
-      tile->shred.expected_shred_version = config->consensus.expected_shred_version;
-      tile->shred.shred_listen_port      = config->tiles.shred.shred_listen_port;
+      tile->shred.depth                         = topo->links[ tile->out_link_id_primary ].depth;
+      tile->shred.ip_addr                       = config->tiles.net.ip_addr;
+      tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
+      tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
+      tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
+      tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
-      tile->store.disable_blockstore =  config->development.bench.disable_blockstore;
+      tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
@@ -296,10 +336,14 @@ fd_topo_frankendancer( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "cswtch" ) ) ) {
+
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
   }
+
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
 
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
   config->topo = *topo;

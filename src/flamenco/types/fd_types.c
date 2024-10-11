@@ -799,10 +799,10 @@ void fd_block_hash_vec_walk( void * w, fd_block_hash_vec_t const * self, fd_type
     fd_hash_walk( w, self->last_hash, fun, "last_hash", level );
   }
   if( self->ages_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "ages", level++ );
+    fun( w, NULL, "ages", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->ages_len; i++ )
       fd_hash_hash_age_pair_walk(w, self->ages + i, fun, "hash_hash_age_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "ages", level-- );
+    fun( w, NULL, "ages", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->max_age, "max_age", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_block_hash_vec", level-- );
@@ -1530,10 +1530,10 @@ ulong fd_hard_forks_align( void ){ return FD_HARD_FORKS_ALIGN; }
 void fd_hard_forks_walk( void * w, fd_hard_forks_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_hard_forks", level++ );
   if( self->hard_forks_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "hard_forks", level++ );
+    fun( w, NULL, "hard_forks", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->hard_forks_len; i++ )
       fd_slot_pair_walk(w, self->hard_forks + i, fun, "slot_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "hard_forks", level-- );
+    fun( w, NULL, "hard_forks", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_hard_forks", level-- );
 }
@@ -4886,10 +4886,10 @@ ulong fd_node_vote_accounts_align( void ){ return FD_NODE_VOTE_ACCOUNTS_ALIGN; }
 void fd_node_vote_accounts_walk( void * w, fd_node_vote_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_node_vote_accounts", level++ );
   if( self->vote_accounts_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "vote_accounts", level++ );
+    fun( w, NULL, "vote_accounts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->vote_accounts_len; i++ )
       fd_pubkey_walk(w, self->vote_accounts + i, fun, "pubkey", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "vote_accounts", level-- );
+    fun( w, NULL, "vote_accounts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_node_vote_accounts", level-- );
@@ -5183,16 +5183,16 @@ void fd_epoch_stakes_walk( void * w, fd_epoch_stakes_t const * self, fd_types_wa
   fd_stakes_walk( w, &self->stakes, fun, "stakes", level );
   fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->node_id_to_vote_accounts_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "node_id_to_vote_accounts", level++ );
+    fun( w, NULL, "node_id_to_vote_accounts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
       fd_pubkey_node_vote_accounts_pair_walk(w, self->node_id_to_vote_accounts + i, fun, "pubkey_node_vote_accounts_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "node_id_to_vote_accounts", level-- );
+    fun( w, NULL, "node_id_to_vote_accounts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->epoch_authorized_voters_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "epoch_authorized_voters", level++ );
+    fun( w, NULL, "epoch_authorized_voters", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
       fd_pubkey_pubkey_pair_walk(w, self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_authorized_voters", level-- );
+    fun( w, NULL, "epoch_authorized_voters", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_stakes", level-- );
 }
@@ -5509,22 +5509,22 @@ ulong fd_unused_accounts_align( void ){ return FD_UNUSED_ACCOUNTS_ALIGN; }
 void fd_unused_accounts_walk( void * w, fd_unused_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_unused_accounts", level++ );
   if( self->unused1_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "unused1", level++ );
+    fun( w, NULL, "unused1", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->unused1_len; i++ )
       fd_pubkey_walk(w, self->unused1 + i, fun, "pubkey", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "unused1", level-- );
+    fun( w, NULL, "unused1", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->unused2_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "unused2", level++ );
+    fun( w, NULL, "unused2", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->unused2_len; i++ )
       fd_pubkey_walk(w, self->unused2 + i, fun, "pubkey", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "unused2", level-- );
+    fun( w, NULL, "unused2", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->unused3_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "unused3", level++ );
+    fun( w, NULL, "unused3", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->unused3_len; i++ )
       fd_pubkey_u64_pair_walk(w, self->unused3 + i, fun, "pubkey_u64_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "unused3", level-- );
+    fun( w, NULL, "unused3", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_unused_accounts", level-- );
 }
@@ -5968,10 +5968,10 @@ void fd_deserializable_versioned_bank_walk( void * w, fd_deserializable_versione
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_deserializable_versioned_bank", level++ );
   fd_block_hash_vec_walk( w, &self->blockhash_queue, fun, "blockhash_queue", level );
   if( self->ancestors_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "ancestors", level++ );
+    fun( w, NULL, "ancestors", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->ancestors_len; i++ )
       fd_slot_pair_walk(w, self->ancestors + i, fun, "slot_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "ancestors", level-- );
+    fun( w, NULL, "ancestors", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_hash_walk( w, &self->hash, fun, "hash", level );
   fd_hash_walk( w, &self->parent_hash, fun, "parent_hash", level );
@@ -6006,10 +6006,10 @@ void fd_deserializable_versioned_bank_walk( void * w, fd_deserializable_versione
   fd_stakes_walk( w, &self->stakes, fun, "stakes", level );
   fd_unused_accounts_walk( w, &self->unused_accounts, fun, "unused_accounts", level );
   if( self->epoch_stakes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "epoch_stakes", level++ );
+    fun( w, NULL, "epoch_stakes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->epoch_stakes_len; i++ )
       fd_epoch_epoch_stakes_pair_walk(w, self->epoch_stakes + i, fun, "epoch_epoch_stakes_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_stakes", level-- );
+    fun( w, NULL, "epoch_stakes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->is_delta, "is_delta", FD_FLAMENCO_TYPE_BOOL, "bool", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_deserializable_versioned_bank", level-- );
@@ -6455,10 +6455,10 @@ void fd_snapshot_slot_acc_vecs_walk( void * w, fd_snapshot_slot_acc_vecs_t const
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_snapshot_slot_acc_vecs", level++ );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->account_vecs_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "account_vecs", level++ );
+    fun( w, NULL, "account_vecs", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->account_vecs_len; i++ )
       fd_snapshot_acc_vec_walk(w, self->account_vecs + i, fun, "snapshot_acc_vec", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "account_vecs", level-- );
+    fun( w, NULL, "account_vecs", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_snapshot_slot_acc_vecs", level-- );
 }
@@ -6579,10 +6579,26 @@ ulong fd_reward_type_footprint( void ){ return FD_REWARD_TYPE_FOOTPRINT; }
 ulong fd_reward_type_align( void ){ return FD_REWARD_TYPE_ALIGN; }
 
 void fd_reward_type_walk( void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_reward_type", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_reward_type", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_reward_type", level-- );
+  case 1: {
+    fun( w, self, "rent", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "staking", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "voting", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_reward_type", level-- );
 }
 ulong fd_reward_type_size( fd_reward_type_t const * self ) {
   ulong size = 0;
@@ -6787,25 +6803,25 @@ ulong fd_solana_accounts_db_fields_align( void ){ return FD_SOLANA_ACCOUNTS_DB_F
 void fd_solana_accounts_db_fields_walk( void * w, fd_solana_accounts_db_fields_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_accounts_db_fields", level++ );
   if( self->storages_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "storages", level++ );
+    fun( w, NULL, "storages", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->storages_len; i++ )
       fd_snapshot_slot_acc_vecs_walk(w, self->storages + i, fun, "snapshot_slot_acc_vecs", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "storages", level-- );
+    fun( w, NULL, "storages", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->version, "version", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_bank_hash_info_walk( w, &self->bank_hash_info, fun, "bank_hash_info", level );
   if( self->historical_roots_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "historical_roots", level++ );
+    fun( w, NULL, "historical_roots", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->historical_roots_len; i++ )
       fun( w, self->historical_roots + i, "historical_roots", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "historical_roots", level-- );
+    fun( w, NULL, "historical_roots", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->historical_roots_with_hash_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "historical_roots_with_hash", level++ );
+    fun( w, NULL, "historical_roots_with_hash", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->historical_roots_with_hash_len; i++ )
       fd_slot_map_pair_walk(w, self->historical_roots_with_hash + i, fun, "slot_map_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "historical_roots_with_hash", level-- );
+    fun( w, NULL, "historical_roots_with_hash", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_solana_accounts_db_fields", level-- );
 }
@@ -6973,16 +6989,16 @@ void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * s
   fd_stakes_stake_walk( w, &self->stakes, fun, "stakes", level );
   fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->node_id_to_vote_accounts_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "node_id_to_vote_accounts", level++ );
+    fun( w, NULL, "node_id_to_vote_accounts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
       fd_pubkey_node_vote_accounts_pair_walk(w, self->node_id_to_vote_accounts + i, fun, "pubkey_node_vote_accounts_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "node_id_to_vote_accounts", level-- );
+    fun( w, NULL, "node_id_to_vote_accounts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->epoch_authorized_voters_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "epoch_authorized_voters", level++ );
+    fun( w, NULL, "epoch_authorized_voters", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
       fd_pubkey_pubkey_pair_walk(w, self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_authorized_voters", level-- );
+    fun( w, NULL, "epoch_authorized_voters", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_stakes_current", level-- );
 }
@@ -7081,14 +7097,15 @@ ulong fd_versioned_epoch_stakes_footprint( void ){ return FD_VERSIONED_EPOCH_STA
 ulong fd_versioned_epoch_stakes_align( void ){ return FD_VERSIONED_EPOCH_STAKES_ALIGN; }
 
 void fd_versioned_epoch_stakes_walk( void * w, fd_versioned_epoch_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_versioned_epoch_stakes", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "Current", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_versioned_epoch_stakes", level-- );
 }
 ulong fd_versioned_epoch_stakes_size( fd_versioned_epoch_stakes_t const * self ) {
   ulong size = 0;
@@ -7487,10 +7504,10 @@ void fd_solana_manifest_walk( void * w, fd_solana_manifest_t const * self, fd_ty
     fd_hash_walk( w, self->epoch_account_hash, fun, "epoch_account_hash", level );
   }
   if( self->versioned_epoch_stakes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "versioned_epoch_stakes", level++ );
+    fun( w, NULL, "versioned_epoch_stakes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->versioned_epoch_stakes_len; i++ )
       fd_versioned_epoch_stakes_pair_walk(w, self->versioned_epoch_stakes + i, fun, "versioned_epoch_stakes_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "versioned_epoch_stakes", level-- );
+    fun( w, NULL, "versioned_epoch_stakes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_solana_manifest", level-- );
 }
@@ -8149,22 +8166,22 @@ void fd_genesis_solana_walk( void * w, fd_genesis_solana_t const * self, fd_type
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_genesis_solana", level++ );
   fun( w, &self->creation_time, "creation_time", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->accounts_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "accounts", level++ );
+    fun( w, NULL, "accounts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->accounts_len; i++ )
       fd_pubkey_account_pair_walk(w, self->accounts + i, fun, "pubkey_account_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "accounts", level-- );
+    fun( w, NULL, "accounts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->native_instruction_processors_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "native_instruction_processors", level++ );
+    fun( w, NULL, "native_instruction_processors", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->native_instruction_processors_len; i++ )
       fd_string_pubkey_pair_walk(w, self->native_instruction_processors + i, fun, "string_pubkey_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "native_instruction_processors", level-- );
+    fun( w, NULL, "native_instruction_processors", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->rewards_pools_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "rewards_pools", level++ );
+    fun( w, NULL, "rewards_pools", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->rewards_pools_len; i++ )
       fd_pubkey_account_pair_walk(w, self->rewards_pools + i, fun, "pubkey_account_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "rewards_pools", level-- );
+    fun( w, NULL, "rewards_pools", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->ticks_per_slot, "ticks_per_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->unused, "unused", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -10295,22 +10312,25 @@ ulong fd_vote_state_versioned_footprint( void ){ return FD_VOTE_STATE_VERSIONED_
 ulong fd_vote_state_versioned_align( void ){ return FD_VOTE_STATE_VERSIONED_ALIGN; }
 
 void fd_vote_state_versioned_walk( void * w, fd_vote_state_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_versioned", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_vote_state_versioned", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "v0_23_5", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_state_0_23_5_walk( w, &self->inner.v0_23_5, fun, "v0_23_5", level );
     break;
   }
   case 1: {
+    fun( w, self, "v1_14_11", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_state_1_14_11_walk( w, &self->inner.v1_14_11, fun, "v1_14_11", level );
     break;
   }
   case 2: {
+    fun( w, self, "current", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_state_walk( w, &self->inner.current, fun, "current", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_state_versioned", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_vote_state_versioned", level-- );
 }
 ulong fd_vote_state_versioned_size( fd_vote_state_versioned_t const * self ) {
   ulong size = 0;
@@ -10423,11 +10443,10 @@ void fd_vote_state_update_decode_unsafe( fd_vote_state_update_t * self, fd_binco
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
     if( o ) {
-      self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(long) );
-      fd_bincode_int64_decode_unsafe( self->timestamp, ctx );
-    } else
-      self->timestamp = NULL;
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
   }
 }
 int fd_vote_state_update_encode( fd_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx ) {
@@ -10454,13 +10473,10 @@ int fd_vote_state_update_encode( fd_vote_state_update_t const * self, fd_bincode
   }
   err = fd_hash_encode( &self->hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->timestamp != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_int64_encode( self->timestamp[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_timestamp ) {
+    err = fd_bincode_int64_encode( self->timestamp, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -10518,9 +10534,8 @@ void fd_vote_state_update_destroy( fd_vote_state_update_t * self, fd_bincode_des
     self->has_root = 0;
   }
   fd_hash_destroy( &self->hash, ctx );
-  if( self->timestamp ) {
-    fd_valloc_free( ctx->valloc, self->timestamp );
-    self->timestamp = NULL;
+  if( self->has_timestamp ) {
+    self->has_timestamp = 0;
   }
 }
 
@@ -10549,10 +10564,10 @@ void fd_vote_state_update_walk( void * w, fd_vote_state_update_t const * self, f
     fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
   fd_hash_walk( w, &self->hash, fun, "hash", level );
-  if( !self->timestamp ) {
+  if( !self->has_timestamp ) {
     fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "long", level );
   } else {
-    fun( w, self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
+    fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_state_update", level-- );
 }
@@ -10573,7 +10588,7 @@ ulong fd_vote_state_update_size( fd_vote_state_update_t const * self ) {
   }
   size += fd_hash_size( &self->hash );
   size += sizeof(char);
-  if( NULL !=  self->timestamp ) {
+  if( self->has_timestamp ) {
     size += sizeof(long);
   }
   return size;
@@ -10631,11 +10646,10 @@ void fd_compact_vote_state_update_decode_unsafe( fd_compact_vote_state_update_t 
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
     if( o ) {
-      self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(long) );
-      fd_bincode_int64_decode_unsafe( self->timestamp, ctx );
-    } else
-      self->timestamp = NULL;
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
   }
 }
 int fd_compact_vote_state_update_encode( fd_compact_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx ) {
@@ -10652,13 +10666,10 @@ int fd_compact_vote_state_update_encode( fd_compact_vote_state_update_t const * 
   }
   err = fd_hash_encode( &self->hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  if( self->timestamp != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_int64_encode( self->timestamp[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
+  err = fd_bincode_bool_encode( self->has_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_timestamp ) {
+    err = fd_bincode_int64_encode( self->timestamp, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -10706,9 +10717,8 @@ void fd_compact_vote_state_update_destroy( fd_compact_vote_state_update_t * self
     self->lockouts = NULL;
   }
   fd_hash_destroy( &self->hash, ctx );
-  if( self->timestamp ) {
-    fd_valloc_free( ctx->valloc, self->timestamp );
-    self->timestamp = NULL;
+  if( self->has_timestamp ) {
+    self->has_timestamp = 0;
   }
 }
 
@@ -10719,16 +10729,16 @@ void fd_compact_vote_state_update_walk( void * w, fd_compact_vote_state_update_t
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compact_vote_state_update", level++ );
   fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->lockouts_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "lockouts", level++ );
+    fun( w, NULL, "lockouts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->lockouts_len; i++ )
       fd_lockout_offset_walk(w, self->lockouts + i, fun, "lockout_offset", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "lockouts", level-- );
+    fun( w, NULL, "lockouts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_hash_walk( w, &self->hash, fun, "hash", level );
-  if( !self->timestamp ) {
+  if( !self->has_timestamp ) {
     fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "long", level );
   } else {
-    fun( w, self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
+    fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_compact_vote_state_update", level-- );
 }
@@ -10743,7 +10753,7 @@ ulong fd_compact_vote_state_update_size( fd_compact_vote_state_update_t const * 
   } while(0);
   size += fd_hash_size( &self->hash );
   size += sizeof(char);
-  if( NULL !=  self->timestamp ) {
+  if( self->has_timestamp ) {
     size += sizeof(long);
   }
   return size;
@@ -11237,10 +11247,10 @@ ulong fd_slot_history_inner_align( void ){ return FD_SLOT_HISTORY_INNER_ALIGN; }
 void fd_slot_history_inner_walk( void * w, fd_slot_history_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history_inner", level++ );
   if( self->blocks_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "blocks", level++ );
+    fun( w, NULL, "blocks", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->blocks_len; i++ )
       fun( w, self->blocks + i, "blocks", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "blocks", level-- );
+    fun( w, NULL, "blocks", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_history_inner", level-- );
 }
@@ -12155,17 +12165,17 @@ void fd_slot_meta_walk( void * w, fd_slot_meta_t const * self, fd_types_walk_fn_
   fun( w, &self->last_index, "last_index", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->parent_slot, "parent_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->next_slot_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "next_slot", level++ );
+    fun( w, NULL, "next_slot", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->next_slot_len; i++ )
       fun( w, self->next_slot + i, "next_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "next_slot", level-- );
+    fun( w, NULL, "next_slot", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->is_connected, "is_connected", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   if( self->entry_end_indexes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "entry_end_indexes", level++ );
+    fun( w, NULL, "entry_end_indexes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->entry_end_indexes_len; i++ )
       fun( w, self->entry_end_indexes + i, "entry_end_indexes", FD_FLAMENCO_TYPE_UINT,    "uint",    level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "entry_end_indexes", level-- );
+    fun( w, NULL, "entry_end_indexes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_meta", level-- );
 }
@@ -12392,7 +12402,7 @@ void fd_clock_timestamp_votes_decode_unsafe( fd_clock_timestamp_votes_t * self, 
   ulong votes_len;
   fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 10000 ) );
+    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 15000 ) );
     self->votes_root = NULL;
   }
   for( ulong i=0; i < votes_len; i++ ) {
@@ -12476,7 +12486,7 @@ void fd_clock_timestamp_votes_decode_archival_unsafe( fd_clock_timestamp_votes_t
   ulong votes_len;
   fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 10000 ) );
+    self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 15000 ) );
     self->votes_root = NULL;
   }
   for( ulong i=0; i < votes_len; i++ ) {
@@ -12903,10 +12913,10 @@ ulong fd_stake_config_align( void ){ return FD_STAKE_CONFIG_ALIGN; }
 void fd_stake_config_walk( void * w, fd_stake_config_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_config", level++ );
   if( self->config_keys_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "config_keys", level++ );
+    fun( w, NULL, "config_keys", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->config_keys_len; i++ )
       fd_config_keys_pair_walk(w, self->config_keys + i, fun, "config_keys_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "config_keys", level-- );
+    fun( w, NULL, "config_keys", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->warmup_cooldown_rate, "warmup_cooldown_rate", FD_FLAMENCO_TYPE_DOUBLE, "double", level );
   fun( w, &self->slash_penalty, "slash_penalty", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
@@ -13443,10 +13453,26 @@ ulong fd_cluster_type_footprint( void ){ return FD_CLUSTER_TYPE_FOOTPRINT; }
 ulong fd_cluster_type_align( void ){ return FD_CLUSTER_TYPE_ALIGN; }
 
 void fd_cluster_type_walk( void * w, fd_cluster_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cluster_type", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_cluster_type", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "Testnet", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cluster_type", level-- );
+  case 1: {
+    fun( w, self, "MainnetBeta", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "Devnet", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "Development", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_cluster_type", level-- );
 }
 ulong fd_cluster_type_size( fd_cluster_type_t const * self ) {
   ulong size = 0;
@@ -13508,8 +13534,10 @@ int fd_epoch_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i<3; i++ ) {
+    err = fd_bincode_uint32_decode_preflight( ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_vote_accounts_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -13530,7 +13558,9 @@ void fd_epoch_bank_decode_unsafe( fd_epoch_bank_t * self, fd_bincode_decode_ctx_
   fd_bincode_uint64_decode_unsafe( &self->eah_interval, ctx );
   fd_hash_decode_unsafe( &self->genesis_hash, ctx );
   fd_bincode_uint32_decode_unsafe( &self->cluster_type, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->cluster_version, ctx );
+  for( ulong i=0; i<3; i++ ) {
+    fd_bincode_uint32_decode_unsafe( self->cluster_version + i, ctx );
+  }
   fd_vote_accounts_decode_unsafe( &self->next_epoch_stakes, ctx );
 }
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
@@ -13565,8 +13595,10 @@ int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->cluster_type, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->cluster_version, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i<3; i++ ) {
+    err = fd_bincode_uint32_encode( self->cluster_version[i], ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
   err = fd_vote_accounts_encode( &self->next_epoch_stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -13587,7 +13619,7 @@ enum {
   fd_epoch_bank_eah_interval_TAG = (12 << 6) | FD_ARCHIVE_META_ULONG,
   fd_epoch_bank_genesis_hash_TAG = (13 << 6) | FD_ARCHIVE_META_STRUCT,
   fd_epoch_bank_cluster_type_TAG = (14 << 6) | FD_ARCHIVE_META_UINT,
-  fd_epoch_bank_cluster_version_TAG = (15 << 6) | FD_ARCHIVE_META_UINT,
+  fd_epoch_bank_cluster_version_TAG = (15 << 6) | FD_ARCHIVE_META_ARRAY,
   fd_epoch_bank_next_epoch_stakes_TAG = (16 << 6) | FD_ARCHIVE_META_STRUCT,
 };
 int fd_epoch_bank_decode_archival( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -13706,7 +13738,13 @@ int fd_epoch_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   break;
   }
   case (ushort)fd_epoch_bank_cluster_version_TAG: {
-  err = fd_bincode_uint32_decode_preflight( ctx );
+  err = fd_archive_decode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i<3; i++ ) {
+    err = fd_bincode_uint32_decode_preflight( ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  err = fd_archive_decode_check_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
   break;
   }
@@ -13800,7 +13838,10 @@ void fd_epoch_bank_decode_archival_unsafe( fd_epoch_bank_t * self, fd_bincode_de
   break;
   }
   case (ushort)fd_epoch_bank_cluster_version_TAG: {
-  fd_bincode_uint32_decode_unsafe( &self->cluster_version, ctx );
+  fd_archive_decode_setup_length( ctx, &offset );
+  for( ulong i=0; i<3; i++ ) {
+    fd_bincode_uint32_decode_unsafe( self->cluster_version + i, ctx );
+  }
   break;
   }
   case (ushort)fd_epoch_bank_next_epoch_stakes_TAG: {
@@ -13899,7 +13940,13 @@ int fd_epoch_bank_encode_archival( fd_epoch_bank_t const * self, fd_bincode_enco
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( (ushort)fd_epoch_bank_cluster_version_TAG, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->cluster_version, ctx );
+  err = fd_archive_encode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i<3; i++ ) {
+    err = fd_bincode_uint32_encode( self->cluster_version[i], ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( (ushort)fd_epoch_bank_next_epoch_stakes_TAG, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13962,8 +14009,10 @@ int fd_epoch_bank_decode_offsets( fd_epoch_bank_off_t * self, fd_bincode_decode_
   err = fd_bincode_uint32_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   self->cluster_version_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint32_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i<3; i++ ) {
+    err = fd_bincode_uint32_decode_preflight( ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   self->next_epoch_stakes_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_vote_accounts_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14007,7 +14056,10 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
   fun( w, &self->eah_interval, "eah_interval", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_hash_walk( w, &self->genesis_hash, fun, "genesis_hash", level );
   fun( w, &self->cluster_type, "cluster_type", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, &self->cluster_version, "cluster_version", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR, "uint[]", level++ );
+  for( ulong i=0; i<3; i++ )
+    fun( w, self->cluster_version + i, "cluster_version", FD_FLAMENCO_TYPE_UINT,    "uint",    level );
+  fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR_END, "uint[]", level-- );
   fd_vote_accounts_walk( w, &self->next_epoch_stakes, fun, "next_epoch_stakes", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_bank", level-- );
 }
@@ -14028,7 +14080,7 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
   size += sizeof(ulong);
   size += fd_hash_size( &self->genesis_hash );
   size += sizeof(uint);
-  size += sizeof(uint);
+  size += 3 * sizeof(uint);
   size += fd_vote_accounts_size( &self->next_epoch_stakes );
   return size;
 }
@@ -15284,10 +15336,18 @@ ulong fd_vote_authorize_footprint( void ){ return FD_VOTE_AUTHORIZE_FOOTPRINT; }
 ulong fd_vote_authorize_align( void ){ return FD_VOTE_AUTHORIZE_ALIGN; }
 
 void fd_vote_authorize_walk( void * w, fd_vote_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_vote_authorize", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "voter", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorize", level-- );
+  case 1: {
+    fun( w, self, "withdrawer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_vote_authorize", level-- );
 }
 ulong fd_vote_authorize_size( fd_vote_authorize_t const * self ) {
   ulong size = 0;
@@ -16104,70 +16164,89 @@ ulong fd_vote_instruction_footprint( void ){ return FD_VOTE_INSTRUCTION_FOOTPRIN
 ulong fd_vote_instruction_align( void ){ return FD_VOTE_INSTRUCTION_ALIGN; }
 
 void fd_vote_instruction_walk( void * w, fd_vote_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_vote_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "initialize_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_init_walk( w, &self->inner.initialize_account, fun, "initialize_account", level );
     break;
   }
   case 1: {
+    fun( w, self, "authorize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_authorize_pubkey_walk( w, &self->inner.authorize, fun, "authorize", level );
     break;
   }
   case 2: {
+    fun( w, self, "vote", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_walk( w, &self->inner.vote, fun, "vote", level );
     break;
   }
   case 3: {
+    fun( w, self, "withdraw", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.withdraw, "withdraw", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
+  case 4: {
+    fun( w, self, "update_validator_identity", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 5: {
+    fun( w, self, "update_commission", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.update_commission, "update_commission", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
     break;
   }
   case 6: {
+    fun( w, self, "vote_switch", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_switch_walk( w, &self->inner.vote_switch, fun, "vote_switch", level );
     break;
   }
   case 7: {
+    fun( w, self, "authorize_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_authorize_walk( w, &self->inner.authorize_checked, fun, "authorize_checked", level );
     break;
   }
   case 8: {
+    fun( w, self, "update_vote_state", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_state_update_walk( w, &self->inner.update_vote_state, fun, "update_vote_state", level );
     break;
   }
   case 9: {
+    fun( w, self, "update_vote_state_switch", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_update_vote_state_switch_walk( w, &self->inner.update_vote_state_switch, fun, "update_vote_state_switch", level );
     break;
   }
   case 10: {
+    fun( w, self, "authorize_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_authorize_with_seed_args_walk( w, &self->inner.authorize_with_seed, fun, "authorize_with_seed", level );
     break;
   }
   case 11: {
+    fun( w, self, "authorize_checked_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_vote_authorize_checked_with_seed_args_walk( w, &self->inner.authorize_checked_with_seed, fun, "authorize_checked_with_seed", level );
     break;
   }
   case 12: {
+    fun( w, self, "compact_update_vote_state", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_compact_vote_state_update_walk( w, &self->inner.compact_update_vote_state, fun, "compact_update_vote_state", level );
     break;
   }
   case 13: {
+    fun( w, self, "compact_update_vote_state_switch", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_compact_vote_state_update_switch_walk( w, &self->inner.compact_update_vote_state_switch, fun, "compact_update_vote_state_switch", level );
     break;
   }
   case 14: {
+    fun( w, self, "tower_sync", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_tower_sync_walk( w, &self->inner.tower_sync, fun, "tower_sync", level );
     break;
   }
   case 15: {
+    fun( w, self, "tower_sync_switch", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_tower_sync_switch_walk( w, &self->inner.tower_sync_switch, fun, "tower_sync_switch", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_instruction", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_vote_instruction", level-- );
 }
 ulong fd_vote_instruction_size( fd_vote_instruction_t const * self ) {
   ulong size = 0;
@@ -17156,54 +17235,73 @@ ulong fd_system_program_instruction_footprint( void ){ return FD_SYSTEM_PROGRAM_
 ulong fd_system_program_instruction_align( void ){ return FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_system_program_instruction_walk( void * w, fd_system_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_system_program_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "create_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_system_program_instruction_create_account_walk( w, &self->inner.create_account, fun, "create_account", level );
     break;
   }
   case 1: {
+    fun( w, self, "assign", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_pubkey_walk( w, &self->inner.assign, fun, "assign", level );
     break;
   }
   case 2: {
+    fun( w, self, "transfer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.transfer, "transfer", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   case 3: {
+    fun( w, self, "create_account_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_system_program_instruction_create_account_with_seed_walk( w, &self->inner.create_account_with_seed, fun, "create_account_with_seed", level );
     break;
   }
+  case 4: {
+    fun( w, self, "advance_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 5: {
+    fun( w, self, "withdraw_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.withdraw_nonce_account, "withdraw_nonce_account", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   case 6: {
+    fun( w, self, "initialize_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_pubkey_walk( w, &self->inner.initialize_nonce_account, fun, "initialize_nonce_account", level );
     break;
   }
   case 7: {
+    fun( w, self, "authorize_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_pubkey_walk( w, &self->inner.authorize_nonce_account, fun, "authorize_nonce_account", level );
     break;
   }
   case 8: {
+    fun( w, self, "allocate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.allocate, "allocate", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   case 9: {
+    fun( w, self, "allocate_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_system_program_instruction_allocate_with_seed_walk( w, &self->inner.allocate_with_seed, fun, "allocate_with_seed", level );
     break;
   }
   case 10: {
+    fun( w, self, "assign_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_system_program_instruction_assign_with_seed_walk( w, &self->inner.assign_with_seed, fun, "assign_with_seed", level );
     break;
   }
   case 11: {
+    fun( w, self, "transfer_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_system_program_instruction_transfer_with_seed_walk( w, &self->inner.transfer_with_seed, fun, "transfer_with_seed", level );
     break;
   }
+  case 12: {
+    fun( w, self, "upgrade_nonce_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_program_instruction", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_system_program_instruction", level-- );
 }
 ulong fd_system_program_instruction_size( fd_system_program_instruction_t const * self ) {
   ulong size = 0;
@@ -17490,10 +17588,46 @@ ulong fd_system_error_footprint( void ){ return FD_SYSTEM_ERROR_FOOTPRINT; }
 ulong fd_system_error_align( void ){ return FD_SYSTEM_ERROR_ALIGN; }
 
 void fd_system_error_walk( void * w, fd_system_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_error", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_system_error", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "account_already_in_use", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_error", level-- );
+  case 1: {
+    fun( w, self, "result_with_negative_lamports", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "invalid_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "invalid_account_data_length", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "max_seed_length_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "address_with_seed_mismatch", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "nonce_no_recent_blockhashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "nonce_blockhash_not_expired", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 8: {
+    fun( w, self, "nonce_unexpected_blockhash_value", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_system_error", level-- );
 }
 ulong fd_system_error_size( fd_system_error_t const * self ) {
   ulong size = 0;
@@ -17926,10 +18060,18 @@ ulong fd_stake_authorize_footprint( void ){ return FD_STAKE_AUTHORIZE_FOOTPRINT;
 ulong fd_stake_authorize_align( void ){ return FD_STAKE_AUTHORIZE_ALIGN; }
 
 void fd_stake_authorize_walk( void * w, fd_stake_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_authorize", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_stake_authorize", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "staker", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_authorize", level-- );
+  case 1: {
+    fun( w, self, "withdrawer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_stake_authorize", level-- );
 }
 ulong fd_stake_authorize_size( fd_stake_authorize_t const * self ) {
   ulong size = 0;
@@ -18938,54 +19080,93 @@ ulong fd_stake_instruction_footprint( void ){ return FD_STAKE_INSTRUCTION_FOOTPR
 ulong fd_stake_instruction_align( void ){ return FD_STAKE_INSTRUCTION_ALIGN; }
 
 void fd_stake_instruction_walk( void * w, fd_stake_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_stake_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "initialize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_instruction_initialize_walk( w, &self->inner.initialize, fun, "initialize", level );
     break;
   }
   case 1: {
+    fun( w, self, "authorize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_instruction_authorize_walk( w, &self->inner.authorize, fun, "authorize", level );
     break;
   }
+  case 2: {
+    fun( w, self, "delegate_stake", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 3: {
+    fun( w, self, "split", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.split, "split", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   case 4: {
+    fun( w, self, "withdraw", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.withdraw, "withdraw", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
+  case 5: {
+    fun( w, self, "deactivate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 6: {
+    fun( w, self, "set_lockup", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_lockup_args_walk( w, &self->inner.set_lockup, fun, "set_lockup", level );
     break;
   }
+  case 7: {
+    fun( w, self, "merge", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 8: {
+    fun( w, self, "authorize_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_authorize_with_seed_args_walk( w, &self->inner.authorize_with_seed, fun, "authorize_with_seed", level );
     break;
   }
+  case 9: {
+    fun( w, self, "initialize_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 10: {
+    fun( w, self, "authorize_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_authorize_walk( w, &self->inner.authorize_checked, fun, "authorize_checked", level );
     break;
   }
   case 11: {
+    fun( w, self, "authorize_checked_with_seed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_authorize_checked_with_seed_args_walk( w, &self->inner.authorize_checked_with_seed, fun, "authorize_checked_with_seed", level );
     break;
   }
   case 12: {
+    fun( w, self, "set_lockup_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_lockup_checked_args_walk( w, &self->inner.set_lockup_checked, fun, "set_lockup_checked", level );
     break;
   }
+  case 13: {
+    fun( w, self, "get_minimum_delegation", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 14: {
+    fun( w, self, "deactivate_delinquent", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 15: {
+    fun( w, self, "redelegate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 16: {
+    fun( w, self, "move_stake", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.move_stake, "move_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   case 17: {
+    fun( w, self, "move_lamports", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.move_lamports, "move_lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_instruction", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_stake_instruction", level-- );
 }
 ulong fd_stake_instruction_size( fd_stake_instruction_t const * self ) {
   ulong size = 0;
@@ -19496,18 +19677,28 @@ ulong fd_stake_state_v2_footprint( void ){ return FD_STAKE_STATE_V2_FOOTPRINT; }
 ulong fd_stake_state_v2_align( void ){ return FD_STAKE_STATE_V2_ALIGN; }
 
 void fd_stake_state_v2_walk( void * w, fd_stake_state_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_state_v2", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_stake_state_v2", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
+    fun( w, self, "initialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_state_v2_initialized_walk( w, &self->inner.initialized, fun, "initialized", level );
     break;
   }
   case 2: {
+    fun( w, self, "stake", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_stake_state_v2_stake_walk( w, &self->inner.stake, fun, "stake", level );
     break;
   }
+  case 3: {
+    fun( w, self, "rewards_pool", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_state_v2", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_stake_state_v2", level-- );
 }
 ulong fd_stake_state_v2_size( fd_stake_state_v2_t const * self ) {
   ulong size = 0;
@@ -19717,14 +19908,19 @@ ulong fd_nonce_state_footprint( void ){ return FD_NONCE_STATE_FOOTPRINT; }
 ulong fd_nonce_state_align( void ){ return FD_NONCE_STATE_ALIGN; }
 
 void fd_nonce_state_walk( void * w, fd_nonce_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_state", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_nonce_state", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
+    fun( w, self, "initialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_nonce_data_walk( w, &self->inner.initialized, fun, "initialized", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_nonce_state", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_nonce_state", level-- );
 }
 ulong fd_nonce_state_size( fd_nonce_state_t const * self ) {
   ulong size = 0;
@@ -19853,18 +20049,20 @@ ulong fd_nonce_state_versions_footprint( void ){ return FD_NONCE_STATE_VERSIONS_
 ulong fd_nonce_state_versions_align( void ){ return FD_NONCE_STATE_VERSIONS_ALIGN; }
 
 void fd_nonce_state_versions_walk( void * w, fd_nonce_state_versions_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_nonce_state_versions", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_nonce_state_versions", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "legacy", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_nonce_state_walk( w, &self->inner.legacy, fun, "legacy", level );
     break;
   }
   case 1: {
+    fun( w, self, "current", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_nonce_state_walk( w, &self->inner.current, fun, "current", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_nonce_state_versions", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_nonce_state_versions", level-- );
 }
 ulong fd_nonce_state_versions_size( fd_nonce_state_versions_t const * self ) {
   ulong size = 0;
@@ -20120,30 +20318,35 @@ ulong fd_compute_budget_program_instruction_footprint( void ){ return FD_COMPUTE
 ulong fd_compute_budget_program_instruction_align( void ){ return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_compute_budget_program_instruction_walk( void * w, fd_compute_budget_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compute_budget_program_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_compute_budget_program_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "request_units_deprecated", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_compute_budget_program_instruction_request_units_deprecated_walk( w, &self->inner.request_units_deprecated, fun, "request_units_deprecated", level );
     break;
   }
   case 1: {
+    fun( w, self, "request_heap_frame", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.request_heap_frame, "request_heap_frame", FD_FLAMENCO_TYPE_UINT, "uint", level );
     break;
   }
   case 2: {
+    fun( w, self, "set_compute_unit_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.set_compute_unit_limit, "set_compute_unit_limit", FD_FLAMENCO_TYPE_UINT, "uint", level );
     break;
   }
   case 3: {
+    fun( w, self, "set_compute_unit_price", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.set_compute_unit_price, "set_compute_unit_price", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
     break;
   }
   case 4: {
+    fun( w, self, "set_loaded_accounts_data_size_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.set_loaded_accounts_data_size_limit, "set_loaded_accounts_data_size_limit", FD_FLAMENCO_TYPE_UINT, "uint", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_compute_budget_program_instruction", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_compute_budget_program_instruction", level-- );
 }
 ulong fd_compute_budget_program_instruction_size( fd_compute_budget_program_instruction_t const * self ) {
   ulong size = 0;
@@ -20290,10 +20493,10 @@ ulong fd_config_keys_align( void ){ return FD_CONFIG_KEYS_ALIGN; }
 void fd_config_keys_walk( void * w, fd_config_keys_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_config_keys", level++ );
   if( self->keys_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "keys", level++ );
+    fun( w, NULL, "keys", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->keys_len; i++ )
       fd_config_keys_pair_walk(w, self->keys + i, fun, "config_keys_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "keys", level-- );
+    fun( w, NULL, "keys", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_config_keys", level-- );
 }
@@ -20488,14 +20691,19 @@ ulong fd_bpf_loader_program_instruction_footprint( void ){ return FD_BPF_LOADER_
 ulong fd_bpf_loader_program_instruction_align( void ){ return FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_bpf_loader_program_instruction_walk( void * w, fd_bpf_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_program_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_loader_program_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "write", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_loader_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
     break;
   }
+  case 1: {
+    fun( w, self, "finalize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_loader_program_instruction", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_loader_program_instruction", level-- );
 }
 ulong fd_bpf_loader_program_instruction_size( fd_bpf_loader_program_instruction_t const * self ) {
   ulong size = 0;
@@ -20748,18 +20956,32 @@ ulong fd_bpf_loader_v4_program_instruction_footprint( void ){ return FD_BPF_LOAD
 ulong fd_bpf_loader_v4_program_instruction_align( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_bpf_loader_v4_program_instruction_walk( void * w, fd_bpf_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_v4_program_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_loader_v4_program_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "write", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_loader_v4_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
     break;
   }
   case 1: {
+    fun( w, self, "truncate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.truncate, "truncate", FD_FLAMENCO_TYPE_UINT, "uint", level );
     break;
   }
+  case 2: {
+    fun( w, self, "deploy", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_loader_v4_program_instruction", level-- );
+  case 3: {
+    fun( w, self, "retract", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "transfer_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_loader_v4_program_instruction", level-- );
 }
 ulong fd_bpf_loader_v4_program_instruction_size( fd_bpf_loader_v4_program_instruction_t const * self ) {
   ulong size = 0;
@@ -21175,22 +21397,45 @@ ulong fd_bpf_upgradeable_loader_program_instruction_footprint( void ){ return FD
 ulong fd_bpf_upgradeable_loader_program_instruction_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN; }
 
 void fd_bpf_upgradeable_loader_program_instruction_walk( void * w, fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_upgradeable_loader_program_instruction", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "initialize_buffer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
+    fun( w, self, "write", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
     break;
   }
   case 2: {
+    fun( w, self, "deploy_with_max_data_len", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_walk( w, &self->inner.deploy_with_max_data_len, fun, "deploy_with_max_data_len", level );
     break;
   }
+  case 3: {
+    fun( w, self, "upgrade", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "set_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "close", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 6: {
+    fun( w, self, "extend_program", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_program_instruction_extend_program_walk( w, &self->inner.extend_program, fun, "extend_program", level );
     break;
   }
+  case 7: {
+    fun( w, self, "set_authority_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_program_instruction", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_upgradeable_loader_program_instruction", level-- );
 }
 ulong fd_bpf_upgradeable_loader_program_instruction_size( fd_bpf_upgradeable_loader_program_instruction_t const * self ) {
   ulong size = 0;
@@ -21627,22 +21872,29 @@ ulong fd_bpf_upgradeable_loader_state_footprint( void ){ return FD_BPF_UPGRADEAB
 ulong fd_bpf_upgradeable_loader_state_align( void ){ return FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN; }
 
 void fd_bpf_upgradeable_loader_state_walk( void * w, fd_bpf_upgradeable_loader_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_state", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_upgradeable_loader_state", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
+    fun( w, self, "buffer", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_state_buffer_walk( w, &self->inner.buffer, fun, "buffer", level );
     break;
   }
   case 2: {
+    fun( w, self, "program", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_state_program_walk( w, &self->inner.program, fun, "program", level );
     break;
   }
   case 3: {
+    fun( w, self, "program_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_bpf_upgradeable_loader_state_program_data_walk( w, &self->inner.program_data, fun, "program_data", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_state", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_upgradeable_loader_state", level-- );
 }
 ulong fd_bpf_upgradeable_loader_state_size( fd_bpf_upgradeable_loader_state_t const * self ) {
   ulong size = 0;
@@ -21835,14 +22087,15 @@ ulong fd_frozen_hash_versioned_footprint( void ){ return FD_FROZEN_HASH_VERSIONE
 ulong fd_frozen_hash_versioned_align( void ){ return FD_FROZEN_HASH_VERSIONED_ALIGN; }
 
 void fd_frozen_hash_versioned_walk( void * w, fd_frozen_hash_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_frozen_hash_versioned", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_frozen_hash_versioned", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "current", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_frozen_hash_status_walk( w, &self->inner.current, fun, "current", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_frozen_hash_versioned", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_frozen_hash_versioned", level-- );
 }
 ulong fd_frozen_hash_versioned_size( fd_frozen_hash_versioned_t const * self ) {
   ulong size = 0;
@@ -22150,14 +22403,19 @@ ulong fd_address_lookup_table_state_footprint( void ){ return FD_ADDRESS_LOOKUP_
 ulong fd_address_lookup_table_state_align( void ){ return FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN; }
 
 void fd_address_lookup_table_state_walk( void * w, fd_address_lookup_table_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_address_lookup_table_state", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_address_lookup_table_state", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "uninitialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
+    fun( w, self, "lookup_table", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_address_lookup_table_walk( w, &self->inner.lookup_table, fun, "lookup_table", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_address_lookup_table_state", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_address_lookup_table_state", level-- );
 }
 ulong fd_address_lookup_table_state_size( fd_address_lookup_table_state_t const * self ) {
   ulong size = 0;
@@ -22445,10 +22703,10 @@ ulong fd_gossip_bitvec_u64_inner_align( void ){ return FD_GOSSIP_BITVEC_U64_INNE
 void fd_gossip_bitvec_u64_inner_walk( void * w, fd_gossip_bitvec_u64_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64_inner", level++ );
   if( self->vec_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "vec", level++ );
+    fun( w, NULL, "vec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->vec_len; i++ )
       fun( w, self->vec + i, "vec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "vec", level-- );
+    fun( w, NULL, "vec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u64_inner", level-- );
 }
@@ -22740,18 +22998,20 @@ ulong fd_gossip_ip_addr_footprint( void ){ return FD_GOSSIP_IP_ADDR_FOOTPRINT; }
 ulong fd_gossip_ip_addr_align( void ){ return FD_GOSSIP_IP_ADDR_ALIGN; }
 
 void fd_gossip_ip_addr_walk( void * w, fd_gossip_ip_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_ip_addr", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_gossip_ip_addr", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "ip4", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ip4_addr_walk( w, &self->inner.ip4, fun, "ip4", level );
     break;
   }
   case 1: {
+    fun( w, self, "ip6", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ip6_addr_walk( w, &self->inner.ip6, fun, "ip6", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_ip_addr", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_gossip_ip_addr", level-- );
 }
 ulong fd_gossip_ip_addr_size( fd_gossip_ip_addr_t const * self ) {
   ulong size = 0;
@@ -22910,10 +23170,10 @@ void fd_gossip_prune_data_walk( void * w, fd_gossip_prune_data_t const * self, f
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_data", level++ );
   fd_pubkey_walk( w, &self->pubkey, fun, "pubkey", level );
   if( self->prunes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "prunes", level++ );
+    fun( w, NULL, "prunes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->prunes_len; i++ )
       fd_pubkey_walk(w, self->prunes + i, fun, "pubkey", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "prunes", level-- );
+    fun( w, NULL, "prunes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_signature_walk( w, &self->signature, fun, "signature", level );
   fd_pubkey_walk( w, &self->destination, fun, "destination", level );
@@ -23043,10 +23303,10 @@ void fd_gossip_prune_sign_data_walk( void * w, fd_gossip_prune_sign_data_t const
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_sign_data", level++ );
   fd_pubkey_walk( w, &self->pubkey, fun, "pubkey", level );
   if( self->prunes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "prunes", level++ );
+    fun( w, NULL, "prunes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->prunes_len; i++ )
       fd_pubkey_walk(w, self->prunes + i, fun, "pubkey", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "prunes", level-- );
+    fun( w, NULL, "prunes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->destination, fun, "destination", level );
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -23545,10 +23805,10 @@ void fd_gossip_lowest_slot_walk( void * w, fd_gossip_lowest_slot_t const * self,
   fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->lowest, "lowest", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->slots_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slots", level++ );
+    fun( w, NULL, "slots", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->slots_len; i++ )
       fun( w, self->slots + i, "slots", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slots", level-- );
+    fun( w, NULL, "slots", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->i_dont_know, "i_dont_know", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -23668,10 +23928,10 @@ void fd_gossip_slot_hashes_walk( void * w, fd_gossip_slot_hashes_t const * self,
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slot_hashes", level++ );
   fd_pubkey_walk( w, &self->from, fun, "from", level );
   if( self->hashes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "hashes", level++ );
+    fun( w, NULL, "hashes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->hashes_len; i++ )
       fd_slot_hash_walk(w, self->hashes + i, fun, "slot_hash", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "hashes", level-- );
+    fun( w, NULL, "hashes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_slot_hashes", level-- );
@@ -23962,18 +24222,20 @@ ulong fd_gossip_slots_enum_footprint( void ){ return FD_GOSSIP_SLOTS_ENUM_FOOTPR
 ulong fd_gossip_slots_enum_align( void ){ return FD_GOSSIP_SLOTS_ENUM_ALIGN; }
 
 void fd_gossip_slots_enum_walk( void * w, fd_gossip_slots_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots_enum", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_gossip_slots_enum", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "flate2", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_flate2_slots_walk( w, &self->inner.flate2, fun, "flate2", level );
     break;
   }
   case 1: {
+    fun( w, self, "uncompressed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_slots_walk( w, &self->inner.uncompressed, fun, "uncompressed", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_slots_enum", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_gossip_slots_enum", level-- );
 }
 ulong fd_gossip_slots_enum_size( fd_gossip_slots_enum_t const * self ) {
   ulong size = 0;
@@ -24121,10 +24383,10 @@ void fd_gossip_epoch_slots_walk( void * w, fd_gossip_epoch_slots_t const * self,
   fun( w, &self->u8, "u8", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk( w, &self->from, fun, "from", level );
   if( self->slots_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slots", level++ );
+    fun( w, NULL, "slots", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->slots_len; i++ )
       fd_gossip_slots_enum_walk(w, self->slots + i, fun, "gossip_slots_enum", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slots", level-- );
+    fun( w, NULL, "slots", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_epoch_slots", level-- );
@@ -24896,10 +25158,10 @@ void fd_gossip_incremental_snapshot_hashes_walk( void * w, fd_gossip_incremental
   fd_pubkey_walk( w, &self->from, fun, "from", level );
   fd_slot_hash_walk( w, &self->base_hash, fun, "base_hash", level );
   if( self->hashes_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "hashes", level++ );
+    fun( w, NULL, "hashes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->hashes_len; i++ )
       fd_slot_hash_walk(w, self->hashes + i, fun, "slot_hash", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "hashes", level-- );
+    fun( w, NULL, "hashes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_incremental_snapshot_hashes", level-- );
@@ -25200,22 +25462,22 @@ void fd_gossip_contact_info_v2_walk( void * w, fd_gossip_contact_info_v2_t const
   fun( w, &self->shred_version, "shred_version", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   fd_gossip_version_v3_walk( w, &self->version, fun, "version", level );
   if( self->addrs_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "addrs", level++ );
+    fun( w, NULL, "addrs", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->addrs_len; i++ )
       fd_gossip_ip_addr_walk(w, self->addrs + i, fun, "gossip_ip_addr", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "addrs", level-- );
+    fun( w, NULL, "addrs", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->sockets_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "sockets", level++ );
+    fun( w, NULL, "sockets", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->sockets_len; i++ )
       fd_gossip_socket_entry_walk(w, self->sockets + i, fun, "gossip_socket_entry", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "sockets", level-- );
+    fun( w, NULL, "sockets", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->extensions_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "extensions", level++ );
+    fun( w, NULL, "extensions", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->extensions_len; i++ )
       fun( w, self->extensions + i, "extensions", FD_FLAMENCO_TYPE_UINT,    "uint",    level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "extensions", level-- );
+    fun( w, NULL, "extensions", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info_v2", level-- );
 }
@@ -25544,58 +25806,70 @@ ulong fd_crds_data_footprint( void ){ return FD_CRDS_DATA_FOOTPRINT; }
 ulong fd_crds_data_align( void ){ return FD_CRDS_DATA_ALIGN; }
 
 void fd_crds_data_walk( void * w, fd_crds_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_crds_data", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "contact_info_v1", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_contact_info_v1_walk( w, &self->inner.contact_info_v1, fun, "contact_info_v1", level );
     break;
   }
   case 1: {
+    fun( w, self, "vote", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_vote_walk( w, &self->inner.vote, fun, "vote", level );
     break;
   }
   case 2: {
+    fun( w, self, "lowest_slot", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_lowest_slot_walk( w, &self->inner.lowest_slot, fun, "lowest_slot", level );
     break;
   }
   case 3: {
+    fun( w, self, "snapshot_hashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_slot_hashes_walk( w, &self->inner.snapshot_hashes, fun, "snapshot_hashes", level );
     break;
   }
   case 4: {
+    fun( w, self, "accounts_hashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_slot_hashes_walk( w, &self->inner.accounts_hashes, fun, "accounts_hashes", level );
     break;
   }
   case 5: {
+    fun( w, self, "epoch_slots", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_epoch_slots_walk( w, &self->inner.epoch_slots, fun, "epoch_slots", level );
     break;
   }
   case 6: {
+    fun( w, self, "version_v1", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_version_v1_walk( w, &self->inner.version_v1, fun, "version_v1", level );
     break;
   }
   case 7: {
+    fun( w, self, "version_v2", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_version_v2_walk( w, &self->inner.version_v2, fun, "version_v2", level );
     break;
   }
   case 8: {
+    fun( w, self, "node_instance", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_node_instance_walk( w, &self->inner.node_instance, fun, "node_instance", level );
     break;
   }
   case 9: {
+    fun( w, self, "duplicate_shred", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_duplicate_shred_walk( w, &self->inner.duplicate_shred, fun, "duplicate_shred", level );
     break;
   }
   case 10: {
+    fun( w, self, "incremental_snapshot_hashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_incremental_snapshot_hashes_walk( w, &self->inner.incremental_snapshot_hashes, fun, "incremental_snapshot_hashes", level );
     break;
   }
   case 11: {
+    fun( w, self, "contact_info_v2", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_contact_info_v2_walk( w, &self->inner.contact_info_v2, fun, "contact_info_v2", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_data", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_crds_data", level-- );
 }
 ulong fd_crds_data_size( fd_crds_data_t const * self ) {
   ulong size = 0;
@@ -25819,10 +26093,10 @@ ulong fd_crds_bloom_align( void ){ return FD_CRDS_BLOOM_ALIGN; }
 void fd_crds_bloom_walk( void * w, fd_crds_bloom_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_bloom", level++ );
   if( self->keys_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "keys", level++ );
+    fun( w, NULL, "keys", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->keys_len; i++ )
       fun( w, self->keys + i, "keys", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "keys", level-- );
+    fun( w, NULL, "keys", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_gossip_bitvec_u64_walk( w, &self->bits, fun, "bits", level );
   fun( w, &self->num_bits_set, "num_bits_set", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -26142,10 +26416,10 @@ void fd_gossip_pull_resp_walk( void * w, fd_gossip_pull_resp_t const * self, fd_
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_pull_resp", level++ );
   fd_pubkey_walk( w, &self->pubkey, fun, "pubkey", level );
   if( self->crds_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "crds", level++ );
+    fun( w, NULL, "crds", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->crds_len; i++ )
       fd_crds_value_walk(w, self->crds + i, fun, "crds_value", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "crds", level-- );
+    fun( w, NULL, "crds", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_pull_resp", level-- );
 }
@@ -26251,10 +26525,10 @@ void fd_gossip_push_msg_walk( void * w, fd_gossip_push_msg_t const * self, fd_ty
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_push_msg", level++ );
   fd_pubkey_walk( w, &self->pubkey, fun, "pubkey", level );
   if( self->crds_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "crds", level++ );
+    fun( w, NULL, "crds", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->crds_len; i++ )
       fd_crds_value_walk(w, self->crds + i, fun, "crds_value", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "crds", level-- );
+    fun( w, NULL, "crds", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_push_msg", level-- );
 }
@@ -26515,34 +26789,40 @@ ulong fd_gossip_msg_footprint( void ){ return FD_GOSSIP_MSG_FOOTPRINT; }
 ulong fd_gossip_msg_align( void ){ return FD_GOSSIP_MSG_ALIGN; }
 
 void fd_gossip_msg_walk( void * w, fd_gossip_msg_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_msg", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_gossip_msg", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "pull_req", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_pull_req_walk( w, &self->inner.pull_req, fun, "pull_req", level );
     break;
   }
   case 1: {
+    fun( w, self, "pull_resp", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_pull_resp_walk( w, &self->inner.pull_resp, fun, "pull_resp", level );
     break;
   }
   case 2: {
+    fun( w, self, "push_msg", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_push_msg_walk( w, &self->inner.push_msg, fun, "push_msg", level );
     break;
   }
   case 3: {
+    fun( w, self, "prune_msg", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_prune_msg_walk( w, &self->inner.prune_msg, fun, "prune_msg", level );
     break;
   }
   case 4: {
+    fun( w, self, "ping", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ping_walk( w, &self->inner.ping, fun, "ping", level );
     break;
   }
   case 5: {
+    fun( w, self, "pong", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ping_walk( w, &self->inner.pong, fun, "pong", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_msg", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_gossip_msg", level-- );
 }
 ulong fd_gossip_msg_size( fd_gossip_msg_t const * self ) {
   ulong size = 0;
@@ -26762,10 +27042,10 @@ ulong fd_addrlut_extend_align( void ){ return FD_ADDRLUT_EXTEND_ALIGN; }
 void fd_addrlut_extend_walk( void * w, fd_addrlut_extend_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_addrlut_extend", level++ );
   if( self->new_addrs_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "new_addrs", level++ );
+    fun( w, NULL, "new_addrs", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->new_addrs_len; i++ )
       fd_pubkey_walk(w, self->new_addrs + i, fun, "pubkey", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "new_addrs", level-- );
+    fun( w, NULL, "new_addrs", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_addrlut_extend", level-- );
 }
@@ -26913,18 +27193,32 @@ ulong fd_addrlut_instruction_footprint( void ){ return FD_ADDRLUT_INSTRUCTION_FO
 ulong fd_addrlut_instruction_align( void ){ return FD_ADDRLUT_INSTRUCTION_ALIGN; }
 
 void fd_addrlut_instruction_walk( void * w, fd_addrlut_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_addrlut_instruction", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_addrlut_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "create_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_addrlut_create_walk( w, &self->inner.create_lut, fun, "create_lut", level );
     break;
   }
+  case 1: {
+    fun( w, self, "freeze_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 2: {
+    fun( w, self, "extend_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_addrlut_extend_walk( w, &self->inner.extend_lut, fun, "extend_lut", level );
     break;
   }
+  case 3: {
+    fun( w, self, "deactivate_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_addrlut_instruction", level-- );
+  case 4: {
+    fun( w, self, "close_lut", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_addrlut_instruction", level-- );
 }
 ulong fd_addrlut_instruction_size( fd_addrlut_instruction_t const * self ) {
   ulong size = 0;
@@ -27590,30 +27884,63 @@ ulong fd_repair_protocol_footprint( void ){ return FD_REPAIR_PROTOCOL_FOOTPRINT;
 ulong fd_repair_protocol_align( void ){ return FD_REPAIR_PROTOCOL_ALIGN; }
 
 void fd_repair_protocol_walk( void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_protocol", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_repair_protocol", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "LegacyWindowIndex", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "LegacyHighestWindowIndex", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "LegacyOrphan", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "LegacyWindowIndexWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "LegacyHighestWindowIndexWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "LegacyOrphanWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "LegacyAncestorHashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 7: {
+    fun( w, self, "pong", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ping_walk( w, &self->inner.pong, fun, "pong", level );
     break;
   }
   case 8: {
+    fun( w, self, "window_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_repair_window_index_walk( w, &self->inner.window_index, fun, "window_index", level );
     break;
   }
   case 9: {
+    fun( w, self, "highest_window_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_repair_highest_window_index_walk( w, &self->inner.highest_window_index, fun, "highest_window_index", level );
     break;
   }
   case 10: {
+    fun( w, self, "orphan", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_repair_orphan_walk( w, &self->inner.orphan, fun, "orphan", level );
     break;
   }
   case 11: {
+    fun( w, self, "ancestor_hashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_repair_ancestor_hashes_walk( w, &self->inner.ancestor_hashes, fun, "ancestor_hashes", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_protocol", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_repair_protocol", level-- );
 }
 ulong fd_repair_protocol_size( fd_repair_protocol_t const * self ) {
   ulong size = 0;
@@ -27758,14 +28085,15 @@ ulong fd_repair_response_footprint( void ){ return FD_REPAIR_RESPONSE_FOOTPRINT;
 ulong fd_repair_response_align( void ){ return FD_REPAIR_RESPONSE_ALIGN; }
 
 void fd_repair_response_walk( void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_response", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_repair_response", level++);
   switch( self->discriminant ) {
   case 0: {
+    fun( w, self, "ping", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_gossip_ping_walk( w, &self->inner.ping, fun, "ping", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_response", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_repair_response", level-- );
 }
 ulong fd_repair_response_size( fd_repair_response_t const * self ) {
   ulong size = 0;
@@ -28525,18 +28853,228 @@ ulong fd_instr_error_enum_footprint( void ){ return FD_INSTR_ERROR_ENUM_FOOTPRIN
 ulong fd_instr_error_enum_align( void ){ return FD_INSTR_ERROR_ENUM_ALIGN; }
 
 void fd_instr_error_enum_walk( void * w, fd_instr_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_instr_error_enum", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_instr_error_enum", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "generic_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "invalid_argument", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "invalid_instruction_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "invalid_account_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "account_data_too_small", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "insufficient_funds", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "incorrect_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "missing_required_signature", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 8: {
+    fun( w, self, "account_already_initialized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 9: {
+    fun( w, self, "uninitialized_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 10: {
+    fun( w, self, "unbalanced_instruction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 11: {
+    fun( w, self, "modified_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 12: {
+    fun( w, self, "external_account_lamport_spend", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 13: {
+    fun( w, self, "external_account_data_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 14: {
+    fun( w, self, "readonly_lamport_change", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 15: {
+    fun( w, self, "readonly_data_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 16: {
+    fun( w, self, "duplicate_account_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 17: {
+    fun( w, self, "executable_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 18: {
+    fun( w, self, "rent_epoch_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 19: {
+    fun( w, self, "not_enough_account_keys", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 20: {
+    fun( w, self, "account_data_size_changed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 21: {
+    fun( w, self, "account_not_executable", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 22: {
+    fun( w, self, "account_borrow_failed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 23: {
+    fun( w, self, "account_borrow_outstanding", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 24: {
+    fun( w, self, "duplicate_account_out_of_sync", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 25: {
+    fun( w, self, "custom", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.custom, "custom", FD_FLAMENCO_TYPE_UINT, "uint", level );
     break;
   }
+  case 26: {
+    fun( w, self, "invalid_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 27: {
+    fun( w, self, "executable_data_modified", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 28: {
+    fun( w, self, "executable_lamport_change", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 29: {
+    fun( w, self, "executable_account_not_rent_exempt", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 30: {
+    fun( w, self, "unsupported_program_id", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 31: {
+    fun( w, self, "call_depth", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 32: {
+    fun( w, self, "missing_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 33: {
+    fun( w, self, "reentrancy_not_allowed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 34: {
+    fun( w, self, "max_seed_length_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 35: {
+    fun( w, self, "invalid_seeds", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 36: {
+    fun( w, self, "invalid_realloc", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 37: {
+    fun( w, self, "computational_budget_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 38: {
+    fun( w, self, "privilege_escalation", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 39: {
+    fun( w, self, "program_environment_setup_failure", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 40: {
+    fun( w, self, "program_failed_to_complete", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 41: {
+    fun( w, self, "program_failed_to_compile", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 42: {
+    fun( w, self, "immutable", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 43: {
+    fun( w, self, "incorrect_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 44: {
+    fun( w, self, "borsh_io_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, self->inner.borsh_io_error, "borsh_io_error", FD_FLAMENCO_TYPE_CSTR, "char*", level );
     break;
   }
+  case 45: {
+    fun( w, self, "account_not_rent_exempt", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_instr_error_enum", level-- );
+  case 46: {
+    fun( w, self, "invalid_account_owner", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 47: {
+    fun( w, self, "arithmetic_overflow", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 48: {
+    fun( w, self, "unsupported_sysvar", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 49: {
+    fun( w, self, "illegal_owner", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 50: {
+    fun( w, self, "max_accounts_data_allocations_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 51: {
+    fun( w, self, "max_accounts_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 52: {
+    fun( w, self, "max_instruction_trace_length_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 53: {
+    fun( w, self, "builtin_programs_must_consume_compute_units", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_instr_error_enum", level-- );
 }
 ulong fd_instr_error_enum_size( fd_instr_error_enum_t const * self ) {
   ulong size = 0;
@@ -29173,26 +29711,162 @@ ulong fd_txn_error_enum_footprint( void ){ return FD_TXN_ERROR_ENUM_FOOTPRINT; }
 ulong fd_txn_error_enum_align( void ){ return FD_TXN_ERROR_ENUM_ALIGN; }
 
 void fd_txn_error_enum_walk( void * w, fd_txn_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_txn_error_enum", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_txn_error_enum", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "account_in_use", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "account_loaded_twice", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "account_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 3: {
+    fun( w, self, "program_account_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 4: {
+    fun( w, self, "insufficient_funds_for_fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "invalid_account_for_fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
+    fun( w, self, "already_processed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 7: {
+    fun( w, self, "blockhash_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 8: {
+    fun( w, self, "instruction_error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_txn_instr_error_walk( w, &self->inner.instruction_error, fun, "instruction_error", level );
     break;
   }
+  case 9: {
+    fun( w, self, "call_chain_too_deep", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 10: {
+    fun( w, self, "missing_signature_for_fee", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 11: {
+    fun( w, self, "invalid_account_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 12: {
+    fun( w, self, "signature_failure", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 13: {
+    fun( w, self, "invalid_program_for_execution", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 14: {
+    fun( w, self, "sanitize_failure", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 15: {
+    fun( w, self, "cluster_maintenance", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 16: {
+    fun( w, self, "account_borrow_outstanding", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 17: {
+    fun( w, self, "would_exceed_max_block_cost_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 18: {
+    fun( w, self, "unsupported_version", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 19: {
+    fun( w, self, "invalid_writable_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 20: {
+    fun( w, self, "would_exceed_max_account_cost_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 21: {
+    fun( w, self, "would_exceed_account_data_block_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 22: {
+    fun( w, self, "too_many_account_locks", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 23: {
+    fun( w, self, "address_lookup_table_not_found", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 24: {
+    fun( w, self, "invalid_address_lookup_table_owner", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 25: {
+    fun( w, self, "invalid_address_lookup_table_data", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 26: {
+    fun( w, self, "invalid_address_lookup_table_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 27: {
+    fun( w, self, "invalid_rent_paying_account", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 28: {
+    fun( w, self, "would_exceed_max_vote_cost_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 29: {
+    fun( w, self, "would_exceed_account_data_total_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 30: {
+    fun( w, self, "duplicate_instruction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.duplicate_instruction, "duplicate_instruction", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
     break;
   }
   case 31: {
+    fun( w, self, "insufficient_funds_for_rent", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.insufficient_funds_for_rent, "insufficient_funds_for_rent", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
     break;
   }
+  case 32: {
+    fun( w, self, "max_loaded_accounts_data_size_exceeded", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 33: {
+    fun( w, self, "invalid_loaded_accounts_data_size_limit", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 34: {
+    fun( w, self, "resanitization_needed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 35: {
+    fun( w, self, "program_execution_temporarily_restricted", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
   fun( w, &self->inner.program_execution_temporarily_restricted, "program_execution_temporarily_restricted", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
     break;
   }
+  case 36: {
+    fun( w, self, "unbalanced_transaction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_txn_error_enum", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_txn_error_enum", level-- );
 }
 ulong fd_txn_error_enum_size( fd_txn_error_enum_t const * self ) {
   ulong size = 0;
@@ -29340,14 +30014,19 @@ ulong fd_txn_result_footprint( void ){ return FD_TXN_RESULT_FOOTPRINT; }
 ulong fd_txn_result_align( void ){ return FD_TXN_RESULT_ALIGN; }
 
 void fd_txn_result_walk( void * w, fd_txn_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_txn_result", level++);
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_txn_result", level++);
   switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "ok", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
   case 1: {
+    fun( w, self, "error", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     fd_txn_error_enum_walk( w, &self->inner.error, fun, "error", level );
     break;
   }
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_txn_result", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_txn_result", level-- );
 }
 ulong fd_txn_result_size( fd_txn_result_t const * self ) {
   ulong size = 0;
@@ -29533,10 +30212,10 @@ void fd_status_value_walk( void * w, fd_status_value_t const * self, fd_types_wa
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_status_value", level++ );
   fun( w, &self->txn_idx, "txn_idx", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->statuses_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "statuses", level++ );
+    fun( w, NULL, "statuses", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->statuses_len; i++ )
       fd_cache_status_walk(w, self->statuses + i, fun, "cache_status", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "statuses", level-- );
+    fun( w, NULL, "statuses", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_status_value", level-- );
 }
@@ -29717,10 +30396,10 @@ void fd_slot_delta_walk( void * w, fd_slot_delta_t const * self, fd_types_walk_f
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->is_root, "is_root", FD_FLAMENCO_TYPE_BOOL, "bool", level );
   if( self->slot_delta_vec_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slot_delta_vec", level++ );
+    fun( w, NULL, "slot_delta_vec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->slot_delta_vec_len; i++ )
       fd_status_pair_walk(w, self->slot_delta_vec + i, fun, "status_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slot_delta_vec", level-- );
+    fun( w, NULL, "slot_delta_vec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_delta", level-- );
 }
@@ -29816,10 +30495,10 @@ ulong fd_bank_slot_deltas_align( void ){ return FD_BANK_SLOT_DELTAS_ALIGN; }
 void fd_bank_slot_deltas_walk( void * w, fd_bank_slot_deltas_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bank_slot_deltas", level++ );
   if( self->slot_deltas_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slot_deltas", level++ );
+    fun( w, NULL, "slot_deltas", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->slot_deltas_len; i++ )
       fd_slot_delta_walk(w, self->slot_deltas + i, fun, "slot_delta", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slot_deltas", level-- );
+    fun( w, NULL, "slot_deltas", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bank_slot_deltas", level-- );
 }

@@ -791,6 +791,7 @@ unprivileged_init( fd_topo_t *      topo,
                                                             sign_in->mcache,
                                                             sign_in->dcache ) ) );
 
+  ulong shred_limit = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
   fd_fec_set_t * resolver_sets = fec_sets + (shred_store_mcache_depth+1UL)/2UL + 1UL;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client, (ushort)expected_shred_version ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
@@ -798,7 +799,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                                         tile->shred.fec_resolver_depth, 1UL,
                                                                         (shred_store_mcache_depth+3UL)/2UL,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
-                                                                        (ushort)expected_shred_version ) ) );
+                                                                        (ushort)expected_shred_version,
+                                                                        shred_limit                                           ) ) );
 
   ctx->shred34  = shred34;
   ctx->fec_sets = fec_sets;

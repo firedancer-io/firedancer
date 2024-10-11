@@ -8,9 +8,6 @@
 #include <errno.h>
 #include <stdio.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 static int
 usage( void ) {
   fprintf( stderr,
@@ -94,13 +91,13 @@ process_account( FILE * file,
   } while(0);
 
   printf(
-    "      owner:      '%32J'\n"
+    "      owner:      '%s'\n"
     "      lamports:   %lu\n"
     "      slot:       %lu\n"
     "      rent_epoch: %lu\n"
     "      executable: %s\n"
     "      data_sz:    %lu\n",
-    meta->owner,
+    FD_BASE58_ENC_32_ALLOCA( meta->owner ),
     meta->lamports,
     meta->slot,
     meta->rent_epoch,
@@ -262,13 +259,13 @@ process_account_table( FILE * file,
     /* Write to YAML */
 
     printf(
-      "    - pubkey:   '%32J'\n"
-      "      hash:     '%32J'\n"
-      "      explorer: 'https://explorer.solana.com/block/%lu?accountFilter=%32J&filter=all'\n",
-      entry->key,
-      entry->hash,
+      "    - pubkey:   '%s'\n"
+      "      hash:     '%s'\n"
+      "      explorer: 'https://explorer.solana.com/block/%lu?accountFilter=%s&filter=all'\n",
+      FD_BASE58_ENC_32_ALLOCA( entry->key ),
+      FD_BASE58_ENC_32_ALLOCA( entry->hash ),
       slot,
-      entry->key );
+      FD_BASE58_ENC_32_ALLOCA( entry->key ) );
 
     /* Fetch account details */
 
@@ -307,7 +304,7 @@ process_bank( fd_solcap_chunk_t const * chunk,
 
 # define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
   if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ) ) {
-    FD_LOG_ERR(( "invalid bank preimage meta size (%lu)", chunk->meta_sz ));
+    FD_LOG_ERR(( "invalid bank preimage meta size (%u)", chunk->meta_sz ));
     return ENOMEM;
   }
 
@@ -343,18 +340,18 @@ process_bank( fd_solcap_chunk_t const * chunk,
     printf( "- slot: %lu\n", meta.slot );
 
   printf(
-      "  - bank_hash:          '%32J'\n",
-      meta.bank_hash );
+      "  - bank_hash:          '%s'\n",
+      FD_BASE58_ENC_32_ALLOCA( meta.bank_hash ) );
 
   if( verbose>=1 ) {
     printf(
-      "  - prev_bank_hash:     '%32J'\n"
-      "  - account_delta_hash: '%32J'\n"
-      "  - poh_hash:           '%32J'\n"
+      "  - prev_bank_hash:     '%s'\n"
+      "  - account_delta_hash: '%s'\n"
+      "  - poh_hash:           '%s'\n"
       "  - signature_cnt:      %lu\n",
-      meta.prev_bank_hash,
-      meta.account_delta_hash,
-      meta.poh_hash,
+      FD_BASE58_ENC_32_ALLOCA( meta.prev_bank_hash ),
+      FD_BASE58_ENC_32_ALLOCA( meta.account_delta_hash ),
+      FD_BASE58_ENC_32_ALLOCA( meta.poh_hash ),
       meta.signature_cnt );
   }
 
@@ -394,7 +391,7 @@ if ( verbose < 3 )
 
 # define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)
   if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_TRANSACTION_FOOTPRINT ) ) {
-    FD_LOG_ERR(( "invalid transaction meta size (%lu)", chunk->meta_sz ));
+    FD_LOG_ERR(( "invalid transaction meta size (%u)", chunk->meta_sz ));
   }
 
   /* Read transaction meta */
@@ -430,11 +427,11 @@ if ( verbose < 3 )
   }
 
   printf(
-    "    - txn_sig:        '%64J'\n"
+    "    - txn_sig:        '%s'\n"
     "      txn_err:         %d\n"
     "      cus_used:        %lu\n"
     "      instr_err_idx:   %d\n",
-    meta.txn_sig,
+    FD_BASE58_ENC_64_ALLOCA( meta.txn_sig ),
     meta.fd_txn_err,
     meta.fd_cus_used,
     meta.instr_err_idx);
@@ -449,19 +446,19 @@ if ( verbose < 3 )
 
   if ( meta.solana_txn_err != ULONG_MAX || meta.solana_cus_used != ULONG_MAX ) {
     printf(
-      "      solana_txn_err:  %d\n"
+      "      solana_txn_err:  %lu\n"
       "      solana_cus_used: %lu\n",
       meta.solana_txn_err,
       meta.solana_cus_used );
   }
 
   printf(
-    "      explorer:       'https://explorer.solana.com/tx/%64J'\n"
-    "      solscan:        'https://solscan.io/tx/%64J'\n"
-    "      solanafm:       'https://solana.fm/tx/%64J'\n",
-    meta.txn_sig,
-    meta.txn_sig,
-    meta.txn_sig );
+    "      explorer:       'https://explorer.solana.com/tx/%s'\n"
+    "      solscan:        'https://solscan.io/tx/%s'\n"
+    "      solanafm:       'https://solana.fm/tx/%s'\n",
+    FD_BASE58_ENC_64_ALLOCA( meta.txn_sig ),
+    FD_BASE58_ENC_64_ALLOCA( meta.txn_sig ),
+    FD_BASE58_ENC_64_ALLOCA( meta.txn_sig ) );
 
   return meta.slot;
 }

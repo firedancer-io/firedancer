@@ -152,12 +152,12 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   fd_slot_bank_destroy( slot_bank, &destroy );
   fd_slot_bank_new( slot_bank );
 
-  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
           epoch_bank->stakes.vote_accounts.vote_accounts_pool,
-          epoch_bank->stakes.vote_accounts.vote_accounts_root ); 
+          epoch_bank->stakes.vote_accounts.vote_accounts_root );
           n;
           n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
-      
+
       const fd_pubkey_t null_pubkey = {{ 0 }};
       if ( memcmp( &n->elem.key, &null_pubkey, FD_PUBKEY_FOOTPRINT ) == 0 ) {
         continue;
@@ -171,12 +171,12 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   epoch_bank->stakes.epoch = oldbank->stakes.epoch;
 
   /* Copy stakes->vote_accounts */
-  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
           oldbank->stakes.vote_accounts.vote_accounts_pool,
-          oldbank->stakes.vote_accounts.vote_accounts_root ); 
+          oldbank->stakes.vote_accounts.vote_accounts_root );
               n;
               n = fd_vote_accounts_pair_t_map_successor( oldbank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
-      
+
       const fd_pubkey_t null_pubkey = {{ 0 }};
       if ( memcmp( &n->elem.key, &null_pubkey, FD_PUBKEY_FOOTPRINT ) == 0 ) {
         continue;
@@ -186,7 +186,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
       FD_TEST( new_node );
       fd_memcpy( &new_node->elem, &n->elem, FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT );
-      fd_vote_accounts_pair_t_map_insert( 
+      fd_vote_accounts_pair_t_map_insert(
         epoch_bank->stakes.vote_accounts.vote_accounts_pool,
         &epoch_bank->stakes.vote_accounts.vote_accounts_root,
         new_node
@@ -208,7 +208,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       fd_delegation_pair_t_mapnode_t * new_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
       FD_TEST( new_node );
       fd_memcpy( &new_node->elem, &n->elem, FD_DELEGATION_PAIR_FOOTPRINT );
-      fd_delegation_pair_t_map_insert( 
+      fd_delegation_pair_t_map_insert(
         epoch_bank->stakes.stake_delegations_pool,
         &epoch_bank->stakes.stake_delegations_root,
         new_node
@@ -216,7 +216,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   /* Copy stakes->stake_history */
-  for ( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( 
+  for ( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init(
           oldbank->stakes.stake_history.treap,
           oldbank->stakes.stake_history.pool );
           !fd_stake_history_treap_fwd_iter_done( iter );
@@ -226,13 +226,13 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     FD_TEST( fd_stake_history_pool_free( epoch_bank->stakes.stake_history.pool ) );
     fd_stake_history_entry_t * new_ele = fd_stake_history_pool_ele_acquire( epoch_bank->stakes.stake_history.pool );
-    
+
     new_ele->epoch        = ele->epoch;
     new_ele->activating   = ele->activating;
     new_ele->deactivating = ele->deactivating;
     new_ele->effective    = ele->effective;
 
-    epoch_bank->stakes.stake_history.treap = fd_stake_history_treap_ele_insert( 
+    epoch_bank->stakes.stake_history.treap = fd_stake_history_treap_ele_insert(
       epoch_bank->stakes.stake_history.treap,
       new_ele,
       epoch_bank->stakes.stake_history.pool
@@ -263,7 +263,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   epoch_bank->slots_per_year = oldbank->slots_per_year;
   slot_bank->max_tick_height = oldbank->max_tick_height;
   fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, FD_INFLATION_FOOTPRINT );
-  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->rent_collector.epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
+  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
   epoch_bank->rent = oldbank->rent_collector.rent;
   fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, FD_RENT_FOOTPRINT );
 
@@ -332,7 +332,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
     slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
 
-    for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) { 
+    for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
       if( epochs[i].key == epoch )
         stakes0 = &epochs[i].value;
       if( epochs[i].key == epoch+1UL )
@@ -340,9 +340,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
       /* When loading from a snapshot, Agave's stake caches mean that we have to special-case the epoch stakes
          that are used for the second epoch E+2 after the snapshot epoch E.
-         
+
          If the snapshot contains the epoch stakes for E+2, we should use those.
-         
+
          If the snapshot does not, we should use the stakes at the end of the E-1 epoch, instead of E-2 as we do for
          all other epochs. */
       if ( epochs[i].key == epoch+2UL ) {
@@ -355,7 +355,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     }
 
     /* Move current EpochStakes */
-    slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = 
+    slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool =
       fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
@@ -371,7 +371,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
         fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
 
-        fd_vote_accounts_pair_t_map_insert( 
+        fd_vote_accounts_pair_t_map_insert(
           slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
           &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
           elem );
@@ -395,7 +395,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
       fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
 
-      fd_vote_accounts_pair_t_map_insert( 
+      fd_vote_accounts_pair_t_map_insert(
         epoch_bank->next_epoch_stakes.vote_accounts_pool,
         &epoch_bank->next_epoch_stakes.vote_accounts_root,
         elem );

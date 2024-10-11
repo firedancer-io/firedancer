@@ -33,6 +33,19 @@
 #define PRQ_TIMEOUT_T ulong
 #include "../../util/tmpl/fd_prq.c"
 
+/* Using RB tree as priority queue for time based processing */
+#define REDBLK_T    fd_quic_rb_event_t
+#define REDBLK_NAME rb_service_queue
+#include "../../util/tmpl/fd_redblack.c"
+
+long
+rb_service_queue_compare( fd_quic_rb_event_t * left,
+                          fd_quic_rb_event_t * right) {
+  long dt = (long)( left->timeout  - right->timeout );
+  long di = (long)( left->conn_idx - right->conn_idx );
+  return dt == 0 ? di : dt;
+}
+
 /* Declare map type for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
 #define MAP_KEY               stream_id
@@ -158,9 +171,9 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   offs                    += conn_map_footprint;
 
   /* allocate space for events priority queue */
-  offs                        = fd_ulong_align_up( offs, service_queue_align() );
+  offs                        = fd_ulong_align_up( offs, rb_service_queue_align() );
   layout->event_queue_off     = offs;
-  ulong event_queue_footprint = service_queue_footprint( conn_cnt + 1 );
+  ulong event_queue_footprint = rb_service_queue_footprint( conn_cnt+1U );
   if( FD_UNLIKELY( !event_queue_footprint ) ) { FD_LOG_WARNING(( "invalid service_queue_footprint" )); return 0UL; }
   offs                       += event_queue_footprint;
 
@@ -459,7 +472,7 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: Initialize conn ID map */
 
   ulong  conn_map_laddr = (ulong)quic + layout.conn_map_off;
-  state->conn_map = fd_quic_conn_map_new( (void *)conn_map_laddr, layout.lg_slot_cnt );
+  state->conn_map = fd_quic_conn_map_join( fd_quic_conn_map_new( (void *)conn_map_laddr, layout.lg_slot_cnt ) );
   if( FD_UNLIKELY( !state->conn_map ) ) {
     FD_LOG_WARNING(( "NULL conn_map" ));
     return NULL;
@@ -468,12 +481,13 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: Initialize service queue */
 
   ulong  service_queue_laddr = (ulong)quic + layout.event_queue_off;
-  void * v_service_queue = service_queue_new( (void *)service_queue_laddr, limits->conn_cnt+1U );
-  state->service_queue = service_queue_join( v_service_queue );
-  if( FD_UNLIKELY( !state->service_queue ) ) {
+  void * v_service_queue = rb_service_queue_new( (void *)service_queue_laddr, limits->conn_cnt+1U );
+  state->rb_service_queue = rb_service_queue_join( v_service_queue );
+  if( FD_UNLIKELY( !state->rb_service_queue ) ) {
     FD_LOG_WARNING(( "NULL service_queue" ));
     return NULL;
   }
+  state->rb_service_queue_root = NULL;
 
   /* Check TX AIO */
 
@@ -777,8 +791,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_pkt_t *   pkt,
                          uint              pkt_type,
                          uchar const *     buf,
-                         ulong             buf_sz,
-                         fd_quic_frame_u * frame_union ) {
+                         ulong             buf_sz ) {
   if( conn->state == FD_QUIC_CONN_STATE_DEAD ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
@@ -845,12 +858,13 @@ fd_quic_fini( fd_quic_t * quic ) {
 
   /* Delete service queue */
 
-  service_queue_delete( service_queue_leave( state->service_queue ) );
-  state->service_queue = NULL;
+  rb_service_queue_delete( rb_service_queue_leave( state->rb_service_queue ) );
+  state->rb_service_queue      = NULL;
+  state->rb_service_queue_root = NULL;
 
   /* Delete conn ID map */
 
-  fd_quic_conn_map_delete( state->conn_map );
+  fd_quic_conn_map_delete( fd_quic_conn_map_leave( state->conn_map ) );
   state->conn_map = NULL;
 
   /* Reset conn free list */
@@ -1001,8 +1015,9 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   /* stream_id & 2 == 0 is bidir
      stream_id & 1 == 0 is client */
   if( FD_UNLIKELY( ( ( (uint)stream_id & 2u ) == 2u ) &
-                   ( ( (uint)stream_id & 1u ) != (uint)conn->server ) ) )
+                   ( ( (uint)stream_id & 1u ) != (uint)conn->server ) ) ) {
     return FD_QUIC_SEND_ERR_INVAL_STREAM;
+  }
 
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE ) ) {
     if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ||
@@ -1240,7 +1255,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   /* Parse initial packet */
 
-  fd_quic_initial_t initial[1];
+  fd_quic_initial_t initial[1] = {0};
   ulong rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_initial failed" )) );
@@ -1308,8 +1323,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Pick a new conn ID for ourselves, which the peer will address us
          with in the future (via dest conn ID). */
 
-      fd_quic_conn_id_t new_conn_id;
-      fd_quic_conn_id_rand( &new_conn_id, state->_rng );
+      ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
+      fd_quic_conn_id_t new_conn_id = fd_quic_conn_id_new( &new_conn_id_u64, sizeof(ulong) );
 
       /* Save peer's conn ID, which we will use to address peer with. */
 
@@ -1386,19 +1401,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
         /* This is the initial packet before retry. */
         if( initial->token_len == 0 ) {
-          /* FIXME we pass the "tp" here to allow the function to add the retry_source_connection_ip
-           * transport parameter to be added.
-           * This is incorrect, since:
-           *   1. "tp" is transient, and will likely be modified before it is encoded into a packet
-           *   2. RETRY is supposed to be stateless
-           *
-           * The fix is thus:
-           *   1. put the new source connection id (or some seed from which it's generated)
-           *          into the token in the RETRY packet
-           *   2. upon receiving the token back in a new INITIAL packet, unpack the connection id
-           *          from the token and store in the newly created connection id
-           *   3. when the "tp" is about to be encoded, add the "retry_source_connection_ip"
-           *          from the appropriate member of "conn" */
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
                 &orig_dst_conn_id, &new_conn_id,
@@ -1463,7 +1465,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Allocate new conn */
 
       conn = fd_quic_conn_create( quic,
-          &new_conn_id,  /* our_conn_id */
+          new_conn_id_u64,
           &peer_conn_id,
           dst_ip_addr,
           dst_udp_port,
@@ -1476,21 +1478,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         FD_DEBUG( FD_LOG_WARNING( ( "failed to allocate QUIC conn" ) ) );
         return FD_QUIC_PARSE_FAIL;
       }
-
-      /* insert into connection map at orig_dst_conn_id */
-      fd_quic_conn_entry_t * insert_entry =
-        fd_quic_conn_map_insert( state->conn_map, &orig_dst_conn_id );
-
-      /* if insert failed (should be impossible) fail, and do not remove connection
-         from free list */
-      if( FD_UNLIKELY( insert_entry == NULL ) ) {
-        FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      /* set connection map insert_entry to new connection */
-      insert_entry->conn = conn;
 
       /* keep orig_dst_conn_id */
       conn->orig_dst_conn_id = orig_dst_conn_id;
@@ -1522,6 +1509,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       fd_quic_gen_initial_secret_and_keys( conn, conn_id );
     } else {
       /* connection may have been torn down */
+      FD_DEBUG( FD_LOG_DEBUG(( "unknown connection ID" )); )
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -1618,8 +1606,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                   pkt,
                                   FD_QUIC_PKT_TYPE_INITIAL,
                                   frame_ptr,
-                                  frame_sz,
-                                  &conn->frame_union );
+                                  frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -1766,7 +1753,7 @@ fd_quic_handle_v1_handshake(
      > receives its first Handshake packet. */
   fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = enc_level;
+    conn->peer_enc_level = (uchar) enc_level;
   }
 
   /* handle frames */
@@ -1779,8 +1766,7 @@ fd_quic_handle_v1_handshake(
                                   pkt,
                                   FD_QUIC_PKT_TYPE_HANDSHAKE,
                                   frame_ptr,
-                                  frame_sz,
-                                  &conn->frame_union );
+                                  frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2005,7 +1991,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     }
 
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = enc_level;
+    conn->peer_enc_level = (uchar) enc_level;
   }
 
   /* handle frames */
@@ -2018,8 +2004,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
                                   pkt,
                                   FD_QUIC_PKT_TYPE_ONE_RTT,
                                   frame_ptr,
-                                  frame_sz,
-                                  &conn->frame_union );
+                                  frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "frame failed to parse" )) );
       return FD_QUIC_PARSE_FAIL;
@@ -2051,52 +2036,76 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
 void
 fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
-
   fd_quic_t *       quic    = conn->quic;
   fd_quic_state_t * state   = fd_quic_get_state( quic );
 
   ulong             timeout = conn->next_service_time;
 
+  fd_quic_rb_event_t * rb_service_queue = state->rb_service_queue;
+
+  fd_quic_rb_event_t * event = NULL;
+
   /* scheduled? */
-  if( conn->in_service ) {
+  if( conn->in_schedule ) {
+    fd_quic_rb_event_t key[1] = {{ .timeout  = conn->sched_service_time,
+                                   .conn_idx = conn->conn_idx }};
+
     /* find conn in events, then remove, update, insert */
-    fd_quic_event_t * event     = NULL;
-    ulong             event_idx = 0;
-    ulong             cnt   = service_queue_cnt( state->service_queue );
-    for( ulong j = 0; j < cnt; ++j ) {
-      fd_quic_event_t * cur_event = state->service_queue + j;
-      if( cur_event->conn == conn ) {
-        event     = cur_event;
-        event_idx = j;
-        break;
-      }
-    }
+    event = rb_service_queue_find( rb_service_queue,
+                                   state->rb_service_queue_root,
+                                   key );
 
-    if( FD_LIKELY( event ) ) {
-      /* remove key */
-      service_queue_remove( state->service_queue, event_idx );
-
-      /* TODO can use a priority queue key-reduce operation, which may be done more
-         quickly than remove, insert */
+    /* sanity check */
+    if( FD_UNLIKELY( !event ) ) {
+      FD_LOG_ERR(( "event expected in service queue, but not found" ));
     }
+  }
+
+  if( !event ) {
+    event = rb_service_queue_acquire( rb_service_queue );
+    if( FD_UNLIKELY( !event ) ) {
+      FD_LOG_ERR(( "service_queue pool empty - this should be logically impossible" ));
+    }
+  } else {
+    /* remove from the service queue */
+    rb_service_queue_remove( rb_service_queue,
+                             &state->rb_service_queue_root,
+                             event );
   }
 
   timeout = fd_ulong_max( timeout, state->now + 1UL );
 
+  event->conn     = conn;
+  event->timeout  = timeout;
+  event->conn_idx = conn->conn_idx;
+
+  /* only one entry allowed at each key */
+  /* sanity check */
+  /* this shouldn't be necessary, as conn_idx in the key should make */
+  /* it unique */
+  fd_quic_rb_event_t * find_event =
+                          rb_service_queue_find( rb_service_queue,
+                                                 state->rb_service_queue_root,
+                                                 event );
+  if( FD_UNLIKELY( find_event ) ) {
+    FD_LOG_ERR(( "event should not be in schedule, but is" ));
+  }
+
   /* insert key */
-  fd_quic_event_t event[1] = {{ .timeout = timeout, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
+  rb_service_queue_insert( rb_service_queue,
+                           &state->rb_service_queue_root,
+                           event );
 
   conn->sched_service_time = timeout;
   conn->next_service_time  = timeout;
-  conn->in_service         = 1;
+  conn->in_schedule        = 1;
 }
 
 /* get the service interval, while ensuring the value
    is sufficient */
 ulong
 fd_quic_get_service_interval( fd_quic_t * quic ) {
-  ulong min_service_interval = (ulong)1e5;
+  ulong min_service_interval = (ulong)1e9;
   ulong service_interval = quic->config.service_interval;
   if( FD_UNLIKELY( service_interval < min_service_interval ) ) {
     service_interval = quic->config.service_interval = min_service_interval;
@@ -2114,47 +2123,21 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
 
   ulong service_interval = fd_quic_get_service_interval( quic );
 
+  fd_rng_t * rng = state->_rng;
+  ulong jitter = fd_rng_uint( rng ) & 0x3ffUL;
   timeout = fd_ulong_min( timeout, now + service_interval );
-  timeout = fd_ulong_max( timeout, now + 1UL );
+  timeout = fd_ulong_max( timeout, now + jitter );
 
-  /* scheduled? */
-  if( conn->in_service ) {
-    timeout = fd_ulong_min( timeout, conn->next_service_time );
-
-    /* in the queue, but already scheduled sooner */
-    if( timeout >= conn->sched_service_time ) {
-      return;
-    }
-
-    /* find conn in events, then remove, update, insert */
-    fd_quic_event_t * event     = NULL;
-    ulong             event_idx = 0;
-    ulong             cnt   = service_queue_cnt( state->service_queue );
-    for( ulong j = 0; j < cnt; ++j ) {
-      fd_quic_event_t * cur_event = state->service_queue + j;
-      if( cur_event->conn == conn ) {
-        event     = cur_event;
-        event_idx = j;
-        break;
-      }
-    }
-
-    if( FD_LIKELY( event ) ) {
-      /* remove key */
-      service_queue_remove( state->service_queue, event_idx );
-
-      /* TODO can use a priority queue key-reduce operation, which may be done more
-         quickly than remove, insert */
-    }
-
+  if( conn->in_schedule ) {
+    if( timeout >= conn->sched_service_time ) return;
     conn->next_service_time = timeout;
     fd_quic_schedule_conn( conn );
-
-    return;
+  } else {
+    if( timeout >= conn->next_service_time ) return;
+    conn->next_service_time = timeout;
+    /* if we're not in the schedule, fd_quic_conn_service will */
+    /* insert us */
   }
-
-  /* since we're not in the service queue, just set the next_service_time */
-  conn->next_service_time = timeout;
 }
 
 /* fd_quic_ack_join is used to reduce the resources consumed managing acks */
@@ -2426,33 +2409,24 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
 }
 
 /* process v1 quic packets
-   only called for packets with long header
-   returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error
-   assumes cur_sz >= FD_QUIC_SHORTEST_PKT */
+   returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
 ulong
 fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 fd_quic_pkt_t * pkt,
                                 uchar *         cur_ptr,
                                 ulong           cur_sz ) {
 
-  /* do not respond to packets over 1500 bytes */
-  if( FD_UNLIKELY( cur_sz > 1500 ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
+  /* bounds check packet size */
+  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( cur_sz > 1500                 ) ) return FD_QUIC_PARSE_FAIL;
 
-  fd_quic_state_t *      state = fd_quic_get_state( quic );
-  fd_quic_conn_entry_t * entry = NULL;
-  fd_quic_conn_t *       conn  = NULL;
+  fd_quic_state_t *    state = fd_quic_get_state( quic );
+  fd_quic_conn_map_t * entry = NULL;
+  fd_quic_conn_t *     conn  = NULL;
 
-  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
 
   /* keep end */
   uchar * orig_ptr = cur_ptr;
-
-  /* extract the dst connection id */
-  fd_quic_conn_id_t dst_conn_id = { FD_QUIC_CONN_ID_SZ, {0}, {0} }; /* initialize assuming fixed-length conn id */
 
   fd_quic_common_hdr_t common_hdr[1];
   ulong rc = fd_quic_decode_common_hdr( common_hdr, cur_ptr, cur_sz );
@@ -2472,17 +2446,12 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       return FD_QUIC_PARSE_FAIL;
     }
 
-    dst_conn_id.sz = long_hdr->dst_conn_id_len;
-    if( FD_UNLIKELY( dst_conn_id.sz > sizeof( dst_conn_id.conn_id ) ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "Oversz dst conn ID" )); )
-      return FD_QUIC_PARSE_FAIL;
+    /* extract the dst connection id */
+    fd_quic_conn_id_t dst_conn_id = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
+    if( dst_conn_id.sz == FD_QUIC_CONN_ID_SZ ) {
+      entry = fd_quic_conn_map_query( state->conn_map, fd_ulong_load_8( dst_conn_id.conn_id ), NULL );
+      conn  = entry ? entry->conn : NULL;
     }
-
-    fd_memcpy( &dst_conn_id.conn_id, &long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
-
-    /* find connection id */
-    entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
-    conn  = entry ? entry->conn : NULL;
 
     /* encryption level matches that of TLS */
     pkt->enc_level = common_hdr->long_packet_type; /* V2 uses an indirect mapping */
@@ -2516,9 +2485,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     }
 
   } else { /* short header */
-    /* caller checks cur_sz is sufficient */
-    fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
-
     /* encryption level of short header packets is fd_quic_enc_level_appdata_id */
     pkt->enc_level = fd_quic_enc_level_appdata_id;
 
@@ -2526,7 +2492,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
     /* find connection id */
-    entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
+    ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
+    entry = fd_quic_conn_map_query( state->conn_map, dst_conn_id, NULL );
     if( FD_UNLIKELY( !entry ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
       return FD_QUIC_PARSE_FAIL;
@@ -2758,24 +2725,7 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   /* short header packet
      only one_rtt packets currently have short headers */
-
-  /* extract destination connection id to look up connection */
-  fd_quic_conn_id_t dst_conn_id = { 8u, {0}, {0} }; /* our connection ids are 8 bytes */
-  fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
-
-  /* find connection id */
-  fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
-  if( !entry ) {
-    /* silently ignore */
-    return;
-  }
-
-#if 0
-  fd_quic_conn_t * conn  = entry->conn;
-  (void)fd_quic_handle_v1_one_rtt( quic, conn, &pkt, cur_ptr, cur_sz );
-#else
-  (void)fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
-#endif
+  fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
 }
 
 /* main receive-side entry point */
@@ -2819,7 +2769,7 @@ fd_quic_aio_cb_receive( void *                    context,
     t1 = fd_quic_now( quic );
     ulong delta = t1 - t0;
     if( delta > (ulong)500e3 ) {
-      FD_LOG_WARNING(( "CALLBACK - took %lu  t0: %lu  t1: %lu  batch_cnt: %lu", delta, t0, t1, (ulong)batch_cnt ));
+      FD_LOG_WARNING(( "CALLBACK - took %ld  t0: %lu  t1: %lu  batch_cnt: %lu", delta, t0, t1, (ulong)batch_cnt ));
     }
   )
 
@@ -3057,6 +3007,34 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
       /* Trigger allocation of streams to connections */
       fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+      /* allocate client initiated unidir streams */
+      uint stream_type = FD_QUIC_TYPE_UNIDIR << 1u;
+
+      if( conn->server ) {
+        fd_quic_stream_pool_t * stream_pool = state->stream_pool;
+
+        /* assign streams to connection */
+        while( conn->cur_stream_cnt[stream_type] < FD_QUIC_STREAM_MIN ) {
+          /* obtain stream from stream pool */
+          fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( stream_pool );
+          if( FD_UNLIKELY( !stream ) ) {
+            /* should never happen */
+            break;
+          }
+
+          int rtn = fd_quic_assign_stream( conn, stream_type, stream );
+          if( FD_UNLIKELY( rtn == FD_QUIC_FAILED ) ) {
+            /* should never happen */
+            /* return stream */
+            fd_quic_stream_pool_free( stream_pool, stream );
+            break;
+          }
+        }
+
+        fd_quic_conn_update_max_streams( conn, (uint)stream_type >> 1U );
+      }
+
       state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
       return;
 
@@ -3157,10 +3135,15 @@ fd_quic_service( fd_quic_t * quic ) {
     fd_quic_assign_streams( quic );
   }
 
+  fd_quic_rb_event_t * rb_service_queue = state->rb_service_queue;
+
   /* service events */
   fd_quic_conn_t * conn = NULL;
-  while( service_queue_cnt( state->service_queue ) ) {
-    fd_quic_event_t * event = &state->service_queue[0];
+  while( 1 ) {
+    fd_quic_rb_event_t * event =
+        rb_service_queue_minimum( rb_service_queue,
+                                  state->rb_service_queue_root );
+    if( !event ) break;
 
     /* copy before removing event */
     conn = event->conn;
@@ -3174,10 +3157,14 @@ fd_quic_service( fd_quic_t * quic ) {
     conn->next_service_time = now + fd_quic_get_service_interval( quic );
 
     /* remove event, later reinserted at new time */
-    service_queue_remove_min( state->service_queue );
+    rb_service_queue_remove( rb_service_queue,
+                             &state->rb_service_queue_root,
+                             event );
+    rb_service_queue_release( rb_service_queue, event );
 
     /* unset "in service queue" */
-    conn->in_service = 0;
+    conn->in_schedule        = 0;
+    conn->sched_service_time = ~0UL;
 
     if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
       /* connection shouldn't have been scheduled,
@@ -3231,7 +3218,7 @@ fd_quic_service( fd_quic_t * quic ) {
 
       default:
         /* only schedule if not already scheduled */
-        if( !conn->in_service ) {
+        if( !conn->in_schedule ) {
           fd_quic_schedule_conn( conn );
         }
     }
@@ -3424,7 +3411,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
   fd_quic_conn_id_t *  peer_conn_id = &peer->conn_id;
 
   /* our current conn_id */
-  fd_quic_conn_id_t *  conn_id      = &conn->our_conn_id[conn->cur_conn_id_idx];
+  ulong conn_id = conn->our_conn_id[conn->cur_conn_id_idx];
 
   switch( enc_level ) {
     case fd_quic_enc_level_initial_id:
@@ -3437,7 +3424,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.initial.version          = conn->version;
       pkt_hdr->quic_pkt.initial.dst_conn_id_len  = peer_conn_id->sz;
       // .dst_conn_id
-      pkt_hdr->quic_pkt.initial.src_conn_id_len  = conn_id->sz;
+      pkt_hdr->quic_pkt.initial.src_conn_id_len  = FD_QUIC_CONN_ID_SZ;
       // .src_conn_id
       // .token - below
       pkt_hdr->quic_pkt.initial.len              = 0;  /* length of payload initially 0 */
@@ -3446,9 +3433,9 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       fd_memcpy( pkt_hdr->quic_pkt.initial.dst_conn_id,
               peer_conn_id->conn_id,
               peer_conn_id->sz );
-      fd_memcpy( pkt_hdr->quic_pkt.initial.src_conn_id,
-              conn_id->conn_id,
-              conn_id->sz );
+      memcpy( pkt_hdr->quic_pkt.initial.src_conn_id,
+              &conn_id,
+              FD_QUIC_CONN_ID_SZ );
 
       /* Initial packets sent by the server MUST set the Token Length field to 0. */
       if ( conn->quic->config.role == FD_QUIC_ROLE_CLIENT && conn->token_len ) {
@@ -3483,10 +3470,8 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       }
 
       /* source */
-      fd_memcpy( pkt_hdr->quic_pkt.handshake.src_conn_id,
-              conn_id->conn_id,
-              conn_id->sz );
-      pkt_hdr->quic_pkt.handshake.src_conn_id_len = conn_id->sz;
+      FD_STORE( ulong, pkt_hdr->quic_pkt.handshake.src_conn_id, conn_id );
+      pkt_hdr->quic_pkt.handshake.src_conn_id_len = sizeof(ulong);
 
       pkt_hdr->quic_pkt.handshake.len             = 0; /* length of payload initially 0 */
       pkt_hdr->quic_pkt.handshake.pkt_num         = pkt_number;
@@ -3608,7 +3593,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
   /* TODO probably should be called tx_max_udp_payload_sz */
   ulong tx_max_datagram_sz = conn->tx_max_datagram_sz;
 
-  fd_quic_pkt_hdr_t pkt_hdr;
+  fd_quic_pkt_hdr_t pkt_hdr = {0};
 
   fd_quic_pkt_meta_t * pkt_meta         = NULL;
   ulong                pkt_meta_var_idx = 0UL;
@@ -3618,21 +3603,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     fd_quic_reschedule_conn( conn, 0 );
     return;
   }
-
-  /* temporary usage
-     data is populated, then encoded into a buffer
-     so only one member in use */
-  union {
-    fd_quic_crypto_frame_t       crypto;
-    fd_quic_ack_frame_t          ack;
-    fd_quic_stream_frame_t       stream;
-    fd_quic_max_stream_data_t    max_stream_data;
-    fd_quic_max_data_frame_t     max_data;
-    fd_quic_conn_close_0_frame_t conn_close_0;
-    fd_quic_conn_close_1_frame_t conn_close_1;
-    fd_quic_max_streams_frame_t  max_streams;
-    fd_quic_ping_frame_t         ping;
-  } frame;
 
   /* choose enc_level to tx at */
   /* this function accepts an argument "acks"
@@ -3861,19 +3831,21 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             || !(ack_head->flags & FD_QUIC_ACK_FLAGS_SENT )
             || ack_head->tx_pkt_number == FD_QUIC_PKT_NUM_UNUSED ) {
           /* put ack frame */
-          frame.ack.type            = 0x02u; /* type 0x02 is the base ack, 0x03 indicates ECN */
-          frame.ack.largest_ack     = ack_head->pkt_number.offset_hi - 1u;
-          frame.ack.ack_delay       = fd_quic_get_state( quic )->now - ack_head->pkt_rcvd;
-          frame.ack.ack_range_count = 0; /* no fragments */
-          frame.ack.first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u;
+          fd_quic_ack_frame_t ack_frame = {
+            .type            = 0x02u, /* type 0x02 is the base ack, 0x03 indicates ECN */
+            .largest_ack     = ack_head->pkt_number.offset_hi - 1u,
+            .ack_delay       = fd_quic_get_state( quic )->now - ack_head->pkt_rcvd,
+            .ack_range_count = 0, /* no fragments */
+            .first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u
+          };
 
           /* calc size of ack frame */
-          frame_sz  = fd_quic_encode_footprint_ack_frame( &frame.ack );
+          frame_sz  = fd_quic_encode_footprint_ack_frame( &ack_frame );
 
           if( payload_ptr + frame_sz < payload_end ) {
             frame_sz = fd_quic_encode_ack_frame( payload_ptr,
                 (ulong)( payload_end - payload_ptr ),
-                &frame.ack );
+                &ack_frame );
             if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
               /* shouldn't happen */
               FD_LOG_WARNING(( "failed to encode ack" ));
@@ -3906,22 +3878,26 @@ fd_quic_conn_tx( fd_quic_t *      quic,
         conn->flags |= FD_QUIC_CONN_FLAGS_CLOSE_SENT;
 
         if( conn->reason != 0u || peer_close ) {
-          frame.conn_close_0.error_code           = conn->reason;
-          frame.conn_close_0.frame_type           = 0u; /* we do not know the frame in question */
-          frame.conn_close_0.reason_phrase_length = 0u; /* no reason phrase */
+          fd_quic_conn_close_0_frame_t frame = {
+            .error_code           = conn->reason,
+            .frame_type           = 0u, /* we do not know the frame in question */
+            .reason_phrase_length = 0u  /* no reason phrase */
+          };
 
           /* output */
           frame_sz = fd_quic_encode_conn_close_0_frame( payload_ptr,
                                                         (ulong)( payload_end - payload_ptr ),
-                                                        &frame.conn_close_0 );
+                                                        &frame );
         } else {
-          frame.conn_close_1.error_code           = conn->app_reason;
-          frame.conn_close_1.reason_phrase_length = 0u; /* no reason phrase */
+          fd_quic_conn_close_1_frame_t frame = {
+            .error_code           = conn->app_reason,
+            .reason_phrase_length = 0u /* no reason phrase */
+          };
 
           /* output */
           frame_sz = fd_quic_encode_conn_close_1_frame( payload_ptr,
                                                         (ulong)( payload_end - payload_ptr ),
-                                                        &frame.conn_close_1 );
+                                                        &frame );
         }
 
         if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
@@ -3975,12 +3951,14 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             ulong         cur_data_sz = hs_data->data_sz - hs_offset;
 
             /* build crypto frame */
-            frame.crypto.offset      = offset;
-            frame.crypto.length      = cur_data_sz;
-            frame.crypto.crypto_data = cur_data;
+            fd_quic_crypto_frame_t frame = {
+              .offset      = offset,
+              .length      = cur_data_sz,
+              .crypto_data = cur_data
+            };
 
             /* calc size of crypto frame, including */
-            frame_sz = fd_quic_encode_footprint_crypto_frame( &frame.crypto );
+            frame_sz = fd_quic_encode_footprint_crypto_frame( &frame );
 
             /* not enough space? */
             ulong over = 0;
@@ -3993,12 +3971,12 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             }
 
             cur_data_sz -= over;
-            frame.crypto.length = cur_data_sz;
+            frame.length = cur_data_sz;
 
             /* output */
             frame_sz = fd_quic_encode_crypto_frame( payload_ptr,
                                                     (ulong)( payload_end - payload_ptr ),
-                                                    &frame.crypto );
+                                                    &frame );
 
             if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
               FD_LOG_WARNING(( "%s - fd_quic_encode_crypto_frame failed, but space "
@@ -4053,12 +4031,12 @@ fd_quic_conn_tx( fd_quic_t *      quic,
           if( ( conn->flags & FD_QUIC_CONN_FLAGS_MAX_DATA ) &&
               ( conn->rx_max_data > conn->rx_max_data_ackd ) ) {
             /* send max_data frame */
-            frame.max_data.max_data = conn->rx_max_data;
+            fd_quic_max_data_frame_t frame = { .max_data = conn->rx_max_data };
 
             /* attempt to write into buffer */
             frame_sz = fd_quic_encode_max_data_frame( payload_ptr,
                                                       (ulong)( payload_end - payload_ptr ),
-                                                      &frame.max_data );
+                                                      &frame );
             if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
               /* successful? then update payload_ptr and tot_frame_sz */
               payload_ptr  += frame_sz;
@@ -4098,13 +4076,15 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
             if( FD_LIKELY( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) ) {
 
-              frame.max_streams.stream_type = 1;
-              frame.max_streams.max_streams = max_streams_unidir;
+              fd_quic_max_streams_frame_t frame = {
+                .stream_type = 1,
+                .max_streams = max_streams_unidir
+              };
 
               /* attempt to write into buffer */
               frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
                                                            (ulong)( payload_end - payload_ptr ),
-                                                           &frame.max_streams );
+                                                           &frame );
               if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
                 /* successful? then update payload_ptr and tot_frame_sz */
                 payload_ptr  += frame_sz;
@@ -4121,7 +4101,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                                                         .type      = FD_QUIC_PKT_META_TYPE_OTHER,
                                                         .flags     = FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
                                                       };
-                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams.max_streams;
+                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams;
                 pkt_meta_var_idx++;
                 pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
               }
@@ -4135,9 +4115,10 @@ fd_quic_conn_tx( fd_quic_t *      quic,
             /* send ping frame */
 
             /* attempt to write into buffer */
+            fd_quic_ping_frame_t ping = {0};
             frame_sz = fd_quic_encode_ping_frame( payload_ptr,
                                                   (ulong)( payload_end - payload_ptr ),
-                                                  &frame.ping );
+                                                  &ping );
             if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
               /* successful? then update payload_ptr and tot_frame_sz */
               payload_ptr  += frame_sz;
@@ -4181,21 +4162,22 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                 ulong stream_off = cur_stream->tx_sent;
 
                 /* do we still have data we can send? */
-                if( stream_data_sz > 0u || last_byte ) {
-                  /* populate frame.stream */
-                  frame.stream.stream_id = cur_stream->stream_id;
+                if( stream_data_sz > 0u || last_byte ) {\
+                  fd_quic_stream_frame_t frame = {
+                    .stream_id = cur_stream->stream_id,
 
-                  /* optional fields */
-                  frame.stream.offset_opt = ( stream_off != 0 );
-                  frame.stream.offset     = stream_off;
+                    /* optional fields */
+                    .offset_opt = ( stream_off != 0 ),
+                    .offset     = stream_off,
 
-                  frame.stream.length_opt = 1; /* always include length */
-                  frame.stream.length     = stream_data_sz;
+                    .length_opt = 1, /* always include length */
+                    .length     = stream_data_sz,
 
-                  frame.stream.fin_opt    = (uchar)last_byte;
+                    .fin_opt    = (uchar)last_byte
+                  };
 
                   /* calc size of stream frame */
-                  frame_sz = stream_data_sz + fd_quic_encode_footprint_stream_frame( &frame.stream );
+                  frame_sz = stream_data_sz + fd_quic_encode_footprint_stream_frame( &frame );
 
                   /* over? */
                   ulong over = 0;
@@ -4204,7 +4186,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
                     /* since we are not sending the last byte of the stream
                        reset these values */
-                    frame.stream.fin_opt = (uchar)0;
+                    frame.fin_opt = (uchar)0;
                     last_byte            = 0;
                   }
 
@@ -4216,15 +4198,15 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                   }
 
                   /* adjust to fit */
-                  stream_data_sz     -= over;
-                  frame.stream.length = stream_data_sz;
+                  stream_data_sz -= over;
+                  frame.length    = stream_data_sz;
 
                   /* do we still have data we can send? */
                   if( stream_data_sz > 0u || last_byte ) {
                     /* output */
                     frame_sz = fd_quic_encode_stream_frame( payload_ptr,
                         (ulong)( payload_end - payload_ptr ),
-                        &frame.stream );
+                        &frame );
 
                     if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
                       FD_LOG_WARNING(( "%s - fd_quic_encode_stream_frame failed, but space "
@@ -4463,10 +4445,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
     }
 
-    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
-      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
-    }
-
     /* add to sent list */
     fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
 
@@ -4651,22 +4629,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   /* loop over connection ids, and remove each */
   for( ulong j=0; j<conn->our_conn_id_cnt; ++j ) {
-    fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &conn->our_conn_id[j] );
-    if( FD_LIKELY( entry ) ) {
-      entry->conn = NULL;
-
-      fd_quic_conn_map_remove( state->conn_map, entry );
-    }
-  }
-
-  /* remove from orig_dst_conn_id */
-  {
-    fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &conn->orig_dst_conn_id );
-    if( FD_LIKELY( entry ) ) {
-      entry->conn = NULL;
-
-      fd_quic_conn_map_remove( state->conn_map, entry );
-    }
+    fd_quic_conn_map_t * entry = fd_quic_conn_map_query( state->conn_map, conn->our_conn_id[j], NULL );
+    if( FD_LIKELY( entry ) ) fd_quic_conn_map_remove( state->conn_map, entry );
   }
 
   /* no need to remove this connection from the events queue
@@ -4775,14 +4739,12 @@ fd_quic_connect( fd_quic_t *  quic,
 
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
-  fd_quic_conn_id_t our_conn_id;
-  fd_quic_conn_id_t peer_conn_id;
-  fd_quic_conn_id_rand( &peer_conn_id, rng );
-  fd_quic_conn_id_rand( &our_conn_id,  rng );
+  ulong our_conn_id_u64 = fd_rng_ulong( rng );
+  fd_quic_conn_id_t peer_conn_id;  fd_quic_conn_id_rand( &peer_conn_id, rng );
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,
-      &our_conn_id,
+      our_conn_id_u64,
       &peer_conn_id,
       dst_ip_addr,
       dst_udp_port,
@@ -4834,7 +4796,7 @@ fd_quic_connect( fd_quic_t *  quic,
           conn->initial_source_conn_id.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
   tp->initial_source_connection_id_present = 1;
-  tp->initial_source_connection_id_len     = our_conn_id.sz;
+  tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
 
   /* validate transport parameters */
 
@@ -4891,7 +4853,7 @@ fail_conn:
 
 fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
-                     fd_quic_conn_id_t const * our_conn_id,
+                     ulong                     our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
@@ -4910,8 +4872,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   }
 
   /* insert into connection map */
-  fd_quic_conn_entry_t * insert_entry =
-    fd_quic_conn_map_insert( state->conn_map, our_conn_id );
+  fd_quic_conn_map_t * insert_entry = fd_quic_conn_map_insert( state->conn_map, our_conn_id );
 
   /* if insert failed (should be impossible) fail, and do not remove connection
      from free list */
@@ -5027,14 +4988,14 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* initialize connection members */
   ulong our_conn_id_idx = 0;
-  conn->our_conn_id[our_conn_id_idx] = *our_conn_id;
+  conn->our_conn_id[our_conn_id_idx] = our_conn_id;
   conn->our_conn_id_cnt++;
   /* start with minimum supported max datagram */
   /* peers may allow more */
   conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
 
   /* initial source connection id */
-  conn->initial_source_conn_id = *our_conn_id;
+  conn->initial_source_conn_id = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
 
   /* peer connection id */
   ulong peer_idx = 0;
@@ -5091,8 +5052,11 @@ fd_quic_get_next_wakeup( fd_quic_t * quic ) {
   }
 
   ulong t = ~(ulong)0;
-  if( service_queue_cnt( state->service_queue ) ) {
-    t = state->service_queue[0].timeout;
+  fd_quic_rb_event_t * event =
+      rb_service_queue_minimum( state->rb_service_queue,
+                                state->rb_service_queue_root );
+  if( event ) {
+    t = event->timeout;
   }
 
   return t;
@@ -6013,13 +5977,31 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
 
   stream->stream_id = ~0UL;
 
-  /* add to stream_pool */
+  /* get state */
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  fd_quic_stream_pool_free( state->stream_pool, stream );
 
   /* decrement current stream count */
   ulong type = stream_id & 3UL;
   conn->cur_stream_cnt[type]--;
+
+  /* here, if the connection will become below the minimum streams */
+  /* we want to keep it allocated */
+  /* else we want to return it to the pool */
+  if( FD_UNLIKELY( conn->server
+                && conn->state == FD_QUIC_CONN_STATE_ACTIVE
+                && type == FD_QUIC_STREAM_TYPE_UNI_CLIENT
+                && conn->cur_stream_cnt[type] < FD_QUIC_STREAM_MIN ) ) {
+    int rtn = fd_quic_assign_stream( conn, type, stream );
+    if( FD_UNLIKELY( rtn == FD_QUIC_FAILED ) ) {
+      FD_DEBUG( FD_LOG_WARNING(( "fd_quic_assign_stream failed" )); )
+
+      /* add to stream_pool */
+      fd_quic_stream_pool_free( state->stream_pool, stream );
+    }
+  } else {
+    /* add to stream_pool */
+    fd_quic_stream_pool_free( state->stream_pool, stream );
+  }
 
   fd_quic_conn_update_max_streams( conn, (uint)type >> 1U );
 
@@ -6741,6 +6723,8 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
 
     if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE &&
                      conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) {
+      FD_DEBUG( FD_LOG_WARNING(( "ASSIGN - conn chosen has unusable state: %u",
+            (uint)conn->state )); )
       fd_quic_stream_pool_free( stream_pool, stream );
       break;
     }
@@ -6770,17 +6754,23 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   ulong next_stream_id = conn->next_stream_id[stream_type];
 
   /* check if connection is allowed to be assigned the stream */
-  if( FD_UNLIKELY( next_stream_id >= conn->tgt_sup_stream_id[stream_type] ) ) {
+  if( FD_UNLIKELY( conn->cur_stream_cnt[stream_type] >= FD_QUIC_STREAM_MIN &&
+                   next_stream_id >= conn->tgt_sup_stream_id[stream_type] ) ) {
+    FD_DEBUG( FD_LOG_NOTICE(( "ASSIGN FAILED" )); )
     return FD_QUIC_FAILED;
   }
 
   uint dirtype = ( (uint)stream_type & 2U ) >> 1U;
-  if( FD_UNLIKELY( dirtype==FD_QUIC_TYPE_BIDIR ) ) return FD_QUIC_FAILED;
+  if( FD_UNLIKELY( dirtype==FD_QUIC_TYPE_BIDIR ) ) {
+    FD_DEBUG( FD_LOG_NOTICE(( "ASSIGN FAILED" )); )
+    return FD_QUIC_FAILED;
+  }
 
   fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
   if( FD_UNLIKELY( !entry ) ) {
     /* stream_map should be large enough for maximum tgt_stream_id */
     /* TODO add metric */
+    FD_DEBUG( FD_LOG_NOTICE(( "ASSIGN FAILED" )); )
     return FD_QUIC_FAILED;
   }
 

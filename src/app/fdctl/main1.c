@@ -159,8 +159,8 @@ fdctl_boot( int *        pargc,
   char * thread = "";
   if( FD_UNLIKELY( config_fd >= 0 ) ) {
     copy_config_from_fd( config_fd, config );
-    /* tick_per_ns needs to be synchronized across processes so that they
-       can coordinate on metrics measurement. */
+    /* tick_per_ns needs to be synchronized across processes so that
+       they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
     fdctl_cfg_from_env( pargc, pargv, config );
@@ -186,6 +186,14 @@ fdctl_boot( int *        pargc,
   log_path = config->log.path;
   if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;
 
+  /* Switch to the sandbox uid/gid for log file creation, so it's always
+     owned by that user. */
+
+  gid_t gid = getgid();
+  uid_t uid = getuid();
+  if( FD_LIKELY( !gid && setegid( config->gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   fd_log_private_boot_custom( log_lock,
                               0UL,
                               config->name,
@@ -208,6 +216,10 @@ fdctl_boot( int *        pargc,
                               5,
                               config->log.log_fd,
                               log_path );
+
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   config->log.log_fd = fd_log_private_logfile_fd();
   fd_shmem_private_boot( &argc, &argv );
   fd_tile_private_boot( 0, NULL );

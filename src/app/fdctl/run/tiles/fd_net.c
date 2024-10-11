@@ -36,6 +36,7 @@
 #include "generated/net_seccomp.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xdp.h"
+#include "../../../../waltz/xdp/fd_xsk_aio_private.h"
 #include "../../../../waltz/xdp/fd_xsk_private.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../waltz/ip/fd_ip.h"
@@ -272,6 +273,27 @@ net_rx_aio_send( void *                    _ctx,
 }
 
 static void
+metrics_write( void * _ctx ) {
+  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+
+  ulong rx_cnt = ctx->xsk_aio[ 0 ]->metrics.rx_cnt;
+  ulong rx_sz  = ctx->xsk_aio[ 0 ]->metrics.rx_sz;
+  ulong tx_cnt = ctx->xsk_aio[ 0 ]->metrics.tx_cnt;
+  ulong tx_sz  = ctx->xsk_aio[ 0 ]->metrics.tx_sz;
+  if( FD_LIKELY( ctx->xsk_aio[ 1 ] ) ) {
+    rx_cnt += ctx->xsk_aio[ 1 ]->metrics.rx_cnt;
+    rx_sz  += ctx->xsk_aio[ 1 ]->metrics.rx_sz;
+    tx_cnt += ctx->xsk_aio[ 1 ]->metrics.tx_cnt;
+    tx_sz  += ctx->xsk_aio[ 1 ]->metrics.tx_sz;
+  }
+
+  FD_MCNT_SET( NET_TILE, RECEIVED_PACKETS, rx_cnt );
+  FD_MCNT_SET( NET_TILE, RECEIVED_BYTES,   rx_sz  );
+  FD_MCNT_SET( NET_TILE, SENT_PACKETS,     tx_cnt );
+  FD_MCNT_SET( NET_TILE, SENT_BYTES,       tx_sz  );
+}
+
+static void
 before_credit( void * _ctx,
                fd_mux_context_t * mux ) {
   (void)mux;
@@ -468,8 +490,6 @@ after_frag( void *             _ctx,
         break;
     }
   }
-
-  *opt_filter = 1;
 }
 
 /* init_link_session is part of privileged_init.  It only runs on net
@@ -870,6 +890,7 @@ fd_topo_run_tile_t fd_tile_net = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_metrics_write        = metrics_write,
   .mux_before_credit        = before_credit,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,

@@ -1,6 +1,7 @@
 #include "config_parse.h"
 
 FD_IMPORT_BINARY( fdctl_default_config, "src/app/fdctl/config/default.toml" );
+FD_IMPORT_BINARY( fdctl_default_firedancer_config, "src/app/fdctl/config/default-firedancer.toml" );
 
 /* Pod query utils ****************************************************/
 
@@ -223,6 +224,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   ledger.accounts_path                             );
   CFG_POP      ( uint,   ledger.limit_size                                );
   CFG_POP_ARRAY( cstr,   ledger.account_indexes                           );
+  CFG_POP_ARRAY( cstr,   ledger.account_index_include_keys                );
   CFG_POP_ARRAY( cstr,   ledger.account_index_exclude_keys                );
   CFG_POP      ( bool,   ledger.require_tower                             );
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
@@ -260,11 +262,14 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   snapshots.incremental_snapshots                  );
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
+  CFG_POP      ( uint,   snapshots.minimum_snapshot_download_speed        );
+  CFG_POP      ( uint,   snapshots.maximum_full_snapshots_to_retain       );
+  CFG_POP      ( uint,   snapshots.maximum_incremental_snapshots_to_retain);
   CFG_POP      ( cstr,   snapshots.path                                   );
+  CFG_POP      ( cstr,   snapshots.incremental_path                       );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
-  CFG_POP      ( cstr,   layout.solana_labs_affinity                      );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
@@ -297,6 +302,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.dedup.signature_cache_size                 );
 
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
+  CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
 
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
@@ -307,7 +313,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
-  CFG_POP      ( cstr,   development.topology                             );
 
   CFG_POP      ( bool,   development.netns.enabled                        );
   CFG_POP      ( cstr,   development.netns.interface0                     );
@@ -332,7 +337,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   development.bench.affinity                       );
   CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
-  CFG_POP      ( bool,   development.bench.disable_blockstore             );
+  CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
   CFG_POP      ( bool,   development.bench.disable_status_cache           );
 
   /* Firedancer-only configuration */
@@ -359,7 +364,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
-  CFG_POP      ( uint,   tiles.replay.cluster_version                     );
+  CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
 
   CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
@@ -408,6 +413,7 @@ fdctl_cfg_validate( config_t * cfg ) {
 
   CFG_HAS_NON_ZERO( snapshots.full_snapshot_interval_slots );
   CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
+  CFG_HAS_NON_ZERO( snapshots.minimum_snapshot_download_speed );
 
   CFG_HAS_NON_EMPTY( layout.affinity );
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
@@ -445,8 +451,6 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
-
-  CFG_HAS_NON_EMPTY( development.topology );
 
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );

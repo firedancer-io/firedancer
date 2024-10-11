@@ -10,6 +10,7 @@ fd_snapshot_name_from_buf( fd_snapshot_name_t * id,
   char buf[ 4096 ];
   str_len = fd_ulong_min( sizeof(buf)-1, str_len );
   fd_memcpy( buf, str, str_len );
+  buf[ str_len ] = '\0';
 
   return fd_snapshot_name_from_cstr( id, buf, base_slot );
 }

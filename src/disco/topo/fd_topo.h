@@ -173,6 +173,7 @@ typedef struct {
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
+      int   use_consumed_cus;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
@@ -188,11 +189,12 @@ typedef struct {
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
+      int    larger_shred_limits_per_block;
       ulong  expected_shred_version;
     } shred;
 
     struct {
-      int disable_blockstore;
+      ulong disable_blockstore_from_slot;
     } store;
 
     struct {
@@ -221,7 +223,7 @@ typedef struct {
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
-      uint  cluster_version;
+      char  cluster_version[ 32 ];
 
       /* not specified by [tiles.replay] */
 
@@ -230,6 +232,7 @@ typedef struct {
       uchar src_mac_addr[ 6 ];
       int   vote;
       char  vote_account_path[ PATH_MAX ];
+      ulong bank_tile_count;
     } replay;
 
     struct {
@@ -267,6 +270,7 @@ typedef struct {
       ushort  tvu_fwd_port;
       ushort  tpu_port;
       ushort  tpu_vote_port;
+      ushort  repair_serve_port;
       ulong   expected_shred_version;
     } gossip;
 
@@ -284,6 +288,8 @@ typedef struct {
     struct {
       char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
+
+      ulong expected_shred_version;
 
       /* non-config */
 
@@ -329,6 +335,9 @@ typedef struct fd_topo_t {
   fd_topo_link_t links[ FD_TOPO_MAX_LINKS ];
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
+
+  ulong          agave_affinity_cnt;
+  ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
 } fd_topo_t;
 
 typedef struct {
@@ -336,6 +345,7 @@ typedef struct {
 
   ulong                         mux_flags;
   ulong                         burst;
+  int                           keep_host_networking;
   ulong                         rlimit_file_cnt;
   int                           for_tpool;
   void * (*mux_ctx           )( void * scratch );
@@ -655,6 +665,11 @@ fd_topo_run_single_process( fd_topo_t * topo,
    The thread will switch to the provided UID and GID without switching
    the other threads in the process.
 
+   If keep_controlling_terminal is set to 0, and the sandbox is enabled
+   the controlling terminal will be detached as an additional sandbox
+   measure, but you will not be able to send Ctrl+C or other signals
+   from the terminal.  See fd_sandbox.h for more information.
+
    The allow_fd argument is only used if sandbox is true, and is a file
    descriptor which will be allowed to exist in the process.  Normally
    the sandbox code rejects and aborts if there is an unexpected file
@@ -676,6 +691,7 @@ void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
+                  int                  keep_controlling_terminal,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,

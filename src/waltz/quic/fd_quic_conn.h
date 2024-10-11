@@ -88,12 +88,12 @@ struct fd_quic_conn {
   uint               version;             /* QUIC version of the connection */
 
   ulong              next_service_time;   /* time service should be called next */
-  ulong              sched_service_time;  /* time service is scheduled for, if in_service=1 */
-  int                in_service;          /* whether the conn is in the service queue */
+  ulong              sched_service_time;  /* time service is scheduled for, if conn in service_queue */
+  int                in_schedule;         /* whether the conn is in the service schedule */
   uchar              called_conn_new;     /* whether we need to call conn_final on teardown */
 
   /* we can have multiple connection ids */
-  fd_quic_conn_id_t  our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  ulong              our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
   /* Save original destination connection id
      This will be used when we receive a retransmitted initial packet
@@ -252,9 +252,6 @@ struct fd_quic_conn {
   ulong last_pkt_number[3]; /* last (highest) packet numer seen */
 
   ushort ipv4_id;           /* ipv4 id field */
-
-  /* some scratch space for frame encoding/decoding */
-  fd_quic_frame_u frame_union;
 
   /* buffer to send next */
   /* rename tx_buf, since it's easy to confuse with stream->tx_buf */

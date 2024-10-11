@@ -9,7 +9,7 @@ typedef struct {
 typedef struct {
   uchar __attribute__((aligned(32UL))) mem[ FD_SHRED_STORE_MTU ];
 
-  int disable_blockstore;
+  ulong disable_blockstore_from_slot;
 
   fd_store_in_ctx_t in[ 32 ];
 } fd_store_ctx_t;
@@ -107,7 +107,7 @@ after_frag( void *             _ctx,
     FD_TEST( shred34->offset + shred34->stride*(shred34->shred_cnt - 1UL) + shred34->shred_sz <= *opt_sz);
   }
 
-  if( FD_UNLIKELY( ctx->disable_blockstore ) ) return;
+  if( FD_UNLIKELY( ctx->disable_blockstore_from_slot && ( ctx->disable_blockstore_from_slot <= shred34->pkts->shred.slot ) ) ) return;
 
   /* No error code because this cannot fail. */
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!*opt_sig );
@@ -130,7 +130,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_COMPILER_MFENCE();
   FD_LOG_INFO(( "Got blockstore" ));
 
-  ctx->disable_blockstore = tile->store.disable_blockstore;
+  ctx->disable_blockstore_from_slot = tile->store.disable_blockstore_from_slot;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

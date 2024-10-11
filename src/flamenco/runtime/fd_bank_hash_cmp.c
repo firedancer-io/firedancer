@@ -1,9 +1,6 @@
 #include "fd_bank_hash_cmp.h"
 #include <unistd.h>
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 void *
 fd_bank_hash_cmp_new( void * mem ) {
 
@@ -148,11 +145,11 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
   ulong max = sizeof( cmp->stakes ) / sizeof( ulong );
   if( FD_UNLIKELY( cmp->cnt == max ) ) {
     if( !cmp->overflow ) {
-      FD_LOG_WARNING( ( "[Bank Hash Comparison] more than %lu equivocating hashes for slot %lu. "
-                        "new hash: %32J. ignoring.",
-                        max,
-                        slot,
-                        hash ) );
+      FD_LOG_WARNING(( "[Bank Hash Comparison] more than %lu equivocating hashes for slot %lu. "
+                       "new hash: %s. ignoring.",
+                       max,
+                       slot,
+                       FD_BASE58_ENC_32_ALLOCA( hash ) ));
       cmp->overflow = 1;
     }
     return;
@@ -162,11 +159,11 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
   cmp->stakes[cmp->cnt - 1] = stake;
   if( FD_UNLIKELY( cmp->cnt > 1 ) ) {
     for( ulong i = 0; i < cmp->cnt; i++ ) {
-      FD_LOG_WARNING( ( "slot: %lu. equivocating hash (#%lu): %32J. stake: %lu",
+      FD_LOG_WARNING(( "slot: %lu. equivocating hash (#%lu): %s. stake: %lu",
                         cmp->slot,
                         i,
-                        cmp->theirs[i].hash,
-                        cmp->stakes[i] ) );
+                        FD_BASE58_ENC_32_ALLOCA( cmp->theirs[i].hash ),
+                        cmp->stakes[i] ));
     }
   }
 }
@@ -194,37 +191,37 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
   double pct = (double)stake / (double)bank_hash_cmp->total_stake;
   if( FD_LIKELY( pct > 0.52 ) ) {
     if( FD_UNLIKELY( 0 != memcmp( &cmp->ours, theirs, sizeof( fd_hash_t ) ) ) ) {
-      FD_LOG_WARNING( ( "\n\n[Bank Hash Comparison]\n"
+      FD_LOG_WARNING(( "\n\n[Bank Hash Comparison]\n"
                         "slot:   %lu\n"
-                        "ours:   %32J\n"
-                        "theirs: %32J\n"
+                        "ours:   %s\n"
+                        "theirs: %s\n"
                         "stake:  %.0lf%%\n"
                         "result: mismatch!\n",
                         cmp->slot,
-                        cmp->ours.hash,
-                        theirs->hash,
-                        pct * 100 ) );
+                        FD_BASE58_ENC_32_ALLOCA( cmp->ours.hash ),
+                        FD_BASE58_ENC_32_ALLOCA( theirs->hash ),
+                        pct * 100 ));
       if( FD_UNLIKELY( cmp->cnt > 1 ) ) {
         for( ulong i = 0; i < cmp->cnt; i++ ) {
-          FD_LOG_WARNING( ( "slot: %lu. hash (#%lu): %32J. stake: %lu",
-                            cmp->slot,
-                            i,
-                            cmp->theirs[i].hash,
-                            cmp->stakes[i] ) );
+          FD_LOG_WARNING(( "slot: %lu. hash (#%lu): %s. stake: %lu",
+                           cmp->slot,
+                           i,
+                           FD_BASE58_ENC_32_ALLOCA( cmp->theirs[i].hash ),
+                           cmp->stakes[i] ));
         }
       }
       return -1;
     } else {
-      FD_LOG_NOTICE( ( "\n\n[Bank Hash Comparison]\n"
-                       "slot:   %lu\n"
-                       "ours:   %32J\n"
-                       "theirs: %32J\n"
-                       "stake:  %.0lf%%\n"
-                       "result: match!\n",
-                       cmp->slot,
-                       cmp->ours.hash,
-                       theirs->hash,
-                       pct * 100 ) );
+      FD_LOG_NOTICE(( "\n\n[Bank Hash Comparison]\n"
+                      "slot:   %lu\n"
+                      "ours:   %s\n"
+                      "theirs: %s\n"
+                      "stake:  %.0lf%%\n"
+                      "result: match!\n",
+                      cmp->slot,
+                      FD_BASE58_ENC_32_ALLOCA( cmp->ours.hash ),
+                      FD_BASE58_ENC_32_ALLOCA( theirs->hash ),
+                      pct * 100 ));
     }
     fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
     bank_hash_cmp->cnt--;

@@ -68,7 +68,9 @@ fd_exec_epoch_ctx_new( void * mem,
   fd_exec_epoch_ctx_bank_mem_setup( self );
 
   fd_features_disable_all( &self->features );
-  self->epoch_bank.cluster_version = FD_DEFAULT_AGAVE_CLUSTER_VERSION;
+  self->epoch_bank.cluster_version[0] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR;
+  self->epoch_bank.cluster_version[1] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR;
+  self->epoch_bank.cluster_version[2] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH;  
   fd_features_enable_cleaned_up( &self->features, self->epoch_bank.cluster_version );
 
   FD_COMPILER_MFENCE();
