@@ -60,60 +60,61 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
      common code across switch cases. Similar to fd_vm_syscall_sol_alt_bn128_group_op. */
 
 /* MATCH_ID_OP allows us to unify 2 switch/case into 1.
-   For better readability, we also temp define EDWARDS, RISTRETTO. */
+   For better readability, we also temp define EDWARDS, RISTRETTO.
+
+   The first time we check that both curve_id and group_op are valid
+   with 2 nested switch/case. Using MATCH_ID_OP leads to undesidered
+   edge cases. The second time, when we know that curve_id and group_op
+   are correct, then we can use MATCH_ID_OP and a single switch/case. */
 #define MATCH_ID_OP(crv_id,grp_op) ((crv_id << 4) | grp_op)
 #define EDWARDS   FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS
 #define RISTRETTO FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO
 
-  /* We need this check to avoid edge cases in MATCH_ID_OP(),
-     for example if curve_id is very large but crv_id << 4 is 0 or 1. */
-  switch( curve_id ) {
-  case EDWARDS:
-  case RISTRETTO:
-    break;
-  default:
-    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
-    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE );
-      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
-    }
-    goto soft_error; /* unknown curve op */
-  }
-
   ulong cost = 0UL;
-  switch( MATCH_ID_OP( curve_id, group_op ) ) {
+  switch( curve_id ) {
 
-  case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_ADD ):
-    cost = FD_VM_CURVE25519_EDWARDS_ADD_COST;
+  case EDWARDS:
+    switch( group_op ) {
+
+    case FD_VM_SYSCALL_SOL_CURVE_ADD:
+      cost = FD_VM_CURVE25519_EDWARDS_ADD_COST;
+      break;
+
+    case FD_VM_SYSCALL_SOL_CURVE_SUB:
+      cost = FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST;
+      break;
+
+    case FD_VM_SYSCALL_SOL_CURVE_MUL:
+      cost = FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST;
+      break;
+
+    default:
+      goto invalid_error;
+    }
     break;
 
-  case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_SUB ):
-    cost = FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST;
-    break;
+  case RISTRETTO:
+    switch( group_op ) {
 
-  case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_MUL ):
-    cost = FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST;
-    break;
+    case FD_VM_SYSCALL_SOL_CURVE_ADD:
+      cost = FD_VM_CURVE25519_RISTRETTO_ADD_COST;
+      break;
 
-  case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_ADD ):
-    cost = FD_VM_CURVE25519_RISTRETTO_ADD_COST;
-    break;
+    case FD_VM_SYSCALL_SOL_CURVE_SUB:
+      cost = FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST;
+      break;
 
-  case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_SUB ):
-    cost = FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST;
-    break;
+    case FD_VM_SYSCALL_SOL_CURVE_MUL:
+      cost = FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST;
+      break;
 
-  case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_MUL ):
-    cost = FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST;
+    default:
+      goto invalid_error;
+    }
     break;
 
   default:
-    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
-    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE );
-      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
-    }
-    goto soft_error; /* unknown curve op */
+    goto invalid_error;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L944-L947 */
@@ -235,6 +236,15 @@ soft_error:
 #undef MATCH_ID_OP
 #undef EDWARDS
 #undef RISTRETTO
+
+invalid_error:
+  /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
+  if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE );
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+  }
+  *_ret = 1UL;
+  return FD_VM_SUCCESS;
 }
 
 /* multi_scalar_mul_edwards computes a MSM on curve25519.
