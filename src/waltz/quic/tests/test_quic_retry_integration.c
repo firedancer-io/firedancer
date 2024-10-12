@@ -181,7 +181,6 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Sending data over streams" ));
 
   char buf[512] = "Hello world!\x00-   ";
-  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
 
   for( unsigned j = 0; j < 16; ++j ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
@@ -205,9 +204,9 @@ main( int argc, char ** argv ) {
     buf[16] = (char)( ( j % 10 ) + '0' );
     int rc = 0;
     if( j&1 ) {
-      rc = fd_quic_stream_send( client_stream,   batch, 1, 0 );
+      rc = fd_quic_stream_send( client_stream,   buf, sizeof(buf), 0 );
     } else {
-      rc = fd_quic_stream_send( client_stream_0, batch, 1, 0 );
+      rc = fd_quic_stream_send( client_stream_0, buf, sizeof(buf), 0 );
     }
 
     FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));

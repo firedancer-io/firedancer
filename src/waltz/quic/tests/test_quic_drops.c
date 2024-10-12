@@ -115,12 +115,12 @@ mitm_tx( void *                    ctx,
       }
       continue;
     }
-    
+
     /* send new packet */
     fd_aio_pkt_info_t batch_0[1] = { batch[j] };
     fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, 1 );
     PCAP(batch_0,1UL);
-      
+
     /* we aren't dropping or reordering, but we might have a prior reorder */
     if( mitm_ctx->reorder_sz > 0UL ) {
       fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
@@ -284,7 +284,6 @@ client_fibre_fn( void * vp_arg ) {
   fd_quic_stream_t * stream = NULL;
 
   uchar buf[] = "Hello World!";
-  fd_aio_pkt_info_t batch[1] = {{ .buf = buf, .buf_sz = sizeof( buf ) }};
 
   ulong period_ns = (ulong)1e6;
   ulong next_send = now + period_ns;
@@ -367,9 +366,9 @@ client_fibre_fn( void * vp_arg ) {
     next_send = now + period_ns;
 
     /* have a stream, so send */
-    int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
+    int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
 
-    if( rc == 1 ) {
+    if( rc == FD_QUIC_SUCCESS ) {
       /* successful - stream will begin closing */
 
       if( ++sent % 15 == 0 ) {

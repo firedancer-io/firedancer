@@ -14,7 +14,7 @@ FD_IMPORT_BINARY(sample_transaction, "src/waltz/quic/tests/quic_txn.bin");
 
 static int g_conn_hs_complete = 0;
 static int g_conn_final = 0;
-static int g_stream_notify = 0;
+static ulong g_stream_notify = 0UL;
 
 #define MAX_TXN_COUNT 128
 
@@ -70,7 +70,7 @@ cb_stream_notify( fd_quic_stream_t * stream,
   (void)stream;
   (void)stream_ctx;
   (void)notify_type;
-  g_stream_notify = 1;
+  g_stream_notify += 1;
 }
 
 static void
@@ -97,20 +97,25 @@ send_quic_transactions( fd_quic_t *         quic,
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE ) )
     FD_LOG_ERR(( "unable to connect to QUIC endpoint at "FD_IP4_ADDR_FMT":%hu, is it running? state is %d", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, conn->state ));
 
-  fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
-  FD_TEST( stream );
-
   ulong sent = 0;
-  while( sent < count ) {
-    int res = fd_quic_stream_send( stream, pkt + sent, count - sent, 1 );
-    if( FD_UNLIKELY( res < 0 ) ) FD_LOG_ERR(( "fd_quic_stream_send failed (%d)", res ));
-    sent += (ulong)res;
+  while( sent < count && !g_conn_final ) {
+    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+    if( FD_UNLIKELY( !stream ) ) {
+      fd_quic_service( quic );
+      fd_quic_udpsock_service( udpsock );
+      continue;
+    }
+
+    fd_aio_pkt_info_t * chunk = pkt + sent;
+    int res = fd_quic_stream_send( stream, chunk->buf, chunk->buf_sz, 1 );
+    if( FD_UNLIKELY( res != FD_QUIC_SUCCESS ) ) FD_LOG_ERR(( "fd_quic_stream_send failed (%d)", res ));
+    sent += 1UL;
 
     fd_quic_service( quic );
     fd_quic_udpsock_service( udpsock );
   }
 
-  while ( FD_UNLIKELY( !( g_stream_notify || g_conn_final ) ) ) {
+  while( FD_LIKELY( g_stream_notify!=count && !g_conn_final ) ) {
     fd_quic_service( quic );
     fd_quic_udpsock_service( udpsock );
   }

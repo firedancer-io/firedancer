@@ -428,13 +428,10 @@ during_frag( void * _ctx,
       return;
     } else {
       int fin = 1;
-      fd_aio_pkt_info_t   batch[1]  = { { .buf    = fd_chunk_to_laddr( ctx->mem, chunk ),
-                                          .buf_sz = (ushort)sz } };
-      ulong               batch_cnt = 1;
-      int rtn = fd_quic_stream_send( stream, batch, batch_cnt, fin );
+      int rtn = fd_quic_stream_send( stream, fd_chunk_to_laddr( ctx->mem, chunk ), sz, fin );
       ctx->packet_cnt++;
 
-      if( FD_LIKELY( rtn == 1UL ) ) {
+      if( FD_LIKELY( rtn == FD_QUIC_SUCCESS ) ) {
         /* after using, fetch a new stream */
         ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn, FD_QUIC_TYPE_UNIDIR );
         if( FD_LIKELY( stream ) ) {

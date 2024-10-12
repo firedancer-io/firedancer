@@ -241,8 +241,7 @@ client_fibre_fn( void * vp_arg ) {
   fd_quic_conn_t *   conn   = NULL;
   fd_quic_stream_t * stream = NULL;
 
-  uchar buf[] = "Hello World!";
-  fd_aio_pkt_info_t batch[1] = {{ .buf = buf, .buf_sz = sizeof( buf ) }};
+  static uchar const buf[] = "Hello World!";
 
   ulong period_ns = (ulong)1e6;
   ulong next_send = now;
@@ -336,9 +335,9 @@ client_fibre_fn( void * vp_arg ) {
     next_send = now + period_ns;
 
     /* have a stream, so send */
-    int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
+    int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
 
-    if( rc == 1 ) {
+    if( rc == FD_QUIC_SUCCESS ) {
       /* successful - stream will begin closing */
 
       /* ensure new stream used for next send */

@@ -116,8 +116,7 @@ run_quic_client( fd_quic_t *         quic,
                  fd_quic_udpsock_t * udpsock ) {
 
   uchar buf[2048];
-
-  fd_aio_pkt_info_t pkt = { .buf = buf, .buf_sz = 0UL };
+  ulong buf_sz = 0UL;
 
   uint dst_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( "198.18.0.1", &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
@@ -139,9 +138,6 @@ run_quic_client( fd_quic_t *         quic,
 
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
-
-  /* zero length indicates no input */
-  pkt.buf_sz = 0UL;
 
   while( 1 ) {
     fd_quic_service( quic );
@@ -166,28 +162,25 @@ run_quic_client( fd_quic_t *         quic,
       continue;
     }
 
-    if( pkt.buf_sz == 0UL ) {
-      ulong out_buf_sz = 0UL;
-      if( read_pkt( pkt.buf, &out_buf_sz ) ) {
+    if( buf_sz == 0UL ) {
+      if( read_pkt( buf, &buf_sz ) ) {
         /* no input, so done */
         break;
       }
 
       /* skip empty lines */
-      if( out_buf_sz == 0UL ) {
+      if( buf_sz == 0UL ) {
         continue;
       }
-
-      pkt.buf_sz = (ushort)out_buf_sz;
     }
 
     /* have gbl_conn, gbl_stream and input, so try sending a transaction */
-    int rc = fd_quic_stream_send( gbl_stream, &pkt, 1 /* num chunks */, 1 /* FIN flag */ );
-    if( rc == 1 ) {
+    int rc = fd_quic_stream_send( gbl_stream, buf, buf_sz, 1 /* FIN flag */ );
+    if( rc == FD_QUIC_SUCCESS ) {
       /* we sent 1 chunk */
 
       /* set buf_sz to zero to indicate more input needed */
-      pkt.buf_sz = 0UL;
+      buf_sz = 0UL;
 
       /* we used this gbl_stream, so set to NULL */
       gbl_stream = NULL;

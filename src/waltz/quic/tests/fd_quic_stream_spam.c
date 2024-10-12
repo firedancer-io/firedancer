@@ -1,42 +1,7 @@
 #include "fd_quic_stream_spam.h"
 
-/* Declare stack of pending streams */
-#define STACK_NAME spam_pending
-#define STACK_T    fd_quic_stream_t *
-#include "../../../util/tmpl/fd_stack.c"
-
-#define FD_QUIC_STREAM_SPAM_ALIGN (32UL)
-
-struct fd_quic_stream_spam_private {
-  fd_quic_stream_t ** pending;
-
-  fd_quic_stream_gen_spam_t gen_fn;
-  void *                    gen_ctx;
-};
-
-ulong
-fd_quic_stream_spam_align( void ) {
-  return alignof(fd_quic_stream_spam_t);
-}
-
-ulong
-fd_quic_stream_spam_footprint( ulong stream_cnt ) {
-
-  ulong freelist_footprint = spam_pending_footprint( stream_cnt );
-  if( FD_UNLIKELY( !freelist_footprint ) ) {
-    FD_LOG_WARNING(( "invalid footprint for config" ));
-    return 0UL;
-  }
-
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-    alignof(fd_quic_stream_spam_t), sizeof(fd_quic_stream_spam_t) ),
-    spam_pending_align(),           freelist_footprint            ),
-    4096UL );
-}
-
 void *
 fd_quic_stream_spam_new( void *                    mem,
-                         ulong                     stream_cnt,
                          fd_quic_stream_gen_spam_t gen_fn,
                          void *                    gen_ctx ){
 
@@ -44,30 +9,13 @@ fd_quic_stream_spam_new( void *                    mem,
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_quic_stream_spam_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof(fd_quic_stream_spam_t) ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !stream_cnt ) ) {
-    FD_LOG_WARNING(( "zero stream_cnt" ));
-    return NULL;
-  }
 
-  ulong cursor = (ulong)mem;
-
-  cursor += FD_LAYOUT_INIT;
-  fd_quic_stream_spam_t * spam = (fd_quic_stream_spam_t *)cursor;
-
-  cursor += FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-    alignof(fd_quic_stream_spam_t), sizeof(fd_quic_stream_spam_t) );
-  fd_quic_stream_t ** pending = spam_pending_join( spam_pending_new( (void *)cursor, stream_cnt ) );
-  if( FD_UNLIKELY( !pending ) ) {
-    FD_LOG_WARNING(( "failed to create pending" ));
-    return NULL;
-  }
-
+  fd_quic_stream_spam_t * spam = mem;
   memset( spam, 0, sizeof(fd_quic_stream_spam_t) );
-  spam->pending = pending;
   spam->gen_fn  = gen_fn;
   spam->gen_ctx = gen_ctx;
 
@@ -81,7 +29,7 @@ fd_quic_stream_spam_join( void * shspam ) {
     FD_LOG_WARNING(( "NULL shspam" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shspam, fd_quic_stream_spam_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shspam, alignof(fd_quic_stream_spam_t) ) ) ) {
     FD_LOG_WARNING(( "misaligned shspam" ));
     return NULL;
   }
@@ -103,30 +51,13 @@ long
 fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
                              fd_quic_stream_spam_t * spam ) {
 
-  /* pending is a LIFO queue of streams created but waiting to send */
-  fd_quic_stream_t ** pending = spam->pending;
-
-  /* Count number of streams sent */
   long streams_sent = 0L;
+  for(;;) {
 
-  /* Create new streams
-     Stop when QUIC quota runs out or stack limit reached */
-
-  for( ulong avail=spam_pending_avail( pending ); avail>0; avail-- ) {
-    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+    fd_quic_stream_t * stream = spam->stream;
+    if( !stream ) stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
     if( !stream ) break;
-
-    /* Insert stream into stack, set back reference */
-    spam_pending_push( pending, stream );
-    stream->context = &pending[ spam_pending_cnt( pending )-1UL ];
-  }
-
-  /* Send streams */
-
-  for( ulong cnt=spam_pending_cnt( pending ); cnt>0; cnt-- ) {
-    fd_quic_stream_t * stream = spam_pending_pop( pending );
-    if( !stream ) continue; /* stream dead */
-    stream->context = NULL; /* remove back reference, as stream no longer in stack */
+    spam->stream = NULL;
 
     /* Generate stream payload */
     uchar payload_buf[ 4096UL ];
@@ -134,26 +65,24 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     spam->gen_fn( /* ctx */ NULL, &batch[ 0 ], stream );
 
     /* Send data */
-    int rc = fd_quic_stream_send( stream, batch, /* batch_cnt */ 1UL, /* fin */ 1 );
-    switch( rc ) {
-    case 1:
+    int rc = fd_quic_stream_send( stream, payload_buf, batch->buf_sz, /* fin */ 1 );
+    if( rc==FD_QUIC_SUCCESS ) {
       /* Stream send successful, close triggered via fin bit */
-      FD_LOG_DEBUG(( "sent stream=%lu pending=%lu", stream->stream_id, cnt ));
+      //FD_LOG_DEBUG(( "sent stream=%lu sz=%u", stream->stream_id, batch->buf_sz ));
       streams_sent++;
       break;
-    case 0:
-      /* Stream send failed due to backpressure, retry later */
-      spam_pending_push( pending, stream );
-      stream->context = &pending[ spam_pending_cnt( pending )-1UL ];
-      FD_LOG_INFO(( "backpressured" ));
-      break;
-    default:
-      /* Fatal error */
-      FD_LOG_WARNING(( "failed to send stream=%lu error=%d", stream->stream_id, rc ));
-      return -1L;
+    } else {
+      spam->stream = stream;
+      if( FD_UNLIKELY( rc!=FD_QUIC_SEND_ERR_FLOW ) ) {
+        FD_LOG_WARNING(( "failed to send stream=%lu error=%d", stream->stream_id, rc ));
+        streams_sent = -1L;
+      }
+      goto fin;
     }
+
   }
 
+fin:
   return streams_sent;
 }
 

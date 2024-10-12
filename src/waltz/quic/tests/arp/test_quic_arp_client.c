@@ -106,16 +106,13 @@ send_fibre_main( void * vp_args ) {
     }
 
     /* attempt to send to server */
-    int               fin       = 0;
-    char              request[] = "request";
-    fd_aio_pkt_info_t batch[1]  = {{ .buf = request, .buf_sz = sizeof( request ) }};
-    ulong             batch_sz  = 1UL;
-
-    int rc = fd_quic_stream_send( client_stream, batch, batch_sz, fin );
+    int  fin       = 0;
+    char request[] = "request";
+    int rc = fd_quic_stream_send( client_stream, request, sizeof(request), fin );
 
     FD_LOG_WARNING(( "CLIENT fd_quic_stream_send returned %d", rc ));
 
-    FD_TEST( rc == 1 );
+    FD_TEST( rc == 0 );
 
     ulong DURATION = (ulong)100e6;
     next_send_time = now + DURATION;
