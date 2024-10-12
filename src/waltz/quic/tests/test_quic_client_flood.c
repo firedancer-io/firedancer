@@ -278,7 +278,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_limits_t quic_limits = {0};
   fd_quic_limits_from_env( &argc, &argv, &quic_limits );
-  quic_limits.conn_id_sparsity = 4.0;
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );

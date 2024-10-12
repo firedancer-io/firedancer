@@ -140,7 +140,6 @@ txn_cmd_fn( args_t *         args,
     .conn_cnt         = 1UL,
     .handshake_cnt    = 1UL,
     .conn_id_cnt      = 4UL,
-    .conn_id_sparsity = 4.0,
     .stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
                     0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
                     1UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
@@ -149,7 +148,6 @@ txn_cmd_fn( args_t *         args,
                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
                             1UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-    .stream_sparsity  = 4.0,
     .inflight_pkt_cnt = 64UL,
     .tx_buf_sz        = fd_ulong_pow2_up( FD_TXN_MTU ),
     .stream_pool_cnt  = 16

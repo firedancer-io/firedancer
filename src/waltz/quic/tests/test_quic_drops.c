@@ -115,12 +115,12 @@ mitm_tx( void *                    ctx,
       }
       continue;
     }
-    
+
     /* send new packet */
     fd_aio_pkt_info_t batch_0[1] = { batch[j] };
     fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, 1 );
     PCAP(batch_0,1UL);
-      
+
     /* we aren't dropping or reordering, but we might have a prior reorder */
     if( mitm_ctx->reorder_sz > 0UL ) {
       fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
@@ -475,7 +475,6 @@ main( int argc, char ** argv ) {
   fd_quic_limits_t const quic_limits = {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
     .stream_cnt         = { 0, 0, 10, 0 },
     .initial_stream_cnt = { 0, 0, 10, 0 },

@@ -159,7 +159,6 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
   fd_quic_limits_t const quic_limits = {.conn_cnt = 10,
                                         .conn_id_cnt = 10,
-                                        .conn_id_sparsity = 4.0,
                                         .handshake_cnt = 10,
                                         .stream_cnt = {0, 0, 10, 0},
                                         .initial_stream_cnt = {0, 0, 10, 0 },
