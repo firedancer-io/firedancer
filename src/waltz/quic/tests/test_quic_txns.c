@@ -255,7 +255,6 @@ main( int argc,
      .conn_cnt           = 1024UL,
      .handshake_cnt      = 256UL,
      .conn_id_cnt        = 16UL,
-     .conn_id_sparsity   = 4.0,
      .stream_cnt         = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
                              0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
                              2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
@@ -265,7 +264,6 @@ main( int argc,
                              2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
                              0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
      .stream_pool_cnt    = 2048UL,
-     .stream_sparsity    = 4.0,
      .inflight_pkt_cnt   = 64UL,
      .tx_buf_sz          = 1UL<<15UL
   };

@@ -122,7 +122,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
 
   ulong  conn_cnt         = limits->conn_cnt;
   ulong  conn_id_cnt      = limits->conn_id_cnt;
-  double conn_id_sparsity = limits->conn_id_sparsity;
   ulong  handshake_cnt    = limits->handshake_cnt;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
@@ -137,8 +136,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   /* connection */
   if( FD_UNLIKELY( stream_pool_cnt < FD_QUIC_STREAM_MIN * conn_cnt ) ) return 0UL;
 
-  if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
-    conn_id_sparsity = FD_QUIC_DEFAULT_SPARSITY;
   if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT ))
     return 0UL;
 
@@ -163,7 +160,7 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   /* allocate space for conn IDs */
   offs                     = fd_ulong_align_up( offs, fd_quic_conn_map_align() );
   layout->conn_map_off     = offs;
-  ulong slot_cnt_bound     = (ulong)( conn_id_sparsity * (double)conn_cnt * (double)conn_id_cnt );
+  ulong slot_cnt_bound     = (ulong)( FD_QUIC_DEFAULT_SPARSITY * (double)conn_cnt * (double)conn_id_cnt );
   int     lg_slot_cnt      = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
   layout->lg_slot_cnt      = lg_slot_cnt;
   ulong conn_map_footprint = fd_quic_conn_map_footprint( lg_slot_cnt );

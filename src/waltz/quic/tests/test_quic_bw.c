@@ -82,7 +82,6 @@ main( int     argc,
   fd_quic_limits_t const quic_limits = {
     .conn_cnt           = 1,
     .conn_id_cnt        = 4,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
     .stream_cnt         = { 0, 0, 10, 0 },
     .initial_stream_cnt = { 0, 0, 10, 0 },
