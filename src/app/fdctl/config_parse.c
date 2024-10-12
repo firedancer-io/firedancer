@@ -275,6 +275,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( uint,   layout.gossip_verify_tile_count                  );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
 
