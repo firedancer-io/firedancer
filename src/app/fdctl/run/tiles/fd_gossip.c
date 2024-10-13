@@ -26,9 +26,10 @@
 #include "generated/gossip_seccomp.h"
 
 
-#define NET_IN_IDX      0
-#define VOTER_IN_IDX    1
-#define SIGN_IN_IDX     2
+// #define NET_IN_IDX      0
+#define VOTER_IN_IDX    0
+#define SIGN_IN_IDX     1
+// GOSSIP VERIFY IN TILES ARE AT THE END OF IN LINKS
 
 #define NET_OUT_IDX     0
 #define SHRED_OUT_IDX   1
@@ -392,16 +393,22 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     return;
   }
 
-  if( in_idx!=NET_IN_IDX ) return;
+  /* FIXME: change to use GOSSIP_VERIFY_IN tiles!*/
+  // if( in_idx!=NET_IN_IDX ) {
+  //   *opt_filter = 1;
+  //   return;
+  // }
 
-  if( FD_UNLIKELY( chunk<ctx->net_in_chunk || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk, ctx->net_in_wmark ));
-  }
+  // if( FD_UNLIKELY( chunk<ctx->net_in_chunk || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
+  //   FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk, ctx->net_in_wmark ));
+  //   *opt_filter = 1;
+  //   return;
+  // }
 
-  uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
+  // uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
 
-  ctx->gossip_buffer_sz = sz;
-  fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
+  // ctx->gossip_buffer_sz = sz;
+  // fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
 }
 
 static void
@@ -598,7 +605,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->in_cnt != 3UL ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX   ] ].name, "net_gossip" )   ||
                    strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ].name, "voter_gossip" ) ||
                    strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX  ] ].name, "sign_gossip" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %s %s",
@@ -720,11 +726,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "gossip listening on port %u", tile->gossip.gossip_listen_port ));
 
-  fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ NET_IN_IDX ] ];
-
-  ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->net_in_chunk  = fd_disco_compact_chunk0( ctx->net_in_mem );
-  ctx->net_in_wmark  = fd_disco_compact_wmark( ctx->net_in_mem, netmux_link->mtu );
 
   fd_topo_link_t * replay_in = &topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ];
   ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in->dcache_obj_id ].wksp_id ].wksp;

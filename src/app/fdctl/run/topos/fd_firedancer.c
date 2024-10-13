@@ -376,7 +376,6 @@ fd_topo_initialize( config_t * config ) {
                        fd_topob_tile_in(  topo, "gspvfy",   i,            "metric_in", "net_gspvfy",  j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   FOR(gspvfy_tile_cnt) fd_topob_tile_out( topo, "gspvfy",  i,                         "gspvfy_gossi", i                                                    );
-  FOR(gspvfy_tile_cnt) fd_topob_tile_in(  topo, "gossip",  0UL,            "metric_in", "gspvfy_gossi", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_net",   0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "crds_shred",   0UL                                                  );
@@ -386,6 +385,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "voter_gossip", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "sign_gossip",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  FOR(gspvfy_tile_cnt) fd_topob_tile_in(  topo, "gossip",  0UL,            "metric_in", "gspvfy_gossi", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_gossip",  0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_voter", 0UL                                                  );
 
@@ -519,6 +519,7 @@ fd_topo_initialize( config_t * config ) {
       tile->gossip.repair_serve_port = config->tiles.repair.repair_serve_listen_port;
       FD_TEST( config->tiles.gossip.entrypoints_cnt == config->tiles.gossip.peer_ports_cnt );
       tile->gossip.entrypoints_cnt = config->tiles.gossip.peer_ports_cnt;
+      tile->gossip.gossip_verify_tile_count = (ushort)gspvfy_tile_cnt;
       for (ulong i=0UL; i<config->tiles.gossip.entrypoints_cnt; i++) {
         if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gossip.entrypoints[i], &tile->gossip.entrypoints[i] ) ) ) {
           FD_LOG_ERR(( "configuration specifies invalid gossip peer IP address `%s`", config->tiles.gossip.entrypoints[i] ));
