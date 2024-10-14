@@ -30,8 +30,6 @@ void
 fd_borrowed_account_resize( fd_borrowed_account_t * borrowed_account,
                             ulong                   dlen ) {
 
-  FD_LOG_WARNING(("RESIZING HAPPENING %s", FD_BASE58_ENC_32_ALLOCA(borrowed_account->pubkey)));
-
   /* TODO: where do we do a check on resizing accounts? 
      Also does 10MB also include the account meta? */
 
@@ -65,8 +63,6 @@ fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account,
   borrowed_account->const_meta = borrowed_account->meta = (fd_account_meta_t *)new_raw_data;
   borrowed_account->const_data = borrowed_account->data = new_raw_data + sizeof(fd_account_meta_t);
   borrowed_account->meta->dlen = dlen;
-
-  FD_LOG_WARNING(("MADE MODIFIABLE %s", FD_BASE58_ENC_32_ALLOCA(borrowed_account->pubkey)));
 
   return borrowed_account;
 }

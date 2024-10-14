@@ -117,7 +117,6 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
 
   fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
   if( min_data_sz>instr_account->const_meta->dlen ) {
-    FD_LOG_WARNING(("MODIFY MODIFY %s", FD_BASE58_ENC_32_ALLOCA(instr_account->pubkey)));
     fd_borrowed_account_resize( instr_account, min_data_sz );
   }
 

@@ -331,6 +331,14 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len         = 0;
 
+  /* TODO:FIXME: setup the spad here */
+  ulong acc_size = fd_ulong_align_up( 128UL * FD_ACC_SZ_MAX, FD_SPAD_ALIGN );
+  uchar     * mem  = fd_valloc_malloc( txn_ctx->valloc, FD_SPAD_ALIGN, acc_size );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, acc_size ) ); /* 128 accounts for 10MB per account */
+  FD_TEST(spad);
+  ulong mem_max = fd_spad_alloc_max( spad, acc_size );
+  FD_TEST( acc_size <= mem_max );
+  txn_ctx->spad = spad;
 
   /* Set up instruction context */
 
@@ -972,14 +980,17 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
   // Free any allocated borrowed account data
-  for( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; ++i ) {
-    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[i];
-    void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
-    fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
-    if( belongs_to_wksp ) {
-      fd_wksp_free_laddr( borrowed_account_mem );
-    }
+  if( ctx->txn_ctx ) {
+    fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( ctx->txn_ctx->spad ) ) );
   }
+  // for( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; ++i ) {
+  //   fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[i];
+  //   void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
+  //   fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
+  //   if( belongs_to_wksp ) {
+  //     fd_wksp_free_laddr( borrowed_account_mem );
+  //   }
+  // }
 
   // Free alloc
   if( alloc ) {
@@ -1010,16 +1021,17 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  // Free any allocated borrowed account data
+  // Free any allocated borrowed account data /* TODO:FIXME: this can probably be gotten rid of */
   if( txn_ctx ) {
-    for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-      fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[i];
-      void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
-      fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
-      if( belongs_to_wksp ) {
-        fd_wksp_free_laddr( borrowed_account_mem );
-      }
-    }
+    // for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
+    //   fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[i];
+    //   void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
+    //   fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
+    //   if( belongs_to_wksp ) {
+    //     fd_wksp_free_laddr( borrowed_account_mem );
+    //   }
+    // }
+    fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( txn_ctx->spad ) ) );
   }
 
   // Free alloc
