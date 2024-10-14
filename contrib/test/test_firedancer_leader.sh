@@ -38,6 +38,7 @@ name = \"fd1\"
     bank_tile_count = 1
     verify_tile_count = 16
     shred_tile_count = 1
+    gossip_verify_tile_count = 4
 [gossip]
     port = 8700
 [tiles]
