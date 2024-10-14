@@ -1798,7 +1798,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       state. This occurs when a program data account is closed. However, our cache
       does not track this. Instead, this can be checked for by seeing if the program
       account's respective program data account is uninitialized. This should only
-      happen when the account is closed. */
+      happen when the account is closed. 
+      
+      Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
     fd_borrowed_account_t * program_acc_view = NULL;
     int read_result = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
@@ -1813,7 +1815,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       err = fd_bpf_loader_v3_program_get_state( ctx, program_account, &program_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         FD_LOG_WARNING(( "Bpf state read for program account failed" )); // custom log
-        return err;
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
       fd_borrowed_account_t * program_data_account = NULL;
@@ -1821,14 +1823,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       err = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "Borrowed account lookup for program data account failed" )); // custom log
-        return err;
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
       fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( ctx, program_data_account, &program_data_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         FD_LOG_WARNING(( "Bpf state read for program data account failed" )); // custom log
-        return err;
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
       if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_is_uninitialized( &program_data_account_state ) ) ) {
