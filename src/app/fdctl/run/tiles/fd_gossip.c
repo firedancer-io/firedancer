@@ -26,10 +26,9 @@
 #include "generated/gossip_seccomp.h"
 
 
-// #define NET_IN_IDX      0
-#define VOTER_IN_IDX    0
-#define SIGN_IN_IDX     1
-// GOSSIP VERIFY IN TILES ARE AT THE END OF IN LINKS
+#define VOTER_IN_IDX                0
+#define SIGN_IN_IDX                 1
+#define GOSSIP_VERIFY_IN_START_IDX  2
 
 #define NET_OUT_IDX     0
 #define SHRED_OUT_IDX   1
@@ -73,6 +72,12 @@ fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
 #define MAP_KEY_COPY fd_pubkey_copy
 #define MAP_T        fd_contact_info_elem_t
 #include "../../../../util/tmpl/fd_map_giant.c"
+
+typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+} fd_gossip_tile_in_ctx_t;
 
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
@@ -146,9 +151,8 @@ struct fd_gossip_tile_ctx {
   fd_gossip_peer_addr_t repair_serve_addr;
   ushort                gossip_listen_port;
 
-  fd_wksp_t *     net_in_mem;
-  ulong           net_in_chunk;
-  ulong           net_in_wmark;
+  fd_gossip_tile_in_ctx_t in[ 32 ]; // TODO: define max gossip_verify tiles somewhere?
+  ushort                  verify_tile_cnt;
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;
@@ -393,22 +397,19 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     return;
   }
 
-  /* FIXME: change to use GOSSIP_VERIFY_IN tiles!*/
-  // if( in_idx!=NET_IN_IDX ) {
-  //   *opt_filter = 1;
-  //   return;
-  // }
+  if( in_idx > GOSSIP_VERIFY_IN_START_IDX + ctx->verify_tile_cnt ) {
+    *opt_filter = 1;
+    return;
+  }
 
-  // if( FD_UNLIKELY( chunk<ctx->net_in_chunk || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
-  //   FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk, ctx->net_in_wmark ));
-  //   *opt_filter = 1;
-  //   return;
-  // }
+  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_MTU ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
+    *opt_filter = 1;
+    return;
+  }
 
-  // uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
-
-  // ctx->gossip_buffer_sz = sz;
-  // fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
+  uchar const * dcache_entry = (uchar *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+  fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
 }
 
 static void
@@ -725,6 +726,17 @@ unprivileged_init( fd_topo_t *      topo,
   fd_gossip_start( ctx->gossip );
 
   FD_LOG_NOTICE(( "gossip listening on port %u", tile->gossip.gossip_listen_port ));
+
+  ctx->verify_tile_cnt = tile->gossip.gossip_verify_tile_count;
+
+  /* Setup gossip verify tile input links */
+  for( ulong i = 0UL; i < ctx->verify_tile_cnt; ++i ){
+    fd_topo_link_t * verify_link = &topo->links[ tile->in_link_id[ GOSSIP_VERIFY_IN_START_IDX + i ] ];
+
+    ctx->in[i].mem   = topo->workspaces[ topo->objs[ verify_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, verify_link->dcache );
+    ctx->in[i].wmark = fd_dcache_compact_wmark( ctx->in[i].mem, verify_link->dcache, verify_link->mtu );    
+  } 
 
 
   fd_topo_link_t * replay_in = &topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ];
