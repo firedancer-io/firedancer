@@ -33,7 +33,11 @@
 #include <fcntl.h>
 #include <net/if.h>
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
+
 #include "generated/net_seccomp.h"
+
+#include "../../../../disco/metrics/fd_metrics.h"
+
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xdp.h"
 #include "../../../../waltz/xdp/fd_xsk_aio_private.h"
@@ -65,6 +69,21 @@ typedef struct {
 } fd_net_out_ctx_t;
 
 typedef struct {
+  fd_xsk_t * xsk;
+  void *     xsk_aio;
+  int        xsk_map_fd;
+  int        xdp_prog_link_fd;
+
+  fd_xsk_t * lo_xsk;
+  void *     lo_xsk_aio;
+  int        lo_xdp_prog_link_fd;
+
+  fd_ip_t *  ip;
+} fd_net_init_ctx_t;
+
+typedef struct {
+  fd_net_init_ctx_t init;
+
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
 
@@ -98,19 +117,6 @@ typedef struct {
   long        ip_next_upd;
 } fd_net_ctx_t;
 
-typedef struct {
-  fd_xsk_t * xsk;
-  void *     xsk_aio;
-  int        xsk_map_fd;
-  int        xdp_prog_link_fd;
-
-  fd_xsk_t * lo_xsk;
-  void *     lo_xsk_aio;
-  int        lo_xdp_prog_link_fd;
-
-  fd_ip_t *  ip;
-} fd_net_init_ctx_t;
-
 fd_net_init_ctx_t *
 fd_net_init_ctx_init( fd_net_init_ctx_t * ctx ) {
   *ctx = (fd_net_init_ctx_t){
@@ -142,7 +148,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   /* TODO reproducing this conditional memory layout twice is susceptible to bugs. Use more robust object discovery */
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_net_init_ctx_t), sizeof(fd_net_init_ctx_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t),      sizeof(fd_net_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_aio_align(),             fd_aio_footprint() );
   if( tile->kind_id == 0 ) {
@@ -158,12 +163,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   }
   l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 0U, 0U ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  ulong net_init = fd_ulong_align_up( (ulong)scratch, alignof( fd_net_init_ctx_t ) );
-  return (void*)fd_ulong_align_up( net_init + sizeof( fd_net_init_ctx_t ), alignof( fd_net_ctx_t ) );
 }
 
 /* net_rx_aio_send is a callback invoked by aio when new data is
@@ -273,9 +272,7 @@ net_rx_aio_send( void *                    _ctx,
 }
 
 static void
-metrics_write( void * _ctx ) {
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
-
+metrics_write( fd_net_ctx_t * ctx ) {
   ulong rx_cnt = ctx->xsk_aio[ 0 ]->metrics.rx_cnt;
   ulong rx_sz  = ctx->xsk_aio[ 0 ]->metrics.rx_sz;
   ulong tx_cnt = ctx->xsk_aio[ 0 ]->metrics.tx_cnt;
@@ -294,11 +291,9 @@ metrics_write( void * _ctx ) {
 }
 
 static void
-before_credit( void * _ctx,
-               fd_mux_context_t * mux ) {
-  (void)mux;
-
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+before_credit( fd_net_ctx_t *      ctx,
+               fd_stem_context_t * stem ) {
+  (void)stem;
 
   for( ulong i=0; i<ctx->xsk_aio_cnt; i++ ) {
     fd_xsk_aio_service( ctx->xsk_aio[i] );
@@ -306,8 +301,7 @@ before_credit( void * _ctx,
 }
 
 static void
-during_housekeeping( void * _ctx ) {
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now > ctx->ip_next_upd ) ) {
     ctx->ip_next_upd = now + (long)60e9;
@@ -323,21 +317,15 @@ route_loopback( uint  tile_ip_addr,
     fd_disco_netmux_sig_dst_ip( sig )==tile_ip_addr;
 }
 
-static void
-before_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
+static inline int
+before_frag( fd_net_ctx_t * ctx,
+             ulong          in_idx,
+             ulong          seq,
+             ulong          sig ) {
   (void)in_idx;
 
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
-
   ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
 
   /* Round robin by sequence number for now, QUIC should be modified to
      echo the net tile index back so we can transmit on the same queue.
@@ -345,32 +333,20 @@ before_frag( void * _ctx,
      127.0.0.1 packets for localhost must go out on net tile 0 which
      owns the loopback interface XSK, which only has 1 queue. */
 
-  int handled_packet = 0;
-  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
-    handled_packet = ctx->round_robin_id == 0;
-  } else {
-    handled_packet = (seq % ctx->round_robin_cnt) == ctx->round_robin_id;
-  }
-
-  if( FD_UNLIKELY( !handled_packet ) ) {
-    *opt_filter = 1;
-  }
+  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) return ctx->round_robin_id != 0UL;
+  else                                                         return (seq % ctx->round_robin_cnt) != ctx->round_robin_id;
 }
 
-static void
-during_frag( void * _ctx,
-             ulong in_idx,
-             ulong seq,
-             ulong sig,
-             ulong chunk,
-             ulong sz,
-             int * opt_filter ) {
+static inline void
+during_frag( fd_net_ctx_t * ctx,
+             ulong          in_idx,
+             ulong          seq,
+             ulong          sig,
+             ulong          chunk,
+             ulong          sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)opt_filter;
-
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -403,31 +379,27 @@ send_arp_probe( fd_net_ctx_t * ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_net_ctx_t *      ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)opt_sig;
-  (void)opt_chunk;
-  (void)opt_tsorig;
-  (void)opt_filter;
-  (void)mux;
+  (void)sig;
+  (void)chunk;
+  (void)tsorig;
+  (void)stem;
 
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
-
-  fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
-  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
+  fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
+  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
     ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
   } else {
     /* extract dst ip */
-    uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( *opt_sig ) );
+    uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( sig ) );
 
     uint  next_hop    = 0U;
     uchar dst_mac[6]  = {0};
@@ -597,14 +569,15 @@ FD_STATIC_ASSERT( sizeof(fd_net0_tile_args_t)==sizeof(ulong), align );
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
 
-  fd_net_init_ctx_t * ctx = fd_net_init_ctx_init( FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_init_ctx_t), sizeof(fd_net_init_ctx_t) ) );
-  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(),        fd_aio_footprint()   );
+  fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(),        fd_aio_footprint()   );
+
+  fd_net_init_ctx_t * init_ctx = fd_net_init_ctx_init( &ctx->init );
 
   uint if_idx = if_nametoindex( tile->net.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->net.interface ));
@@ -627,7 +600,7 @@ privileged_init( fd_topo_t *      topo,
 
     init_link_session( session, link_session, lo_session, tile,
                        if_idx, lo_idx,
-                       ctx, &lo_xsk_map_fd );
+                       init_ctx, &lo_xsk_map_fd );
 
     /* Notify other net tiles how to find it */
 
@@ -653,8 +626,8 @@ privileged_init( fd_topo_t *      topo,
 
     char xskmap_path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( xskmap_path, PATH_MAX, NULL, "/proc/%d/fd/%d", net0_args.pid, net0_args.xskmap_fd ) );
-    ctx->xsk_map_fd = open( xskmap_path, O_RDONLY );
-    if( FD_UNLIKELY( ctx->xsk_map_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDONLY) failed", xskmap_path ));
+    init_ctx->xsk_map_fd = open( xskmap_path, O_RDONLY );
+    if( FD_UNLIKELY( init_ctx->xsk_map_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDONLY) failed", xskmap_path ));
 
   }
 
@@ -674,23 +647,23 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_xsk_init( xsk, if_idx, (uint)tile->kind_id, flags ) ) )
     FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
 
-  if( FD_UNLIKELY( !fd_xsk_activate( xsk, ctx->xsk_map_fd ) ) )
+  if( FD_UNLIKELY( !fd_xsk_activate( xsk, init_ctx->xsk_map_fd ) ) )
     FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
-  ctx->xsk = xsk;
+  init_ctx->xsk = xsk;
   if( tile->kind_id != 0 ) {
-    FD_TEST( 0==close( ctx->xsk_map_fd ) );
-    ctx->xsk_map_fd = -1;
+    FD_TEST( 0==close( init_ctx->xsk_map_fd ) );
+    init_ctx->xsk_map_fd = -1;
   }
 
-  ctx->xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
-                                 tile->net.xdp_tx_queue_size,
-                                 tile->net.xdp_aio_depth );
-  if( FD_UNLIKELY( !ctx->xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
+  init_ctx->xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
+                                      tile->net.xdp_tx_queue_size,
+                                      tile->net.xdp_aio_depth );
+  if( FD_UNLIKELY( !init_ctx->xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
 
   /* Networking tile at index 0 also binds to loopback (only queue 0 available on lo) */
 
-  ctx->lo_xsk     = NULL;
-  ctx->lo_xsk_aio = NULL;
+  init_ctx->lo_xsk     = NULL;
+  init_ctx->lo_xsk_aio = NULL;
   if( FD_UNLIKELY( 0!=strcmp( tile->net.interface, "lo" ) && !tile->kind_id ) ) {
 
     fd_xsk_t * lo_xsk =
@@ -706,27 +679,27 @@ privileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to bind lo_xsk" ));
     if( FD_UNLIKELY( !fd_xsk_activate( lo_xsk, lo_xsk_map_fd ) ) )
       FD_LOG_ERR(( "failed to activate lo_xsk" ));
-    ctx->lo_xsk = lo_xsk;
+    init_ctx->lo_xsk = lo_xsk;
     FD_TEST( 0==close( lo_xsk_map_fd ) );
 
-    ctx->lo_xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
-                                      tile->net.xdp_tx_queue_size,
-                                      tile->net.xdp_aio_depth );
-    if( FD_UNLIKELY( !ctx->lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
+    init_ctx->lo_xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
+                                           tile->net.xdp_tx_queue_size,
+                                           tile->net.xdp_aio_depth );
+    if( FD_UNLIKELY( !init_ctx->lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
   }
 
   /* init fd_ip */
-  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ),
-                                   0UL, 0UL ) );
+  init_ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ),
+                                        0UL, 0UL ) );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
 
-  fd_net_init_ctx_t * init_ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_init_ctx_t), sizeof(fd_net_init_ctx_t) );
   fd_net_ctx_t *      ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t),      sizeof(fd_net_ctx_t)      );
   fd_aio_t *          net_rx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, net_rx_aio_send ) );
   if( FD_UNLIKELY( !net_rx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
@@ -735,15 +708,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->round_robin_id  = tile->kind_id;
 
   ctx->xsk_aio_cnt = 1;
-  ctx->xsk_aio[ 0 ] = fd_xsk_aio_join( init_ctx->xsk_aio, init_ctx->xsk );
+  ctx->xsk_aio[ 0 ] = fd_xsk_aio_join( ctx->init.xsk_aio, ctx->init.xsk );
   if( FD_UNLIKELY( !ctx->xsk_aio[ 0 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
   fd_xsk_aio_set_rx( ctx->xsk_aio[ 0 ], net_rx_aio );
-  ctx->tx = fd_xsk_aio_get_tx( init_ctx->xsk_aio );
-  if( FD_UNLIKELY( init_ctx->lo_xsk ) ) {
-    ctx->xsk_aio[ 1 ] = fd_xsk_aio_join( init_ctx->lo_xsk_aio, init_ctx->lo_xsk );
+  ctx->tx = fd_xsk_aio_get_tx( ctx->init.xsk_aio );
+  if( FD_UNLIKELY( ctx->init.lo_xsk ) ) {
+    ctx->xsk_aio[ 1 ] = fd_xsk_aio_join( ctx->init.lo_xsk_aio, ctx->init.lo_xsk );
     if( FD_UNLIKELY( !ctx->xsk_aio[ 1 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
     fd_xsk_aio_set_rx( ctx->xsk_aio[ 1 ], net_rx_aio );
-    ctx->lo_tx = fd_xsk_aio_get_tx( init_ctx->lo_xsk_aio );
+    ctx->lo_tx = fd_xsk_aio_get_tx( ctx->init.lo_xsk_aio );
     ctx->xsk_aio_cnt = 2;
   }
 
@@ -833,7 +806,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   }
 
-  ctx->ip = init_ctx->ip;
+  ctx->ip = ctx->init.ip;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -841,65 +814,75 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_net_init_ctx_t * init_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
   /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
      two "allow" FD arguments to the net policy, so we just make them both the same. */
-  int allow_fd2 = init_ctx->lo_xsk ? init_ctx->lo_xsk->xsk_fd : init_ctx->xsk->xsk_fd;
-  FD_TEST( init_ctx->xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
-  int netlink_fd = fd_ip_netlink_get( init_ctx->ip )->fd;
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)init_ctx->xsk->xsk_fd, (uint)allow_fd2, (uint)netlink_fd );
+  int allow_fd2 = ctx->init.lo_xsk ? ctx->init.lo_xsk->xsk_fd : ctx->init.xsk->xsk_fd;
+  FD_TEST( ctx->init.xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
+  int netlink_fd = fd_ip_netlink_get( ctx->init.ip )->fd;
+  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->init.xsk->xsk_fd, (uint)allow_fd2, (uint)netlink_fd );
   return sock_filter_policy_net_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_net_init_ctx_t * init_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt < 7 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
-  ulong out_cnt = 0;
+  ulong out_cnt = 0UL;
 
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = fd_ip_netlink_get( init_ctx->ip )->fd;
+  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->init.ip )->fd;
 
-  out_fds[ out_cnt++ ] = init_ctx->xsk->xsk_fd;
-  if( init_ctx->xdp_prog_link_fd >= 0 )
-    out_fds[ out_cnt++ ] = init_ctx->xdp_prog_link_fd;
-  if( init_ctx->xsk_map_fd >= 0 )
-    out_fds[ out_cnt++ ] = init_ctx->xsk_map_fd;
+  out_fds[ out_cnt++ ] = ctx->init.xsk->xsk_fd;
+  if( ctx->init.xdp_prog_link_fd >= 0 )
+    out_fds[ out_cnt++ ] = ctx->init.xdp_prog_link_fd;
+  if( ctx->init.xsk_map_fd >= 0 )
+    out_fds[ out_cnt++ ] = ctx->init.xsk_map_fd;
 
-  if( init_ctx->lo_xdp_prog_link_fd >= 0 )
-    out_fds[ out_cnt++ ] = init_ctx->lo_xdp_prog_link_fd;
-  if( init_ctx->lo_xsk )
-    out_fds[ out_cnt++ ] = init_ctx->lo_xsk->xsk_fd;
+  if( ctx->init.lo_xdp_prog_link_fd >= 0 )
+    out_fds[ out_cnt++ ] = ctx->init.lo_xdp_prog_link_fd;
+  if( ctx->init.lo_xsk )
+    out_fds[ out_cnt++ ] = ctx->init.lo_xsk->xsk_fd;
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_net_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_net_ctx_t)
+
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_net = {
   .name                     = "net",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_metrics_write        = metrics_write,
-  .mux_before_credit        = before_credit,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_during_housekeeping  = during_housekeeping,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

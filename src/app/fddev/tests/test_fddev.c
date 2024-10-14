@@ -84,6 +84,8 @@ fddev_dev( config_t * config,
   fd_caps_ctx_t caps[ 1 ] = {0};
   dev_cmd_perm( &args, caps, config );
   FD_TEST( !caps->err_cnt );
+  FD_LOG_WARNING(( "waitpid %lu", fd_sandbox_getpid() ));
+  // sleep(15);
   dev_cmd_fn( &args, config );
   return 0;
 }

@@ -1,5 +1,7 @@
 #include "fd_poh_tile.h"
 
+#include "../metrics/fd_metrics.h"
+
 ulong
 fd_poh_tile_align( void ) {
   return 128UL;

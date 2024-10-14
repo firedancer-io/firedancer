@@ -10,6 +10,20 @@ metric introduced.
 
 <metrics>
 
+<enum name="StemRegime">
+    <int value="0" name="CaughtUpHousekeeping" label="Caught up + Housekeeping" />
+    <int value="1" name="ProcessingHousekeeping" label="Processing + Housekeeping" />
+    <int value="2" name="BackpressureHousekeeping" label="Backpressure + Housekeeping" />
+
+    <!-- Before credit + After credit -->
+    <int value="3" name="CaughtUpPrefrag" label="Caught up + Prefrag" />
+    <int value="4" name="ProcessingPrefrag" label="Processing + Prefrag" />
+    <int value="5" name="BackpressurePrefrag" label="Backpressure + Prefrag" />
+
+    <int value="6" name="CaughtUpPostfrag" label="Caught up + Postfrag" />
+    <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
+</enum>
+
 <enum name="TpuReasm">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="ErrorOversize" label="Oversize message" />
@@ -42,6 +56,7 @@ metric introduced.
   <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
   <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
 </enum>
+
 <enum name="PackTxnSchedule">
   <int value="0" name="Taken" label="Pack included the transaction in the microblock" />
   <int value="1" name="CuLimit" label="Pack skipped the transaction because it would have exceeded the block CU limit" />
@@ -132,10 +147,10 @@ metric introduced.
 </group>
 
 <group name="Link" link="all" linkside="in">
-    <counter name="PublishedCount" summary="The number of times the link has consumed and published a fragment." />
-    <counter name="PublishedSizeBytes" summary="The total number of bytes read by the link consumer." />
-    <counter name="FilteredCount" summary="The number of consumed fragments that were filtered." />
-    <counter name="FilteredSizeBytes" summary="The total number of bytes read  by the link consumer that were filtered." />
+    <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment." />
+    <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer." />
+    <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed." />
+    <counter name="FilteredSizeBytes" summary="The total number of bytes read by the link consumer that were filtered." />
     <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
     <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
@@ -150,54 +165,11 @@ metric introduced.
 </group>
 
 <group name="Stem" tile="all">
+    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
+    <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
     <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
-
-    <!-- The "ticks" converter means that the measurement is sampled in
-         ticks (so it can be done quickly) but reported to the metrics
-         observer as seconds.  The min and max are in terms of seconds,
-         not ticks, from 50 nanoseconds to 50 microseconds. -->
-    <histogram name="LoopHousekeepingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>
-            Duration of one iteration of the run loop which did
-            housekeeping. The various loop durations are mutually
-            exclusive and exhaustive, so the sum of time across all of
-            them is roughly the total running time of the tile. Loop
-            durations are per iteration of the run loop and
-            non-blocking, so for example each 'caught up' sample does
-            not represent the time we waited for new input data, but
-            rather how long each iteration of the spin loop waiting for
-            the data took.
-        </summary>
-    </histogram>
-    <histogram name="LoopBackpressureDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which terminated because we were backpressured by a consumer.</summary>
-    </histogram>
-    <histogram name="LoopCaughtUpDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which terminated because there was no new data to process.</summary>
-    </histogram>
-    <histogram name="LoopOverrunPollingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which terminated because we were overrun while polling.</summary>
-    </histogram>
-    <histogram name="LoopOverrunReadingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which terminated because we were overrun while reading.</summary>
-    </histogram>
-    <histogram name="LoopFilterBeforeFragmentDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which terminated because we filtered the fragment before reading it.</summary>
-    </histogram>
-    <histogram name="LoopFilterAfterFragmentDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which terminated because we filtered the fragment after reading it.</summary>
-    </histogram>
-    <histogram name="LoopFinishDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
-        <summary>Duration of one iteration of the run loop which received, did not filter, and processed the fragment.</summary>
-    </histogram>
-
-    <histogram name="FragmentFilteredSizeBytes" min="0" max="2094">
-        <summary>Size of each fragment that was filtered and not processed by the tile.</summary>
-    </histogram>
-    <histogram name="FragmentHandledSizeBytes" min="0" max="2094">
-        <summary>Size of each fragment that was processed (not filtered) by the tile.</summary>
-    </histogram>
+    <counter name="RegimeDurationNanos" enum="StemRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
 </group>
 
 <group name="NetTile" tile="net">

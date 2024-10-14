@@ -4,6 +4,7 @@
 
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/shred/fd_shredder.h"
+#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../ballet/pack/fd_pack.h"
 
 #include <linux/unistd.h>
@@ -14,10 +15,10 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define IN_KIND_DEDUP    (0UL)
-#define IN_KIND_POH      (1UL)
-#define IN_KIND_BANK     (2UL)
-#define IN_KIND_BUNDLE   (3UL)
+#define IN_KIND_DEDUP  (0UL)
+#define IN_KIND_POH    (1UL)
+#define IN_KIND_BANK   (2UL)
+#define IN_KIND_BUNDLE (3UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -241,16 +242,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_pack_ctx_t ) );
-}
-
 static inline void
-metrics_write( void * _ctx ) {
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
-
+metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
@@ -260,17 +253,14 @@ metrics_write( void * _ctx ) {
 }
 
 static inline void
-during_housekeeping( void * _ctx ) {
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+during_housekeeping( fd_pack_ctx_t * ctx ) {
   ctx->approx_wallclock_ns = fd_log_wallclock();
 }
 
 static inline void
-before_credit( void * _ctx,
-               fd_mux_context_t * mux ) {
-  (void)mux;
-
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+before_credit( fd_pack_ctx_t *     ctx,
+               fd_stem_context_t * stem ) {
+  (void)stem;
 
   if( FD_UNLIKELY( ctx->cur_spot ) ) {
     /* If we were overrun while processing a frag from an in, then cur_spot
@@ -308,12 +298,10 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 }
 
 static inline void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux,
-              int *              opt_poll_in ) {
+after_credit( fd_pack_ctx_t *     ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in ) {
   (void)opt_poll_in;
-
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
@@ -374,7 +362,7 @@ after_credit( void *             _ctx,
       fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
 
-      fd_mux_publish( mux, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, 0UL, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, 0UL );
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
 
@@ -451,8 +439,8 @@ after_credit( void *             _ctx,
       trailer->bank = ctx->leader_bank;
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-      fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
-      ctx->bank_expect[ i ] = *mux->seq-1UL;
+      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
+      ctx->bank_expect[ i ] = stem->seqs[0]-1UL;
       ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt++;
@@ -495,26 +483,20 @@ after_credit( void *             _ctx,
     mline at time now.  Speculatively process it here. */
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_pack_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig,
+             ulong           chunk,
+             ulong           sz ) {
   (void)seq;
-
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_POH: {
-    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) {
       /* Not interested in stamped microblocks, only leader updates. */
-      *opt_filter = 1;
-      return;
-    }
+    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     /* There was a leader transition.  Handle it. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
@@ -548,16 +530,13 @@ during_frag( void * _ctx,
   }
   case IN_KIND_BUNDLE: {
     FD_LOG_WARNING(( "Pack tile received a bundle... dropping..." ));
-    *opt_filter = 1;
     return;
   }
   case IN_KIND_BANK: {
     FD_TEST( ctx->use_consumed_cus );
-    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) {
       /* For a previous slot */
-      *opt_filter = 1;
-      return;
-    }
+    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) return;
+
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_microblock_trailer_t)
           || sz>sizeof(fd_microblock_trailer_t)+sizeof(fd_txn_p_t)*MAX_TXN_PER_MICROBLOCK ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -623,28 +602,26 @@ during_frag( void * _ctx,
    not overrun while reading it, insert it into pack. */
 
 static inline void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_pack_ctx_t *     ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)seq;
-  (void)opt_sig;
-  (void)opt_chunk;
-  (void)opt_sz;
-  (void)opt_tsorig;
-  (void)opt_filter;
-  (void)mux;
+  (void)chunk;
+  (void)sz;
+  (void)tsorig;
+  (void)stem;
 
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
   long now = fd_tickcount();
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_POH: {
+    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
+
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
     break;
@@ -654,6 +631,9 @@ after_frag( void *             _ctx,
     break;
   }
   case IN_KIND_BANK: {
+    /* For a previous slot */
+    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) return;
+
     fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
     ctx->pending_rebate_cnt = 0UL;
     break;
@@ -679,8 +659,9 @@ after_frag( void *             _ctx,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   fd_pack_limits_t limits[1] = {{
     .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
@@ -714,7 +695,7 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
-  ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
+  ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id[ 0 ] ] );
 
   if( FD_UNLIKELY( !out_cnt                                ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
   if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT            ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
@@ -767,9 +748,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
   /* Initialize metrics storage */
@@ -790,59 +771,65 @@ unprivileged_init( fd_topo_t *      topo,
 
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* We want lazy (measured in ns) to be small enough that the producer
-     and the consumer never have to wait for credits.  For most tango
-     links, we use a default worst case speed coming from 100 Gbps
-     Ethernet.  That's not very suitable for microblocks that go from
-     pack to bank.  Instead we manually estimate the very aggressive
-     1000ns per microblock, and then reduce it further (in line with the
-     default lazy value computation) to ensure the random value chosen
-     based on this won't lead to credit return stalls. */
-  return 128L * 3000L;
-}
-
-
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_pack( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_pack_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  ulong out_cnt = 0;
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+/* We want lazy (measured in ns) to be small enough that the producer
+    and the consumer never have to wait for credits.  For most tango
+    links, we use a default worst case speed coming from 100 Gbps
+    Ethernet.  That's not very suitable for microblocks that go from
+    pack to bank.  Instead we manually estimate the very aggressive
+    1000ns per microblock, and then reduce it further (in line with the
+    default lazy value computation) to ensure the random value chosen
+    based on this won't lead to credit return stalls. */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
+
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_pack = {
   .name                     = "pack",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_housekeeping  = during_housekeeping,
-  .mux_before_credit        = before_credit,
-  .mux_after_credit         = after_credit,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

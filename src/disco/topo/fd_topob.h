@@ -82,26 +82,18 @@ fd_topob_link( fd_topo_t *  topo,
                ulong        burst );
 
 /* Add a tile to the topology.  This creates various objects needed for
-   a standard tile, including a cnc object, tile scratch memory, metrics
-   memory and so on.  These objects will be created and linked to the
-   respective workspaces provided, and the tile will be specified to map
-   those workspaces when it is attached.
-   
-   The out_link is optional, but if provided is the primary output link
-   of the tile.  If the tile is created with the standard mux runner, it
-   will automatically send frags and flow control the primary output
-   link. */
+   a standard tile, including tile scratch memory, metrics memory and so
+   on.  These objects will be created and linked to the respective
+   workspaces provided, and the tile will be specified to map those
+   workspaces when it is attached. */
 
 fd_topo_tile_t *
 fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_name,
                char const *   tile_wksp,
-               char const *   cnc_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
-               char const *   out_link,
-               ulong          out_link_kind_id );
+               int            is_agave );
 
 /* Add an input link to the tile.  If the tile is created with the
    standard mux runner, it will automatically poll the in link and

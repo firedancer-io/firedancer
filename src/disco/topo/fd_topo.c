@@ -167,11 +167,6 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       FD_TEST( tile->metrics );
     }
 
-    if( FD_LIKELY( topo->objs[ tile->cnc_obj_id ].wksp_id==wksp->id ) ) {
-      tile->cnc = fd_cnc_join( fd_topo_obj_laddr( topo, tile->cnc_obj_id ) );
-      FD_TEST( tile->cnc );
-    }
-
     for( ulong j=0UL; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( topo->objs[ tile->in_link_fseq_obj_id[ j ] ].wksp_id!=wksp->id ) ) continue;
       tile->in_link_fseq[ j ] = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ j ] ) );
@@ -451,12 +446,9 @@ fd_topo_print_log( int         stdout,
       PRINTOUT( "%2lu", tile->out_link_id[ j ] );
     }
 
-    char out_link_id[ 24 ] = "-1";
-    if( tile->out_link_id_primary != ULONG_MAX )
-      FD_TEST( fd_cstr_printf_check( out_link_id, 24, NULL, "%lu", tile->out_link_id_primary ) );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id, tile->cpu_idx, out_link_id, in, out );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=%-2lu  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id, tile->cpu_idx, in, out );
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 

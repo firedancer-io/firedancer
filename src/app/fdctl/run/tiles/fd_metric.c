@@ -50,17 +50,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_metric_ctx_t ) );
-}
-
-static void
-before_credit( void *             _ctx,
-               fd_mux_context_t * mux ) {
-  (void)mux;
-
-  fd_metric_ctx_t * ctx = (fd_metric_ctx_t *)_ctx;
+static inline void
+before_credit( fd_metric_ctx_t *   ctx,
+               fd_stem_context_t * stem ) {
+  (void)stem;
 
   fd_http_server_poll( ctx->metrics_server );
 }
@@ -98,9 +91,8 @@ metrics_http_request( fd_http_server_request_t const * request ) {
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
@@ -116,8 +108,9 @@ privileged_init( fd_topo_t *      topo,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
@@ -131,9 +124,11 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
@@ -142,9 +137,11 @@ populate_allowed_seccomp( void *               scratch,
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
@@ -158,17 +155,23 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_metric_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_metric_ctx_t)
+
+#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_metric = {
   .name                     = "metric",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
   .rlimit_file_cnt          = FD_HTTP_SERVER_METRICS_MAX_CONNS+5UL, /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
-  .mux_ctx                  = mux_ctx,
-  .mux_before_credit        = before_credit,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

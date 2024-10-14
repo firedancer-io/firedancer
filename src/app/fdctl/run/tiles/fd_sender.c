@@ -135,11 +135,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_sender_tile_ctx_t) );
-}
-
 static void
 send_packet( fd_sender_tile_ctx_t * ctx,
              uint                   dst_ip_addr,
@@ -229,24 +224,14 @@ finalize_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx ) {
 }
 
 static void
-after_credit( void *             _ctx,
-	            fd_mux_context_t * mux_ctx FD_PARAM_UNUSED,
-              int *              opt_poll_in FD_PARAM_UNUSED ) {
-  fd_sender_tile_ctx_t * ctx = (fd_sender_tile_ctx_t *)_ctx;
-  (void)ctx;
-
-  /* TODO: compute some metrics here */
-}
-
-static void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq        FD_PARAM_UNUSED,
-             ulong  sig        FD_PARAM_UNUSED,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter FD_PARAM_UNUSED ) {
-  fd_sender_tile_ctx_t * ctx = (fd_sender_tile_ctx_t *)_ctx;
+during_frag( fd_sender_tile_ctx_t * ctx,
+             ulong                  in_idx,
+             ulong                  seq,
+             ulong                  sig,
+             ulong                  chunk,
+             ulong                  sz ) {
+  (void)seq;
+  (void)sig;
 
   if( FD_UNLIKELY( in_idx==ctx->sign_in_idx ) ) {
     FD_LOG_CRIT(( "signing tile send out of band fragment" ));
@@ -280,16 +265,20 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq          FD_PARAM_UNUSED,
-            ulong *            opt_sig      FD_PARAM_UNUSED,
-            ulong *            opt_chunk    FD_PARAM_UNUSED,
-            ulong *            opt_sz       FD_PARAM_UNUSED,
-            ulong *            opt_tsorig   FD_PARAM_UNUSED,
-            int *              opt_filter   FD_PARAM_UNUSED,
-            fd_mux_context_t * mux          FD_PARAM_UNUSED ) {
-  fd_sender_tile_ctx_t * ctx = (fd_sender_tile_ctx_t *)_ctx;
+after_frag( fd_sender_tile_ctx_t * ctx,
+            ulong                  in_idx,
+            ulong                  seq,
+            ulong                  sig,
+            ulong                  chunk,
+            ulong                  sz,
+            ulong                  tsorig,
+            fd_stem_context_t *    stem ) {
+  (void)seq;
+  (void)sig;
+  (void)chunk;
+  (void)sz;
+  (void)tsorig;
+  (void)stem;
 
   if( FD_UNLIKELY( in_idx==ctx->contact_in_idx ) ) {
     finalize_new_cluster_contact_info( ctx );
@@ -339,9 +328,9 @@ after_frag( void *             _ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sender_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
@@ -354,12 +343,10 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
-  fd_flamenco_boot( NULL, NULL );
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
-    FD_LOG_ERR(( "sender has a primary output link" ));
+  if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "sender has no primary output link" ));
 
   /* Scratch mem setup */
 
@@ -472,39 +459,52 @@ unprivileged_init( fd_topo_t *      topo,
 
 
 static ulong
-populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_sender( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_sender_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch     FD_PARAM_UNUSED,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
+
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
-  out_fds[ out_cnt++ ] = 2; /* stderr */
+  out_fds[ out_cnt++ ] = 2UL; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_sender_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sender_tile_ctx_t)
+
+#define STEM_CALLBACK_DURING_FRAG during_frag
+#define STEM_CALLBACK_AFTER_FRAG  after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_sender = {
   .name                     = "sender",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
-  .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

@@ -268,8 +268,6 @@ conn_final( fd_quic_conn_t * conn,
   }
 }
 
-
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return fd_ulong_max( fd_quic_align(), alignof( fd_benchs_ctx_t ) );
@@ -319,39 +317,27 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_benchs_ctx_t ) );
-}
-
-static void
-before_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
+static inline int
+before_frag( fd_benchs_ctx_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig ) {
   (void)in_idx;
   (void)sig;
 
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
-
-  *opt_filter = (int)( (seq%ctx->round_robin_cnt)!=ctx->round_robin_id );
+  return (int)( (seq%ctx->round_robin_cnt)!=ctx->round_robin_id );
 }
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_benchs_ctx_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig,
+             ulong             chunk,
+             ulong             sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)opt_filter;
-
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
 
   if( ctx->no_quic ) {
 
@@ -441,11 +427,8 @@ during_frag( void * _ctx,
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
-  (void)tile;
-  (void)scratch;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_benchs_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_benchs_ctx_t ), sizeof( fd_benchs_ctx_t ) );
@@ -543,8 +526,9 @@ privileged_init( fd_topo_t *      topo,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_benchs_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_benchs_ctx_t ), sizeof( fd_benchs_ctx_t ) );
 
@@ -628,7 +612,6 @@ quic_tx_aio_send( void *                    _ctx,
                   ulong                     batch_cnt,
                   ulong *                   opt_batch_idx,
                   int                       flush ) {
-  (void)_ctx;
   (void)batch;
   (void)batch_cnt;
   (void)opt_batch_idx;
@@ -684,15 +667,21 @@ quic_tx_aio_send( void *                    _ctx,
   return 0;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_benchs_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_benchs_ctx_t)
+
+#define STEM_CALLBACK_BEFORE_FRAG before_frag
+#define STEM_CALLBACK_DURING_FRAG during_frag
+
+#include "../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_benchs = {
   .name                     = "benchs",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

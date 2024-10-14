@@ -13,7 +13,7 @@
 #define FD_BENCHO_STATE_SENT  3UL
 
 #define FD_BENCHO_RPC_INITIALIZE_TIMEOUT (30L * 1000L * 1000L * 1000L)
-#define FD_BENCHO_RPC_RESPONSE_TIMEOUT (5L * 1000L * 1000L * 1000L)
+#define FD_BENCHO_RPC_RESPONSE_TIMEOUT   (5L  * 1000L * 1000L * 1000L)
 
 typedef struct {
   long  rpc_ready_deadline;
@@ -51,14 +51,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_bencho_ctx_t ) );
-}
-
 static void
-service_block_hash( fd_bencho_ctx_t *  ctx,
-                    fd_mux_context_t * mux ) {
+service_block_hash( fd_bencho_ctx_t *   ctx,
+                    fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->blockhash_state==FD_BENCHO_STATE_WAIT ) ) {
     if( FD_LIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
       ctx->blockhash_state = FD_BENCHO_STATE_READY;
@@ -94,7 +89,7 @@ service_block_hash( fd_bencho_ctx_t *  ctx,
     ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
     ctx->blockhash_deadline = fd_log_wallclock() + 400L * 1000L * 1000L; /* 400 millis til we fetch new blockhash */
     fd_memcpy( fd_chunk_to_laddr( ctx->mem, ctx->out_chunk ), response->result.latest_block_hash.block_hash, 32 );
-    fd_mux_publish( mux, 0UL, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, 32, ctx->out_chunk0, ctx->out_wmark );
 
     fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
@@ -146,28 +141,27 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
 }
 
 static inline void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux,
-              int *              opt_poll_in ) {
+after_credit( fd_bencho_ctx_t *   ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in ) {
   (void)opt_poll_in;
 
-  fd_bencho_ctx_t * ctx = (fd_bencho_ctx_t *)_ctx;
-
   fd_rpc_client_service( ctx->rpc, 0 );
-  service_block_hash( ctx, mux );
+  service_block_hash( ctx, stem );
   service_txn_count( ctx );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bencho_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
 
-  ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
   ctx->rpc_ready_deadline = fd_log_wallclock() + FD_BENCHO_RPC_INITIALIZE_TIMEOUT;
@@ -184,13 +178,19 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_bencho_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bencho_ctx_t)
+
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
+
+#include "../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_bencho = {
-  .name                     = "bencho",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
-  .scratch_align            = scratch_align,
-  .scratch_footprint        = scratch_footprint,
-  .unprivileged_init        = unprivileged_init,
+  .name              = "bencho",
+  .scratch_align     = scratch_align,
+  .scratch_footprint = scratch_footprint,
+  .unprivileged_init = unprivileged_init,
+  .run               = stem_run,
 };

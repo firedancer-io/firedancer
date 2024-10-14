@@ -263,7 +263,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
-    return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
+    return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {

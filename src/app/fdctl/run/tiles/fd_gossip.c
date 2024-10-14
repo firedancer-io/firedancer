@@ -30,12 +30,13 @@
 #define VOTER_IN_IDX    1
 #define SIGN_IN_IDX     2
 
-#define SHRED_OUT_IDX   0
-#define REPAIR_OUT_IDX  1
-#define DEDUP_OUT_IDX   2
-#define SIGN_OUT_IDX    3
-#define VOTER_OUT_IDX   4
-#define EQVOC_OUT_IDX   5
+#define NET_OUT_IDX     0
+#define SHRED_OUT_IDX   1
+#define REPAIR_OUT_IDX  2
+#define DEDUP_OUT_IDX   3
+#define SIGN_OUT_IDX    4
+#define VOTER_OUT_IDX   5
+#define EQVOC_OUT_IDX   6
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
 
@@ -171,7 +172,7 @@ struct fd_gossip_tile_ctx {
 
   fd_keyguard_client_t  keyguard_client[1];
 
-  fd_mux_context_t * mux;
+  fd_stem_context_t * stem;
 
   ulong replay_vote_txn_sz;
   uchar replay_vote_txn [ FD_TXN_MTU ];
@@ -197,11 +198,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_gossip_tile_ctx_t) );
 }
 
 static void
@@ -235,7 +231,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig   = fd_disco_netmux_sig( 0U, 0U, dst_ip_addr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-  fd_mux_publish( ctx->mux, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( ctx->stem, 0UL, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
@@ -360,27 +356,26 @@ gossip_signer( void *        signer_ctx,
   fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
 }
 
-static void
-before_frag( void * _ctx        FD_PARAM_UNUSED,
-             ulong  in_idx      FD_PARAM_UNUSED,
-             ulong  seq         FD_PARAM_UNUSED,
-             ulong  sig,
-             int *  opt_filter ) {
-  if( in_idx != VOTER_IN_IDX && fd_disco_netmux_sig_proto( sig ) != DST_PROTO_GOSSIP) {
-    *opt_filter = 1;
-    return;
-  }
+static inline int
+before_frag( fd_gossip_tile_ctx_t * ctx,
+             ulong                  in_idx,
+             ulong                  seq,
+             ulong                  sig ) {
+  (void)ctx;
+  (void)seq;
+
+  return in_idx != VOTER_IN_IDX && fd_disco_netmux_sig_proto( sig ) != DST_PROTO_GOSSIP;
 }
 
-static void
-during_frag( void * _ctx,
-             ulong  in_idx      FD_PARAM_UNUSED,
-             ulong  seq         FD_PARAM_UNUSED,
-             ulong  sig         FD_PARAM_UNUSED,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
-  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
+static inline void
+during_frag( fd_gossip_tile_ctx_t * ctx,
+             ulong                  in_idx,
+             ulong                  seq,
+             ulong                  sig,
+             ulong                  chunk,
+             ulong                  sz ) {
+  (void)seq;
+  (void)sig;
 
   if ( in_idx == VOTER_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>USHORT_MAX ) ) {
@@ -392,15 +387,10 @@ during_frag( void * _ctx,
     return;
   }
 
-  if( in_idx!=NET_IN_IDX ) {
-    *opt_filter = 1;
-    return;
-  }
+  if( in_idx!=NET_IN_IDX ) return;
 
   if( FD_UNLIKELY( chunk<ctx->net_in_chunk || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk, ctx->net_in_wmark ));
-    *opt_filter = 1;
-    return;
   }
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
@@ -410,16 +400,21 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx     FD_PARAM_UNUSED,
-            ulong              seq        FD_PARAM_UNUSED,
-            ulong *            opt_sig,
-            ulong *            opt_chunk  FD_PARAM_UNUSED,
-            ulong *            opt_sz     FD_PARAM_UNUSED,
-            ulong *            opt_tsorig FD_PARAM_UNUSED,
-            int *              opt_filter FD_PARAM_UNUSED,
-            fd_mux_context_t * mux ) {
-  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
+after_frag( fd_gossip_tile_ctx_t * ctx,
+            ulong                  in_idx,
+            ulong                  seq,
+            ulong                  sig,
+            ulong                  chunk,
+            ulong                  sz,
+            ulong                  tsorig,
+            fd_stem_context_t *    stem ) {
+  (void)seq;
+  (void)chunk;
+  (void)sz;
+  (void)tsorig;
+
+  /* TODO: This doesn't seem right... */
+  if( in_idx!=NET_IN_IDX ) return;
 
   if ( in_idx == VOTER_IN_IDX ) {
     fd_crds_data_t vote_txn_crds;
@@ -437,8 +432,8 @@ after_frag( void *             _ctx,
     return;
   }
 
-  ctx->mux = mux;
-  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
+  ctx->stem = stem;
+  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)ctx->gossip_buffer;
 
   fd_gossip_peer_addr_t peer_addr;
@@ -450,13 +445,12 @@ after_frag( void *             _ctx,
 }
 
 static void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux_ctx,
-              int *              opt_poll_in ) {
+after_credit( fd_gossip_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in ) {
   (void)opt_poll_in;
 
-  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
-  ctx->mux = mux_ctx;
+  ctx->stem = stem;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
   fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
@@ -576,9 +570,10 @@ after_credit( void *             _ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo    FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
 
@@ -590,8 +585,9 @@ privileged_init( fd_topo_t *      topo    FD_PARAM_UNUSED,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   if( FD_UNLIKELY( tile->in_cnt != 3UL ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX   ] ].name, "net_gossip" )   ||
                    strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ].name, "voter_gossip" ) ||
@@ -600,7 +596,8 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 5 ||
+  if( FD_UNLIKELY( tile->out_cnt != 6 ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX  ] ].name,   "gossip_net" )    ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name, "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "gossip_repai" )  ||
                    strcmp( topo->links[ tile->out_link_id[ DEDUP_OUT_IDX  ] ].name, "gossip_dedup" )  ||
@@ -610,8 +607,7 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_link_id_primary==ULONG_MAX ) )
-    FD_LOG_ERR(( "gossip tile has no primary output link" ));
+  if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "gossip tile has no primary output link" ));
 
   /* Scratch mem setup */
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -625,7 +621,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
 
   ctx->net_out_mcache = net_out->mcache;
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
@@ -782,40 +778,54 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_gossip( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_gossip_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch      FD_PARAM_UNUSED,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  ulong out_cnt = 0;
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)
+
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_BEFORE_FRAG  before_frag
+#define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_gossip = {
   .name                     = "gossip",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
-  .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

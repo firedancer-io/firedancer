@@ -53,13 +53,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_benchg_ctx_t ) );
-}
-
-
-
 static const uchar HARDCODED_PUBKEY[32] = { 0x0e,0xd2,0x90,0x05,0x83,0xd1,0x7c,0xc4,0x22,0x8c,0x10,0x75,0x84,0x18,0x71,0xa1, \
                          0x96,0xbe,0x46,0xc4,0xce,0xcd,0x5d,0xc0,0xae,0x7e,0xa9,0x61,0x4b,0x8a,0xdf,0x41 };
 
@@ -179,12 +172,10 @@ typedef struct __attribute__((packed)) {
 FD_STATIC_ASSERT( sizeof(large_noop_t)==1232UL, txn );
 
 static inline void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux,
-              int *              opt_poll_in ) {
+after_credit( fd_benchg_ctx_t *   ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in ) {
   (void)opt_poll_in;
-
-  fd_benchg_ctx_t * ctx = (fd_benchg_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;
 
@@ -320,7 +311,7 @@ after_credit( void *             _ctx,
                    ctx->acct_private_keys[ sender_idx ].uc,
                    ctx->sha );
 
-  fd_mux_publish( mux, 0UL, ctx->out_chunk, transaction_size, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, transaction_size, 0UL, 0UL, 0UL );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, transaction_size, ctx->out_chunk0, ctx->out_wmark );
 
   ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->acct_cnt;
@@ -338,21 +329,17 @@ after_credit( void *             _ctx,
 }
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_benchg_ctx_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig,
+             ulong             chunk,
+             ulong             sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
   (void)chunk;
   (void)sz;
-  (void)opt_filter;
-
-  fd_benchg_ctx_t * ctx = (fd_benchg_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) {
     fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
@@ -368,8 +355,9 @@ during_frag( void * _ctx,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_benchg_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_benchg_ctx_t ), sizeof( fd_benchg_ctx_t ) );
   ctx->acct_public_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
@@ -398,9 +386,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->benchg_cnt = fd_topo_tile_name_cnt( topo, "benchg" );
   ctx->benchg_idx = tile->kind_id;
 
-  ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -408,14 +396,20 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_benchg_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_benchg_ctx_t)
+
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_DURING_FRAG  during_frag
+
+#include "../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_benchg = {
-  .name                     = "benchg",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
-  .mux_during_frag          = during_frag,
-  .scratch_align            = scratch_align,
-  .scratch_footprint        = scratch_footprint,
-  .unprivileged_init        = unprivileged_init,
+  .name              = "benchg",
+  .scratch_align     = scratch_align,
+  .scratch_footprint = scratch_footprint,
+  .unprivileged_init = unprivileged_init,
+  .run               = stem_run,
 };

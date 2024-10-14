@@ -29,14 +29,13 @@ ready_cmd_fn( args_t *         args,
     long start = fd_log_wallclock();
     int printed = 0;
     do {
-      ulong signal = fd_cnc_signal_query( tile->cnc );
-      char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+      ulong status = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_STEM_STATUS_OFF ];
 
-      if( FD_LIKELY( signal==FD_CNC_SIGNAL_RUN ) ) break;
-      else if( FD_UNLIKELY( signal!=FD_CNC_SIGNAL_BOOT ) )
-        FD_LOG_ERR(( "cnc for tile %s:%lu is in bad state %s", tile->name, tile->kind_id, fd_cnc_signal_cstr( signal, buf ) ));
+      if( FD_LIKELY( status==1UL ) ) break;
+      else if( FD_UNLIKELY( status ) )
+        FD_LOG_ERR(( "status for tile %s:%lu is in bad state %lu", tile->name, tile->kind_id, status ));
 
-      if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 1000000000L*1L ) ) {
+      if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 2L*1000*1000*1000L ) ) {
         FD_LOG_NOTICE(( "waiting for tile %s:%lu to be ready", tile->name, tile->kind_id ));
         printed = 1;
       }

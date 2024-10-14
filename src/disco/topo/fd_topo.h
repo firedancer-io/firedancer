@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_disco_topo_fd_topo_h
 #define HEADER_fd_src_disco_topo_fd_topo_h
 
-#include "../mux/fd_mux.h"
+#include "../stem/fd_stem.h"
 #include "../quic/fd_tpu.h"
 #include "../../tango/fd_tango.h"
 
@@ -16,8 +16,7 @@
 /* Maximum number of links that may go into any one tile in the
    topology. */
 #define FD_TOPO_MAX_TILE_IN_LINKS  ( 128UL)
-/* Maximum number of links that a tile may write to in addition
-   to the primary output link. */
+/* Maximum number of links that a tile may write to. */
 #define FD_TOPO_MAX_TILE_OUT_LINKS ( 32UL)
 /* Maximum number of objects that a tile can use. */
 #define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
@@ -80,12 +79,11 @@ typedef struct {
 
    A tile belongs to exactly one workspace.  A tile is a consumer of 0
    or more links, it's inputs.  A tile is a producer of 0 or more output
-   links.  Either zero or one of the output links is considered the
-   primary output, which will be managed automatically by the tile
-   infrastructure.
+   links.
 
    All input links will be automatically polled by the tile
-   infrastructure, but only the primary output will be written to. */
+   infrastructure, and output links will automatically source and manage
+   credits from consumers. */
 typedef struct {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
@@ -98,16 +96,13 @@ typedef struct {
   ulong in_link_id[ FD_TOPO_MAX_TILE_IN_LINKS ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
   int   in_link_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
   int   in_link_poll[ FD_TOPO_MAX_TILE_IN_LINKS ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
-                                   If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
-                                   reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
+                                                          If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
+                                                          reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
 
-  ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
-
-  ulong out_cnt;                /* The number of non-primary links that this tile writes to. */
-  ulong out_link_id[ FD_TOPO_MAX_TILE_OUT_LINKS ]; /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
+  ulong out_cnt;                                   /* The number of links that this tile writes to. */
+  ulong out_link_id[ FD_TOPO_MAX_TILE_OUT_LINKS ]; /* The link_id of each link that this tile writes to, indexed in [0, link_cnt). */
 
   ulong tile_obj_id;
-  ulong cnc_obj_id;
   ulong metrics_obj_id;
   ulong in_link_fseq_obj_id[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
@@ -117,7 +112,6 @@ typedef struct {
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
-    fd_cnc_t * cnc;
     ulong *    metrics; /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
 
     /* The fseq of each link that this tile reads from.  Multiple fseqs
@@ -344,32 +338,20 @@ typedef struct fd_topo_t {
 } fd_topo_t;
 
 typedef struct {
-  char const *                  name;
+  char const * name;
 
-  ulong                         mux_flags;
-  ulong                         burst;
-  int                           keep_host_networking;
-  ulong                         rlimit_file_cnt;
-  int                           for_tpool;
-  void * (*mux_ctx           )( void * scratch );
+  int          keep_host_networking;
+  ulong        rlimit_file_cnt;
+  int          for_tpool;
 
-  fd_mux_during_housekeeping_fn * mux_during_housekeeping;
-  fd_mux_before_credit_fn       * mux_before_credit;
-  fd_mux_after_credit_fn        * mux_after_credit;
-  fd_mux_before_frag_fn         * mux_before_frag;
-  fd_mux_during_frag_fn         * mux_during_frag;
-  fd_mux_after_frag_fn          * mux_after_frag;
-  fd_mux_metrics_write_fn       * mux_metrics_write;
-
-  long  (*lazy                    )( fd_topo_tile_t * tile );
-  ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
-  ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
+  ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
+  ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
-  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
-  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
-  int   (*main                    )( void );
+  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
 } fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN
@@ -475,7 +457,6 @@ fd_topo_find_link_producer( fd_topo_t const *      topo,
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
 
-    if( FD_UNLIKELY( tile->out_link_id_primary == link->id ) ) return i;
     for( ulong j=0; j<tile->out_cnt; j++ ) {
       if( FD_UNLIKELY( tile->out_link_id[ j ] == link->id ) ) return i;
     }

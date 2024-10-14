@@ -4,10 +4,10 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | link_&#8203;slow_&#8203;count | `counter` | The number of times the consumer was detected as rate limiting consumer by the producer. |
-| link_&#8203;published_&#8203;count | `counter` | The number of times the link has consumed and published a fragment. |
-| link_&#8203;published_&#8203;size_&#8203;bytes | `counter` | The total number of bytes read by the link consumer. |
-| link_&#8203;filtered_&#8203;count | `counter` | The number of consumed fragments that were filtered. |
-| link_&#8203;filtered_&#8203;size_&#8203;bytes | `counter` | The total number of bytes read  by the link consumer that were filtered. |
+| link_&#8203;consumed_&#8203;count | `counter` | The number of times the link reader has consumed a fragment. |
+| link_&#8203;consumed_&#8203;size_&#8203;bytes | `counter` | The total number of bytes read by the link consumer. |
+| link_&#8203;filtered_&#8203;count | `counter` | The number of fragments that were filtered and not consumed. |
+| link_&#8203;filtered_&#8203;size_&#8203;bytes | `counter` | The total number of bytes read by the link consumer that were filtered. |
 | link_&#8203;overrun_&#8203;polling_&#8203;count | `counter` | The number of times the link has been overrun while polling. |
 | link_&#8203;overrun_&#8203;polling_&#8203;frag_&#8203;count | `counter` | The number of fragments the link has not processed because it was overrun while polling. |
 | link_&#8203;overrun_&#8203;reading_&#8203;count | `counter` | The number of input overruns detected while reading metadata by the consumer. |
@@ -21,18 +21,18 @@
 | tile_&#8203;tid | `gauge` | The thread ID of the tile. Always the same as the Pid in production, but might be different in development. |
 | tile_&#8203;context_&#8203;switch_&#8203;involuntary_&#8203;count | `counter` | The number of involuntary context switches. |
 | tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count | `counter` | The number of voluntary context switches. |
+| stem_&#8203;status | `gauge` | The current status of the tile. 0 is booting, 1 is running. |
+| stem_&#8203;heartbeat | `gauge` | The last UNIX timestamp in nanoseconds that the tile heartbeated. |
 | stem_&#8203;in_&#8203;backpressure | `gauge` | Whether the tile is currently backpressured or not, either 1 or 0. |
 | stem_&#8203;backpressure_&#8203;count | `counter` | Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing. |
-| stem_&#8203;loop_&#8203;housekeeping_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which did housekeeping. The various loop durations are mutually exclusive and exhaustive, so the sum of time across all of them is roughly the total running time of the tile. Loop durations are per iteration of the run loop and non-blocking, so for example each 'caught up' sample does not represent the time we waited for new input data, but rather how long each iteration of the spin loop waiting for the data took. |
-| stem_&#8203;loop_&#8203;backpressure_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which terminated because we were backpressured by a consumer. |
-| stem_&#8203;loop_&#8203;caught_&#8203;up_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which terminated because there was no new data to process. |
-| stem_&#8203;loop_&#8203;overrun_&#8203;polling_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which terminated because we were overrun while polling. |
-| stem_&#8203;loop_&#8203;overrun_&#8203;reading_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which terminated because we were overrun while reading. |
-| stem_&#8203;loop_&#8203;filter_&#8203;before_&#8203;fragment_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which terminated because we filtered the fragment before reading it. |
-| stem_&#8203;loop_&#8203;filter_&#8203;after_&#8203;fragment_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which terminated because we filtered the fragment after reading it. |
-| stem_&#8203;loop_&#8203;finish_&#8203;duration_&#8203;seconds | `histogram` | Duration of one iteration of the run loop which received, did not filter, and processed the fragment. |
-| stem_&#8203;fragment_&#8203;filtered_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was filtered and not processed by the tile. |
-| stem_&#8203;fragment_&#8203;handled_&#8203;size_&#8203;bytes | `histogram` | Size of each fragment that was processed (not filtered) by the tile. |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;caught_&#8203;up_&#8203;housekeeping | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Caught up + Housekeeping) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;processing_&#8203;housekeeping | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Processing + Housekeeping) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;backpressure_&#8203;housekeeping | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Backpressure + Housekeeping) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;caught_&#8203;up_&#8203;prefrag | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Caught up + Prefrag) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;processing_&#8203;prefrag | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Processing + Prefrag) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;backpressure_&#8203;prefrag | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Backpressure + Prefrag) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;caught_&#8203;up_&#8203;postfrag | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Caught up + Postfrag) |
+| stem_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;processing_&#8203;postfrag | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Processing + Postfrag) |
 
 ## Net Tile
 | Metric | Type | Description |

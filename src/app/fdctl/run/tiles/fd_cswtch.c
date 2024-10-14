@@ -2,6 +2,8 @@
 
 #include "generated/cswtch_seccomp.h"
 
+#include "../../../../disco/metrics/fd_metrics.h"
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -11,9 +13,9 @@
 typedef struct {
   long next_report_nanos;
 
-  ulong   tile_cnt;
-  int     status_fds[ FD_TILE_MAX ];
-  ulong * metrics[ FD_TILE_MAX ];
+  ulong            tile_cnt;
+  int              status_fds[ FD_TILE_MAX ];
+  volatile ulong * metrics[ FD_TILE_MAX ];
 } fd_cswtch_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -29,72 +31,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_cswtch_ctx_t ) );
-}
-
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)tile;
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
-
-  FD_TEST( topo->tile_cnt<FD_TILE_MAX );
-
-  ctx->tile_cnt = topo->tile_cnt;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    ulong * metrics = fd_metrics_join( fd_topo_obj_laddr( topo, topo->tiles[ i ].metrics_obj_id ) );
-
-    for(;;) {
-      ulong pid, tid;
-      if( FD_UNLIKELY( tile->id==i ) ) {
-        pid = fd_sandbox_getpid();
-        tid = fd_sandbox_gettid();
-      } else {
-        pid = fd_metrics_tile( metrics )[ FD_METRICS_GAUGE_TILE_PID_OFF ];
-        tid = fd_metrics_tile( metrics )[ FD_METRICS_GAUGE_TILE_TID_OFF ];
-        if( FD_UNLIKELY( !pid || !tid ) ) {
-          FD_SPIN_PAUSE();
-          continue;
-        }
-      }
-
-      char path[ 64 ];
-      FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/%lu/task/%lu/status", pid, tid ) );
-      ctx->status_fds[ i ] = open( path, O_RDONLY );
-      ctx->metrics[ i ] = fd_metrics_tile( metrics );
-      if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) FD_LOG_ERR(( "open failed (%i-%s)", errno, strerror( errno ) ));
-      break;
-    }
-  }
-}
-
-static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
-  (void)topo;
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
-
-  ctx->next_report_nanos = fd_log_wallclock();
-
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-}
-
-static void
-before_credit( void *             _ctx,
-               fd_mux_context_t * mux ) {
+before_credit( fd_cswtch_ctx_t *   ctx,
+               fd_stem_context_t * mux ) {
   (void)mux;
-
-  fd_cswtch_ctx_t * ctx = (fd_cswtch_ctx_t *)_ctx;
 
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now<ctx->next_report_nanos ) ) return;
@@ -103,7 +43,7 @@ before_credit( void *             _ctx,
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( FD_UNLIKELY( -1==lseek( ctx->status_fds[ i ], 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
 
-    char contents[ 4096 ];
+    char contents[ 4096 ] = {0};
     ulong contents_len = 0UL;
 
     int process_died = 0;
@@ -168,26 +108,84 @@ before_credit( void *             _ctx,
   }
 }
 
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+
+  FD_TEST( topo->tile_cnt<FD_TILE_MAX );
+
+  ctx->tile_cnt = topo->tile_cnt;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    ulong * metrics = fd_metrics_join( fd_topo_obj_laddr( topo, topo->tiles[ i ].metrics_obj_id ) );
+
+    for(;;) {
+      ulong pid, tid;
+      if( FD_UNLIKELY( tile->id==i ) ) {
+        pid = fd_sandbox_getpid();
+        tid = fd_sandbox_gettid();
+      } else {
+        pid = fd_metrics_tile( metrics )[ FD_METRICS_GAUGE_TILE_PID_OFF ];
+        tid = fd_metrics_tile( metrics )[ FD_METRICS_GAUGE_TILE_TID_OFF ];
+        if( FD_UNLIKELY( !pid || !tid ) ) {
+          FD_SPIN_PAUSE();
+          continue;
+        }
+      }
+
+      char path[ 64 ];
+      FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/%lu/task/%lu/status", pid, tid ) );
+      ctx->status_fds[ i ] = open( path, O_RDONLY );
+      ctx->metrics[ i ] = fd_metrics_tile( metrics );
+      if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) FD_LOG_ERR(( "open failed (%i-%s)", errno, strerror( errno ) ));
+      break;
+    }
+  }
+}
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+
+  ctx->next_report_nanos = fd_log_wallclock();
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+}
+
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
 
   populate_sock_filter_policy_cswtch( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_cswtch_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt<2UL+ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
-  ulong out_cnt = 0;
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
@@ -196,16 +194,22 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_cswtch_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_cswtch_ctx_t)
+
+#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_cswtch = {
   .name                     = "cswtch",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_credit        = before_credit,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

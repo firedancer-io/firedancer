@@ -514,7 +514,7 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     fd_fseq_new( laddr, ULONG_MAX );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
-    fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
+    fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
