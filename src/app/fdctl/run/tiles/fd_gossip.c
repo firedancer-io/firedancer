@@ -26,9 +26,9 @@
 #include "generated/gossip_seccomp.h"
 
 
-#define VOTER_IN_IDX                0
-#define SIGN_IN_IDX                 1
-#define GOSSIP_VERIFY_IN_START_IDX  2
+#define VOTER_IN_IDX                0UL
+#define GOSSIP_VERIFY_IN_START_IDX  1UL
+/* SIGN_IN tile goes at the end */
 
 #define NET_OUT_IDX     0
 #define SHRED_OUT_IDX   1
@@ -397,18 +397,17 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     return;
   }
 
-  if( in_idx > GOSSIP_VERIFY_IN_START_IDX + ctx->verify_tile_cnt ) {
-    *opt_filter = 1;
+  if( in_idx >= GOSSIP_VERIFY_IN_START_IDX + ctx->verify_tile_cnt + 1UL /* include SIGN_IN */) {
     return;
   }
 
-  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_MTU ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
-    *opt_filter = 1;
+  ulong verify_tile_idx = in_idx - GOSSIP_VERIFY_IN_START_IDX;
+  if( FD_UNLIKELY( chunk<ctx->in[verify_tile_idx].chunk0 || chunk>ctx->in[verify_tile_idx].wmark || sz>FD_TPU_MTU ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[verify_tile_idx].chunk0, ctx->in[verify_tile_idx].wmark ));
     return;
   }
 
-  uchar const * dcache_entry = (uchar *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+  uchar const * dcache_entry = (uchar *)fd_chunk_to_laddr_const( ctx->in[verify_tile_idx].mem, chunk );
   fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
 }
 
@@ -425,9 +424,6 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   (void)chunk;
   (void)sz;
   (void)tsorig;
-
-  /* TODO: This doesn't seem right... */
-  if( in_idx!=NET_IN_IDX ) return;
 
   if ( in_idx == VOTER_IN_IDX ) {
     fd_crds_data_t vote_txn_crds;
@@ -605,9 +601,10 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 3UL ||
+  ushort gossip_verify_tile_cnt = tile->gossip.gossip_verify_tile_count;
+  if( FD_UNLIKELY( tile->in_cnt != 1UL /* VOTER_IN */ + gossip_verify_tile_cnt + 1UL /* SIGN_IN */ ||
                    strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ].name, "voter_gossip" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX  ] ].name, "sign_gossip" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ tile->in_cnt - 1UL  ] ].name, "sign_gossip" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
@@ -664,7 +661,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->last_shred_dest_push_time = 0;
 
-  fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id[ tile->in_cnt - 1UL ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
   if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                             sign_out->mcache,
@@ -727,15 +724,15 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "gossip listening on port %u", tile->gossip.gossip_listen_port ));
 
-  ctx->verify_tile_cnt = tile->gossip.gossip_verify_tile_count;
+  ctx->verify_tile_cnt = gossip_verify_tile_cnt;
 
   /* Setup gossip verify tile input links */
   for( ulong i = 0UL; i < ctx->verify_tile_cnt; ++i ){
     fd_topo_link_t * verify_link = &topo->links[ tile->in_link_id[ GOSSIP_VERIFY_IN_START_IDX + i ] ];
 
-    ctx->in[i].mem   = topo->workspaces[ topo->objs[ verify_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in[i].mem    = topo->workspaces[ topo->objs[ verify_link->dcache_obj_id ].wksp_id ].wksp;
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, verify_link->dcache );
-    ctx->in[i].wmark = fd_dcache_compact_wmark( ctx->in[i].mem, verify_link->dcache, verify_link->mtu );    
+    ctx->in[i].wmark  = fd_dcache_compact_wmark( ctx->in[i].mem, verify_link->dcache, verify_link->mtu );
   } 
 
 

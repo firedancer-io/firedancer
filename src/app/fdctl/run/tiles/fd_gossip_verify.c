@@ -352,8 +352,8 @@ unprivileged_init( fd_topo_t      * topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 1UL ||
-                   strcmp( topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ].name, "gspvfy_gossi" ) ) ) {
+  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ||
+                   strcmp( topo->links[ tile->out_link_id_primary ].name, "gspvfy_gossi" ) ) ) {
     FD_LOG_ERR(( "gossip_verify tile has none or unexpected output links %lu %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name ));
   }
@@ -371,6 +371,9 @@ unprivileged_init( fd_topo_t      * topo,
 
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, GOSSIP_VERIFY_SCRATCH_MAX, GOSSIP_VERIFY_SCRATCH_DEPTH );
+
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
+  ctx->round_robin_idx = tile->kind_id;
 
   fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id_primary ];
 
@@ -420,7 +423,7 @@ populate_allowed_fds( void * scratch,
 
 
 fd_topo_run_tile_t fd_tile_gossip_verify = {
-  .name                     = "gossip_verify",
+  .name                     = "gspvfy",
   .mux_flags                = FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
