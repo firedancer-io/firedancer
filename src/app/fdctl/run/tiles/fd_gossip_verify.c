@@ -29,6 +29,8 @@
 #define GOSSIP_VERIFY_SCRATCH_MAX (1UL<<20UL)
 #define GOSSIP_VERIFY_SCRATCH_DEPTH (4UL)
 
+#define PACKET_DATA_SIZE 1232
+
 struct fd_gossip_verify_tile_ctx {
   ulong          round_robin_idx;
   ulong          round_robin_cnt;
@@ -59,10 +61,111 @@ fd_gossip_verify( uchar const *                 msg,
                   fd_pubkey_t *                 pubkey ) {
   fd_sha512_t sha[1];
   if( fd_ed25519_verify( msg, msg_sz, signature->uc, pubkey->key, sha ) ) {
-    FD_LOG_ERR(( "fd_ed25519_verify failed" ));
+    FD_LOG_ERR(( "received gossip packet with invalid signature" ));
     return -1;
   }
   return 0;
+}
+
+static int
+fd_gossip_verify_crds_value(  fd_pubkey_t *     pubkey,
+                              fd_crds_value_t * crd,
+                              fd_pubkey_t *     my_pubkey ) {
+/* Grab pubkey from crds value */
+  switch (crd->data.discriminant) {
+  case fd_crds_data_enum_contact_info_v1:
+    pubkey = &crd->data.inner.contact_info_v1.id;
+    break;
+  case fd_crds_data_enum_vote:
+    pubkey = &crd->data.inner.vote.from;
+    break;
+  case fd_crds_data_enum_lowest_slot:
+    pubkey = &crd->data.inner.lowest_slot.from;
+    break;
+  case fd_crds_data_enum_snapshot_hashes:
+    pubkey = &crd->data.inner.snapshot_hashes.from;
+    break;
+  case fd_crds_data_enum_accounts_hashes:
+    pubkey = &crd->data.inner.accounts_hashes.from;
+    break;
+  case fd_crds_data_enum_epoch_slots:
+    pubkey = &crd->data.inner.epoch_slots.from;
+    break;
+  case fd_crds_data_enum_version_v1:
+    pubkey = &crd->data.inner.version_v1.from;
+    break;
+  case fd_crds_data_enum_version_v2:
+    pubkey = &crd->data.inner.version_v2.from;
+    break;
+  case fd_crds_data_enum_node_instance:
+    pubkey = &crd->data.inner.node_instance.from;
+    break;
+  case fd_crds_data_enum_duplicate_shred:
+    pubkey = &crd->data.inner.duplicate_shred.from;
+    break;
+  case fd_crds_data_enum_incremental_snapshot_hashes:
+    pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
+    break;
+  case fd_crds_data_enum_contact_info_v2:
+    pubkey = &crd->data.inner.contact_info_v2.from;
+    break;
+  default:
+    // FIXME: this deviates slightly from flamenco/gossip.c's fd_gossip_recv_crds_value
+    return GOSSIP_VERIFY_FAILED;
+  }
+  if(memcmp(pubkey->uc, my_pubkey->uc, 32U) == 0)
+    /* Ignore my own messages. Dedup case?? */
+    return GOSSIP_VERIFY_FAILED;
+  
+  /* FIXME: use scratch instead? Is this region memset every time? */
+  uchar buf[PACKET_DATA_SIZE];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = buf;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
+
+  if( fd_crds_data_encode( &crd->data, &ctx ) ) {
+    FD_LOG_ERR(("fd_crds_value_encode failed"));
+    return GOSSIP_VERIFY_FAILED;
+  }
+
+  if( fd_gossip_verify( buf, (ulong)((uchar*)ctx.data - buf), &crd->signature, pubkey ) ) {
+    return GOSSIP_VERIFY_FAILED;
+  }
+  
+  return GOSSIP_VERIFY_SUCCESS;
+}
+
+static void
+fd_gossip_verify_crds_list( fd_crds_value_t * crds,
+                            ulong             crds_len,
+                            fd_pubkey_t     * pubkey,
+                            fd_pubkey_t     * my_pubkey ) {
+  for( ulong i = 0; i < crds_len; ++i ) {
+    if( fd_gossip_verify_crds_value( pubkey, &crds[i], my_pubkey ) ) {
+      // TODO: filter/mark invalid crds. Is clobbering the discriminant enough?
+      crds[i].data.discriminant = UINT_MAX;
+    }
+  }
+  return;
+}
+
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return 128UL;
+}
+
+FD_FN_PURE static inline ulong
+loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+}
+
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_verify_tile_ctx_t), sizeof(fd_gossip_verify_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( GOSSIP_VERIFY_SCRATCH_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( GOSSIP_VERIFY_SCRATCH_DEPTH ) );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -116,7 +219,7 @@ after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
             ulong              seq        FD_PARAM_UNUSED,
             ulong *            opt_sig,
-            ulong *            opt_chunk  FD_PARAM_UNUSED,
+            ulong *            opt_chunk,
             ulong *            opt_sz     FD_PARAM_UNUSED,
             ulong *            opt_tsorig FD_PARAM_UNUSED,
             int *              opt_filter,
@@ -128,13 +231,6 @@ after_frag( void *             _ctx,
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *) fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
 
-
-  // fd_gossip_peer_addr_t peer_addr;
-  // peer_addr.l    = 0;
-  // peer_addr.addr = FD_LOAD( uint, hdr->ip4->saddr_c );
-  // peer_addr.port = hdr->udp->net_sport;
-
-  // uchar * gossip_msg = ctx->gossip_verify_buffer + hdr_sz;
   uchar * udp_payload = (uchar *)hdr + hdr_sz;
   ulong payload_sz = (*opt_sz - hdr_sz);
 
@@ -142,8 +238,8 @@ after_frag( void *             _ctx,
     FD_LOG_ERR(( "gossip_verify payload_sz %lu > FD_NET_MTU %lu", payload_sz, FD_NET_MTU ));
   }
 
-  /* GOSSIP VERIFY LOGIC STARTS HERE*/
-  ulong sig = 0UL;
+  /* GOSSIP VERIFY LOGIC STARTS HERE */
+  // ulong sig = 0UL; // figure out what to do with this
   FD_SCRATCH_SCOPE_BEGIN {
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = udp_payload,
@@ -159,53 +255,81 @@ after_frag( void *             _ctx,
 
     int res = 0;
 
-    fd_signature_t * signature = NULL;
-    fd_pubkey_t    * pubkey    = NULL;
 
     /* NOTE: pull req packets are skipped */
-    switch( gossip_msg->discriminant ){
-      case fd_gossip_msg_enum_pull_resp:
-      // fallthrough
-      case fd_gossip_msg_enum_push_msg:
-      // TODO: verify crds
+    switch( gossip_msg->discriminant ) {
+    case fd_gossip_msg_enum_pull_resp: {
+      fd_gossip_pull_resp_t * pull_resp = &gossip_msg->inner.pull_resp;
+      fd_gossip_verify_crds_list( pull_resp->crds,
+                                  pull_resp->crds_len,
+                                  &pull_resp->pubkey,
+                                  ctx->identity_public_key );
       break;
-      case fd_gossip_msg_enum_prune_msg:
-      // TODO: verify prune msg
+    }
+    case fd_gossip_msg_enum_push_msg: {
+      fd_gossip_push_msg_t * push_msg = &gossip_msg->inner.push_msg;
+      fd_gossip_verify_crds_list( push_msg->crds,
+                                  push_msg->crds_len,
+                                  &push_msg->pubkey,
+                                  ctx->identity_public_key );
       break;
-      case fd_gossip_msg_enum_ping:
-      // TODO: check if can fallthrough
+    }
+    break;
+    case fd_gossip_msg_enum_prune_msg: {
+      fd_gossip_prune_msg_t * prune_msg = &gossip_msg->inner.prune_msg;
+      /* FIXME: put this in a separate inline function */
+      /* Confirm destination */
+      if( memcmp( prune_msg->data.destination.uc, ctx->identity_public_key->uc, 32U ) != 0 ) {
+        res = GOSSIP_VERIFY_DEDUP;
+      }
+
+      /* Verify signature */
+      fd_gossip_prune_sign_data_t signdata;
+      signdata.pubkey = prune_msg->data.pubkey;
+      signdata.prunes_len = prune_msg->data.prunes_len;
+      signdata.prunes = prune_msg->data.prunes;
+      signdata.destination = prune_msg->data.destination;
+      signdata.wallclock = prune_msg->data.wallclock;
+      
+      /* FIXME: use scratch space */
+      uchar buf[PACKET_DATA_SIZE];
+      fd_bincode_encode_ctx_t ctx;
+      ctx.data = buf;
+      ctx.dataend = buf + PACKET_DATA_SIZE;
+      if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
+        res = GOSSIP_VERIFY_FAILED;
+        break;
+      }
+      res = fd_gossip_verify( buf,
+                              (ulong)((uchar*)ctx.data - buf),
+                              &prune_msg->data.signature,
+                              &prune_msg->data.pubkey );
       break;
-      case fd_gossip_msg_enum_pong:
-      // TODO
+    }
+    /* TODO: Check if safe to cast both messages to fd_gossip_ping_t */
+    case fd_gossip_msg_enum_ping: 
+    case fd_gossip_msg_enum_pong: {
+      fd_gossip_ping_t * ping = &gossip_msg->inner.ping;
+      res = fd_gossip_verify( ping->token.uc,
+                              32UL,
+                              &ping->signature,
+                              &ping->from );
       break;
-  }
+    }
+    }
   
-  if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
-    *opt_filter = 1;
-    return;
-  }
-
-
-
-
-
+    if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
+      *opt_filter = 1;
+      return;
+    }
 
   } FD_SCRATCH_SCOPE_END;
 
-
-
   /* GOSSIP VERIFY LOGIC ENDS HERE, assuming returned on fail */
+  *opt_chunk = ctx->gossip_out_chunk;
   ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, *opt_sz, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
-
 }
 
-/* DO WE NEED FLOW CONTROL HERE? PROBABLY??? */
-// static void
-// after_credit( void *             _ctx,
-//               fd_mux_context_t * mux_ctx,
-//               int *              opt_poll_in ) {
-
-// }
 
 static ulong
 populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
@@ -233,11 +357,10 @@ populate_allowed_fds( void * scratch,
 
 fd_topo_run_tile_t fd_tile_gossip_verify = {
   .name                     = "gossip_verify",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
+  .mux_flags                = FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
