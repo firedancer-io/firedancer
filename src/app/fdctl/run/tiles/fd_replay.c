@@ -207,6 +207,9 @@ struct fd_replay_tile_ctx {
   void * bmtree[ FD_PACK_MAX_BANK_TILES ];
 
   fd_epoch_forks_t epoch_forks[1];
+
+  fd_spad_t * spads[ 128UL ];
+  ulong       spad_cnt;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -908,9 +911,13 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
           fd_tpool_wait( ctx->tpool, i+1 );
         }
-        res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
-                                                      txns, txn_cnt,
-                                                      ctx->tpool );
+        res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx,
+                                                      ctx->capture_ctx,
+                                                      txns, 
+                                                      txn_cnt,
+                                                      ctx->tpool,
+                                                      ctx->spads,
+                                                      ctx->spad_cnt );
       }
     } FD_SCRATCH_SCOPE_END;
 
@@ -1672,6 +1679,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( ctx->tpool == NULL ) {
     FD_LOG_ERR(("failed to create thread pool"));
+  }
+
+  /**********************************************************************/
+  /* spad                                                               */
+  /**********************************************************************/
+
+  /* TODO: The spad should probably have its own workspace. Eventually each
+     spad allocator should be bound to a transaction executor tile and should
+     be bounded out for the maximum amount of allocations used in the runtime. */
+
+  for( ulong i=0UL; i<tile->replay.tpool_thread_count; i++ ) {
+    ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
+    uchar *     mem          = fd_wksp_alloc_laddr( ctx->blockstore_wksp, FD_SPAD_ALIGN, total_mem_sz, 999UL );
+    fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
+    ctx->spads[ ctx->spad_cnt++ ] = spad;
   }
 
   /**********************************************************************/

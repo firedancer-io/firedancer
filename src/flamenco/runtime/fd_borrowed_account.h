@@ -77,9 +77,8 @@ FD_PROTOTYPES_BEGIN
 fd_borrowed_account_t *
 fd_borrowed_account_init( void * ptr );
 
-void *
+void
 fd_borrowed_account_resize( fd_borrowed_account_t * borrowed_account,
-                            void *                  buf,
                             ulong                   dlen );
 
 FD_FN_PURE static inline ulong
@@ -90,7 +89,7 @@ fd_borrowed_account_raw_size( fd_borrowed_account_t const * borrowed_account ) {
 
 fd_borrowed_account_t *
 fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account,
-                                     void * buf );
+                                     void *                  buf );
 
 void *
 fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account );

@@ -1218,9 +1218,8 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     memcpy( borrowed_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
 
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
-      void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
       fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-
 
       /* All new accounts should have their rent epoch set to ULONG_MAX.
          https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
@@ -1243,7 +1242,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       FD_BORROWED_ACCOUNT_DECL(owner_borrowed_account);
       int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
       if( FD_UNLIKELY( err ) ) {
-        borrowed_account->starting_owner_dlen = 0;
+        borrowed_account->starting_owner_dlen = 0UL;
       } else {
         borrowed_account->starting_owner_dlen = owner_borrowed_account->const_meta->dlen;
       }
