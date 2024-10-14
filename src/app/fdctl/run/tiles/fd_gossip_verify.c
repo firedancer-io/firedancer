@@ -221,7 +221,7 @@ after_frag( void *             _ctx,
             ulong              seq        FD_PARAM_UNUSED,
             ulong *            opt_sig,
             ulong *            opt_chunk,
-            ulong *            opt_sz     FD_PARAM_UNUSED,
+            ulong *            opt_sz,
             ulong *            opt_tsorig FD_PARAM_UNUSED,
             int *              opt_filter,
             fd_mux_context_t * mux ) {

@@ -408,6 +408,7 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
   }
 
   uchar const * dcache_entry = (uchar *)fd_chunk_to_laddr_const( ctx->in[verify_tile_idx].mem, chunk );
+  ctx->gossip_buffer_sz = sz;
   fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
 }
 
