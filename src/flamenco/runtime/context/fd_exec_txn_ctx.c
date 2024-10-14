@@ -152,6 +152,7 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
   if( min_data_sz > txn_account->const_meta->dlen ) {
+    FD_LOG_WARNING(("MODIFY MODIFY %s", FD_BASE58_ENC_32_ALLOCA(txn_account->pubkey)));
     fd_borrowed_account_resize( txn_account, min_data_sz );
   }
 
@@ -219,7 +220,7 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
 
 /* TODO:FIXME: fd_spad_t move it around */
-  ulong acc_size = fd_ulong_align_up( 128UL * 10000000UL, FD_SPAD_ALIGN );
+  ulong acc_size = fd_ulong_align_up( 128UL * FD_ACC_SZ_MAX, FD_SPAD_ALIGN );
   FD_LOG_NOTICE(("acc size %lu", acc_size));
   uchar     * mem  = fd_valloc_malloc( txn_ctx->valloc, FD_SPAD_ALIGN, acc_size );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, acc_size ) ); /* 128 accounts for 10MB per account */

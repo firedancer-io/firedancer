@@ -1257,7 +1257,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
       fd_spad_push( txn_ctx->spad );
-      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, 10000000UL );
+      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_SZ_MAX );
 
       //void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
       fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );

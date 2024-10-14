@@ -416,7 +416,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         int err = 0;
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
             fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
-
+          FD_LOG_WARNING(("DESERIALIZATION %s %lu %lu", FD_BASE58_ENC_32_ALLOCA(view_acc->pubkey), pre_len, post_len));
           int err = fd_account_set_data_from_slice( &ctx, i, post_data, post_len );
           if( FD_UNLIKELY( err ) ) {
             return err;
