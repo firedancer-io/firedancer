@@ -257,6 +257,12 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
       sz = 0;
     }
   }
+  if( sz>0 ) {
+    fd_bn254_fp12_t tmp[1];
+    fd_bn254_miller_loop( tmp, p, q, sz );
+    fd_bn254_fp12_mul( r, r, tmp );
+    sz = 0;
+  }
 
   /* Compute the final exponentiation */
   fd_bn254_final_exp( r, r );

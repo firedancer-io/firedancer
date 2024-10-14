@@ -518,8 +518,8 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
       return FD_VM_ERR_SIGSEGV;                                                                             \
@@ -547,8 +547,8 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
       return FD_VM_ERR_SIGSEGV;                                                                             \
@@ -568,8 +568,8 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _vaddr, (align) )); \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
+    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
       return FD_VM_ERR_SIGSEGV;                                                                             \
