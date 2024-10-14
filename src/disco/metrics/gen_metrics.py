@@ -186,14 +186,16 @@ if __name__ == '__main__':
                 f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_NAME "{metric.full_name().lower()}"\n')
                 f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_TYPE ({metric.type_str()})\n')
                 f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_DESC "{metric.summary}"\n')
+                if metric.cvt == 'none':
+                    converter = 'FD_METRICS_CONVERTER_NONE'
+                elif metric.cvt == 'seconds':
+                    converter = 'FD_METRICS_CONVERTER_SECONDS'
+                elif metric.cvt == 'nanoseconds':
+                    converter = 'FD_METRICS_CONVERTER_NANOSECONDS'
+                f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_CVT  ({converter})\n')
                 if metric.type == 'histogram':
                     f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_MIN  ({metric.min})\n')
                     f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_MAX  ({metric.max})\n')
-                    if metric.cvt == 'none':
-                        converter = 'FD_METRICS_CONVERTER_NONE'
-                    elif metric.cvt == 'seconds':
-                        converter = 'FD_METRICS_CONVERTER_SECONDS'
-                    f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_CVT  ({converter})\n\n')
                 else:
                     f.write('\n')
                 offset += OFFSETS[metric.type]

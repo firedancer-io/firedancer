@@ -3,6 +3,7 @@
 #include "../../../../ballet/pack/fd_pack.h"
 #include "../../../../ballet/blake3/fd_blake3.h"
 #include "../../../../ballet/bmtree/fd_bmtree.h"
+#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../disco/metrics/generated/fd_metrics_bank.h"
@@ -54,15 +55,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_bank_ctx_t ) );
-}
-
 static inline void
-metrics_write( void * _ctx ) {
-  fd_bank_ctx_t * ctx = (fd_bank_ctx_t *)_ctx;
-
+metrics_write( fd_bank_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( BANK_TILE, SLOT_ACQUIRE,  ctx->metrics.slot_acquire );
 
   FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
@@ -72,28 +66,21 @@ metrics_write( void * _ctx ) {
 
 }
 
-static void
-before_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
+static int
+before_frag( fd_bank_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig ) {
   (void)in_idx;
   (void)seq;
 
-  fd_bank_ctx_t * ctx = (fd_bank_ctx_t *)_ctx;
-
-  if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) {
-    /* Pack also outputs "leader slot done" which we can ignore. */
-    *opt_filter = 1;
-    return;
-  }
+  /* Pack also outputs "leader slot done" which we can ignore. */
+  if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
 
   ulong target_bank_idx = fd_disco_poh_sig_bank_tile( sig );
-  if( FD_UNLIKELY( target_bank_idx!=ctx->kind_id ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  if( FD_UNLIKELY( target_bank_idx!=ctx->kind_id ) ) return 1;
+
+  return 0;
 }
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
@@ -104,19 +91,15 @@ extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
 extern int    fd_ext_bank_verify_precompiles( void const * bank, void const * txn );
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_bank_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig,
+             ulong           chunk,
+             ulong           sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)opt_filter;
-
-  fd_bank_ctx_t * ctx = (fd_bank_ctx_t *)_ctx;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -151,25 +134,21 @@ hash_transactions( void *       mem,
 }
 
 static inline void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_bank_ctx_t *     ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)in_idx;
-  (void)opt_chunk;
-  (void)opt_tsorig;
-  (void)opt_filter;
-
-  fd_bank_ctx_t * ctx = (fd_bank_ctx_t *)_ctx;
+  (void)chunk;
+  (void)tsorig;
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  ulong txn_cnt = (*opt_sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
   ulong sanitized_txn_cnt = 0UL;
   ulong sidecar_footprint_bytes = 0UL;
@@ -259,15 +238,16 @@ after_frag( void *             _ctx,
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_mux_publish( mux, *opt_sig, ctx->out_chunk, sz, 0UL, 0UL, tspub );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );
+  ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
+  fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
   void * blake3 = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
@@ -290,33 +270,31 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->pack_in_wmark  = fd_dcache_compact_wmark ( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
-}
+#define STEM_BURST (1UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_bank_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bank_ctx_t)
+
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_bank = {
   .name                     = "bank",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
-  .lazy                     = lazy,
-  .populate_allowed_seccomp = NULL,
-  .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

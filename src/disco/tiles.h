@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_app_fdctl_run_tiles_h
 #define HEADER_fd_src_app_fdctl_run_tiles_h
 
-#include "mux/fd_mux.h"
+#include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
 #include "../ballet/shred/fd_shred.h"
 #include "../ballet/pack/fd_pack.h"

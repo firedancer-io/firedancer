@@ -30,8 +30,9 @@
 #define STORE_IN_IDX    3
 #define SIGN_IN_IDX     4
 
-#define NET_OUT_IDX   0
-#define SIGN_OUT_IDX  1
+#define STORE_OUT_IDX 0
+#define NET_OUT_IDX   1
+#define SIGN_OUT_IDX  2
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -98,7 +99,7 @@ struct fd_repair_tile_ctx {
 
   fd_stake_ci_t * stake_ci;
 
-  fd_mux_context_t * mux;
+  fd_stem_context_t * stem;
 
   fd_wksp_t  *      blockstore_wksp;
   fd_blockstore_t * blockstore;
@@ -127,11 +128,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_repair_tile_ctx_t) );
 }
 
 void
@@ -280,7 +276,7 @@ repair_shred_deliver( fd_shred_t const *            shred,
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = 0UL;
-  fd_mux_publish( ctx->mux, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( ctx->stem, 0UL, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
   ctx->store_out_chunk = fd_dcache_compact_next( ctx->store_out_chunk, shred_sz, ctx->store_out_chunk0, ctx->store_out_wmark );
 }
 
@@ -293,28 +289,28 @@ repair_shred_deliver_fail( fd_pubkey_t const * id FD_PARAM_UNUSED,
   FD_LOG_WARNING(( "repair failed to get shred - slot: %lu, shred_index: %u, reason: %u", slot, shred_index, reason ));
 }
 
-static void
-before_frag( void * _ctx FD_PARAM_UNUSED,
-             ulong  in_idx,
-             ulong  seq  FD_PARAM_UNUSED,
-             ulong  sig,
-             int *  opt_filter ) {
+static inline int
+before_frag( fd_repair_tile_ctx_t * ctx,
+             ulong                  in_idx,
+             ulong                  seq,
+             ulong                  sig ) {
+  (void)ctx;
+  (void)seq;
 
-  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
-    *opt_filter = fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
-  }
+  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  return 0;
 }
 
 static void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq FD_PARAM_UNUSED,
-             ulong  sig FD_PARAM_UNUSED,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter FD_PARAM_UNUSED ) {
+during_frag( fd_repair_tile_ctx_t * ctx,
+             ulong                  in_idx,
+             ulong                  seq,
+             ulong                  sig,
+             ulong                  chunk,
+             ulong                  sz ) {
+  (void)seq;
+  (void)sig;
 
-  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
   uchar const * dcache_entry;
   ulong dcache_entry_sz;
 
@@ -360,20 +356,20 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq        FD_PARAM_UNUSED,
-            ulong *            opt_sig,
-            ulong *            opt_chunk  FD_PARAM_UNUSED,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig FD_PARAM_UNUSED,
-            int *              opt_filter FD_PARAM_UNUSED,
-            fd_mux_context_t * mux ) {
-
-  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
+after_frag( fd_repair_tile_ctx_t * ctx,
+            ulong                  in_idx,
+            ulong                  seq,
+            ulong                  sig,
+            ulong                  chunk,
+            ulong                  sz,
+            ulong                  tsorig,
+            fd_stem_context_t *    stem ) {
+  (void)seq;
+  (void)chunk;
+  (void)tsorig;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
-    handle_new_cluster_contact_info( ctx, ctx->buffer, *opt_sz );
+    handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
     return;
   }
 
@@ -384,12 +380,12 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
-    handle_new_repair_requests( ctx, ctx->buffer, *opt_sz );
+    handle_new_repair_requests( ctx, ctx->buffer, sz );
     return;
   }
 
-  ctx->mux = mux;
-  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
+  ctx->stem = stem;
+  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)ctx->buffer;
 
   fd_repair_peer_addr_t peer_addr;
@@ -399,18 +395,19 @@ after_frag( void *             _ctx,
 
   ushort dport = hdr->udp->net_dport;
   if( ctx->repair_intake_addr.port == dport )
-    fd_repair_recv_clnt_packet( ctx->repair, ctx->buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
+    fd_repair_recv_clnt_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr );
   else if( ctx->repair_serve_addr.port == dport )
-    fd_repair_recv_serv_packet( ctx->repair, ctx->buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
+    fd_repair_recv_serv_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr );
   else
     FD_LOG_WARNING(( "received packet for port %u, which seems wrong", (uint)fd_ushort_bswap( dport ) ));
 }
 
 static inline void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux FD_PARAM_UNUSED,
-              int *              opt_poll_in FD_PARAM_UNUSED ) {
-  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
+after_credit( fd_repair_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in ) {
+  (void)stem;
+  (void)opt_poll_in;
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 
@@ -468,10 +465,8 @@ repair_get_parent( ulong  slot,
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
-  (void)tile;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
@@ -488,8 +483,8 @@ privileged_init( fd_topo_t *      topo,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->in_cnt != 5 ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
@@ -501,15 +496,15 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 2 ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "repair_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name, "repair_sign" ) ) ) {
+  if( FD_UNLIKELY( tile->out_cnt != 3 ||
+                   strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "repair_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "repair_sign" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
-    FD_LOG_ERR(( "repair tile has no primary output link" ));
+  if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "repair tile has no primary output link" ));
 
   /* Scratch mem setup */
 
@@ -585,7 +580,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
 
-  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ 0 ] ];
   ctx->store_out_mcache = store_out->mcache;
   ctx->store_out_sync   = fd_mcache_seq_laddr( ctx->store_out_mcache );
   ctx->store_out_depth  = fd_mcache_depth( ctx->store_out_mcache );
@@ -646,40 +641,55 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_repair( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_repair_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch FD_PARAM_UNUSED,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  ulong out_cnt = 0;
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+/* TODO: This is probably not correct. */
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_ctx_t)
+
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_BEFORE_FRAG  before_frag
+#define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_repair = {
   .name                     = "repair",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
   .privileged_init          = privileged_init,
-  .mux_after_credit         = after_credit
+  .run                      = stem_run,
 };

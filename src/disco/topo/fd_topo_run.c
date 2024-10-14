@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_topo.h"
 
+#include "../metrics/fd_metrics.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
@@ -70,10 +71,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );
 
-  void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
   if( FD_UNLIKELY( tile_run->privileged_init ) )
-    tile_run->privileged_init( topo, tile, tile_mem );
+    tile_run->privileged_init( topo, tile );
 
   ulong allow_fds_offset = 0UL;
   int allow_fds[ 32 ] = { 0 };
@@ -83,7 +82,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   }
   ulong allow_fds_cnt = 0UL;
   if( FD_LIKELY( tile_run->populate_allowed_fds ) ) {
-    allow_fds_cnt = tile_run->populate_allowed_fds( tile_mem,
+    allow_fds_cnt = tile_run->populate_allowed_fds( topo,
+                                                    tile,
                                                     (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
                                                     allow_fds+allow_fds_offset );
   }
@@ -92,12 +92,13 @@ fd_topo_run_tile( fd_topo_t *          topo,
   struct sock_filter seccomp_filter[ 128UL ];
   ulong seccomp_filter_cnt = 0UL;
   if( FD_LIKELY( tile_run->populate_allowed_seccomp ) ) {
-    seccomp_filter_cnt = tile_run->populate_allowed_seccomp( tile_mem,
+    seccomp_filter_cnt = tile_run->populate_allowed_seccomp( topo,
+                                                             tile,
                                                              sizeof(seccomp_filter)/sizeof(seccomp_filter[ 0 ]),
                                                              seccomp_filter );
   }
 
-  if( FD_LIKELY( sandbox) ) {
+  if( FD_LIKELY( sandbox ) ) {
     fd_sandbox_enter( uid,
                       gid,
                       tile_run->keep_host_networking,
@@ -114,7 +115,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( topo, tile );
 
-  FD_TEST( tile->cnc );
   FD_TEST( tile->metrics );
   fd_metrics_register( tile->metrics );
 
@@ -122,77 +122,10 @@ fd_topo_run_tile( fd_topo_t *          topo,
   FD_MGAUGE_SET( TILE, TID, tid );
 
   if( FD_UNLIKELY( tile_run->unprivileged_init ) )
-    tile_run->unprivileged_init( topo, tile, tile_mem );
+    tile_run->unprivileged_init( topo, tile );
 
-  const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
-  ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
-
-  ulong polled_in_cnt = 0UL;
-  for( ulong i=0; i<tile->in_cnt; i++ ) {
-    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
-
-    in_mcache[ polled_in_cnt ] = topo->links[ tile->in_link_id[ i ] ].mcache;
-    FD_TEST( in_mcache[ polled_in_cnt ] );
-    in_fseq[ polled_in_cnt ]   = tile->in_link_fseq[ i ];
-    FD_TEST( in_fseq[ polled_in_cnt ] );
-    polled_in_cnt += 1;
-  }
-
-  ulong out_cnt_reliable = 0;
-  ulong * out_fseq[ FD_TOPO_MAX_LINKS ];
-  for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-    for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
-        out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
-        FD_TEST( out_fseq[ out_cnt_reliable ] );
-        out_cnt_reliable++;
-        /* Need to test this, since each link may connect to many outs,
-           you could construct a topology which has more than this
-           consumers of links. */
-        FD_TEST( out_cnt_reliable<FD_TOPO_MAX_LINKS );
-      }
-    }
-  }
-
-  fd_mux_callbacks_t callbacks = {
-    .during_housekeeping = tile_run->mux_during_housekeeping,
-    .before_credit       = tile_run->mux_before_credit,
-    .after_credit        = tile_run->mux_after_credit,
-    .before_frag         = tile_run->mux_before_frag,
-    .during_frag         = tile_run->mux_during_frag,
-    .after_frag          = tile_run->mux_after_frag,
-    .metrics_write       = tile_run->mux_metrics_write,
-  };
-
-  void * ctx = NULL;
-  if( FD_LIKELY( tile_run->mux_ctx ) ) ctx = tile_run->mux_ctx( tile_mem );
-
-  long lazy = 0L;
-  if( FD_UNLIKELY( tile_run->lazy ) ) lazy = tile_run->lazy( tile_mem );
-
-  fd_rng_t rng[1];
-  int ret = 0;
-  if( FD_LIKELY( tile_run->main == NULL ) ) {
-    ret = fd_mux_tile( tile->cnc,
-                       tile_run->mux_flags,
-                       polled_in_cnt,
-                       in_mcache,
-                       in_fseq,
-                       tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
-                       out_cnt_reliable,
-                       out_fseq,
-                       tile_run->burst,
-                       0,
-                       lazy,
-                       fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
-                       fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
-                       ctx,
-                       &callbacks );
-  } else {
-    ret = tile_run->main();
-  }
-  FD_LOG_ERR(( "tile run loop returned: %d", ret ));
+  tile_run->run( topo, tile );
+  FD_LOG_ERR(( "tile run loop returned" ));
 }
 
 typedef struct {

@@ -124,13 +124,10 @@ fd_topo_tile_t *
 fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_name,
                char const *   tile_wksp,
-               char const *   cnc_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
-               char const *   out_link,
-               ulong          out_link_kind_id ) {
-  if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !cnc_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
+               int            is_agave ) {
+  if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
   if( FD_UNLIKELY( topo->tile_cnt>=FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "too many tiles" ));
 
@@ -148,35 +145,15 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
   tile->uses_obj_cnt        = 0UL;
-  tile->out_link_id_primary = ULONG_MAX;
-  if( FD_LIKELY( out_link ) ) {
-    tile->out_link_id_primary = fd_topo_find_link( topo, out_link, out_link_kind_id );
-    if( FD_UNLIKELY( tile->out_link_id_primary==ULONG_MAX ) ) FD_LOG_ERR(( "out_link not found: %s:%lu", out_link, out_link_kind_id ));
-  }
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
   tile->tile_obj_id = tile_obj->id;
   fd_topob_tile_uses( topo, tile, tile_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topo_obj_t * obj = fd_topob_obj( topo, "cnc", cnc_wksp );
-  tile->cnc_obj_id = obj->id;
-  fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  obj = fd_topob_obj( topo, "metrics", metrics_wksp );
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "metrics", metrics_wksp );
   tile->metrics_obj_id = obj->id;
   fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 0UL, "obj.%lu.in_cnt",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 0UL, "obj.%lu.out_cnt", obj->id ) );
 
-  if( FD_LIKELY( out_link ) ) {
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id_primary ];
-    fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-    if( FD_UNLIKELY( link->is_reasm ) ) {
-      fd_topob_tile_uses( topo, tile, &topo->objs[ link->reasm_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-    } else if( FD_LIKELY( link->mtu ) ) {
-      fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-    }
-  }
   topo->tile_cnt++;
   return tile;
 }
@@ -214,22 +191,6 @@ fd_topob_tile_in( fd_topo_t *  topo,
     fd_topob_tile_uses( topo, tile, &topo->objs[ link->reasm_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   } else if( FD_LIKELY( link->mtu ) ) {
     fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  }
-
-  if( FD_LIKELY( polled ) ) {
-    ulong in_cnt = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.in_cnt", tile->metrics_obj_id );
-    FD_TEST( in_cnt!=ULONG_MAX );
-    FD_TEST( !fd_pod_replacef_ulong( topo->props, in_cnt+1UL, "obj.%lu.in_cnt", tile->metrics_obj_id ) );
-  }
-
-  if( FD_LIKELY( reliable ) ) {
-    ulong producer_idx = fd_topo_find_link_producer( topo, link );
-    if( FD_UNLIKELY( producer_idx!=ULONG_MAX ) ) {
-      fd_topo_tile_t * producer = &topo->tiles[ producer_idx ];
-      ulong out_cnt = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.out_cnt", producer->metrics_obj_id );
-      FD_TEST( out_cnt!=ULONG_MAX );
-      FD_TEST( !fd_pod_replacef_ulong( topo->props, out_cnt+1UL, "obj.%lu.out_cnt", producer->metrics_obj_id ) );
-    }
   }
 }
 
@@ -299,16 +260,6 @@ validate( fd_topo_t const * topo ) {
     }
   }
 
-  /* Tile outs are different than primary out */
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( topo->tiles[i].out_link_id_primary != ULONG_MAX ) {
-      for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
-        if( FD_UNLIKELY( topo->tiles[ i ].out_link_id[ j ] == topo->tiles[ i ].out_link_id_primary ) )
-          FD_LOG_ERR(( "tile %lu has out link %lu same as primary out", i, topo->tiles[ i ].out_link_id[ j ] ));
-      }
-    }
-  }
-
   /* Tile outs are different than ins */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
@@ -325,28 +276,12 @@ validate( fd_topo_t const * topo ) {
     }
   }
 
-  /* Tile ins are different than primary out */
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( topo->tiles[i].out_link_id_primary != ULONG_MAX ) {
-      for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
-        if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] == topo->tiles[ i ].out_link_id_primary ) )
-          FD_LOG_ERR(( "tile %lu has in link %lu same as primary out", i, topo->tiles[ i ].in_link_id[ j ] ));
-      }
-    }
-  }
-
   /* Non polling tile ins are also not reliable */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
       if( FD_UNLIKELY( !topo->tiles[ i ].in_link_poll[ j ] && topo->tiles[ i ].in_link_reliable[ j ] ) )
         FD_LOG_ERR(( "tile %lu has in link %lu which is not polled but reliable", i, topo->tiles[ i ].in_link_id[ j ] ));
     }
-  }
-
-  /* Tile out is valid */
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( FD_UNLIKELY( topo->tiles[ i ].out_link_id_primary >= topo->link_cnt && topo->tiles[ i ].out_link_id_primary != ULONG_MAX ) )
-      FD_LOG_ERR(( "tile %lu has invalid out link %lu", i, topo->tiles[ i ].out_link_id_primary ));
   }
 
   /* Tile outs are valid */
@@ -379,7 +314,6 @@ validate( fd_topo_t const * topo ) {
       for( ulong k=0UL; k<topo->tiles[ j ].out_cnt; k++ ) {
         if( topo->tiles[ j ].out_link_id[ k ]==i ) producer_cnt++;
       }
-      if( topo->tiles[ j ].out_link_id_primary==i ) producer_cnt++;
     }
     if( FD_UNLIKELY( producer_cnt!=1UL ) )
       FD_LOG_ERR(( "link %lu (%s:%lu) has %lu producers", i, topo->links[ i ].name, topo->links[ i ].kind_id, producer_cnt ));
@@ -498,6 +432,31 @@ fd_topob_finish( fd_topo_t * topo,
                  ulong (* align    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
                  ulong (* footprint)( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
                  ulong (* loose    )( fd_topo_t const * topo, fd_topo_obj_t const * obj) ) {
+  for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ z ];
+
+    ulong in_cnt = 0UL;
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+      in_cnt++;
+    }
+
+    ulong cons_cnt = 0UL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+      for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+        for( ulong k=0UL; k<tile->out_cnt; k++ ) {
+          if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
+            cons_cnt++;
+          }
+        }
+      }
+    }
+
+    FD_TEST( !fd_pod_replacef_ulong( topo->props, in_cnt, "obj.%lu.in_cnt", tile->metrics_obj_id ) );
+    FD_TEST( !fd_pod_replacef_ulong( topo->props, cons_cnt, "obj.%lu.cons_cnt", tile->metrics_obj_id ) );
+  }
+
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 

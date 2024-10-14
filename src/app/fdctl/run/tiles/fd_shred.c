@@ -87,10 +87,11 @@
 #define POH_IN_IDX      1
 #define STAKE_IN_IDX    2
 #define CONTACT_IN_IDX  3
-#define SIGN_IN_IDX   4
+#define SIGN_IN_IDX     4
 
-#define NET_OUT_IDX     0
-#define SIGN_OUT_IDX    1
+#define STORE_OUT_IDX   0
+#define NET_OUT_IDX     1
+#define SIGN_OUT_IDX    2
 
 #define MAX_SLOTS_PER_EPOCH 432000UL
 
@@ -134,6 +135,8 @@ typedef struct {
   ulong                      shredded_txn_cnt;
 
   ushort net_id;
+
+  int skip_frag;
 
   fd_net_hdrs_t data_shred_net_hdr  [1];
   fd_net_hdrs_t parity_shred_net_hdr[1];
@@ -231,15 +234,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_shred_ctx_t ) );
-}
-
 static inline void
-metrics_write( void * _ctx ) {
-  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
-
+metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, CLUSTER_CONTACT_INFO_CNT,   ctx->metrics->contact_info_cnt      );
   FD_MHIST_COPY( SHRED, BATCH_SZ,                   ctx->metrics->batch_sz              );
   FD_MHIST_COPY( SHRED, BATCH_MICROBLOCK_CNT,       ctx->metrics->batch_microblock_cnt  );
@@ -278,33 +274,30 @@ finalize_new_cluster_contact_info( fd_shred_ctx_t * ctx ) {
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
-static void
+static int
 before_frag( void * ctx,
              ulong  in_idx,
              ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
+             ulong  sig ) {
   (void)ctx;
   (void)seq;
 
-  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
-    *opt_filter = fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
-  } else if( FD_LIKELY( in_idx==POH_IN_IDX ) ) {
-    *opt_filter = fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
-  }
+  if( FD_LIKELY( in_idx==NET_IN_IDX ) )      return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
+  else if( FD_LIKELY( in_idx==POH_IN_IDX ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
+
+  return 0;
 }
 
 static void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_shred_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig,
+             ulong           chunk,
+             ulong           sz ) {
   (void)seq;
 
-  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
+  ctx->skip_frag = 0;
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -388,7 +381,7 @@ during_frag( void * _ctx,
       fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
     } else {
       /* If we are not processing this batch, filter */
-      *opt_filter = 1;
+      ctx->skip_frag = 1;
     }
     ctx->pending_batch.pos            += entry_sz;
     ctx->pending_batch.microblock_cnt += 1UL;
@@ -444,7 +437,7 @@ during_frag( void * _ctx,
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
     if( FD_UNLIKELY( !shred ) ) {
-      *opt_filter = 1;
+      ctx->skip_frag = 1;
       return;
     };
     /* all shreds in the same FEC set will have the same signature
@@ -452,7 +445,7 @@ during_frag( void * _ctx,
        just the signature without splitting individual FEC sets. */
     ulong sig = fd_ulong_load_8( shred->signature );
     if( FD_LIKELY( sig%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
-      *opt_filter = 1;
+      ctx->skip_frag = 1;
       return;
     }
     fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
@@ -502,23 +495,19 @@ send_shred( fd_shred_ctx_t *      ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_shred_ctx_t *    ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)seq;
-  (void)opt_sig;
-  (void)opt_chunk;
-  (void)opt_sz;
-  (void)opt_tsorig;
-  (void)opt_filter;
-
-  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
+  (void)sig;
+  (void)chunk;
+  (void)sz;
+  (void)tsorig;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     finalize_new_cluster_contact_info( ctx );
@@ -615,14 +604,14 @@ after_frag( void *             _ctx,
   ulong sz3 = sizeof(fd_shred34_t) - (34UL - s34[ 3 ].shred_cnt)*FD_SHRED_MAX_SZ;
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
-  ulong sig = in_idx!=NET_IN_IDX; /* sig==0 means the store tile will do extra checks */
+  ulong new_sig = in_idx!=NET_IN_IDX; /* sig==0 means the store tile will do extra checks */
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
+  fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
-    fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
-  fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
+    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
+  fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
-    fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
+    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
 
 
   /* Compute all the destinations for all the new shreds */
@@ -657,9 +646,8 @@ after_frag( void *             _ctx,
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
@@ -679,8 +667,9 @@ fd_shred_signer( void *        signer_ctx,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   if( FD_UNLIKELY( tile->in_cnt!=5UL ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
@@ -690,19 +679,21 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "shred_net" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name, "shred_sign"   ) ) )
+  if( FD_UNLIKELY( tile->out_cnt!=3UL ||
+                   (strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_store" ) &&
+                      strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_storei" ) )  ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "shred_net"   )  ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "shred_sign"  ) ) )
     FD_LOG_ERR(( "shred tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
-  ulong shred_store_mcache_depth = tile->shred.depth;
-  if( topo->links[ tile->out_link_id_primary ].depth != shred_store_mcache_depth )
-    FD_LOG_ERR(( "shred tile out depths are not equal %lu %lu",
-                 topo->links[ tile->out_link_id_primary ].depth, shred_store_mcache_depth ));
-
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
+  if( FD_UNLIKELY( !tile->out_cnt ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
+
+  ulong shred_store_mcache_depth = tile->shred.depth;
+  if( topo->links[ tile->out_link_id[ 0 ] ].depth != shred_store_mcache_depth )
+    FD_LOG_ERR(( "shred tile out depths are not equal %lu %lu",
+                 topo->links[ tile->out_link_id[ 0 ] ].depth, shred_store_mcache_depth ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
@@ -716,8 +707,7 @@ unprivileged_init( fd_topo_t *      topo,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt            = shred_store_mcache_depth + tile->shred.fec_resolver_depth + 4UL;
 
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) ) FD_LOG_ERR(( "shred tile has no primary output link" ));
-  void * store_out_dcache = topo->links[ tile->out_link_id_primary ].dcache;
+  void * store_out_dcache = topo->links[ tile->out_link_id[ 0 ] ].dcache;
 
   ulong required_dcache_sz = fec_set_cnt*DCACHE_ENTRIES_PER_FEC_SET*sizeof(fd_shred34_t);
   if( fd_dcache_data_sz( store_out_dcache )<required_dcache_sz ) {
@@ -846,7 +836,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
   ctx->store_out_mem    = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
@@ -888,50 +878,56 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_shred( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_shred_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
-  ulong out_cnt = 0;
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
-}
+#define STEM_BURST (4UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_shred_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_shred_ctx_t)
+
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_shred = {
   .name                     = "shred",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 4UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .mux_metrics_write        = metrics_write,
+  .run                      = stem_run,
 };

@@ -1,7 +1,8 @@
 #include "../../../../disco/tiles.h"
 
 #include "generated/quic_seccomp.h"
-#include "../../../../disco/metrics/generated/fd_metrics_quic.h"
+
+#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../waltz/quic/fd_quic.h"
@@ -33,7 +34,7 @@
 typedef struct {
   fd_tpu_reasm_t * reasm;
 
-  fd_mux_context_t * mux;
+  fd_stem_context_t * stem;
 
   uchar identity_public_key[ 32UL ];
   fd_quic_t *      quic;
@@ -106,11 +107,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_quic_ctx_t ) );
-}
-
 /* legacy_stream_notify is called for transactions sent via TPU/UDP. For
    now both QUIC and non-QUIC transactions are accepted, with traffic
    type determined by port.
@@ -123,7 +119,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
                       ulong           packet_sz ) {
 
-  fd_mux_context_t * mux = ctx->mux;
+  fd_stem_context_t * stem = ctx->stem;
 
   uint                  tsorig = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_tpu_reasm_slot_t * slot   = fd_tpu_reasm_prepare( ctx->reasm, tsorig );
@@ -134,22 +130,20 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
 
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   void * base  = ctx->verify_out_mem;
-  ulong  seq   = *mux->seq;
+  ulong  seq   = stem->seqs[0];
 
-  int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, mux->mcache, base, seq, tspub );
+  int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, stem->mcaches[0], base, seq, tspub );
   ctx->metrics.legacy_reasm_publish[ pub_err ]++;
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
-  fd_mux_advance( mux );
+  fd_stem_advance( stem, 0UL );
 }
 
 /* Because of the separate mcache for publishing network fragments
    back to networking tiles, which is not managed by the mux, we
    need to periodically update the sync. */
 static void
-during_housekeeping( void * _ctx ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
+during_housekeeping( fd_quic_ctx_t * ctx ) {
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 }
 
@@ -159,21 +153,17 @@ during_housekeeping( void * _ctx ) {
    this behavior, and enables the QUIC tile to publish as fast as it
    can.  It would currently be difficult trying to backpressure further
    up the stack to the network itself. */
-static void
-before_credit( void *             _ctx,
-               fd_mux_context_t * mux ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
-  ctx->mux = mux;
+static inline void
+before_credit( fd_quic_ctx_t *     ctx,
+               fd_stem_context_t * stem ) {
+  ctx->stem = stem;
 
   /* Publishes to mcache via callbacks */
   fd_quic_service( ctx->quic );
 }
 
 static inline void
-metrics_write( void * _ctx ) {
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
+metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( QUIC_TILE, NON_QUIC_REASSEMBLY_APPEND,  ctx->metrics.legacy_reasm_append );
   FD_MCNT_ENUM_COPY( QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH, ctx->metrics.legacy_reasm_publish );
   FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_APPEND,           ctx->metrics.reasm_append );
@@ -205,44 +195,33 @@ metrics_write( void * _ctx ) {
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
 }
 
-static void
-before_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
+static int
+before_frag( fd_quic_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig ) {
   (void)in_idx;
   (void)seq;
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
   ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto!=DST_PROTO_TPU_UDP && proto!=DST_PROTO_TPU_QUIC ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  if( FD_UNLIKELY( proto!=DST_PROTO_TPU_UDP && proto!=DST_PROTO_TPU_QUIC ) ) return 1;
 
   ulong hash = fd_disco_netmux_sig_hash( sig );
-  if( FD_UNLIKELY( (hash % ctx->round_robin_cnt) != ctx->round_robin_id ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  if( FD_UNLIKELY( (hash % ctx->round_robin_cnt) != ctx->round_robin_id ) ) return 1;
+
+  return 0;
 }
 
 static void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_quic_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig,
+             ulong           chunk,
+             ulong           sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)opt_filter;
-
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
@@ -252,39 +231,35 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_quic_ctx_t *     ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)opt_chunk;
-  (void)opt_tsorig;
-  (void)opt_filter;
-  (void)mux;
+  (void)chunk;
+  (void)tsorig;
+  (void)stem;
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
-  ulong proto = fd_disco_netmux_sig_proto( *opt_sig );
+  ulong proto = fd_disco_netmux_sig_proto( sig );
 
   if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
-    fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)*opt_sz };
+    fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)sz };
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
-    ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    if( FD_UNLIKELY( *opt_sz<=network_hdr_sz ) ) {
+    ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
+    if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
       FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
       return;
     }
 
-    ulong data_sz = *opt_sz - network_hdr_sz;
+    ulong data_sz = sz - network_hdr_sz;
     if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
       /* Smaller than the smallest possible transaction */
       FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
@@ -415,8 +390,8 @@ quic_stream_notify( fd_quic_stream_t * stream,
   fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
   fd_tpu_reasm_t *      reasm  = ctx->reasm;
   fd_tpu_reasm_slot_t * slot   = stream_ctx;
-  fd_mux_context_t *    mux    = ctx->mux;
-  fd_frag_meta_t *      mcache = mux->mcache;
+  fd_stem_context_t *   stem   = ctx->stem;
+  fd_frag_meta_t *      mcache = stem->mcaches[0];
   void *                base   = ctx->verify_out_mem;
 
   /* Check if reassembly slot is still valid */
@@ -440,13 +415,13 @@ quic_stream_notify( fd_quic_stream_t * stream,
 
   /* Publish message */
 
-  ulong  seq   = *mux->seq;
+  ulong  seq   = stem->seqs[0];
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
   ctx->metrics.reasm_publish[ pub_err ]++;
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
-  fd_mux_advance( mux );
+  fd_stem_advance( stem, 0UL );
 }
 
 static int
@@ -512,9 +487,8 @@ quic_tx_aio_send( void *                    _ctx,
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
@@ -543,24 +517,26 @@ fd_quic_tls_cv_signer( void *        signer_ctx,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   if( FD_UNLIKELY( tile->in_cnt!=2UL ||
                    strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ||
                    strcmp( topo->links[ tile->in_link_id[ 1UL ] ].name, "sign_quic" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ||
-                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_sign" ) ) )
+  if( FD_UNLIKELY( tile->out_cnt!=3UL ||
+                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ 2UL ] ].name, "quic_sign" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
 
   ulong depth = tile->quic.depth;
-  if( topo->links[ tile->out_link_id_primary ].depth != depth )
+  if( topo->links[ tile->out_link_id[ 0 ] ].depth != depth )
     FD_LOG_ERR(( "quic tile in depths are not equal" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -569,7 +545,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* End privileged allocs */
 
   fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ 1UL ] ];
-  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ 1UL ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ 2UL ] ];
   FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                             sign_out->mcache,
                                                             sign_out->dcache,
@@ -626,7 +602,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
   ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 0 ] ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
 
   ctx->net_out_mcache = net_out->mcache;
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
@@ -637,10 +613,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-  if( FD_UNLIKELY( tile->out_link_id_primary==ULONG_MAX ) )
+  if( FD_UNLIKELY( !tile->out_cnt ) )
     FD_LOG_ERR(( "quic tile has no primary output link" ));
 
-  fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
   ctx->verify_out_mem = topo->workspaces[ topo->objs[ verify_out->reasm_obj_id ].wksp_id ].wksp;
 
@@ -662,44 +638,55 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_quic_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
-  ulong out_cnt = 0;
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
+
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_quic = {
   .name                     = "quic",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_housekeeping  = during_housekeeping,
-  .mux_before_credit        = before_credit,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

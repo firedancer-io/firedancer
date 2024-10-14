@@ -53,11 +53,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_sign_ctx_t ) );
-}
-
 /* during_frag is called between pairs for sequence number checks, as
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, see fd_dedup.c for why we do this.*/
@@ -68,13 +63,11 @@ during_frag_sensitive( void * _ctx,
                        ulong  seq,
                        ulong  sig,
                        ulong  chunk,
-                       ulong  sz,
-                       int *  opt_filter ) {
+                       ulong  sz ) {
   (void)seq;
   (void)sig;
   (void)chunk;
   (void)sz;
-  (void)opt_filter;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
@@ -95,32 +88,27 @@ during_frag( void * _ctx,
              ulong  seq,
              ulong  sig,
              ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
-  during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz, opt_filter );
+             ulong  sz ) {
+  during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
 }
 
 static void FD_FN_SENSITIVE
-after_frag_sensitive( void *             _ctx,
-                      ulong              in_idx,
-                      ulong              seq,
-                      ulong *            opt_sig,
-                      ulong *            opt_chunk,
-                      ulong *            opt_sz,
-                      ulong *            opt_tsorig,
-                      int *              opt_filter,
-                      fd_mux_context_t * mux ) {
+after_frag_sensitive( void *              _ctx,
+                      ulong               in_idx,
+                      ulong               seq,
+                      ulong               sig,
+                      ulong               chunk,
+                      ulong               sz,
+                      ulong               tsorig,
+                      fd_stem_context_t * stem ) {
   (void)seq;
-  (void)opt_chunk;
-  (void)opt_tsorig;
-  (void)opt_filter;
-  (void)mux;
+  (void)chunk;
+  (void)tsorig;
+  (void)stem;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  ulong sz        = *opt_sz;
-  ulong sig       = *opt_sig;
-  int   sign_type = (int)(uint)sig;
+  int sign_type = (int)(uint)sig;
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -158,23 +146,21 @@ after_frag_sensitive( void *             _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
-  after_frag_sensitive( _ctx, in_idx, seq, opt_sig, opt_chunk, opt_sz, opt_tsorig, opt_filter, mux );
+after_frag( void *              _ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
+  after_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz, tsorig, stem );
 }
 
 static void FD_FN_SENSITIVE
 privileged_init_sensitive( fd_topo_t *      topo,
-                           fd_topo_tile_t * tile,
-                           void *           scratch ) {
-  (void)topo;
+                           fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
@@ -203,15 +189,15 @@ privileged_init_sensitive( fd_topo_t *      topo,
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  privileged_init_sensitive( topo, tile, scratch );
+                 fd_topo_tile_t * tile ) {
+  privileged_init_sensitive( topo, tile );
 }
 
 static void FD_FN_SENSITIVE
 unprivileged_init_sensitive( fd_topo_t *      topo,
-                             fd_topo_tile_t * tile,
-                             void *           scratch ) {
+                             fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
@@ -284,26 +270,31 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
-  unprivileged_init_sensitive( topo, tile, scratch );
+                   fd_topo_tile_t * tile ) {
+  unprivileged_init_sensitive( topo, tile );
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_sign( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_sign_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
+
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -312,25 +303,26 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
-}
+#define STEM_BURST (1UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_sign_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sign_ctx_t)
+
+#define STEM_CALLBACK_DURING_FRAG during_frag
+#define STEM_CALLBACK_AFTER_FRAG  after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_sign = {
   .name                     = "sign",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

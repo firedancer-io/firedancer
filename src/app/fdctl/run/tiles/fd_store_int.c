@@ -5,6 +5,8 @@
 #include "../../../../disco/tiles.h"
 
 #include "generated/store_int_seccomp.h"
+
+#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../flamenco/repair/fd_repair.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
@@ -38,7 +40,8 @@
 #define STAKE_IN_IDX    0
 #define REPAIR_IN_IDX   1
 
-#define REPAIR_OUT_IDX  0
+#define REPLAY_OUT_IDX  0
+#define REPAIR_OUT_IDX  1
 
 /* TODO: Determine/justify optimal number of repair requests */
 #define MAX_REPAIR_REQS  ( (ulong)USHORT_MAX / sizeof(fd_repair_request_t) )
@@ -159,20 +162,14 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_store_tile_ctx_t) );
-}
-
 static void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq        FD_PARAM_UNUSED,
-             ulong  sig        FD_PARAM_UNUSED,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter FD_PARAM_UNUSED ) {
-  fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
+during_frag( fd_store_tile_ctx_t * ctx,
+             ulong                 in_idx,
+             ulong                 seq,
+             ulong                 sig,
+             ulong                 chunk,
+             ulong                 sz ) {
+  (void)seq;
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
@@ -207,17 +204,20 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq          FD_PARAM_UNUSED,
-            ulong *            opt_sig      FD_PARAM_UNUSED,
-            ulong *            opt_chunk    FD_PARAM_UNUSED,
-            ulong *            opt_sz       FD_PARAM_UNUSED,
-            ulong *            opt_tsorig   FD_PARAM_UNUSED,
-            int *              opt_filter   FD_PARAM_UNUSED,
-            fd_mux_context_t * mux          FD_PARAM_UNUSED ) {
-
-  fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
+after_frag( fd_store_tile_ctx_t * ctx,
+            ulong                 in_idx,
+            ulong                 seq,
+            ulong                 sig,
+            ulong                 chunk,
+            ulong                 sz,
+            ulong                 tsorig,
+            fd_stem_context_t *   stem ) {
+  (void)seq;
+  (void)sig;
+  (void)chunk;
+  (void)sz;
+  (void)tsorig;
+  (void)stem;
 
   ctx->store->now = fd_log_wallclock();
 
@@ -284,24 +284,10 @@ after_frag( void *             _ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
-
-  if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
-    FD_LOG_ERR(( "identity_key_path not set" ));
-
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
-}
-
-static void
 fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
-                            fd_mux_context_t * mux_ctx,
-                            int store_slot_prepare_mode,
-                            ulong slot ) {
+                            fd_stem_context_t *  stem,
+                            int                  store_slot_prepare_mode,
+                            ulong                slot ) {
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_repair_request_t * repair_reqs = fd_chunk_to_laddr( ctx->repair_req_out_mem, ctx->repair_req_out_chunk );
   /* We are leader at this slot and the slot is newer than turbine! */
@@ -453,7 +439,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       out_buf += sizeof(ulong);
 
       ulong out_sz = sizeof(ulong) + sizeof(fd_hash_t) + ( txn_cnt * sizeof(fd_txn_p_t) );
-      fd_mux_publish( mux_ctx, replay_sig, ctx->replay_out_chunk, txn_cnt, 0UL, tsorig, tspub );
+      fd_stem_publish( stem, 0UL, replay_sig, ctx->replay_out_chunk, txn_cnt, 0UL, tsorig, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, out_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
     } FD_SCRATCH_SCOPE_END;
   }
@@ -473,10 +459,10 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 }
 
 static void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux_ctx,
-              int *              opt_poll_in FD_PARAM_UNUSED ) {
-  fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
+after_credit( fd_store_tile_ctx_t * ctx,
+              fd_stem_context_t *   stem,
+              int *                 opt_poll_in ) {
+  (void)opt_poll_in;
 
   fd_mcache_seq_update( ctx->replay_out_sync, ctx->replay_out_seq );
   fd_mcache_seq_update( ctx->repair_req_out_sync, ctx->repair_req_out_seq );
@@ -490,7 +476,7 @@ after_credit( void *             _ctx,
 
   for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
     if( ctx->txn_iter_map[i].slot != FD_SLOT_NULL ) {
-      fd_store_tile_slot_prepare( ctx, mux_ctx, FD_STORE_SLOT_PREPARE_CONTINUE, ctx->txn_iter_map[i].slot );
+      fd_store_tile_slot_prepare( ctx, stem, FD_STORE_SLOT_PREPARE_CONTINUE, ctx->txn_iter_map[i].slot );
     }
   }
 
@@ -503,15 +489,28 @@ after_credit( void *             _ctx,
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
-    fd_store_tile_slot_prepare( ctx, mux_ctx, store_slot_prepare_mode, slot );
+    fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
   }
 }
 
 static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+
+  if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
+    FD_LOG_ERR(( "identity_key_path not set" ));
+
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
-  fd_flamenco_boot( NULL, NULL );
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->in_cnt < 3 ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX  ] ].name, "stake_out" )    ||
@@ -519,13 +518,11 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "store tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt != 1 ||
+  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+                   strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name, "store_replay" ) ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "store_repair" ) ) )
     FD_LOG_ERR(( "store tile has none or unexpected output links %lu %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name ));
-
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
-    FD_LOG_ERR(( "store tile should have a primary output link" ));
 
   /* Scratch mem setup */
 
@@ -643,7 +640,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_req_out_chunk  = ctx->repair_req_out_chunk0;
 
   /* Set up replay output */
-  fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ];
   ctx->replay_out_mcache = replay_out->mcache;
   ctx->replay_out_sync   = fd_mcache_seq_laddr( ctx->replay_out_mcache );
   ctx->replay_out_depth  = fd_mcache_depth( ctx->replay_out_mcache );
@@ -706,39 +703,53 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_store_int_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch     FD_PARAM_UNUSED,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  ulong out_cnt = 0;
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_store_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_store_tile_ctx_t)
+
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_store_int = {
   .name                     = "storei",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
-  .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

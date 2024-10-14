@@ -55,7 +55,7 @@ extern FD_TL ulong * fd_metrics_base_tl;
    pointer.  You shouldn't need to use this directly, instead it is used
    by the macros below like FD_MCNT_SET etc.  The thread local should be
    set by calling fd_metrics_register. */
-extern FD_TL ulong * fd_metrics_tl;
+extern FD_TL volatile ulong * fd_metrics_tl;
 
 #define FD_METRICS_ALIGN (128UL)
 #define FD_METRICS_FOOTPRINT(in_link_cnt, out_link_reliable_consumer_cnt)                                   \
@@ -123,17 +123,17 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_metrics_tile returns a pointer to the tile-specific metrics area
    for the given metrics object.  */
-static inline ulong *
+static inline volatile ulong *
 fd_metrics_tile( ulong * metrics ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[ 0 ] + FD_METRICS_ALL_LINK_OUT_TOTAL*metrics[ 1 ]; }
 
 /* fd_metrics_link_in returns a pointer the in-link metrics area for the
    given in link index of this metrics object. */
-static inline ulong *
+static inline volatile ulong *
 fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*in_idx; }
 
 /* fd_metrics_link_in returns a pointer the in-link metrics area for the
    given out link index of this metrics object. */
-static inline ulong *
+static inline volatile ulong *
 fd_metrics_link_out( ulong * metrics, ulong out_idx ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[0] + FD_METRICS_ALL_LINK_OUT_TOTAL*out_idx; }
 
 /* fd_metrics_new formats an unused memory region for use as a metrics.
@@ -178,6 +178,12 @@ static inline double
 fd_metrics_convert_ticks_to_seconds( ulong ticks ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   return (double)ticks / (tick_per_ns * 1e9);
+}
+
+static inline ulong
+fd_metrics_convert_ticks_to_nanoseconds( ulong ticks ) {
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  return (ulong)((double)ticks / tick_per_ns);
 }
 
 static inline ulong * fd_metrics_join  ( void * mem ) { return mem; }

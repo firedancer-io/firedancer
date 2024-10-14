@@ -2,7 +2,7 @@
 #define HEADER_fd_src_disco_fd_disco_h
 
 //#include "fd_disco_base.h"    /* includes ../tango/fd_tango.h */
-#include "mux/fd_mux.h"         /* includes fd_disco_base.h */
+#include "stem/fd_stem.h"       /* includes fd_disco_base.h */
 #include "metrics/fd_metrics.h" /* includes fd_disco_base.h */
 #include "replay/fd_replay.h"   /* includes fd_disco_base.h */
 #include "../flamenco/types/fd_types_custom.h"

@@ -2,6 +2,9 @@
 #include "fd_verify.h"
 
 #include "generated/dedup_seccomp.h"
+
+#include "../../../../disco/metrics/fd_metrics.h"
+
 #include <linux/unistd.h>
 
 /* fd_dedup provides services to deduplicate multiple streams of input
@@ -62,11 +65,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_dedup_ctx_t ) );
-}
-
 /* during_frag is called between pairs for sequence number checks, as
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, flow control prevents it getting overrun, and
@@ -87,18 +85,14 @@ mux_ctx( void * scratch ) {
       banking stage. */
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_dedup_ctx_t * ctx,
+             ulong            in_idx,
+             ulong            seq,
+             ulong            sig,
+             ulong            chunk,
+             ulong            sz ) {
   (void)seq;
   (void)sig;
-  (void)opt_filter;
-
-  fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -117,20 +111,17 @@ during_frag( void * _ctx,
    parsed by us.  So parse it here if necessary. */
 
 static inline void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int   *            opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_dedup_ctx_t *    ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)seq;
-  (void)opt_tsorig;
-  (void)mux;
-
-  fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
+  (void)sig;
+  (void)chunk;
 
   /* Transactions coming from verify tile, already parsed.
      We need to reconstruct fd_txn_t * txn, because we need the
@@ -139,7 +130,7 @@ after_frag( void *             _ctx,
      payload_sz that's stored as ushort at the end of the
      dcache_entry. */
   uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  ushort * payload_sz_p = (ushort *)(dcache_entry + *opt_sz - sizeof(ushort));
+  ushort * payload_sz_p = (ushort *)(dcache_entry + sz - sizeof(ushort));
   ulong payload_sz = *payload_sz_p;
   ulong txn_off = fd_ulong_align_up( payload_sz, 2UL );
   fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
@@ -153,7 +144,7 @@ after_frag( void *             _ctx,
 
     /* Here, *opt_sz is the size of udp payload, as the tx has not
        been parsed yet. Code here is similar to the verify tile. */
-    ulong payload_sz = *opt_sz;
+    ulong payload_sz = sz;
     ulong txn_off = fd_ulong_align_up( payload_sz, 2UL );
 
     /* Ensure sufficient trailing space for parsing. */
@@ -184,7 +175,7 @@ after_frag( void *             _ctx,
     }
 
     /* Write new size for mcache. */
-    *opt_sz = new_sz;
+    sz = new_sz;
   }
 
   /* Compute fd_hash(signature) for dedup. */
@@ -192,18 +183,17 @@ after_frag( void *             _ctx,
 
   int is_dup;
   FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
-  *opt_filter = is_dup;
-  if( FD_LIKELY( !*opt_filter ) ) {
-    *opt_chunk     = ctx->out_chunk;
-    *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+  if( FD_LIKELY( !is_dup ) ) {
+    fd_stem_publish( stem, 0UL, 0, ctx->out_chunk, sz, 0UL, tsorig, 0UL );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }
 
 static void
-privileged_init( FD_PARAM_UNUSED fd_topo_t *      topo,
-                 FD_PARAM_UNUSED fd_topo_tile_t * tile,
-                 void *                           scratch ) {
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_dedup_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_dedup_ctx_t ), sizeof( fd_dedup_ctx_t ) );
   FD_TEST( fd_rng_secure( &ctx->hashmap_seed, 8U ) );
@@ -211,8 +201,9 @@ privileged_init( FD_PARAM_UNUSED fd_topo_t *      topo,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   /* Frankendancer has gossip_dedup, verify_dedup+
      Firedancer has gossip_dedup, voter_dedup, verify_dedup+ */
   ulong unparsed_in_cnt = 1;
@@ -263,9 +254,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -274,39 +265,51 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_dedup( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_dedup_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  ulong out_cnt = 0;
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_dedup_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_dedup_ctx_t)
+
+#define STEM_CALLBACK_DURING_FRAG during_frag
+#define STEM_CALLBACK_AFTER_FRAG  after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_dedup = {
   .name                     = "dedup",
-  .mux_flags                = FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

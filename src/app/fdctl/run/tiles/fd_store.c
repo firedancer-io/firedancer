@@ -1,5 +1,7 @@
 #include "../../../../disco/tiles.h"
 
+#include "../../../../disco/metrics/fd_metrics.h"
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -27,18 +29,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_store_ctx_t ) );
-}
-
-static inline void
-metrics_write( void * _ctx ) {
-  fd_store_ctx_t * ctx = (fd_store_ctx_t *)_ctx;
-
-  (void)ctx;
-}
-
 static void const * fd_ext_blockstore;
 
 void
@@ -48,19 +38,15 @@ fd_ext_store_initialize( void const * blockstore ) {
 }
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_store_ctx_t * ctx,
+             ulong            in_idx,
+             ulong            seq,
+             ulong            sig,
+             ulong            chunk,
+             ulong            sz ) {
   (void)sig;
   (void)seq;
   (void)in_idx;
-  (void)opt_filter;
-
-  fd_store_ctx_t * ctx = (fd_store_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_SHRED_STORE_MTU || sz<32UL ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -79,46 +65,43 @@ fd_ext_blockstore_insert_shreds( void const *  blockstore,
                                  int           is_trusted );
 
 static inline void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_store_ctx_t *    ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)opt_chunk;
-  (void)opt_tsorig;
-  (void)opt_filter;
-  (void)mux;
-
-  fd_store_ctx_t * ctx = (fd_store_ctx_t *)_ctx;
+  (void)chunk;
+  (void)tsorig;
+  (void)stem;
 
   fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;
 
   FD_TEST( shred34->shred_sz<=shred34->stride );
   if( FD_LIKELY( shred34->shred_cnt ) ) {
-    FD_TEST( shred34->offset<*opt_sz  );
+    FD_TEST( shred34->offset<sz  );
     FD_TEST( shred34->shred_cnt<=34UL );
     FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
-    FD_TEST( shred34->offset + shred34->stride*(shred34->shred_cnt - 1UL) + shred34->shred_sz <= *opt_sz);
+    FD_TEST( shred34->offset + shred34->stride*(shred34->shred_cnt - 1UL) + shred34->shred_sz <= sz);
   }
 
   if( FD_UNLIKELY( ctx->disable_blockstore_from_slot && ( ctx->disable_blockstore_from_slot <= shred34->pkts->shred.slot ) ) ) return;
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!*opt_sig );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!sig );
 
   FD_MCNT_INC( STORE_TILE, TRANSACTIONS_INSERTED, shred34->est_txn_cnt );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_store_ctx_t ), sizeof( fd_store_ctx_t ) );
 
@@ -146,26 +129,23 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
-}
+#define STEM_BURST (1UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_store_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_store_ctx_t)
+
+#define STEM_CALLBACK_DURING_FRAG during_frag
+#define STEM_CALLBACK_AFTER_FRAG  after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_store = {
-  .name                     = "store",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
-  .lazy                     = lazy,
-  .populate_allowed_seccomp = NULL,
-  .populate_allowed_fds     = NULL,
-  .scratch_align            = scratch_align,
-  .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
-  .unprivileged_init        = unprivileged_init,
+  .name              = "store",
+  .scratch_align     = scratch_align,
+  .scratch_footprint = scratch_footprint,
+  .unprivileged_init = unprivileged_init,
+  .run               = stem_run,
 };

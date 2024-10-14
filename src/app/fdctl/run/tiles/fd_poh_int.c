@@ -41,6 +41,8 @@
 typedef struct {
   fd_poh_tile_ctx_t * poh_tile_ctx;
 
+  int filter_frag;
+
   ulong bank_cnt;
   ulong * bank_busy[ 64UL ];
 
@@ -77,7 +79,7 @@ typedef struct {
   ulong            pack_out_wmark;
   ulong            pack_out_chunk;
 
-  fd_mux_context_t * mux;
+  fd_stem_context_t * stem;
 
 } fd_poh_ctx_t;
 
@@ -96,7 +98,7 @@ get_mircoblock_buffer( void * _arg ) {
 static void
 publish_microblock( void * _arg, ulong tspub, ulong sig, ulong sz ) {
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_arg;
-  fd_mux_publish( ctx->mux, sig, ctx->shred_out_chunk, sz, 0UL, 0UL, tspub );
+  fd_stem_publish( ctx->stem, 0UL, sig, ctx->shred_out_chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 }
 
@@ -183,21 +185,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_poh_ctx_t ) );
-}
-
 static inline void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux,
-              int *              opt_poll_in ) {
-  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
-  ctx->mux = mux;
+after_credit( fd_poh_ctx_t *      ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in ) {
+  ctx->stem = stem;
 
-  if( !ctx->is_initialized ) {
-    return;
-  }
+  if( FD_UNLIKELY( !ctx->is_initialized ) ) return;
 
   if( FD_LIKELY( ctx->poh_tile_ctx->current_leader_slot==FD_SLOT_NULL && ctx->recently_reset ) ) {
     /* We are not leader, but we should check if we have reached a leader slot! */
@@ -216,25 +210,21 @@ after_credit( void *             _ctx,
 }
 
 static inline void
-during_housekeeping( void * _ctx ) {
-  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
-
+during_housekeeping( fd_poh_ctx_t * ctx ) {
   fd_poh_tile_during_housekeeping( ctx->poh_tile_ctx );
 }
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_poh_ctx_t * ctx,
+             ulong         in_idx,
+             ulong         seq,
+             ulong         sig,
+             ulong         chunk,
+             ulong         sz ) {
   (void)seq;
   (void)sig;
-  (void)opt_filter;
 
-  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
+  ctx->filter_frag = 0;
 
   if( FD_UNLIKELY( in_idx==ctx->stake_in_idx ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in.chunk0 || chunk>ctx->stake_in.wmark ) )
@@ -271,7 +261,7 @@ during_frag( void * _ctx,
   if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
     /* We now know the real amount of microblocks published, so set an
        exact bound for once we receive them. */
-    *opt_filter = 1;
+    ctx->filter_frag = 1;
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) {
       if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
 
@@ -287,7 +277,7 @@ during_frag( void * _ctx,
       FD_LOG_INFO(( "init msg rx" ));
       fd_poh_init_msg_t * init_msg = (fd_poh_init_msg_t *)fd_chunk_to_laddr( ctx->bank_in[ in_idx ].mem, chunk );
       fd_poh_initialize( ctx, init_msg->tick_duration_ns, init_msg->hashcnt_per_tick, init_msg->ticks_per_slot, init_msg->tick_height, init_msg->last_entry_hash );
-      *opt_filter = 1;
+      ctx->filter_frag = 1;
       return;
     }
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->bank_in[ in_idx ].mem, chunk );
@@ -301,27 +291,26 @@ during_frag( void * _ctx,
     }
     FD_TEST( ctx->_microblock_trailer->bank_idx<ctx->bank_cnt );
 
-    *opt_filter = is_frag_for_prior_leader_slot;
+    ctx->filter_frag = is_frag_for_prior_leader_slot;
   }
 }
 
 static inline void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux        FD_PARAM_UNUSED) {
+after_frag( fd_poh_ctx_t *      ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               chunk,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)opt_chunk;
-  (void)opt_tsorig;
-  (void)opt_filter;
+  (void)chunk;
+  (void)tsorig;
+  (void)stem;
 
-  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
+  if( FD_UNLIKELY( ctx->filter_frag ) ) return;
 
   if( FD_UNLIKELY( in_idx==ctx->stake_in_idx ) ) {
     /* Nothing to do if we transition into being leader, since it
@@ -335,15 +324,15 @@ after_frag( void *             _ctx,
     fd_histf_sample( ctx->poh_tile_ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->poh_tile_ctx->reset_slot_start_ns)/tick_per_ns) );
   }
 
-  ulong target_flags = fd_disco_replay_sig_flags( *opt_sig );
-  ulong target_slot = fd_disco_replay_sig_slot( *opt_sig );
+  ulong target_flags = fd_disco_replay_sig_flags( sig );
+  ulong target_slot = fd_disco_replay_sig_slot( sig );
 
   ulong is_packed_microblock = target_flags & REPLAY_FLAG_PACKED_MICROBLOCK;
   ulong is_finalized_block = target_flags & REPLAY_FLAG_FINISHED_BLOCK;
   // ulong is_catching_up = target_flags & REPLAY_FLAG_CATCHING_UP;
 
   if( is_packed_microblock ) {
-    ulong txn_cnt = *opt_sz;
+    ulong txn_cnt = sz;
     fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
     ulong sig = fd_disco_poh_sig( target_slot, POH_PKT_TYPE_MICROBLOCK, in_idx );
     fd_poh_tile_process_packed_microblock( ctx->poh_tile_ctx, target_slot, sig, txns, txn_cnt, ctx->_microblock_trailer->hash );
@@ -357,9 +346,8 @@ after_frag( void *             _ctx,
 
 static void
 privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
@@ -374,9 +362,8 @@ privileged_init( fd_topo_t *      topo,
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
-  fd_flamenco_boot( NULL, NULL );
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
@@ -427,19 +414,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache );
   ctx->pack_in.wmark  = fd_dcache_compact_wmark ( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].mtu );
 
-  ctx->shred_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->shred_out_chunk0 = fd_dcache_compact_chunk0( ctx->shred_out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->shred_out_wmark  = fd_dcache_compact_wmark ( ctx->shred_out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->shred_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->shred_out_chunk0 = fd_dcache_compact_chunk0( ctx->shred_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->shred_out_wmark  = fd_dcache_compact_wmark ( ctx->shred_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->shred_out_chunk  = ctx->shred_out_chunk0;
 
-  ctx->pack_out_mcache = topo->links[ tile->out_link_id[ 0 ] ].mcache;
+  ctx->pack_out_mcache = topo->links[ tile->out_link_id[ 1 ] ].mcache;
   ctx->pack_out_sync   = fd_mcache_seq_laddr( ctx->pack_out_mcache );
   ctx->pack_out_depth  = fd_mcache_depth( ctx->pack_out_mcache );
   ctx->pack_out_seq    = fd_mcache_seq_query( ctx->pack_out_sync );
 
-  ctx->pack_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_out_chunk0 = fd_dcache_compact_chunk0( ctx->pack_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->pack_out_wmark  = fd_dcache_compact_wmark ( ctx->pack_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->pack_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->pack_out_chunk0 = fd_dcache_compact_chunk0( ctx->pack_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
+  ctx->pack_out_wmark  = fd_dcache_compact_wmark ( ctx->pack_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->pack_out_chunk  = ctx->pack_out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -447,27 +434,29 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
-}
+/* One tick, one microblock, and one leader update. */
+#define STEM_BURST (3UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
+
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_poh_int = {
   .name                     = "pohi",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 3UL, /* One tick, one microblock, and one leader update. */
-  .mux_ctx                  = mux_ctx,
-  .mux_after_credit         = after_credit,
-  .mux_during_housekeeping  = during_housekeeping,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };
