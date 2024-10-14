@@ -117,6 +117,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   /* Execution error and type, to match Agave. */
   int exec_err;
   int exec_err_kind;
+
+  fd_spad_t * spad;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

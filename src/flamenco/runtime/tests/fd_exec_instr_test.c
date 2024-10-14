@@ -47,7 +47,7 @@ static FD_TL char _report_prefix[100] = {0};
     char         _acct_log_private_addr[ FD_BASE58_ENCODED_32_SZ ];            \
     void const * _acct_log_private_addr_ptr = (addr);                          \
     fd_acct_addr_cstr( _acct_log_private_addr, _acct_log_private_addr_ptr );        \
-    REPORTV( level, "account %s: " fmt, _acct_log_private_addr, __VA_ARGS__ ); \
+    REPORTV( level, " account %s: " fmt, _acct_log_private_addr, __VA_ARGS__ ); \
   } while(0);
 
 #define REPORT_ACCT( level, addr, fmt ) REPORT_ACCTV( level, addr, fmt, 0 )
@@ -308,6 +308,10 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len         = 0;
 
+  ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
+  uchar *     mem          = fd_valloc_malloc( slot_ctx->valloc, FD_SPAD_ALIGN, total_mem_sz );
+  fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
+  txn_ctx->spad            = spad;
 
   /* Set up instruction context */
 
@@ -355,8 +359,16 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   assert( acc_mgr->funk );
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
-    if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
+    if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
       return 0;
+    }
+    if( borrowed_accts[j].const_meta ) {
+      uchar * data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
+      ulong   dlen = borrowed_accts[j].const_meta->dlen;
+      fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
+      borrowed_accts[j].const_meta = borrowed_accts[j].meta = (fd_account_meta_t*)data;
+      borrowed_accts[j].const_data = borrowed_accts[j].data = data + sizeof(fd_account_meta_t);
+    }
   }
 
   /* Load in executable accounts */
@@ -497,7 +509,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
-      REPORTV( NOTICE, "instruction account index out of range (%u > %u)", index, test_ctx->instr_accounts_count );
+      REPORTV( NOTICE, " instruction account index out of range (%u > %u)", index, test_ctx->instr_accounts_count );
       return 0;
     }
 
@@ -541,7 +553,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       }
     }
     if( !found_program_id ) {
-      REPORT( NOTICE, "Unable to find program_id in accounts" );
+      REPORT( NOTICE, " Unable to find program_id in accounts" );
       return 0;
     }
   }
@@ -924,6 +936,13 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL );
 
+  /* Setup the spad for account allocation */
+  ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
+  uchar *     mem          = fd_valloc_malloc( slot_ctx->valloc, FD_SPAD_ALIGN, total_mem_sz );
+  fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
+  FD_TEST( spad );
+  task_info->txn_ctx->spad = spad;
+
   fd_runtime_pre_execute_check( task_info );
 
   if( !task_info->exec_res ) {
@@ -958,6 +977,10 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
     }
   }
 
+  if( ctx->txn_ctx ) {
+    fd_valloc_free( slot_ctx->valloc, ctx->txn_ctx->spad );
+  }
+
   // Free alloc
   if( alloc ) {
     fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
@@ -987,16 +1010,9 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  // Free any allocated borrowed account data
+  /* Free the spad which holds all of the allocations for the borrowed accs */
   if( txn_ctx ) {
-    for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-      fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[i];
-      void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
-      fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
-      if( belongs_to_wksp ) {
-        fd_wksp_free_laddr( borrowed_account_mem );
-      }
-    }
+    fd_valloc_free( slot_ctx->valloc, txn_ctx->spad );
   }
 
   // Free alloc
@@ -1143,7 +1159,7 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
 
   if( expected->result != exec_result ) {
     check->has_diff = 1;
-    REPORTV( NOTICE, "expected result (%d-%s), got (%d-%s)",
+    REPORTV( NOTICE, " expected result (%d-%s), got (%d-%s)",
              expected->result, fd_executor_instr_strerror( -expected->result ),
              exec_result,      fd_executor_instr_strerror( -exec_result      ) );
 
@@ -1157,7 +1173,7 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
   else if( ( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR    ) &
            ( expected->custom_err != ctx->txn_ctx->custom_err ) ) {
     check->has_diff = 1;
-    REPORTV( NOTICE, "expected custom error %d, got %d",
+    REPORTV( NOTICE, " expected custom error %d, got %d",
              expected->custom_err, ctx->txn_ctx->custom_err );
     return;
   }
@@ -1223,13 +1239,13 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
   ulong data_sz = expected->return_data ? expected->return_data->size : 0UL; /* support expected->return_data==NULL */
   if (data_sz != ctx->txn_ctx->return_data.len) {
     check->has_diff = 1;
-    REPORTV( WARNING, "expected return data size %lu, got %lu",
+    REPORTV( WARNING, " expected return data size %lu, got %lu",
              (ulong) data_sz, ctx->txn_ctx->return_data.len );
   }
   else if (data_sz > 0 ) {
     if( memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size ) ) {
       check->has_diff = 1;
-      REPORT( WARNING, "return data mismatch" );
+      REPORT( WARNING, " return data mismatch" );
     }
   }
 

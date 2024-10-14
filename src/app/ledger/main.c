@@ -98,6 +98,9 @@ struct fd_ledger_args {
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
   uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  fd_spad_t *           spads[ 128UL ];          /* scratchpad allocators that are eventually assigned to each txn_ctx */
+  ulong                 spad_cnt;                /* number of scratchpads, bounded by number of threads */
+
   #ifdef _ENABLE_LTHASH
   char const *      lthash;
   #endif
@@ -130,7 +133,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
       }
     }
   }
-  ledger_args->tpool       = tpool;
+  ledger_args->tpool = tpool;
   return 0;
 }
 
@@ -223,7 +226,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                                           sz,
                                           ledger_args->tpool,
                                           1,
-                                          &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
+                                          &blk_txn_cnt,
+                                          ledger_args->spads,
+                                          ledger_args->spad_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
 
@@ -428,6 +433,23 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
   fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn, 1 );
   fd_funk_end_write( funk );
+
+  /* Allocate memory for the account scratch space. In live execution, each of
+     the spad allocations should be tied to its respective execution thread.
+     In the future, the spad should be allocated from its tiles' workspace.
+     It is important that the spads are only allocated on startup for
+     performance reasons to avoid dynamic allocation in the critical path. */
+
+  args->spad_cnt = fd_tpool_worker_cnt( args->tpool );
+  for( ulong i=0UL; i<args->spad_cnt; i++ ) {
+    ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_SZ_MAX, FD_SPAD_ALIGN );
+    uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, total_mem_sz, 999UL );
+    fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
+    if( FD_UNLIKELY( !spad ) ) {
+      FD_LOG_ERR(( "failed to allocate spad" ));
+    }
+    args->spads[ i ] = spad;
+  }
 
 }
 

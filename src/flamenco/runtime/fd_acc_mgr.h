@@ -21,6 +21,12 @@
 
 #define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
+/* FD_ACC_TOT_SZ_MAX is the size limit of a Solana account in the firedancer
+   client. This means that it includes the max size of the account (10MiB) 
+   and the associated metadata. */
+
+#define FD_ACC_TOT_SZ_MAX (FD_ACC_SZ_MAX + sizeof(fd_account_meta_t))
+
 /* fd_acc_mgr_t translates between the runtime account DB abstraction
    and the actual funk database.  Also manages rent collection.
    fd_acc_mgr_t cannot be relocated to another address space.

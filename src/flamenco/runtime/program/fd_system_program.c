@@ -242,8 +242,8 @@ fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t * ctx,
     int err = fd_system_program_allocate( ctx, acct_idx, space, authority );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
-
   return fd_system_program_assign( ctx, acct_idx, owner, authority );
+
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L146-L181

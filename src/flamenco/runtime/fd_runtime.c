@@ -1,4 +1,5 @@
 #include "fd_runtime.h"
+#include "fd_acc_mgr.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 
@@ -1056,6 +1057,16 @@ fd_txn_prep_and_exec_task( void  *tpool,
   fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
   // fd_capture_ctx_t * capture_ctx = (fd_capture_ctx_t *)reduce;
 
+  /* It is important to note that there is currently a 1-1 mapping between the
+     tiles and tpool threads at the time of this comment. Eventually, this will
+     change and the transaction context's spad will not be queried by tile
+     index as every tile will correspond to one CPU core. */    
+  ulong tile_idx = fd_tile_idx();
+  task_info->txn_ctx->spad = task_info->spads[ tile_idx ];
+  if( FD_UNLIKELY( !task_info->txn_ctx->spad ) ) {
+    FD_LOG_ERR(("spad is NULL"));
+  }
+
   fd_runtime_pre_execute_check( task_info );
   fd_runtime_execute_txn( task_info );
 
@@ -1416,7 +1427,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
     memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
 
-    void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+    void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
     fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
     borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
@@ -1793,7 +1804,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
         memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
 
-        void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
         borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
@@ -1874,18 +1885,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "failed to save edits to accounts" ));
       return -1;
-    }
-
-    for( ulong txn_idx=0UL; txn_idx<txn_cnt; ++txn_idx ) {
-      fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-
-      for( ulong i=0UL; i<txn_ctx->accounts_cnt; ++i ) {
-        fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-        void * acc_rec_data = fd_borrowed_account_destroy( acc_rec );
-        if( acc_rec_data != NULL ) {
-          fd_valloc_free( txn_ctx->valloc, acc_rec_data );
-        }
-      }
     }
 
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
@@ -2057,24 +2056,31 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t *   capture_ctx,
                                         fd_txn_p_t *         all_txns,
                                         ulong                total_txn_cnt,
-                                        fd_tpool_t *         tpool ) {
+                                        fd_tpool_t *         tpool,
+                                        fd_spad_t * *        spads,
+                                        ulong                spad_cnt ) {
     int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
+
+    /* As a note, the batch size of 128 is a relatively arbitrary number. The
+       notion of batching here will change as the transaction execution model
+       changes with respect to transaction execution. */
     #define BATCH_SIZE (128UL)
+    ulong batch_size = fd_ulong_min( fd_tile_cnt(), BATCH_SIZE );
 
     for( ulong i=0UL; i<total_txn_cnt; i++ ) {
       all_txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     }
 
-    ulong num_batches = total_txn_cnt/BATCH_SIZE;
-    ulong rem         = total_txn_cnt%BATCH_SIZE;
+    ulong num_batches = total_txn_cnt/batch_size;
+    ulong rem         = total_txn_cnt%batch_size;
     num_batches      += rem ? 1UL : 0UL;
 
     int res = 0;
     for( ulong i=0UL; i<num_batches; i++ ) {
       FD_SCRATCH_SCOPE_BEGIN {
 
-      fd_txn_p_t * txns    = all_txns + (BATCH_SIZE * i);
-      ulong        txn_cnt = ((i+1UL==num_batches) && rem) ? rem : BATCH_SIZE;
+      fd_txn_p_t * txns    = all_txns + (batch_size * i);
+      ulong        txn_cnt = ((i+1UL==num_batches) && rem) ? rem : batch_size;
 
       fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
       fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
@@ -2103,16 +2109,14 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       ulong next_incomplete_txn_idxs_cnt = 0;
       ulong next_incomplete_accounts_cnt = 0;
 
-      // double cum_wave_time_ms = 0.0;
       while( incomplete_txn_idxs_cnt > 0 ) {
-        // long wave_time = -fd_log_wallclock();
         fd_runtime_generate_wave( task_infos, incomplete_txn_idxs, incomplete_txn_idxs_cnt, incomplete_accounts_cnt,
                                   next_incomplete_txn_idxs, &next_incomplete_txn_idxs_cnt, &next_incomplete_accounts_cnt,
                                   wave_task_infos, &wave_task_infos_cnt );
         ulong * temp_incomplete_txn_idxs = incomplete_txn_idxs;
-        incomplete_txn_idxs = next_incomplete_txn_idxs;
+        incomplete_txn_idxs      = next_incomplete_txn_idxs;
         next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
-        incomplete_txn_idxs_cnt = next_incomplete_txn_idxs_cnt;
+        incomplete_txn_idxs_cnt  = next_incomplete_txn_idxs_cnt;
 
         // Dump txns in waves
         if( dump_txn ) {
@@ -2121,9 +2125,14 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
           }
         }
 
+        /* Assign out spads to the transaction contexts */
+        for( ulong i=0UL; i<wave_task_infos_cnt; i++ ) {
+          wave_task_infos[i].spads = spads;
+        }
+
         res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
         if( res != 0 ) {
-         FD_LOG_WARNING(("Fail signature verification"));
+          FD_LOG_WARNING(("Fail signature verification"));
         }
 
         res |= fd_runtime_prep_and_exec_txns_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
@@ -2131,14 +2140,14 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
           FD_LOG_DEBUG(("Fail prep 2"));
         }
 
-        // res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
-        // if( res != 0 ) {
-        //   FD_LOG_DEBUG(("Fail prep 3"));
-        // }
-
         int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
         if( finalize_res != 0 ) {
-         FD_LOG_ERR(("Fail finalize"));
+          FD_LOG_ERR(("Fail finalize"));
+        }
+
+        /* Resetting the spad is a O(1) operation */
+        for( ulong i=0UL; i<spad_cnt; i++ ) {
+          fd_spad_reset( spads[i] );
         }
 
         // wave_time += fd_log_wallclock();
@@ -2369,10 +2378,13 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
-                                       fd_capture_ctx_t * capture_ctx,
-                                       fd_block_info_t const * block_info,
-                                       fd_tpool_t * tpool ) {
+int 
+fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
+                                   fd_capture_ctx_t * capture_ctx,
+                                   fd_block_info_t const * block_info,
+                                   fd_tpool_t * tpool,
+                                   fd_spad_t * * spads,
+                                   ulong spad_cnt ) {
   FD_SCRATCH_SCOPE_BEGIN {
     if ( capture_ctx != NULL && capture_ctx->capture ) {
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
@@ -2390,7 +2402,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
-    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, tpool );
+    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, tpool, spads, spad_cnt );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       return res;
     }
@@ -2856,13 +2868,15 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
-                                fd_capture_ctx_t *capture_ctx,
-                                void const *block,
-                                ulong blocklen,
-                                fd_tpool_t *tpool,
-                                ulong scheduler,
-                                ulong * txn_cnt ) {
+fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                             fd_capture_ctx_t *   capture_ctx,
+                             void const *         block,
+                             ulong                blocklen,
+                             fd_tpool_t *         tpool,
+                             ulong                scheduler,
+                             ulong *              txn_cnt,
+                             fd_spad_t * *        spads,
+                             ulong                spad_cnt ) {
   (void)scheduler;
 
   int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx, tpool );
@@ -2900,7 +2914,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool );
   }
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
-    ret = fd_runtime_block_execute_tpool_v2(slot_ctx, capture_ctx, &block_info, tpool );
+    ret = fd_runtime_block_execute_tpool_v2( slot_ctx, capture_ctx, &block_info, tpool, spads, spad_cnt );
   }
 
   fd_runtime_block_destroy( slot_ctx->valloc, &block_info );

@@ -45,6 +45,7 @@
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
 struct fd_execute_txn_task_info {
+  fd_spad_t * * spads;
   fd_exec_txn_ctx_t * txn_ctx;
   fd_txn_p_t * txn;
   int exec_res;
@@ -138,7 +139,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong blocklen,
                              fd_tpool_t * tpool,
                              ulong scheduler,
-                             ulong * txn_cnt );
+                             ulong * txn_cnt,
+                             fd_spad_t * * spads,
+                             ulong spads_cnt );
 
 int
 fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
@@ -151,7 +154,9 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
                                         fd_txn_p_t * txns,
                                         ulong txn_cnt,
-                                        fd_tpool_t * tpool );
+                                        fd_tpool_t * tpool,
+                                        fd_spad_t * * spads, 
+                                        ulong spads_cnt );
 
 void
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
