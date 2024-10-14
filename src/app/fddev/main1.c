@@ -53,6 +53,7 @@ extern fd_topo_run_tile_t fd_tile_benchs;
 
 #ifdef FD_HAS_NO_AGAVE
 extern fd_topo_run_tile_t fd_tile_gossip;
+extern fd_topo_run_tile_t fd_tile_gossip_verify;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_store_int;
 extern fd_topo_run_tile_t fd_tile_replay;
@@ -90,6 +91,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh_int,
   &fd_tile_sender,
   &fd_tile_eqvoc,
+  &fd_tile_gossip_verify,
 #endif
   NULL,
 };
