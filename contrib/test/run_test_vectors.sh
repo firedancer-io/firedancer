@@ -38,8 +38,11 @@ fi
 LOG=$LOG_PATH/test_exec_syscall
 cat contrib/test/test-vectors-fixtures/syscall-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
+LOG=$LOG_PATH/test_exec_cpi
+cat contrib/test/test-vectors-fixtures/cpi-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+
 LOG=$LOG_PATH/test_exec_interp
-cat contrib/test/test-vectors-fixtures/vm_interp-fixtures.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/test-vectors-fixtures/vm-interp-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/test-vectors-fixtures/precompile-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
@@ -49,12 +52,12 @@ cat contrib/test/test-vectors-fixtures/txn-fixtures/*.list | xargs -P 4 ./$OBJDI
 
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 LOG=$LOG_PATH/test_elf_loader
-cat contrib/test/test-vectors-fixtures/elf-loader-fixtures.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/test-vectors-fixtures/elf-loader-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_instr
 cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG
 
 LOG=$LOG_PATH/test_vm_validate
-xargs -P 4 -n 1000 -a contrib/test/test-vectors-fixtures/vm_validate-fixtures.list ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/test-vectors-fixtures/vm-validate-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 echo Test vectors success
