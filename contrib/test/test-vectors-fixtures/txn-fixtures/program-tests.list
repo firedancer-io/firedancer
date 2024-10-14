@@ -1,5 +1,3 @@
-dump/test-vectors/txn/fixtures/err_38/b9fba2a95d253c7478bc7eca1152a5cadff2fe68_946426.fix
-dump/test-vectors/txn/fixtures/err_38/b57efa6dc499a1d7fa691e8a39980f2e9b8bc1a5_1503098.fix
 dump/test-vectors/txn/fixtures/programs/1aef56362df9ae008fbd3d21fe0f5ca5c2bb93e8_1509242.fix
 dump/test-vectors/txn/fixtures/programs/2418705d8008ed1bd58108b4e9ce43ae111a1cdc_1870939.fix
 dump/test-vectors/txn/fixtures/programs/2e6cbb44ce7014cd45620872b31af391476032a2_1684472.fix
@@ -9,6 +7,7 @@ dump/test-vectors/txn/fixtures/programs/430c9cbdf850779d725e4b38340ce83f1bf59434
 dump/test-vectors/txn/fixtures/programs/81e2a423431d64b80c68120e7e1e04d5829b7bbc_2924287.fix
 dump/test-vectors/txn/fixtures/programs/923cbadb9bcfc4bfc32f3985b4faeade40521a38_2611281.fix
 dump/test-vectors/txn/fixtures/programs/9370046a7dc9d68d4bf9643dd82711c8ee701411_1019687.fix
+dump/test-vectors/txn/fixtures/programs/a32458016075b6fbd13e5700b3082378c710d02d_2253730.fix
 dump/test-vectors/txn/fixtures/programs/b36baad24080b5661df759c80df5ee772200660b_1077333.fix
 dump/test-vectors/txn/fixtures/programs/b36baad24080b5661df759c80df5ee772200660b_1077524.fix
 dump/test-vectors/txn/fixtures/programs/b36baad24080b5661df759c80df5ee772200660b_1077733.fix

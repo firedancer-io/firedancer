@@ -122,29 +122,6 @@ fd_double_is_normal( double dbl ) {
   return !( is_denorm | is_inf | is_nan );
 }
 
-FD_FN_UNUSED static void
-_txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
-  /* Copied from fd_runtime_collect_rent. Requires some modifications from fd_runtime_collect_rent */
-  fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  ulong slot = slot_ctx->slot_bank.slot;
-  ulong epoch = fd_slot_to_epoch(schedule, slot, NULL);
-
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    FD_BORROWED_ACCOUNT_DECL(acc);
-
-    // Obtain writable handle to account
-    if( fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], 0, 0UL, acc ) ) {
-      continue;
-    }
-
-    /* Actually invoke rent collection */
-    fd_runtime_collect_rent_from_account( slot_ctx, acc->meta, acc->pubkey, epoch );
-  }
-}
-
 static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
@@ -1454,9 +1431,6 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     int exec_res = task_info->exec_res;
 
-    /* Collect rent */
-    //TODO: _txn_collect_rent( txn_ctx );
-
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
     ulong output_end = (ulong)output_buf + output_bufsz;
@@ -1474,7 +1448,6 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
     txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
-    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
     txn_result->is_ok                             = !exec_res;
     txn_result->status                            = (uint32_t) -exec_res;
     txn_result->instruction_error                 = 0;
@@ -1499,6 +1472,9 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->has_fee_details                   = true;
     txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
     txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
+
+    /* Rent is only collected on successfully loaded transactions */
+    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
 
     /* At this point, the transaction has executed */
     if( exec_res ) {
