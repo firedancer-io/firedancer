@@ -34,6 +34,7 @@
 struct fd_gossip_verify_tile_ctx {
   ulong          round_robin_idx;
   ulong          round_robin_cnt;
+  fd_pubkey_t    identity_public_key[1];
 
   fd_wksp_t *     net_in_mem;
   ulong           net_in_chunk;
@@ -131,7 +132,7 @@ fd_gossip_verify_crds_value(  fd_pubkey_t *     pubkey,
   if( fd_gossip_verify( buf, (ulong)((uchar*)ctx.data - buf), &crd->signature, pubkey ) ) {
     return GOSSIP_VERIFY_FAILED;
   }
-  
+
   return GOSSIP_VERIFY_SUCCESS;
 }
 
@@ -330,6 +331,69 @@ after_frag( void *             _ctx,
   ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, *opt_sz, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
 }
 
+static void
+privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
+                 fd_topo_tile_t * tile,
+                 void           * scratch ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_gossip_verify_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_verify_tile_ctx_t), sizeof(fd_gossip_verify_tile_ctx_t) );
+
+  uchar const * identity_key = fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 );
+  fd_memcpy( ctx->identity_public_key, identity_key, sizeof(fd_pubkey_t) );
+}
+
+static void
+unprivileged_init( fd_topo_t      * topo,
+                   fd_topo_tile_t * tile,
+                   void           * scratch ) {
+  if( FD_UNLIKELY( tile->in_cnt != 1UL ||
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX ] ].name, "net_gspvfy" ) ) ) {
+    FD_LOG_ERR(( "gossip_verify tile has none or unexpected input links %lu %s",
+                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name ));
+  }
+
+  if( FD_UNLIKELY( tile->out_cnt != 1UL ||
+                   strcmp( topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ].name, "gspvfy_gossi" ) ) ) {
+    FD_LOG_ERR(( "gossip_verify tile has none or unexpected output links %lu %s",
+                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name ));
+  }
+
+  if( FD_UNLIKELY( tile->out_link_id_primary==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "gossip_verify tile has no primary output link" ));
+  }
+
+  /* Scratch mem setup */
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_gossip_verify_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_verify_tile_ctx_t), sizeof(fd_gossip_verify_tile_ctx_t) );
+  
+  void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( GOSSIP_VERIFY_SCRATCH_MAX ) );
+  void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( GOSSIP_VERIFY_SCRATCH_DEPTH ) );
+
+  FD_TEST( ( !!smem ) & ( !!fmem ) );
+  fd_scratch_attach( smem, fmem, GOSSIP_VERIFY_SCRATCH_MAX, GOSSIP_VERIFY_SCRATCH_DEPTH );
+
+  fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id_primary ];
+
+  ctx->gossip_out_mcache = gossip_out->mcache;
+  ctx->gossip_out_sync = fd_mcache_seq_laddr( ctx->gossip_out_mcache );
+  ctx->gossip_out_depth = fd_mcache_depth( ctx->gossip_out_mcache );
+  ctx->gossip_out_seq = fd_mcache_seq_query( ctx->gossip_out_sync );
+  ctx->gossip_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
+  ctx->gossip_out_mem = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_out_wmark = fd_dcache_compact_wmark( ctx->gossip_out_mem, gossip_out->dcache, gossip_out->mtu );
+  ctx->gossip_out_chunk = ctx->gossip_out_chunk0;
+
+  fd_topo_link_t * net_in = &topo->links[ tile->in_link_id[ NET_IN_IDX ] ];
+
+  ctx->net_in_mem = topo->workspaces[ topo->objs[ net_in->dcache_obj_id ].wksp_id ].wksp;
+  ctx->net_in_chunk = fd_dcache_compact_chunk0( ctx->net_in_mem, net_in->dcache );
+  ctx->net_in_wmark = fd_dcache_compact_wmark( ctx->net_in_mem, net_in->dcache, net_in->mtu );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  }
+}
 
 static ulong
 populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
