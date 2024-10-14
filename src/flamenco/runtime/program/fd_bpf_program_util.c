@@ -130,16 +130,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     ulong program_data_len = 0;
     if( !fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) ) {
       if( fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_pubkey, &program_data, &program_data_len ) != 0 ) {
-        if( update_program_blacklist ) {
-          fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
-        }
         return -1;
       }
     } else if( !fd_bpf_loader_v2_is_executable( slot_ctx, program_pubkey ) ) {
       if( fd_bpf_get_executable_program_content_for_loader_v2( slot_ctx, program_pubkey, &program_data, &program_data_len ) ) {
-        if( update_program_blacklist ) {
-          fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
-        }
         return -1;
       }
     } else {

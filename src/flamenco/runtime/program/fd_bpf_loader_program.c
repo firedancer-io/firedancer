@@ -1818,6 +1818,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
+      /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/program_loader.rs#L96-L98 
+         Program account and program data account discriminants get checked when loading in program accounts
+         into the program cache. If the discriminants are incorrect, the program is marked as closed. */
+      if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( &program_account_state ) ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+
       fd_borrowed_account_t * program_data_account = NULL;
       fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&program_account_state.inner.program.programdata_address;
       err = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
@@ -1833,7 +1841,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
-      if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_is_uninitialized( &program_data_account_state ) ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/program_loader.rs#L100-L104 
+         Same as above comment. Program data discriminant must be set correctly. */
+      if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program_data( &program_data_account_state ) ) ) {
         /* The account is likely closed. */
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
