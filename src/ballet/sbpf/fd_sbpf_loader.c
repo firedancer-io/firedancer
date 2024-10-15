@@ -444,8 +444,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
 
   /* Convert entrypoint offset to program counter */
-
-  info->rodata_sz        = (uint)psegment_end;
+  info->rodata_sz        = (uint)vsegment_end;
   info->rodata_footprint = (uint)elf_sz;
 
   ulong entry_off = fd_ulong_sat_sub( elf->ehdr.e_entry, shdr_text->sh_addr );
@@ -1177,15 +1176,15 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
 }
 
 static int
-fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
-                     uchar *                    rodata,
-                     fd_sbpf_elf_info_t const * info ) {
+fd_sbpf_zero_and_load_rodata( fd_sbpf_elf_t *            elf,
+                              ulong                      elf_sz,
+                              uchar *                    rodata,
+                              fd_sbpf_elf_info_t const * info ) {
 
   fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
 
-  /* memset gaps between sections to zero.
+  /* memset gaps between sections to zero, and loads potentially overlapping rodata.
       Assume section sh_addrs are monotonically increasing.
-      Assume section virtual address ranges equal physical address ranges.
       Assume ranges are not overflowing. */
   /* FIXME match Solana more closely here */
 
@@ -1199,17 +1198,22 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
        offsets, thus we can't trust the shdr->sh_offset field. */
     if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
 
-    ulong off = shdr->sh_offset;
-    ulong sz  = shdr->sh_size;
-    assert( cursor<=off             );  /* Invariant: Monotonically increasing offsets */
-    assert( off+sz>=off             );  /* Invariant: No integer overflow */
-    assert( off+sz<=info->rodata_sz );  /* Invariant: No buffer overflow */
+    ulong addr = shdr->sh_addr;
+    ulong off  = shdr->sh_offset;
+    ulong sz   = shdr->sh_size;
+    assert( cursor<=off                                );  /* Invariant: Monotonically increasing offsets */
+    assert( addr+sz>=addr            && off+sz>=off    );  /* Invariant: No integer overflow */
+    assert( addr+sz<=info->rodata_sz && off+sz<=elf_sz );  /* Invariant: No buffer overflow */
 
     /* Fill gap with zeros */
-    ulong gap = off - cursor;
+    ulong gap = fd_ulong_sat_sub( addr, cursor );
     fd_memset( rodata+cursor, 0, gap );
 
-    cursor = off+sz;
+    /* Populate rodata */
+    if( FD_UNLIKELY( addr!=off || addr<cursor ) ) {
+     fd_memcpy( rodata+addr, elf->bin+off, sz ); 
+    }
+    cursor = addr+sz;
   }
 
   fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
@@ -1268,7 +1272,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
     return err;
 
   /* Create read-only segment */
-  if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_zero_and_load_rodata( elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
     return err;
 
   return 0;
