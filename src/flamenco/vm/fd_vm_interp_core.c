@@ -156,14 +156,13 @@
 
   /* FIXME: unvalidated code mucking with r10 */
 
-# define FD_VM_INTERP_STACK_PUSH                                                                          \
-  if( FD_UNLIKELY( frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  shadow[ frame_cnt ].r6 = reg[6];                                                                        \
-  shadow[ frame_cnt ].r7 = reg[7];                                                                        \
-  shadow[ frame_cnt ].r8 = reg[8];                                                                        \
-  shadow[ frame_cnt ].r9 = reg[9];                                                                        \
-  shadow[ frame_cnt ].pc = pc;                                                                            \
-  frame_cnt++;                                                                                            \
+# define FD_VM_INTERP_STACK_PUSH                                                                            \
+  shadow[ frame_cnt ].r6 = reg[6];                                                                          \
+  shadow[ frame_cnt ].r7 = reg[7];                                                                          \
+  shadow[ frame_cnt ].r8 = reg[8];                                                                          \
+  shadow[ frame_cnt ].r9 = reg[9];                                                                          \
+  shadow[ frame_cnt ].pc = pc;                                                                              \
+  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
   reg[10] += FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ
 
   /* We subtract the heap cost in the BPF loader */
