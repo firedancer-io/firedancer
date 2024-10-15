@@ -62,10 +62,10 @@ fd_gossip_verify( uchar const *                 msg,
                   fd_pubkey_t *                 pubkey ) {
   fd_sha512_t sha[1];
   if( fd_ed25519_verify( msg, msg_sz, signature->uc, pubkey->key, sha ) ) {
-    FD_LOG_ERR(( "received gossip packet with invalid signature" ));
-    return -1;
+    FD_LOG_WARNING(( "received gossip packet with invalid signature" ));
+    return GOSSIP_VERIFY_FAILED;
   }
-  return 0;
+  return GOSSIP_VERIFY_SUCCESS;
 }
 
 static int
@@ -155,10 +155,6 @@ scratch_align( void ) {
   return 128UL;
 }
 
-FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
-}
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
@@ -177,7 +173,7 @@ mux_ctx( void * scratch ) {
 static void
 before_frag( void * _ctx      FD_PARAM_UNUSED,
              ulong  in_idx    FD_PARAM_UNUSED,
-             ulong  seq       FD_PARAM_UNUSED,
+             ulong  seq,
              ulong  sig,
              int *  opt_filter ) {
   fd_gossip_verify_tile_ctx_t * ctx = (fd_gossip_verify_tile_ctx_t *)_ctx;
@@ -426,7 +422,6 @@ fd_topo_run_tile_t fd_tile_gossip_verify = {
   .name                     = "gspvfy",
   .mux_flags                = FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
-  .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,

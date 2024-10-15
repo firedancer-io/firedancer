@@ -402,7 +402,7 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
   }
 
   ulong verify_tile_idx = in_idx - GOSSIP_VERIFY_IN_START_IDX;
-  if( FD_UNLIKELY( chunk<ctx->in[verify_tile_idx].chunk0 || chunk>ctx->in[verify_tile_idx].wmark || sz>FD_TPU_MTU ) ) {
+  if( FD_UNLIKELY( chunk<ctx->in[verify_tile_idx].chunk0 || chunk>ctx->in[verify_tile_idx].wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[verify_tile_idx].chunk0, ctx->in[verify_tile_idx].wmark ));
     return;
   }
