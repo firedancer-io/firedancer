@@ -90,13 +90,15 @@ fddev_dev( config_t * config,
 
 static struct child_info
 fork_child( char const * name,
-            config_t * config,
+            config_t *   config,
+            int          close_fd,
             int (* child)( config_t * config, int pipefd ) ) {
   int pipefd[2] = {0};
   if( FD_UNLIKELY( -1==pipe( pipefd ) ) ) FD_LOG_ERR(( "pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   int pid = fork();
   if( FD_UNLIKELY( -1==pid ) ) FD_LOG_ERR(( "fork failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( !pid ) {
+    if( FD_UNLIKELY( -1==close( close_fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     int result = child( config, pipefd[ 1 ] );
     exit_group( result );
@@ -150,30 +152,77 @@ init_log_memfd( void ) {
 int
 fddev_test_run( int     argc,
                 char ** argv,
-                int (* run)( config_t * config ) ) {
+                int (*run)( config_t * config, int close_fd ) ) {
   int is_base_run = argc==1 ||
     (argc==5 && !strcmp( argv[ 1 ], "--log-path" ) && !strcmp( argv[ 3 ], "--log-level-stderr" ));
 
   if( FD_LIKELY( is_base_run ) ) {
     if( FD_UNLIKELY( -1==unshare( CLONE_NEWPID ) ) ) FD_LOG_ERR(( "unshare(CLONE_NEWPID) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    int pid = fork();
-    if( FD_UNLIKELY( -1==pid ) ) FD_LOG_ERR(( "fork failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( !pid ) {
-      fd_boot( &argc, &argv );
-      fd_log_thread_set( "supervisor" );
+    int pipefd[ 2 ];
+    if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    int pidns_pid = fork();
+    if( FD_UNLIKELY( -1==pidns_pid ) ) FD_LOG_ERR(( "fork failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( !pidns_pid ) {
+      fd_log_thread_set( "pidns" );
+      if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-      static config_t config[1];
-      fdctl_cfg_from_env( &argc, &argv, config );
-      config->log.log_fd = fd_log_private_logfile_fd();
-      config->log.lock_fd = init_log_memfd();
-      config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
-      config->consensus.poh_speed_test = 0;
+      int supervisor_pipefd[ 2 ];
+      if( FD_UNLIKELY( -1==pipe( supervisor_pipefd ) ) ) FD_LOG_ERR(( "pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-      return run( config );
+      int supervisor_pid = fork();
+      if( !supervisor_pid ) {
+        fd_boot( &argc, &argv );
+        fd_log_thread_set( "supervisor" );
+
+        if( FD_UNLIKELY( -1==close( supervisor_pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+        static config_t config[1];
+        fdctl_cfg_from_env( &argc, &argv, config );
+        config->log.log_fd = fd_log_private_logfile_fd();
+        config->log.lock_fd = init_log_memfd();
+        config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+        config->consensus.poh_speed_test = 0;
+
+        return run( config, supervisor_pipefd[ 0 ] );
+      } else {
+        if( FD_UNLIKELY( -1==close( supervisor_pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+        struct pollfd fds[ 2 ] = {
+          { .fd = pipefd[ 1 ],            .events = 0 },
+          { .fd = supervisor_pipefd[ 1 ], .events = 0 },
+        };
+
+        for(;;) {
+          if( FD_UNLIKELY( -1==poll( fds, 2, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( fds[ 0 ].revents ) ) {
+            /* Parent died ... doesn't matter what we return but must exit */
+            exit_group( 1 );
+          } else {
+            /* Child exited ... propagate error code */
+            int wstatus;
+            int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
+            if( FD_UNLIKELY( -1==exited_pid ) ) {
+              FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), 1UL, fds[ 1 ].revents ));
+            } else if( FD_UNLIKELY( !exited_pid ) ) {
+              /* Spurious wakeup, no child actually dead yet. */
+              continue;
+            }
+
+            if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+              exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+            } else {
+              exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+            }
+          }
+        }
+      }
     } else {
+      if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
       int wstatus;
       for(;;) {
-        int exited_pid = waitpid( pid, &wstatus, __WALL );
+        int exited_pid = waitpid( pidns_pid, &wstatus, __WALL );
         if( FD_UNLIKELY( -1==exited_pid && errno==EINTR ) ) continue;
         else if( FD_UNLIKELY( -1==exited_pid ) ) FD_LOG_ERR(( "waitpid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         else if( FD_UNLIKELY( !exited_pid ) ) FD_LOG_ERR(( "supervisor did not exit" ));
@@ -191,14 +240,15 @@ fddev_test_run( int     argc,
 }
 
 static int
-test_fddev( config_t * config ) {
-  struct child_info configure = fork_child( "fddev configure", config, fddev_configure );
+test_fddev( config_t * config,
+            int        close_fd ) {
+  struct child_info configure = fork_child( "fddev configure", config, close_fd, fddev_configure );
   wait_children( &configure, 1UL, 15UL );
-  struct child_info wksp = fork_child( "fddev wksp", config, fddev_wksp );
+  struct child_info wksp = fork_child( "fddev wksp", config, close_fd, fddev_wksp );
   wait_children( &wksp, 1UL, 30UL );
 
-  struct child_info dev = fork_child( "fddev dev", config, fddev_dev );
-  struct child_info ready = fork_child( "fddev ready", config, fddev_ready );
+  struct child_info dev = fork_child( "fddev dev", config, close_fd, fddev_dev );
+  struct child_info ready = fork_child( "fddev ready", config, close_fd, fddev_ready );
 
   struct child_info children[ 2 ] = { ready, dev };
   ulong exited = wait_children( children, 2UL, 15UL );
