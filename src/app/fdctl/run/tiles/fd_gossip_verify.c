@@ -40,11 +40,6 @@ struct fd_gossip_verify_tile_ctx {
   ulong           net_in_chunk;
   ulong           net_in_wmark;
 
-  fd_frag_meta_t * gossip_out_mcache;
-  ulong *          gossip_out_sync;
-  ulong            gossip_out_depth;
-  ulong            gossip_out_seq;
-
   fd_wksp_t *     gossip_out_mem;
   ulong           gossip_out_chunk0;
   ulong           gossip_out_wmark;
@@ -223,7 +218,6 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux ) {
   fd_gossip_verify_tile_ctx_t * ctx = (fd_gossip_verify_tile_ctx_t *)_ctx;
 
-
   ctx->mux = mux;
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *) fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
@@ -373,10 +367,6 @@ unprivileged_init( fd_topo_t      * topo,
 
   fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id_primary ];
 
-  ctx->gossip_out_mcache = gossip_out->mcache;
-  ctx->gossip_out_sync = fd_mcache_seq_laddr( ctx->gossip_out_mcache );
-  ctx->gossip_out_depth = fd_mcache_depth( ctx->gossip_out_mcache );
-  ctx->gossip_out_seq = fd_mcache_seq_query( ctx->gossip_out_sync );
   ctx->gossip_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
   ctx->gossip_out_mem = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->gossip_out_wmark = fd_dcache_compact_wmark( ctx->gossip_out_mem, gossip_out->dcache, gossip_out->mtu );
