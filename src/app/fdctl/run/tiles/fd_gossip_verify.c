@@ -125,7 +125,7 @@ fd_gossip_verify_crds_value(  fd_pubkey_t *     pubkey,
   ctx.dataend = buf + PACKET_DATA_SIZE;
 
   if( fd_crds_data_encode( &crd->data, &ctx ) ) {
-    FD_LOG_ERR(("fd_crds_value_encode failed"));
+    FD_LOG_WARNING(("fd_crds_value_encode failed"));
     return GOSSIP_VERIFY_FAILED;
   }
 
@@ -245,7 +245,7 @@ after_frag( void *             _ctx,
     };
     fd_gossip_msg_t gossip_msg[1];
     if( fd_gossip_msg_decode( gossip_msg, &decode_ctx ) ) {
-      FD_LOG_ERR(( "fd_gossip_msg_decode failed" ));
+      FD_LOG_WARNING(( "corrupt gossip message" ));
       *opt_filter = 1;
       return;
     }
