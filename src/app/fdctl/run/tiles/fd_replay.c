@@ -27,6 +27,7 @@
 #include "../../../../util/net/fd_net_headers.h"
 #include "fd_replay_notif.h"
 #include "generated/replay_seccomp.h"
+#include "../../../../disco/restart/fd_restart.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 #include "../../../../choreo/fd_choreo.h"
@@ -57,10 +58,12 @@
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
+#define GOSSIP_IN_IDX  (2UL)
 
 #define NOTIF_OUT_IDX  (0UL)
 #define SENDER_OUT_IDX (1UL)
-#define POH_OUT_IDX    (2UL)
+#define GOSSIP_OUT_IDX (2UL)
+#define POH_OUT_IDX    (3UL)
 
 /* Scratch space estimates.
    TODO: Update constants and add explanation
@@ -103,6 +106,11 @@ struct fd_replay_tile_ctx {
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
 
+  // Gossip tile input for wen-restart
+  fd_wksp_t * gossip_in_mem;
+  ulong       gossip_in_chunk0;
+  ulong       gossip_in_wmark;
+
   // Notification output defs
   fd_frag_meta_t * notif_out_mcache;
   ulong *          notif_out_sync;
@@ -124,6 +132,17 @@ struct fd_replay_tile_ctx {
   ulong       sender_out_chunk0;
   ulong       sender_out_wmark;
   ulong       sender_out_chunk;
+
+  // Gossip tile output defs for wen-restart
+  fd_frag_meta_t * gossip_out_mcache;
+  ulong *          gossip_out_sync;
+  ulong            gossip_out_depth;
+  ulong            gossip_out_seq;
+
+  fd_wksp_t * gossip_out_mem;
+  ulong       gossip_out_chunk0;
+  ulong       gossip_out_wmark;
+  ulong       gossip_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -199,6 +218,9 @@ struct fd_replay_tile_ctx {
   uint poh_init_done;
   int  snapshot_init_done;
 
+  int                  in_wen_restart;
+  fd_restart_state_t * restart_state;
+
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
   fd_pubkey_t vote_acct_addr[ 1 ];
@@ -242,6 +264,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_restart_state_align(), fd_restart_state_footprint() );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -430,6 +453,15 @@ during_frag( void * _ctx,
     }
 
     FD_LOG_DEBUG(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
+  } else if( in_idx == GOSSIP_IN_IDX ) {
+    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>LAST_VOTED_FORK_MAX_MSG_BYTES ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
+    }
+    uchar * src = (uchar *) fd_type_pun( fd_chunk_to_laddr( ctx->gossip_in_mem, chunk) );
+    fd_gossip_restart_last_voted_fork_slots_t * msg = (fd_gossip_restart_last_voted_fork_slots_t *) fd_type_pun( src );
+    msg->offsets.inner.raw_offsets.offsets.bits.bits = src + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
+    fd_restart_recv_last_voted_fork_slots( ctx->restart_state, msg );
+    return;
   }
 
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -1371,7 +1403,32 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
     init_snapshot( ctx, mux_ctx );
     ctx->snapshot_init_done = 1;
-  } 
+    if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
+      if( FD_UNLIKELY( strncmp( ctx->snapshot, "wksp:", 5 )!=0 ) ) {
+        FD_LOG_WARNING(( "Snapshot should be a funk checkpoint file for wen-restart.\n \
+                          Specifically, there are 2 steps for wen-restart:\n \
+                          1) Terminate the normal execution of FD which creates checkpoint files;\n \
+                          2) Restart FD in wen-restart mode and use the funk checkpoint as snapshot." ));
+      } else {
+        FD_SCRATCH_SCOPE_BEGIN {
+          ulong buf_len;
+          uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
+          fd_sysvar_slot_history_read( ctx->slot_ctx, fd_scratch_virtual(), ctx->slot_ctx->slot_history );
+          fd_restart_init( ctx->restart_state,
+                           &ctx->slot_ctx->slot_bank.epoch_stakes,
+                           ctx->tower,
+                           ctx->slot_ctx->slot_history,
+                           ctx->slot_ctx->blockstore,
+                           buf,
+                           &buf_len );
+          fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
+                             buf_len, 0UL, 0, 0 );
+          ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
+          ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, buf_len, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+        } FD_SCRATCH_SCOPE_END;
+      }
+    }
+  }
 }
 
 
@@ -1405,6 +1462,11 @@ during_housekeeping( void * _ctx ) {
     fd_ghost_publish( ctx->ghost, smr );
   }
 
+  /* FIXME: Decide how to tell FD to checkpoint funk and then halt before restarting FD in wen-restart mode */
+  if( ctx->in_wen_restart && ctx->curr_slot>ctx->snapshot_slot+500 ) {
+    checkpt( ctx );
+    FD_LOG_ERR(( "Halt and wait for restarting in wen-restart mode" ));
+  }
   // fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
 }
 
@@ -1453,6 +1515,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+  void * restart_state_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_restart_state_align(), fd_restart_state_footprint() );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -1728,6 +1791,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
 
   /**********************************************************************/
+  /* wen-restart                                                        */
+  /**********************************************************************/
+  ctx->in_wen_restart = tile->replay.in_wen_restart;
+  ctx->restart_state  = restart_state_mem;
+
+  /**********************************************************************/
   /* links                                                              */
   /**********************************************************************/
 
@@ -1742,6 +1811,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_mem              = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0           = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
   ctx->pack_in_wmark            = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
+
+  /* Set up gossip tile input for wen-restart */
+  fd_topo_link_t * gossip_in_link = &topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ];
+  ctx->gossip_in_mem              = topo->workspaces[ topo->objs[ gossip_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_in_chunk0           = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
+  ctx->gossip_in_wmark            = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
 
   fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
   ctx->notif_out_mcache      = notif_out->mcache;
@@ -1762,6 +1837,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sender_out_chunk0      = fd_dcache_compact_chunk0( ctx->sender_out_mem, sender_out->dcache );
   ctx->sender_out_wmark       = fd_dcache_compact_wmark ( ctx->sender_out_mem, sender_out->dcache, sender_out->mtu );
   ctx->sender_out_chunk       = ctx->sender_out_chunk0;
+
+  fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ];
+  ctx->gossip_out_mcache      = gossip_out->mcache;
+  ctx->gossip_out_sync        = fd_mcache_seq_laddr( ctx->gossip_out_mcache );
+  ctx->gossip_out_depth       = fd_mcache_depth( ctx->gossip_out_mcache );
+  ctx->gossip_out_seq         = fd_mcache_seq_query( ctx->gossip_out_sync );
+  ctx->gossip_out_chunk0      = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
+  ctx->gossip_out_mem         = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_out_wmark       = fd_dcache_compact_wmark( ctx->gossip_out_mem, gossip_out->dcache, gossip_out->mtu );
+  ctx->gossip_out_chunk       = ctx->gossip_out_chunk0;
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id_primary ];
