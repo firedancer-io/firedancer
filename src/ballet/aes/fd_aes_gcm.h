@@ -77,30 +77,30 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 #if FD_AES_GCM_IMPL == 0
 
   typedef fd_aes_gcm_ref_t    fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_ref
-  #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_ref
-  #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_ref
+  #define fd_aes_128_gcm_init_private fd_aes_128_gcm_init_ref
+  #define fd_aes_gcm_encrypt_private  fd_aes_gcm_encrypt_ref
+  #define fd_aes_gcm_decrypt_private  fd_aes_gcm_decrypt_ref
 
 #elif FD_AES_GCM_IMPL == 1
 
   typedef fd_aes_gcm_aesni_t  fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_aesni
-  #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_aesni
-  #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_aesni
+  #define fd_aes_128_gcm_init_private fd_aes_128_gcm_init_aesni
+  #define fd_aes_gcm_encrypt_private  fd_aes_gcm_encrypt_aesni
+  #define fd_aes_gcm_decrypt_private  fd_aes_gcm_decrypt_aesni
 
 #elif FD_AES_GCM_IMPL == 2
 
   typedef fd_aes_gcm_aesni_t  fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_avx2
-  #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_avx2
-  #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_avx2
+  #define fd_aes_128_gcm_init_private fd_aes_128_gcm_init_avx2
+  #define fd_aes_gcm_encrypt_private  fd_aes_gcm_encrypt_avx2
+  #define fd_aes_gcm_decrypt_private  fd_aes_gcm_decrypt_avx2
 
 #elif FD_AES_GCM_IMPL == 3
 
   typedef fd_aes_gcm_avx10_t  fd_aes_gcm_t;
-  #define fd_aes_128_gcm_init fd_aes_128_gcm_init_avx10_512
-  #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_avx10_512
-  #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_avx10_512
+  #define fd_aes_128_gcm_init_private fd_aes_128_gcm_init_avx10_512
+  #define fd_aes_gcm_encrypt_private  fd_aes_gcm_encrypt_avx10_512
+  #define fd_aes_gcm_decrypt_private  fd_aes_gcm_decrypt_avx10_512
 
 #endif
 
@@ -114,24 +114,57 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 #define FD_AES_GCM_IV_SZ  (12UL)
 
 FD_PROTOTYPES_BEGIN
+void
+fd_aes_128_gcm_init_private( fd_aes_gcm_t * aes_gcm,
+                             uchar const    key[ 16 ],
+                             uchar const    iv [ 12 ] );
+
+void
+fd_aes_gcm_encrypt_private( fd_aes_gcm_t * aes_gcm,
+                    uchar *        c,
+                    uchar const *  p,
+                    ulong          sz,
+                    uchar const *  aad,
+                    ulong          aad_sz,
+                    uchar          tag[ 16 ] );
+
+int
+fd_aes_gcm_decrypt_private( fd_aes_gcm_t * aes_gcm,
+                    uchar const *  c,
+                    uchar *        p,
+                    ulong          sz,
+                    uchar const *  aad,
+                    ulong          aad_sz,
+                    uchar const    tag[ 16 ] );
+
+#define FD_AES_GCM_DECRYPT_FAIL (0)
+#define FD_AES_GCM_DECRYPT_OK   (1)
+
+FD_PROTOTYPES_END
 
 /* fd_aes_128_gcm_init initializes an fd_aes_gcm_t object for
    encrypt or decrypt use.  aes_gcm points to unused and uninitialized
    memory aligned to FD_AES_GCM_STATE_ALIGN with sizeof(fd_aes_gcm_t)
    bytes available. */
 
-void
+inline void
 fd_aes_128_gcm_init( fd_aes_gcm_t * aes_gcm,
                      uchar const    key[ 16 ],
-                     uchar const    iv [ 12 ] );
+                     uchar const    iv [ 12 ] ) {
+  fd_msan_unpoison( aes_gcm, 16 );
+  fd_msan_check   ( key,     16 );
+  fd_msan_check   ( iv,      12 );
+
+  fd_aes_128_gcm_init_private( aes_gcm, key, iv );
+}
 
 /* fd_aes_gcm_aead_{encrypt,decrypt} implements the AES-GCM AEAD cipher
    c points to the ciphertext buffer.  p points to the plaintext buffer.
    sz is the length of the p and c buffers.  p,c,sz do not have align-
-   ment requirements.  iv points to the 12 byte initialization vector.
-   aad points to the 'associated data' buffer (with size aad_sz).  tag
-   points to the 16 byte authentication tag (written by both decrypt and
-   encrypt).
+   ment requirements.  aec_gcm->iv points to the 12 byte initialization
+   vector. aad points to the 'associated data' buffer (with size aad_sz).
+   tag points to the 16 byte authentication tag (written by both decrypt
+   and encrypt).
 
    (AAD serves to mix in arbitrary additional data into the auth tag,
    such that tampering with the AAD results in a decryption failure)
@@ -146,27 +179,39 @@ fd_aes_128_gcm_init( fd_aes_gcm_t * aes_gcm,
    ciphertext, corrupt sz, corrupt AAD, or corrupt tag (could be due to
    network corruption or malicious tampering). */
 
-void
+inline void
 fd_aes_gcm_encrypt( fd_aes_gcm_t * aes_gcm,
                     uchar *        c,
                     uchar const *  p,
                     ulong          sz,
                     uchar const *  aad,
                     ulong          aad_sz,
-                    uchar          tag[ 16 ] );
+                    uchar          tag[ 16 ] ) {
+  fd_msan_check   ( aes_gcm,   sizeof(aes_gcm) );
+  fd_msan_unpoison( c,         sz              );
+  fd_msan_check   ( p,         sz              );
+  fd_msan_check   ( aad,       aad_sz          );
+  fd_msan_unpoison( tag,       16              );
 
-int
+  fd_aes_gcm_encrypt_private( aes_gcm, c, p, sz, aad, aad_sz, tag );
+}
+
+inline int
 fd_aes_gcm_decrypt( fd_aes_gcm_t * aes_gcm,
                     uchar const *  c,
                     uchar *        p,
                     ulong          sz,
                     uchar const *  aad,
                     ulong          aad_sz,
-                    uchar const    tag[ 16 ] );
+                    uchar const    tag[ 16 ] ) {
+  fd_msan_check   ( aes_gcm,   sizeof(aes_gcm) );
+  fd_msan_check   ( c,         sz              );
+  fd_msan_unpoison( p,         sz              );
+  fd_msan_check   ( aad,       aad_sz          );
+  fd_msan_check   ( tag,       16              );
 
-#define FD_AES_GCM_DECRYPT_FAIL (0)
-#define FD_AES_GCM_DECRYPT_OK   (1)
+  return fd_aes_gcm_decrypt_private( aes_gcm, c, p, sz, aad, aad_sz, tag );
+}
 
-FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_aes_fd_aes_gcm_h */
