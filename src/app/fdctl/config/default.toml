@@ -843,7 +843,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 2048
+        max_concurrent_connections = 65536
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
@@ -872,7 +872,7 @@ dynamic_port_range = "8900-9000"
         # this value must be at least as high as the value of
         # `max_concurrent_connections` above multiplied by 16, or else
         # the validator will refuse to start.
-        stream_pool_cnt = 65536
+        stream_pool_cnt = 2097152
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -887,17 +887,11 @@ dynamic_port_range = "8900-9000"
         txn_reassembly_count = 16384
 
         # QUIC has a handshake process which establishes a secure
-        # connection between two endpoints.  The structures for this can
-        # be expensive, so in future we might allow more connections
-        # than we have handshake slots, and reuse handshakes across
-        # different connections.
+        # connection between two endpoints.  The handshake process is
+        # very expensive. So we allow only a limited number of
+        # handshakes to occur concurrently.
         #
-        # Currently, we don't support this, and this should always be
-        # set to the same value as the `max_concurrent_connections`
-        # above.
-        #
-        # TODO: This should be removed.
-        max_concurrent_handshakes = 2048
+        max_concurrent_handshakes = 512
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the

@@ -197,6 +197,7 @@ struct fd_replay_tile_ctx {
   ulong * smr;  /* supermajority root slot */
   ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
+  int  snapshot_init_done;
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
@@ -1316,6 +1317,40 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_NOTICE( ( "total stake %lu", bank_hash_cmp->total_stake ) );
 }
 
+void
+init_snapshot( fd_replay_tile_ctx_t * ctx,
+               fd_mux_context_t *     mux_ctx ) {
+  FD_LOG_NOTICE(( "init snapshot" ));
+  /* Init slot_ctx */
+
+  fd_exec_slot_ctx_t slot_ctx = { 0 };
+  ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &slot_ctx, ctx->valloc ) );
+  ctx->slot_ctx->acc_mgr      = ctx->acc_mgr;
+  ctx->slot_ctx->blockstore   = ctx->blockstore;
+  ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
+  ctx->slot_ctx->status_cache = ctx->status_cache;
+
+  FD_SCRATCH_SCOPE_BEGIN {
+    uchar is_snapshot = strlen( ctx->snapshot ) > 0;
+    if( is_snapshot ) {
+      read_snapshot( ctx, ctx->snapshot, ctx->incremental );
+    }
+
+    fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx );
+    ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+    init_after_snapshot( ctx );
+
+    publish_stake_weights( ctx, mux_ctx, ctx->slot_ctx );
+  } FD_SCRATCH_SCOPE_END;
+
+
+  /* Redirect ctx->slot_ctx to point to the memory inside forks. */
+
+  fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
+  ctx->slot_ctx = &fork->slot_ctx;
+  FD_TEST( ctx->slot_ctx );
+}
+
 /* after_credit runs on every iteration of the replay tile loop except
    when backpressured.
 
@@ -1330,52 +1365,13 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 static void
 after_credit( void *             _ctx,
               fd_mux_context_t * mux_ctx,
-              int *              opt_poll_in ) {
-  (void)opt_poll_in;
-
+              int *              opt_poll_in FD_PARAM_UNUSED ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
-  // Poll for blockstore
-  if( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
-    ulong                    tag = FD_BLOCKSTORE_MAGIC;
-    fd_wksp_tag_query_info_t info;
-    if( fd_wksp_tag_query( ctx->blockstore_wksp, &tag, 1, &info, 1 ) > 0 ) {
-      void * shmem              = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
-      ctx->blockstore = fd_blockstore_join( shmem );
-    }
-
-    if ( ctx->blockstore != NULL ) {
-      FD_LOG_NOTICE(( "INIT BLOCKSTORE" ));
-      /* Init slot_ctx */
-
-      fd_exec_slot_ctx_t slot_ctx = { 0 };
-      ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &slot_ctx, ctx->valloc ) );
-      ctx->slot_ctx->acc_mgr      = ctx->acc_mgr;
-      ctx->slot_ctx->blockstore   = ctx->blockstore;
-      ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
-      ctx->slot_ctx->status_cache = ctx->status_cache;
-
-      FD_SCRATCH_SCOPE_BEGIN {
-        uchar is_snapshot = strlen( ctx->snapshot ) > 0;
-        if( is_snapshot ) {
-          read_snapshot( ctx, ctx->snapshot, ctx->incremental );
-        }
-
-        fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx );
-        ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
-        init_after_snapshot( ctx );
-
-        publish_stake_weights( ctx, mux_ctx, ctx->slot_ctx );
-      } FD_SCRATCH_SCOPE_END;
-
-
-      /* Redirect ctx->slot_ctx to point to the memory inside forks. */
-
-      fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
-      ctx->slot_ctx = &fork->slot_ctx;
-      FD_TEST( ctx->slot_ctx );
-    }
-  }
+  if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
+    init_snapshot( ctx, mux_ctx );
+    ctx->snapshot_init_done = 1;
+  } 
 }
 
 
@@ -1480,6 +1476,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no blockstore wksp" ));
   }
 
+  ctx->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+  FD_TEST( ctx->blockstore!=NULL );
+
   ulong funk_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "funk" );
   FD_TEST( funk_obj_id!=ULONG_MAX );
   ctx->funk_wksp = topo->workspaces[ topo->objs[ funk_obj_id ].wksp_id ].wksp;
@@ -1572,14 +1571,13 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to tag query funk in %s", ctx->snapshot ));
     }
   } else {
-    void * funk_shmem = fd_wksp_alloc_laddr( ctx->funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-    if (funk_shmem == NULL) {
-      FD_LOG_ERR(( "failed to allocate funk" ));
+    void * funk_shmem = fd_topo_obj_laddr( topo, funk_obj_id );
+    if( funk_shmem==NULL ) {
+      FD_LOG_ERR(( "failed to find funk" ));
     }
-    ctx->funk = fd_funk_join( fd_funk_new( funk_shmem, FD_FUNK_MAGIC, ctx->funk_seed, tile->replay.funk_txn_max, tile->replay.funk_rec_max ) );
-    if (ctx->funk == NULL) {
-      fd_wksp_free_laddr(funk_shmem);
-      FD_LOG_ERR(( "failed to join + new funk" ));
+    ctx->funk = fd_funk_join( funk_shmem );
+    if( ctx->funk==NULL ) {
+      FD_LOG_ERR(( "failed to join funk" ));
     }
   }
 
@@ -1722,6 +1720,7 @@ unprivileged_init( fd_topo_t *      topo,
   //   FD_LOG_ERR( ( "replay tile %lu has no busy flag", tile->kind_id ) );
 
   ctx->poh_init_done = 0U;
+  ctx->snapshot_init_done = 0;
 
   /* set up vote related items */
   ctx->vote                           = tile->replay.vote;

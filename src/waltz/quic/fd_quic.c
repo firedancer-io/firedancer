@@ -122,7 +122,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
 
   ulong  conn_cnt         = limits->conn_cnt;
   ulong  conn_id_cnt      = limits->conn_id_cnt;
-  double conn_id_sparsity = limits->conn_id_sparsity;
   ulong  handshake_cnt    = limits->handshake_cnt;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
@@ -137,8 +136,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   /* connection */
   if( FD_UNLIKELY( stream_pool_cnt < FD_QUIC_STREAM_MIN * conn_cnt ) ) return 0UL;
 
-  if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
-    conn_id_sparsity = FD_QUIC_DEFAULT_SPARSITY;
   if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT ))
     return 0UL;
 
@@ -163,7 +160,7 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   /* allocate space for conn IDs */
   offs                     = fd_ulong_align_up( offs, fd_quic_conn_map_align() );
   layout->conn_map_off     = offs;
-  ulong slot_cnt_bound     = (ulong)( conn_id_sparsity * (double)conn_cnt * (double)conn_id_cnt );
+  ulong slot_cnt_bound     = (ulong)( FD_QUIC_DEFAULT_SPARSITY * (double)conn_cnt * (double)conn_id_cnt );
   int     lg_slot_cnt      = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
   layout->lg_slot_cnt      = lg_slot_cnt;
   ulong conn_map_footprint = fd_quic_conn_map_footprint( lg_slot_cnt );
@@ -998,11 +995,11 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
 
 int
 fd_quic_stream_send( fd_quic_stream_t *  stream,
-                     fd_aio_pkt_info_t * batch,
-                     ulong               batch_sz,
+                     void const *        data,
+                     ulong               data_sz,
                      int                 fin ) {
   if( FD_UNLIKELY( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ) ) {
-    return FD_QUIC_SEND_ERR_STREAM_FIN;
+    return FD_QUIC_SEND_ERR_FIN;
   }
 
   fd_quic_conn_t * conn = stream->conn;
@@ -1032,32 +1029,21 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   ulong allowed_conn   = conn->tx_max_data - conn->tx_tot_data;
   ulong allowed        = allowed_conn < allowed_stream ? allowed_conn : allowed_stream;
   ulong allocated      = 0UL;
-  ulong buffers_queued = 0;
 
-  /* visit each buffer in batch and store in tx_buf if there is sufficient
-     space */
-  for( ulong j=0; j<batch_sz; ++j ) {
-    ulong         data_sz = batch[j].buf_sz;
-    uchar const * data    = batch[j].buf;
-
-    if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
-      break;
-    }
-
-    if( data_sz + allocated > allowed ) {
-      break;
-    }
-
-    /* store data from data into tx_buf
-       this stores, but does not move the head offset */
-    fd_quic_buffer_store( tx_buf, data, data_sz );
-
-    /* advance head */
-    tx_buf->head += data_sz;
-
-    /* account for buffers sent/queued */
-    buffers_queued++;
+  if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
+    return FD_QUIC_SEND_ERR_FLOW;
   }
+
+  if( data_sz + allocated > allowed ) {
+    return FD_QUIC_SEND_ERR_FLOW;
+  }
+
+  /* store data from data into tx_buf
+      this stores, but does not move the head offset */
+  fd_quic_buffer_store( tx_buf, data, data_sz );
+
+  /* advance head */
+  tx_buf->head += data_sz;
 
   /* adjust flow control limits on stream and connection */
   stream->tx_tot_data += allocated;
@@ -1073,18 +1059,14 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
 
   /* don't actually set fin flag if we didn't add the last
      byte to the buffer */
-  if( fin && buffers_queued==batch_sz ) {
+  if( fin ) {
     fd_quic_stream_fin( stream );
-  }
-
-  if( batch_sz>0 && buffers_queued==0 ) {
-    return 0;
   }
 
   /* schedule send */
   fd_quic_reschedule_conn( conn, 0 );
 
-  return (int)buffers_queued;
+  return FD_QUIC_SUCCESS;
 }
 
 void

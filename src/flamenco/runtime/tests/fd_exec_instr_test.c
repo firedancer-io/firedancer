@@ -122,29 +122,6 @@ fd_double_is_normal( double dbl ) {
   return !( is_denorm | is_inf | is_nan );
 }
 
-FD_FN_UNUSED static void
-_txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
-  /* Copied from fd_runtime_collect_rent. Requires some modifications from fd_runtime_collect_rent */
-  fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  ulong slot = slot_ctx->slot_bank.slot;
-  ulong epoch = fd_slot_to_epoch(schedule, slot, NULL);
-
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    FD_BORROWED_ACCOUNT_DECL(acc);
-
-    // Obtain writable handle to account
-    if( fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], 0, 0UL, acc ) ) {
-      continue;
-    }
-
-    /* Actually invoke rent collection */
-    fd_runtime_collect_rent_from_account( slot_ctx, acc->meta, acc->pubkey, epoch );
-  }
-}
-
 static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
@@ -1454,9 +1431,6 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     int exec_res = task_info->exec_res;
 
-    /* Collect rent */
-    //TODO: _txn_collect_rent( txn_ctx );
-
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
     ulong output_end = (ulong)output_buf + output_bufsz;
@@ -1474,7 +1448,6 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
     txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
-    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
     txn_result->is_ok                             = !exec_res;
     txn_result->status                            = (uint32_t) -exec_res;
     txn_result->instruction_error                 = 0;
@@ -1499,6 +1472,9 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->has_fee_details                   = true;
     txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
     txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
+
+    /* Rent is only collected on successfully loaded transactions */
+    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
 
     /* At this point, the transaction has executed */
     if( exec_res ) {
@@ -1713,9 +1689,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
   // Skip extra checks for non-CPI syscalls
-  int skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+  int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+  int skip_extra_checks = !is_cpi;
 
-  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, !!skip_extra_checks ) )
+  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1772,6 +1749,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if ( !vm ) {
     goto error;
   }
+  uchar is_deprecated = !memcmp( input_instr_ctx->program_id, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
   fd_vm_init(
     vm,
     ctx,
@@ -1791,7 +1769,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     input_regions,
     input_regions_count,
     NULL,
-    input->vm_ctx.check_align );
+    is_deprecated );
 
   // Setup the vm state for execution
   if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
@@ -1839,6 +1817,27 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
   if( syscall_err ) {
+    /*  In the CPI syscall, certain checks are performed out of order between Firedancer and Agave's
+        implementation. Certain checks in FD (whose error codes mapped below)
+        do not have a (sequentially) equivalent one in Agave. Thus, it doesn't make sense
+        to declare a mismatch if Firedancer fails such a check when Agave doesn't, as long
+        as both end up error'ing out at some point. We also have other metrics (namely CU count)
+        to rely on. */
+
+    /*  Certain pre-flight checks are not performed in Agave. These manifest as
+        access violations in Agave. The agave_access_violation_mask bitset sets
+        the error codes that are expected to be access violations in Agave. */
+    if( is_cpi &&
+      ( syscall_err == FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS ||
+        syscall_err == FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE ||
+        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
+        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
+
+      /* FD performs pre-flight checks that manifest as access violations in Agave */
+      vm->instr_ctx->txn_ctx->exec_err      = FD_VM_ERR_EBPF_ACCESS_VIOLATION;
+      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
+    }
+
     fd_log_collector_program_failure( vm->instr_ctx );
   }
 
@@ -1846,10 +1845,28 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   int exec_err = vm->instr_ctx->txn_ctx->exec_err;
   effects->error = 0;
   if( syscall_err ) {
-    effects->error = exec_err <= 0 ? -exec_err : -1;
     if( exec_err==0 ) {
       FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
+    } else {
+      effects->error = (exec_err <= 0) ? -exec_err : -1;
+
+      /* Map error kind, equivalent to:
+          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind + 1); */ 
+      switch (vm->instr_ctx->txn_ctx->exec_err_kind) {
+        case FD_EXECUTOR_ERR_KIND_EBPF:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_EBPF;
+          break;
+        case FD_EXECUTOR_ERR_KIND_SYSCALL:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_SYSCALL;
+          break;
+        case FD_EXECUTOR_ERR_KIND_INSTR:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_INSTRUCTION;
+          break;
+        default:
+          effects->error_kind = FD_EXEC_TEST_ERR_KIND_UNSPECIFIED;
+          break;
+      }
     }
   }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
@@ -1890,7 +1907,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->frame_count = vm->frame_cnt;
 
   fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
-  if( log->buf_sz ) {
+  /* Only collect log on valid errors (i.e., != -1). Follows
+     https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
+  if( effects->error != -1 && log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
     if( FD_UNLIKELY( _l > output_end ) ) {

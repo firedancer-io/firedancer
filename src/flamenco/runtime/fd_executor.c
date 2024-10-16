@@ -30,6 +30,8 @@
 #include "../../ballet/pack/fd_pack_cost.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 
+#include "../../util/bits/fd_uwide.h"
+
 #define SORT_NAME        sort_uint64_t
 #define SORT_KEY_T       uint64_t
 #define SORT_BEFORE(a,b) (a)<(b)
@@ -1903,11 +1905,13 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
     int err = fd_executor_txn_check( txn_ctx->slot_ctx, txn_ctx );
     if ( err != FD_EXECUTOR_INSTR_SUCCESS) {
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
       FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
         ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
         if( ret != FD_ACC_MGR_SUCCESS ) {
           FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
+          FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, ret, txn_ctx->instr_err_idx );
           return ret;
         }
       }
@@ -1928,10 +1932,11 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
 
-  ulong ending_lamports = 0;
-  ulong ending_dlen = 0;
-  ulong starting_lamports = 0;
-  ulong starting_dlen = 0;
+  ulong starting_lamports_l = 0;
+  ulong starting_lamports_h = 0;
+
+  ulong ending_lamports_l = 0;
+  ulong ending_lamports_h = 0;
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
   for( ulong idx = 0; idx < txn->accounts_cnt; idx++ ) {
@@ -1939,8 +1944,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
 
     // Was this account written to?
     if( NULL != b->meta ) {
-      ending_lamports += b->meta->info.lamports;
-      ending_dlen += b->meta->dlen;
+      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, b->meta->info.lamports );
 
       /* Rent states are defined as followed:
          - lamports == 0                      -> Uninitialized
@@ -1990,32 +1994,27 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
         }
       }
 
-      if (b->starting_lamports != ULONG_MAX)
-        starting_lamports += b->starting_lamports;
-      if (b->starting_dlen != ULONG_MAX)
-        starting_dlen += b->starting_dlen;
-    } else if (NULL != b->const_meta) {
+      if( b->starting_lamports != ULONG_MAX ) {
+        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, b->starting_lamports );
+      }
+    } else if( NULL != b->const_meta ) {
       // Should these just kill the client?  They are impossible...
-      if (b->starting_lamports != b->const_meta->info.lamports) {
+      if( b->starting_lamports != b->const_meta->info.lamports ) {
         FD_LOG_DEBUG(("Const rec mismatch %s starting %lu %lu ending %lu %lu", FD_BASE58_ENC_32_ALLOCA( b->pubkey->uc ), b->starting_dlen, b->starting_lamports, b->const_meta->dlen, b->const_meta->info.lamports));
         return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
-      if (b->starting_dlen != b->const_meta->dlen) {
+      if( b->starting_dlen != b->const_meta->dlen ) {
         FD_LOG_DEBUG(("Const rec mismatch %s starting %lu %lu ending %lu %lu", FD_BASE58_ENC_32_ALLOCA( b->pubkey->uc ), b->starting_dlen, b->starting_lamports, b->const_meta->dlen, b->const_meta->info.lamports));
         return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845
-     Should these just kill the client?  They are impossible yet solana just throws an error */
-  if (ending_lamports != starting_lamports) {
-    FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
+  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845 */
+  if( FD_UNLIKELY( ending_lamports_l != starting_lamports_l && ending_lamports_h != starting_lamports_h ) ) {
+    FD_LOG_DEBUG(( "Lamport sum mismatch: starting %lu%lu ending %lu%lu", starting_lamports_h, starting_lamports_l, ending_lamports_h, ending_lamports_l ));
     return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
   }
-
-  /* TODO unused variables */
-  (void)ending_dlen; (void)starting_dlen;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

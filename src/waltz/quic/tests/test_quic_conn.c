@@ -312,7 +312,6 @@ main( int argc, char ** argv ) {
   fd_quic_limits_t const quic_limits = {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
     .stream_cnt         = { 0, 0, 10, 0 },
     .initial_stream_cnt = { 0, 0, 10, 0 },
@@ -374,7 +373,6 @@ main( int argc, char ** argv ) {
   populate_stream_meta( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ] );
 
   char buf[512] = "Hello world!\x00-   ";
-  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
 
   int done  = 0;
 
@@ -412,9 +410,9 @@ main( int argc, char ** argv ) {
 
           FD_LOG_DEBUG(( "sending: %d", (int)k ));
 
-          int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
+          int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
 
-          if( rc == 1 ) {
+          if( rc == FD_QUIC_SUCCESS ) {
             /* successful - stream will begin closing */
             /* stream and meta will be recycled when quic notifies the stream
                is closed via my_stream_notify_cb */

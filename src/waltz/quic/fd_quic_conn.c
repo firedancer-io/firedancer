@@ -1,6 +1,7 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
+#include "fd_quic_enum.h"
 #include "fd_quic_pkt_meta.h"
 #include "fd_quic_private.h"
 
@@ -42,7 +43,6 @@ static ulong
 fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
                             fd_quic_conn_layout_t *  layout ) {
 
-  double stream_sparsity  = limits->stream_sparsity;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
 
   ulong  stream_cnt = (
@@ -54,17 +54,12 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
 
   if( FD_UNLIKELY( stream_cnt      ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( stream_sparsity==0.0 ) ) {
-    stream_sparsity = FD_QUIC_DEFAULT_SPARSITY;
-  }
 
   /* initial stream count not allowed to be larger than max stream count limit */
   if( FD_UNLIKELY( limits->initial_stream_cnt[0] > limits->stream_cnt[0] ) ) return 0UL;
   if( FD_UNLIKELY( limits->initial_stream_cnt[1] > limits->stream_cnt[1] ) ) return 0UL;
   if( FD_UNLIKELY( limits->initial_stream_cnt[2] > limits->stream_cnt[2] ) ) return 0UL;
   if( FD_UNLIKELY( limits->initial_stream_cnt[3] > limits->stream_cnt[3] ) ) return 0UL;
-
-  stream_cnt = layout->stream_cnt = limits->stream_pool_cnt;
 
   ulong off  = 0;
 
@@ -73,7 +68,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   /* allocate space for stream hash map */
   /* about a million seems like a decent bound, with expected values up to 20,000 */
   ulong lg = 0;
-  while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_cnt*stream_sparsity) ) {
+  while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_cnt*FD_QUIC_DEFAULT_SPARSITY) ) {
     lg++;
   }
   layout->stream_map_lg = (int)lg;

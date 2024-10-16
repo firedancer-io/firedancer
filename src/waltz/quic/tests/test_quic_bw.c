@@ -82,7 +82,6 @@ main( int     argc,
   fd_quic_limits_t const quic_limits = {
     .conn_cnt           = 1,
     .conn_id_cnt        = 4,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
     .stream_cnt         = { 0, 0, 10, 0 },
     .initial_stream_cnt = { 0, 0, 10, 0 },
@@ -180,9 +179,7 @@ main( int     argc,
   FD_TEST( client_stream );
 
   char buf[ 1232UL ] = "Hello world!\x00-   ";
-  ulong buf_sz = sizeof(buf);
-  fd_aio_pkt_info_t batch[1] = {{ buf, (ushort)buf_sz }};
-  int rc = fd_quic_stream_send( client_stream, batch, 1, 1 );
+  int rc = fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
   long last_ts = fd_log_wallclock();
@@ -196,7 +193,7 @@ main( int     argc,
 
     client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
     if( !client_stream ) continue;
-    fd_quic_stream_send( client_stream, batch, 1, 1 );
+    fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
 
     long t = fd_log_wallclock();
     if( t >= rprt_ts ) {

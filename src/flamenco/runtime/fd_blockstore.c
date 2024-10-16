@@ -43,7 +43,7 @@ fd_blockstore_new( void * shmem,
                    ulong  seed,
                    ulong  shred_max,
                    ulong  slot_max,
-                   int    lg_txn_max ) {
+                   ulong  lg_txn_max ) {
   fd_blockstore_t * blockstore = (fd_blockstore_t *)shmem;
 
   if( FD_UNLIKELY( !blockstore ) ) {

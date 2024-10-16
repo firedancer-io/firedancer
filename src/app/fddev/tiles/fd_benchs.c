@@ -293,8 +293,6 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->conn_cnt = 2;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
-  limits->conn_id_sparsity = 4.0;
-  limits->stream_sparsity = 2.0;
   limits->inflight_pkt_cnt = 1500;
   limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
   limits->stream_pool_cnt = 1<<16;
@@ -428,13 +426,10 @@ during_frag( void * _ctx,
       return;
     } else {
       int fin = 1;
-      fd_aio_pkt_info_t   batch[1]  = { { .buf    = fd_chunk_to_laddr( ctx->mem, chunk ),
-                                          .buf_sz = (ushort)sz } };
-      ulong               batch_cnt = 1;
-      int rtn = fd_quic_stream_send( stream, batch, batch_cnt, fin );
+      int rtn = fd_quic_stream_send( stream, fd_chunk_to_laddr( ctx->mem, chunk ), sz, fin );
       ctx->packet_cnt++;
 
-      if( FD_LIKELY( rtn == 1UL ) ) {
+      if( FD_LIKELY( rtn == FD_QUIC_SUCCESS ) ) {
         /* after using, fetch a new stream */
         ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn, FD_QUIC_TYPE_UNIDIR );
         if( FD_LIKELY( stream ) ) {

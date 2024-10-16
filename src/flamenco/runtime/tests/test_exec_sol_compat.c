@@ -41,6 +41,8 @@ run_test( fd_exec_instr_test_runner_t * runner,
     ok = sol_compat_elf_loader_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/syscall/" ) != NULL ) {
     ok = sol_compat_syscall_fixture( runner, buf, file_sz );
+  } else if( strstr( path, "/cpi/" ) != NULL ) {
+    ok = sol_compat_syscall_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_validate/" ) != NULL ) {
     ok = sol_compat_validate_vm_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_interp/" ) != NULL ){

@@ -109,11 +109,9 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
   ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count         */
 
   ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
-  double conn_id_sparsity;      /* per-conn, conn ID hashmap sparsity                    */
 
   ulong  stream_cnt[4];         /* per-conn, max concurrent stream count                 */
   ulong  initial_stream_cnt[4]; /* per-conn, initial target max concurrent stream count  */
-  double stream_sparsity;       /* per-conn, stream hashmap sparsity                     */
 
   ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
 
@@ -549,15 +547,15 @@ FD_QUIC_API fd_quic_stream_t *
 fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                          int              type );
 
-/* fd_quic_stream_send sends a vector of buffers on a stream in order.
+/* fd_quic_stream_send sends a chunk on a stream in order.
 
    Use fd_quic_conn_new_stream to create a new stream for sending
    or use the new stream callback to obtain a stream for replying.
 
    args
      stream         the stream to send on
-     batch          a pointer to an array of buffers
-     batch_sz       the size of the batch
+     data           points to first byte of buffer (ignored if data_sz==0)
+     data_sz        number of bytes to send
      fin            final: bool
                       set to indicate the stream is finalized by the last byte
                       in the batch
@@ -566,12 +564,12 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                         or via the fd_quic_stream_fin(...) function
 
    returns
-     >=0   number of buffers sent - remaining blocked
+       0   success
       <0   one of FD_QUIC_SEND_ERR_{INVAL_STREAM,INVAL_CONN,AGAIN} */
 FD_QUIC_API int
 fd_quic_stream_send( fd_quic_stream_t *  stream,
-                     fd_aio_pkt_info_t * batch,
-                     ulong               batch_sz,
+                     void const *        data,
+                     ulong               data_sz,
                      int                 fin );
 
 /* fd_quic_stream_fin: finish sending on a stream.  Called to signal
