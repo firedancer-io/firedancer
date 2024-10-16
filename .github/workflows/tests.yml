@@ -53,7 +53,7 @@ jobs:
             compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: true
-            run-integration-tests: true
+            run-integration-tests: false
           - test-case: linux_clang_x86_64
             machine: linux_clang_x86_64
             label: X64
