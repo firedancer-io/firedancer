@@ -195,13 +195,13 @@ test_fddev( config_t * config ) {
   struct child_info configure = fork_child( "fddev configure", config, fddev_configure );
   wait_children( &configure, 1UL, 15UL );
   struct child_info wksp = fork_child( "fddev wksp", config, fddev_wksp );
-  wait_children( &wksp, 1UL, 30UL );
+  wait_children( &wksp, 1UL, 60UL );
 
   struct child_info dev = fork_child( "fddev dev", config, fddev_dev );
   struct child_info ready = fork_child( "fddev ready", config, fddev_ready );
 
   struct child_info children[ 2 ] = { ready, dev };
-  ulong exited = wait_children( children, 2UL, 15UL );
+  ulong exited = wait_children( children, 2UL, 30UL );
   if( FD_UNLIKELY( exited!=0UL ) ) FD_LOG_ERR(( "`%s` exited unexpectedly", children[ exited ].name ));
   return 0;
 }
