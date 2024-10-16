@@ -405,13 +405,13 @@ typedef struct fd_solana_account_stored_meta_off fd_solana_account_stored_meta_o
 #define FD_SOLANA_ACCOUNT_STORED_META_OFF_FOOTPRINT sizeof(fd_solana_account_stored_meta_off_t)
 #define FD_SOLANA_ACCOUNT_STORED_META_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (56 bytes) */
+/* Encoded Size: Fixed (52 bytes) */
 struct __attribute__((packed)) fd_solana_account_meta {
   ulong lamports;
   ulong rent_epoch;
   uchar owner[32];
   uchar executable;
-  uchar padding[7];
+  uchar padding[3];
 };
 typedef struct fd_solana_account_meta fd_solana_account_meta_t;
 #define FD_SOLANA_ACCOUNT_META_FOOTPRINT sizeof(fd_solana_account_meta_t)
@@ -432,6 +432,7 @@ typedef struct fd_solana_account_meta_off fd_solana_account_meta_off_t;
 struct __attribute__((packed)) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t info;
+  uchar padding[4];
   fd_hash_t hash;
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
@@ -441,6 +442,7 @@ typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 struct __attribute__((packed)) fd_solana_account_hdr_off {
   uint meta_off;
   uint info_off;
+  uint padding_off;
   uint hash_off;
 };
 typedef struct fd_solana_account_hdr_off fd_solana_account_hdr_off_t;

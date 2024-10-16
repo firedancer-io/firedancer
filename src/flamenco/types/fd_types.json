@@ -212,7 +212,7 @@
         { "name": "rent_epoch", "type": "ulong" },
         { "name": "owner", "type": "uchar[32]" },
         { "name": "executable", "type": "bool" },
-        { "name": "padding", "type": "array", "element": "uchar", "length": 7 }
+        { "name": "padding", "type": "array", "element": "uchar", "length": 3 }
       ]
     },
     {
@@ -222,6 +222,7 @@
       "fields": [
         { "name": "meta", "type": "solana_account_stored_meta" },
         { "name": "info", "type": "solana_account_meta" },
+        { "name": "padding", "type": "array", "element": "uchar", "length": 4 },
         { "name": "hash", "type": "hash" }
       ]
     },
