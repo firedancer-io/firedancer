@@ -282,6 +282,31 @@ before_credit( void * _ctx,
   }
 }
 
+/* insert_from_extra: helper method to pop the transaction at the head
+   off the extra txn deque and insert it into pack.  Requires that
+   ctx->extra_txn_deq is non-empty, but it's okay to call it if pack is
+   full.  Returns the result of fd_pack_insert_txn_fini. */
+static inline int
+insert_from_extra( fd_pack_ctx_t * ctx ) {
+  fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
+  fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
+  fd_txn_t   const * insert_txn = TXN(insert);
+  fd_memcpy( spot->payload, insert->payload, insert->payload_sz                                                           );
+  fd_memcpy( TXN(spot),     insert_txn,      fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
+  spot->payload_sz = insert->payload_sz;
+  extra_txn_deq_remove_head( ctx->extra_txn_deq );
+
+  /* Unpack the time stashed in the CUs field */
+  long now = (long)((((ulong)insert->executed_cus)<<32) | ((ulong)insert->requested_cus));
+
+  long insert_duration = -fd_tickcount();
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)now+TIME_OFFSET );
+  insert_duration      += fd_tickcount();
+  ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
+  fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+  return result;
+}
+
 static inline void
 after_credit( void *             _ctx,
               fd_mux_context_t * mux,
@@ -363,8 +388,18 @@ after_credit( void *             _ctx,
     return;
   }
 
-  /* Am I leader? If not, nothing to do. */
-  if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) return;
+  /* Am I leader? If not, see about inserting at most one transaction
+     from extra storage.  It's important not to insert too many
+     transactions here, or we won't end up servicing dedup_pack enough.
+     If extra storage is empty or pack is full, do nothing. */
+  if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
+         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+      int result = insert_from_extra( ctx );
+      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+    }
+    return;
+  }
 
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_banks ) ) {
@@ -437,23 +472,9 @@ after_credit( void *             _ctx,
        transaction count drops below half. */
     ulong avail_space   = (ulong)fd_long_max( 0L, (long)(ctx->max_pending_transactions>>1)-(long)fd_pack_avail_txn_cnt( ctx->pack ) );
     ulong qty_to_insert = fd_ulong_min( 10UL, fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space ) );
-    for( ulong i=0UL; i<qty_to_insert; i++ ) {
-      fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
-      fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
-      fd_txn_t   const * insert_txn = TXN(insert);
-      fd_memcpy( spot->payload, insert->payload, insert->payload_sz                                                           );
-      fd_memcpy( TXN(spot),     insert_txn,      fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
-      spot->payload_sz = insert->payload_sz;
-      extra_txn_deq_remove_head( ctx->extra_txn_deq );
-
-
-      long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)now+TIME_OFFSET );
-      insert_duration      += fd_tickcount();
-      ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
-      fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
-    }
+    int any_successes = 0;
+    for( ulong i=0UL; i<qty_to_insert; i++ ) any_successes |= (0<=insert_from_extra( ctx ));
+    if( FD_LIKELY( any_successes ) ) ctx->last_successful_insert = now;
     FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, qty_to_insert );
   }
 
@@ -468,6 +489,7 @@ after_credit( void *             _ctx,
     fd_pack_end_block( ctx->pack );
   }
 }
+
 
 /* At this point, we have started receiving frag seq with details in
     mline at time now.  Speculatively process it here. */
@@ -561,6 +583,11 @@ during_frag( void * _ctx,
         FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
       }
       ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
+      /* We want to store the current time in cur_spot so that we can
+         track its expiration better.  We just stash it in the CU
+         fields, since those aren't important right now. */
+      ctx->cur_spot->requested_cus = (uint)((ulong)now & UINT_MAX);
+      ctx->cur_spot->executed_cus  = (uint)((ulong)now>>32       );
       ctx->insert_to_extra = 1;
       FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
     }
