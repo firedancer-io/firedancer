@@ -24,7 +24,7 @@ struct fd_deshredder {
      that was previously deserialized. */
   uchar * buf;
 
-  /* Free space in target target buffer */
+  /* Free space in target buffer */
   ulong bufsz;
 
   /* Cached return code */
@@ -58,8 +58,8 @@ fd_deshredder_init( fd_deshredder_t *          shredder,
    Concatenates a batch of shreds provided by the caller in
    `fd_deshredder_init`.
 
-   Note that it usually takes multiple calls to process to process all
-   provided shreds because each block can have up to 64 batches.
+   Note that it usually takes multiple calls to process all provided
+   shreds because each block can have up to 64 batches.
 
    If a new batch was created, returns the number of bytes written to
    `buf` which the caller previously provided in `fd_deshredder_init`.
@@ -84,4 +84,4 @@ fd_deshredder_next( fd_deshredder_t * shredder );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_shred_fd_shred_h */
+#endif /* HEADER_fd_src_ballet_shred_fd_deshredder_h */

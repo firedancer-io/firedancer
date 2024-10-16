@@ -77,9 +77,9 @@ fd_rng_private_contract( ulong eseq ) {
    fd_rng_new takes ownership of the memory region pointed to by mem
    (which is assumed to be non-NULL with the appropriate alignment and
    footprint) and formats it as a fd_rng.  The random number generator
-   stream will initialized to use pseudo random sequence "seq" and will
-   start at slot "idx".  Returns mem (which will be formatted for use).
-   The caller will not be joined to the region on return.
+   stream will be initialized to use pseudo random sequence "seq" and
+   will start at slot "idx".  Returns mem (which will be formatted for
+   use). The caller will not be joined to the region on return.
 
    fd_rng_join joins the caller to a memory region holding the state of
    a fd_rng.  _rng points to a memory region in the local address space

@@ -177,7 +177,7 @@ struct __attribute__((packed)) fd_shred {
      For merkle code type shreds, the 3rd highest bit represents if the merkle tree is chained.
      For merkle data type shreds, the 4th highest bit represents if the merkle tree is chained.
      For merkle code type shreds, the 4th highest bit represents if the shred is resigned.
-     For merkle data type shreds, the 3th highest bit represents if the shred is resigned.
+     For merkle data type shreds, the 3rd highest bit represents if the shred is resigned.
 */
   /* 0x40 */ uchar  variant;
 

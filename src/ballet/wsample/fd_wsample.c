@@ -115,7 +115,7 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
      height and internal_node_cnt both exclude the leaves, which are
      only implicit.
 
-     All the math seems to disallow leaf_cnt==0, but for conveniece, we
+     All the math seems to disallow leaf_cnt==0, but for convenience, we
      do allow it. height==internal_node_cnt==0 in that case.
 
      height actually fits in a uchar.  Storing as ulong is more natural,
@@ -209,7 +209,7 @@ fd_wsample_join( void * shmem  ) {
 }
 
 /* Note: The following optimization insights are not used in this
-   high radix implmentation.  Performance in the deletion case is much
+   high radix implementation.  Performance in the deletion case is much
    more important than in the non-deletion case, and it's not clear how
    to translate this.  I'm leaving the code and comment because it is a
    useful and non-trivial insight. */
