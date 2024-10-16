@@ -1,5 +1,15 @@
 #include "fd_checkpt.h"
 
+int
+fd_checkpt_frame_style_is_supported( int frame_style ) {
+  int supported;
+  supported  = (frame_style==FD_CHECKPT_FRAME_STYLE_RAW);
+# if FD_HAS_LZ4
+  supported |= (frame_style==FD_CHECKPT_FRAME_STYLE_LZ4);
+# endif
+  return supported;
+}
+
 char const *
 fd_checkpt_strerror( int err ) {
   switch( err ) {
@@ -57,9 +67,9 @@ fd_checkpt_private_lz4( LZ4_stream_t * lz4,
 
   /* Small ubuf gather optimization.  Though the LZ4 streaming API looks
      like it is designed for scatter/gather operation, the
-     implementation under the hood is heavily optimized for the case the
-     incoming data buffers are stored in a ring buffer (basically, the
-     compression dictionary has a size of the most recent 64 KiB of
+     implementation under the hood is heavily optimized for the case
+     when incoming data buffers are stored in a ring buffer (basically,
+     the compression dictionary has a size of the most recent 64 KiB of
      _contiguous_ _in_ _memory_ buffers passed to it ... see
      lz4-1.9.4@lz4/lib/lz4.c:2636-2665 for an example).
 
@@ -79,8 +89,7 @@ fd_checkpt_private_lz4( LZ4_stream_t * lz4,
      the most important case for high performance.
 
      Below, if the incoming buffer to compress is large enough
-     (>=thresh), we compress it in place as it will be optimal as
-     before.
+     (>thresh), we compress it in place as it will be optimal as before.
 
      If not, we first copy it into a gather buffer and have LZ4 compress
      out of the gather buffer location.  Then, when compressing lots of
@@ -90,22 +99,34 @@ fd_checkpt_private_lz4( LZ4_stream_t * lz4,
      Then our dictionary size is optimal in both asymptotic regimes and
      we are still zero copy in the important case of compressing large
      data.  The dictionary will also be reasonable when toggling
-     frequently between the asymptotic regimes, as often happens in
+     frequently between asymptotic regimes, as often happens in
      checkpointing (small metadata checkpts/large checkpt/small metadata
      checkpts/large data checkpt/...).
 
-     The lz4 API streaming API requires up to the most recent 64 KiB of
-     uncompressed bytes to be unmodified when called.  Suppose we have
-     only been compressing small buffers and we are trying to compress a
-     thresh-1 byte buffer when only thresh-2 bytes of gather buffer
-     space remains.  Since we wrap at buffer granularity, we will need
-     to put the thresh-1 bytes at the head of the buffer.  To ensure
-     this doesn't clobber any of the 64 KiB previously compressed, we
+     This is also necessary to satisfy fd_checkpt_data's and
+     fd_checkpt_meta's API guarantees.  The lz4 streaming API requires
+     the most recent 64KiB of uncompressed bytes to be unmodified and in
+     the same place when called.  If FD_CHECKPT_META_MAX<=thresh<=64KiB,
+     the copying into the gather buffer here and out of the scatter
+     buffer on restore means the unmodified-in-place part of the
+     requirement can be satified even if the user passes a temporary
+     buffer and immediately modifies/frees it on return.  That is, the
+     checkpt/restore will be prompt and retain no interest in buf on
+     return.
+
+     We also have to make the gather/scatter buffers large enough to
+     satify the most-recent-64KiB part of the requirement.  Suppose we
+     have only been compressing small buffers and we are trying to
+     compress a thresh byte buffer when only thresh-1 bytes of gather
+     buffer space remains.  Since we wrap at buffer granularity, we will
+     need to put thresh bytes at the head of the buffer.  To ensure this
+     doesn't clobber any of the 64 KiB previously compressed bytes, we
      need a gather buffer at least:
 
-       thresh-1 + 64KiB + thresh-2 = 2 thresh + 64 KiB - 3
+       thresh + 64KiB + thresh-1 = 2 thresh + 64 KiB - 1
 
-     in size.  Larger is fine.  Smaller will break compression.
+     in size.  Larger is fine.  Smaller will violate this part of the
+     requirement.
 
      We do the corresponding in the restore and the restore
      configuration must match our checkpt configuration exactly in order
@@ -114,9 +135,10 @@ fd_checkpt_private_lz4( LZ4_stream_t * lz4,
      TL;DR  We store small buffers into a gather ring at buffer
      granularity for better compression and compress large buffers in
      place for extra performance due to the details of how LZ4 stream
-     APIs are implemented. */
+     APIs are implemented  We also do this to support immediate use and
+     reuse of the metadata checkpt/restores buffers. */
 
-  int is_small = ubuf_usz<gbuf_thresh;
+  int is_small = ubuf_usz<=gbuf_thresh;
   if( is_small ) { /* app dependent branch prob */
     ulong gbuf_cursor = *_gbuf_cursor;
     if( (gbuf_sz-gbuf_cursor)<ubuf_usz ) gbuf_cursor = 0UL; /* cmov */
@@ -207,6 +229,7 @@ fd_checkpt_init_stream( void * mem,
   checkpt->fd          = fd; /* streaming mode */
   checkpt->frame_style = 0;  /* not in frame */
   checkpt->lz4         = (void *)lz4;
+  checkpt->gbuf_cursor = 0UL;
   checkpt->off         = 0UL;
   checkpt->wbuf.mem    = (uchar *)wbuf;
   checkpt->wbuf.sz     = wbuf_sz;
@@ -272,7 +295,7 @@ fd_checkpt_fini( fd_checkpt_t * checkpt ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_checkpt_private_in_frame( checkpt ) ) ) {
+  if( FD_UNLIKELY( fd_checkpt_in_frame( checkpt ) ) ) {
     FD_LOG_WARNING(( "in a frame" ));
     checkpt->frame_style = -1; /* failed */
     return NULL;
@@ -293,16 +316,16 @@ fd_checkpt_fini( fd_checkpt_t * checkpt ) {
 }
 
 int
-fd_checkpt_frame_open_advanced( fd_checkpt_t * checkpt,
-                                int            frame_style,
-                                ulong *        _off ) {
+fd_checkpt_open_advanced( fd_checkpt_t * checkpt,
+                          int            frame_style,
+                          ulong *        _off ) {
 
   if( FD_UNLIKELY( !checkpt ) ) {
     FD_LOG_WARNING(( "NULL checkpt" ));
     return FD_CHECKPT_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( !fd_checkpt_private_can_open( checkpt ) ) ) {
+  if( FD_UNLIKELY( !fd_checkpt_can_open( checkpt ) ) ) {
     FD_LOG_WARNING(( "in a frame or failed" ));
     checkpt->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
@@ -345,15 +368,15 @@ fd_checkpt_frame_open_advanced( fd_checkpt_t * checkpt,
 }
 
 int
-fd_checkpt_frame_close_advanced( fd_checkpt_t * checkpt,
-                                 ulong *        _off ) {
+fd_checkpt_close_advanced( fd_checkpt_t * checkpt,
+                           ulong *        _off ) {
 
   if( FD_UNLIKELY( !checkpt ) ) {
     FD_LOG_WARNING(( "NULL checkpt" ));
     return FD_CHECKPT_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( !fd_checkpt_private_in_frame( checkpt ) ) ) {
+  if( FD_UNLIKELY( !fd_checkpt_in_frame( checkpt ) ) ) {
     FD_LOG_WARNING(( "not in a frame" ));
     checkpt->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
@@ -367,7 +390,7 @@ fd_checkpt_frame_close_advanced( fd_checkpt_t * checkpt,
 
   ulong off = checkpt->off;
 
-  if( fd_checkpt_private_is_mmio( checkpt ) ) { /* mmio mode (app dependent branch prob) */
+  if( fd_checkpt_is_mmio( checkpt ) ) { /* mmio mode (app dependent branch prob) */
 
     /* Nothing to do */
 
@@ -407,23 +430,30 @@ fd_checkpt_frame_close_advanced( fd_checkpt_t * checkpt,
   return FD_CHECKPT_SUCCESS;
 }
 
-int
-fd_checkpt_buf( fd_checkpt_t * checkpt,
-                void const *   buf,
-                ulong          sz ) {
+static int
+fd_checkpt_private_buf( fd_checkpt_t * checkpt,
+                        void const *   buf,
+                        ulong          sz,
+                        ulong          max ) {
 
   if( FD_UNLIKELY( !checkpt ) ) {
     FD_LOG_WARNING(( "NULL checkpt" ));
     return FD_CHECKPT_ERR_INVAL;
   }
 
-  if( FD_UNLIKELY( !fd_checkpt_private_in_frame( checkpt ) ) ) {
+  if( FD_UNLIKELY( !fd_checkpt_in_frame( checkpt ) ) ) {
     FD_LOG_WARNING(( "not in a frame" ));
     checkpt->frame_style = -1; /* failed */
     return FD_CHECKPT_ERR_INVAL;
   }
 
   if( FD_UNLIKELY( !sz ) ) return FD_CHECKPT_SUCCESS; /* nothing to do */
+
+  if( FD_UNLIKELY( sz>max ) ) {
+    FD_LOG_WARNING(( "sz too large" ));
+    checkpt->frame_style = -1; /* failed */
+    return FD_CHECKPT_ERR_INVAL;
+  }
 
   if( FD_UNLIKELY( !buf ) ) {
     FD_LOG_WARNING(( "NULL buf with non-zero sz" ));
@@ -437,7 +467,7 @@ fd_checkpt_buf( fd_checkpt_t * checkpt,
 
   case FD_CHECKPT_FRAME_STYLE_RAW: {
 
-    if( fd_checkpt_private_is_mmio( checkpt ) ) { /* mmio mode (app dependent branch prob) */
+    if( fd_checkpt_is_mmio( checkpt ) ) { /* mmio mode (app dependent branch prob) */
 
       if( FD_UNLIKELY( sz > (checkpt->mmio.sz-off) ) ) {
         FD_LOG_WARNING(( "mmio_sz too small" ));
@@ -493,7 +523,7 @@ fd_checkpt_buf( fd_checkpt_t * checkpt,
   case FD_CHECKPT_FRAME_STYLE_LZ4: {
     LZ4_stream_t * lz4 = (LZ4_stream_t *)checkpt->lz4;
 
-    if( fd_checkpt_private_is_mmio( checkpt ) ) { /* mmio mode, app dependent branch prob */
+    if( fd_checkpt_is_mmio( checkpt ) ) { /* mmio mode, app dependent branch prob */
 
       uchar * mmio    = checkpt->mmio.mem;
       ulong   mmio_sz = checkpt->mmio.sz;
@@ -503,7 +533,7 @@ fd_checkpt_buf( fd_checkpt_t * checkpt,
         ulong chunk_usz = fd_ulong_min( sz, FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX );
 
         ulong chunk_csz = fd_checkpt_private_lz4( lz4, chunk, chunk_usz, mmio + off, mmio_sz - off,
-                                                  checkpt->gbuf, FD_CHECKPT_PRIVATE_GBUF_SZ, FD_CHECKPT_PRIVATE_GBUF_THRESH,
+                                                  checkpt->gbuf, FD_CHECKPT_PRIVATE_GBUF_SZ, FD_CHECKPT_META_MAX,
                                                   &checkpt->gbuf_cursor ); /* logs details */
         if( FD_UNLIKELY( !chunk_csz ) ) {
           checkpt->frame_style = -1; /* failed */
@@ -557,7 +587,7 @@ fd_checkpt_buf( fd_checkpt_t * checkpt,
         /* At this point, wbuf_free >= chunk_csz_max */
 
         ulong chunk_csz = fd_checkpt_private_lz4( lz4, chunk, chunk_usz, wbuf + wbuf_used, wbuf_free,
-                                                  checkpt->gbuf, FD_CHECKPT_PRIVATE_GBUF_SZ, FD_CHECKPT_PRIVATE_GBUF_THRESH,
+                                                  checkpt->gbuf, FD_CHECKPT_PRIVATE_GBUF_SZ, FD_CHECKPT_META_MAX,
                                                   &checkpt->gbuf_cursor ); /* logs details */
         if( FD_UNLIKELY( !chunk_csz ) ) {
           checkpt->frame_style = -1; /* failed */
@@ -589,4 +619,19 @@ fd_checkpt_buf( fd_checkpt_t * checkpt,
 
   checkpt->off = off;
   return FD_CHECKPT_SUCCESS;
+}
+
+int
+fd_checkpt_meta( fd_checkpt_t * checkpt,
+                 void const *   buf,
+                 ulong          sz ) {
+  return fd_checkpt_private_buf( checkpt, buf, sz, FD_CHECKPT_META_MAX );
+}
+
+int
+fd_checkpt_data( fd_checkpt_t * checkpt,
+                 void const *   buf,
+                 ulong          sz ) {
+  /* TODO: optimize sz <= META_MAX better? */
+  return fd_checkpt_private_buf( checkpt, buf, sz, ULONG_MAX );
 }

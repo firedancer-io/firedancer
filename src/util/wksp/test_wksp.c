@@ -89,13 +89,13 @@ test_main( int     argc,
 
       sz[j]  = fd_rng_ulong_roll( rng, sz_max+1UL );
       #if FD_HAS_DEEPASAN
-        /* Due to manual asan poisoning requirements, must have a byte alignment must be 
+        /* Due to manual asan poisoning requirements, must have a byte alignment must be
            8. For the same reason the size must also be at least 8. */
         sz[j] = fd_ulong_align_up( sz[j], FD_ASAN_ALIGN );
         align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-      #endif 
+      #endif
       tag[j] = fd_rng_ulong( rng ) | 1UL;
-      
+
       /* Allocate it */
 
       ulong glo;
@@ -130,7 +130,7 @@ test_main( int     argc,
       #if FD_HAS_DEEPASAN
       if ( mem[j] && sz[j] )
         FD_TEST( fd_asan_query( mem[j], sz[j] ) == NULL );
-      #endif 
+      #endif
 
       /* This allocation is now outstanding */
 
@@ -244,4 +244,3 @@ main( int     argc,
 }
 
 #undef OUTSTANDING_MAX
-
