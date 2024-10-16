@@ -55,8 +55,9 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
   for(;;) {
 
     fd_quic_stream_t * stream = spam->stream;
-    if( !stream ) stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+    if( !stream ) stream = fd_quic_conn_new_stream( conn );
     if( !stream ) break;
+    ulong stream_id = stream->stream_id;
     spam->stream = NULL;
 
     /* Generate stream payload */
@@ -68,14 +69,16 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     int rc = fd_quic_stream_send( stream, payload_buf, batch->buf_sz, /* fin */ 1 );
     if( rc==FD_QUIC_SUCCESS ) {
       /* Stream send successful, close triggered via fin bit */
-      //FD_LOG_DEBUG(( "sent stream=%lu sz=%u", stream->stream_id, batch->buf_sz ));
+      //FD_LOG_DEBUG(( "sent stream=%lu sz=%u", stream_id, batch->buf_sz ));
       streams_sent++;
       break;
     } else {
-      spam->stream = stream;
       if( FD_UNLIKELY( rc!=FD_QUIC_SEND_ERR_FLOW ) ) {
-        FD_LOG_WARNING(( "failed to send stream=%lu error=%d", stream->stream_id, rc ));
+        FD_LOG_WARNING(( "failed to send stream=%lu error=%d", stream_id, rc ));
         streams_sent = -1L;
+        /* FIXME Ensure stuck stream is freed */
+      } else {
+        spam->stream = stream;
       }
       goto fin;
     }

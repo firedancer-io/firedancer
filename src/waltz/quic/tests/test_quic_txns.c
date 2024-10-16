@@ -157,7 +157,7 @@ run_quic_client( fd_quic_t *         quic,
     }
 
     if( !gbl_stream ) {
-      gbl_stream = fd_quic_conn_new_stream( gbl_conn, FD_QUIC_TYPE_UNIDIR );
+      gbl_stream = fd_quic_conn_new_stream( gbl_conn );
 
       continue;
     }
@@ -255,14 +255,7 @@ main( int argc,
      .conn_cnt           = 1024UL,
      .handshake_cnt      = 256UL,
      .conn_id_cnt        = 16UL,
-     .stream_cnt         = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-     .initial_stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
+     .rx_stream_cnt      = 2UL,
      .stream_pool_cnt    = 2048UL,
      .inflight_pkt_cnt   = 64UL,
      .tx_buf_sz          = 1UL<<15UL

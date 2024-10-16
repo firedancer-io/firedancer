@@ -99,7 +99,7 @@ send_fibre_main( void * vp_args ) {
     }
 
     if( !client_stream ) {
-      client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+      client_stream = fd_quic_conn_new_stream( client_conn );
       FD_TEST( client_stream );
       fd_fibre_yield();
       continue;
@@ -241,8 +241,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 2, 2, 2, 2 },
-    .initial_stream_cnt = { 2, 2, 2, 2 },
+    .rx_stream_cnt      =  2,
     .stream_pool_cnt    = 100,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14,

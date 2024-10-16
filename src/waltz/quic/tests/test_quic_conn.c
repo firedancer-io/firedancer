@@ -111,9 +111,7 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
     my_stream_meta_t * meta = get_stream_meta();
 
     /* obtain stream */
-    fd_quic_stream_t * stream =
-      fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
-
+    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
     if( !stream ) {
       FD_LOG_ERR(( "Failed to obtain a stream" ));
     }
@@ -171,8 +169,7 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
 
         if( client_conn && state == 0 ) {
           /* obtain new stream */
-          fd_quic_stream_t * new_stream =
-            fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+          fd_quic_stream_t * new_stream = fd_quic_conn_new_stream( client_conn );
           FD_TEST( new_stream );
 
           /* set context on stream to meta */
@@ -313,8 +310,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 0, 0, 10, 0 },
-    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .rx_stream_cnt      = 10,
     .stream_pool_cnt    = 400,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14
@@ -370,7 +366,7 @@ main( int argc, char ** argv ) {
   uint k = 1;
 
   /* populate free streams */
-  populate_stream_meta( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ] );
+  populate_stream_meta( quic_limits.rx_stream_cnt );
 
   char buf[512] = "Hello world!\x00-   ";
 
@@ -427,7 +423,7 @@ main( int argc, char ** argv ) {
             /* did not send, did not start finalize, so stream is still available */
             free_stream( meta );
 
-            FD_LOG_WARNING(( "send failed" ));
+            FD_LOG_WARNING(( "send failed (%d)", rc ));
           }
         } else {
           FD_LOG_WARNING(( "unable to send - no streams available" ));
@@ -466,7 +462,7 @@ main( int argc, char ** argv ) {
 
           state = 0;
 
-          populate_streams( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ], client_conn );
+          populate_streams( quic_limits.rx_stream_cnt, client_conn );
         }
 
         break;

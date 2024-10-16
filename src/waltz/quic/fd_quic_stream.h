@@ -44,13 +44,11 @@ struct fd_quic_stream {
 
   uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
-# define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
 # define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 # define FD_QUIC_STREAM_FLAGS_DEAD            (1u<<4u)
 
 # define FD_QUIC_STREAM_FLAGS_ACTION                   \
            ( FD_QUIC_STREAM_FLAGS_TX_FIN           |   \
-             FD_QUIC_STREAM_FLAGS_RX_FIN           |   \
              FD_QUIC_STREAM_FLAGS_UNSENT           )
 
 # define FD_QUIC_STREAM_ACTION(stream) \
@@ -62,8 +60,8 @@ struct fd_quic_stream {
   /* stream state
      mask made up of the following:
        FD_QUIC_STREAM_STATE_UNUSED      Stream is not yet used
-       FD_QUIC_STREAM_STATE_TX_FIN      TX is finished (no more TX)
-       FD_QUIC_STREAM_STATE_RX_FIN      RX is finished (no more RX)
+       FD_QUIC_STREAM_STATE_TX_FIN      TX is finished
+       FD_QUIC_STREAM_STATE_RX_FIN      Size known
        FD_QUIC_STREAM_STATE_DEAD        stream is dead and waiting to be
 	                                reclaimed, or is in stream_pool */
   uint state;

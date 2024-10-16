@@ -332,7 +332,7 @@ client_fibre_fn( void * vp_arg ) {
         continue;
       }
 
-      stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+      stream = fd_quic_conn_new_stream( conn );
 
       if( !stream ) {
         if( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
@@ -353,7 +353,7 @@ client_fibre_fn( void * vp_arg ) {
 
             if( !conn ) break;
 
-            stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+            stream = fd_quic_conn_new_stream( conn );
           } while( !stream );
           FD_LOG_WARNING(( "Client obtained a stream" ));
         }
@@ -400,7 +400,7 @@ client_fibre_fn( void * vp_arg ) {
       }
 
       /* ensure new stream used for next send */
-      stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+      stream = fd_quic_conn_new_stream( conn );
 
       /* TODO close logic */
 
@@ -475,8 +475,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 0, 0, 10, 0 },
-    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .rx_stream_cnt      = 10,
     .stream_pool_cnt    = 512,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14

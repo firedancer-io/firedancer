@@ -99,7 +99,7 @@ send_quic_transactions( fd_quic_t *         quic,
 
   ulong sent = 0;
   while( sent < count && !g_conn_final ) {
-    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
     if( FD_UNLIKELY( !stream ) ) {
       fd_quic_service( quic );
       fd_quic_udpsock_service( udpsock );
@@ -145,14 +145,7 @@ txn_cmd_fn( args_t *         args,
     .conn_cnt         = 1UL,
     .handshake_cnt    = 1UL,
     .conn_id_cnt      = 4UL,
-    .stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                    0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                    1UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                    0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-    .initial_stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                            0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                            1UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                            0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
+    .rx_stream_cnt    = 1UL,
     .inflight_pkt_cnt = 64UL,
     .tx_buf_sz        = fd_ulong_pow2_up( FD_TXN_MTU ),
     .stream_pool_cnt  = 16

@@ -76,24 +76,17 @@ typedef struct {
 FD_FN_CONST static inline fd_quic_limits_t
 quic_limits( fd_topo_tile_t const * tile ) {
   fd_quic_limits_t limits = {
-    .conn_cnt                                      = tile->quic.max_concurrent_connections,
-    .handshake_cnt                                 = tile->quic.max_concurrent_handshakes,
+    .conn_cnt      = tile->quic.max_concurrent_connections,
+    .handshake_cnt = tile->quic.max_concurrent_handshakes,
 
     /* fd_quic will not issue nor use any new connection IDs after
        completing a handshake.  Connection migration is not supported
        either. */
-    .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
-    .inflight_pkt_cnt                              = tile->quic.max_inflight_quic_packets,
-    .tx_buf_sz                                     = 0,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
-    .stream_pool_cnt                               = tile->quic.stream_pool_cnt,
+    .conn_id_cnt      = FD_QUIC_MAX_CONN_ID_PER_CONN,
+    .inflight_pkt_cnt = tile->quic.max_inflight_quic_packets,
+    .tx_buf_sz        = 0,
+    .rx_stream_cnt    = tile->quic.max_concurrent_streams_per_connection,
+    .stream_pool_cnt  = tile->quic.max_concurrent_streams_per_connection * tile->quic.max_concurrent_connections,
   };
   return limits;
 }
@@ -204,9 +197,9 @@ metrics_write( void * _ctx ) {
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
 
-  FD_MCNT_ENUM_COPY(   QUIC, STREAM_OPENED, ctx->quic->metrics.stream_opened_cnt );
-  FD_MCNT_ENUM_COPY(   QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
-  FD_MGAUGE_ENUM_COPY( QUIC, STREAM_ACTIVE, ctx->quic->metrics.stream_active_cnt );
+  FD_MCNT_SET(   QUIC, STREAM_OPENED, ctx->quic->metrics.stream_opened_cnt );
+  FD_MCNT_SET(   QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
+  FD_MGAUGE_SET( QUIC, STREAM_ACTIVE, ctx->quic->metrics.stream_active_cnt );
 
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );

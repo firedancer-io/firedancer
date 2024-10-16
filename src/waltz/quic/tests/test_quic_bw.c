@@ -83,8 +83,7 @@ main( int     argc,
     .conn_cnt           = 1,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 0, 0, 10, 0 },
-    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .rx_stream_cnt      = 10,
     .stream_pool_cnt    = 400,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<11
@@ -175,7 +174,7 @@ main( int     argc,
   FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
-  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn );
   FD_TEST( client_stream );
 
   char buf[ 1232UL ] = "Hello world!\x00-   ";
@@ -191,7 +190,7 @@ main( int     argc,
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
-    client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+    client_stream = fd_quic_conn_new_stream( client_conn );
     if( !client_stream ) continue;
     fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
 

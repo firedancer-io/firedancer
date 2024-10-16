@@ -43,23 +43,12 @@ static ulong
 fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
                             fd_quic_conn_layout_t *  layout ) {
 
-  ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
-
-  ulong  stream_cnt = (
-    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] +
-    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] +
-    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] +
-    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] );
-  layout->stream_cnt = stream_cnt;
-
-  if( FD_UNLIKELY( stream_cnt      ==0UL ) ) return 0UL;
+  ulong inflight_pkt_cnt = limits->inflight_pkt_cnt;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
 
-  /* initial stream count not allowed to be larger than max stream count limit */
-  if( FD_UNLIKELY( limits->initial_stream_cnt[0] > limits->stream_cnt[0] ) ) return 0UL;
-  if( FD_UNLIKELY( limits->initial_stream_cnt[1] > limits->stream_cnt[1] ) ) return 0UL;
-  if( FD_UNLIKELY( limits->initial_stream_cnt[2] > limits->stream_cnt[2] ) ) return 0UL;
-  if( FD_UNLIKELY( limits->initial_stream_cnt[3] > limits->stream_cnt[3] ) ) return 0UL;
+  layout->stream_cnt = limits->rx_stream_cnt;
+  ulong stream_id_cnt = limits->stream_id_cnt;
+  if( !stream_id_cnt ) stream_id_cnt = limits->rx_stream_cnt;
 
   ulong off  = 0;
 
@@ -68,7 +57,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   /* allocate space for stream hash map */
   /* about a million seems like a decent bound, with expected values up to 20,000 */
   ulong lg = 0;
-  while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_cnt*FD_QUIC_DEFAULT_SPARSITY) ) {
+  while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_id_cnt*FD_QUIC_DEFAULT_SPARSITY) ) {
     lg++;
   }
   layout->stream_map_lg = (int)lg;
@@ -189,105 +178,4 @@ fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context ) {
 void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn ) {
   return conn->context;
-}
-
-
-/* set the max concurrent streams value for the specified type
-   This is used to flow control the peer.
-
-   type is one of:
-     FD_QUIC_TYPE_UNIDIR
-     FD_QUIC_TYPE_BIDIR */
-FD_QUIC_API void
-fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint dirtype, ulong stream_cnt ) {
-  if( FD_UNLIKELY( dirtype != FD_QUIC_TYPE_UNIDIR
-                && dirtype != FD_QUIC_TYPE_BIDIR ) ) {
-    FD_LOG_ERR(( "fd_quic_conn_set_max_stream called with invalid type" ));
-    return;
-  }
-
-  fd_quic_t *       quic  = conn->quic;
-
-  /* TODO align usage of "type" and "dirtype"
-     perhaps:
-       dir        - direction: bidir or unidir
-       role       - client or server
-       type       - dir | role */
-  uint peer = (uint)!conn->server;
-  uint type = peer + ( (uint)dirtype << 1u );
-
-  /* check the limit on stream_cnt */
-  if( FD_UNLIKELY( stream_cnt > quic->limits.stream_cnt[type] ) ) {
-    return;
-  }
-
-  /* store the desired value */
-  ulong max_concur_streams = conn->max_concur_streams[type] = stream_cnt;
-  ulong cur_stream_cnt     = conn->cur_stream_cnt[type];
-
-  /* how many remain */
-  ulong rem = fd_ulong_if( max_concur_streams > cur_stream_cnt,
-                           max_concur_streams - cur_stream_cnt,
-                           0UL );
-
-  /* set tgt_sup_stream_id */
-  conn->tgt_sup_stream_id[type] = conn->sup_stream_id[type] + ( rem << 2UL );
-
-  /* update the weight */
-
-  fd_quic_conn_update_weight( conn, dirtype );
-
-  /* reassign the streams */
-  fd_quic_assign_streams( conn->quic );
-}
-
-/* update the tree weight
-   called whenever weight may have changed */
-void
-fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
-  if( FD_UNLIKELY( dirtype != FD_QUIC_TYPE_UNIDIR
-                && dirtype != FD_QUIC_TYPE_BIDIR ) ) {
-    FD_LOG_ERR(( "fd_quic_conn_update_weight called with invalid type" ));
-    return;
-  }
-
-  /* TODO align usage of "type" and "dirtype"
-     perhaps:
-       dir        - direction: bidir or unidir
-       role       - client or server
-       type       - dir | role */
-  uint peer = (uint)!conn->server;
-  uint type = peer + ( (uint)dirtype << 1u );
-
-  /* get tgt_sup_stream_id, sup_stream_id */
-  ulong tgt_sup_stream_id = conn->tgt_sup_stream_id[type] >> 2UL;
-  ulong sup_stream_id     = conn->sup_stream_id[type]     >> 2UL;
-  ulong cur_stream_cnt    = conn->cur_stream_cnt[type];
-
-  /* update the cs_tree */
-
-  /* determine the weight */
-  float assigned = (float)cur_stream_cnt;
-  float desired  = (float)fd_ulong_if( tgt_sup_stream_id > sup_stream_id,
-                                ( tgt_sup_stream_id - sup_stream_id ),
-                                0UL );
-  float tot      = assigned + desired;
-
-  float MAX_WEIGHT = (float)(1UL<<36UL);
-  float alpha      = logf( MAX_WEIGHT ) / tot;
-
-  /* weight is a function of desired vs assigned */
-  float weight = desired == 0.0f ? 0.0f : expf( alpha * desired );
-
-  if( conn->state != FD_QUIC_CONN_STATE_ACTIVE &&
-      conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
-    weight = 0;
-  }
-
-  /* set the weight in the cs_tree */
-  fd_quic_cs_tree_t * cs_tree = fd_quic_get_state( conn->quic )->cs_tree;
-  ulong               idx     = ( conn->conn_idx << 1UL ) + dirtype;
-  fd_quic_cs_tree_update( cs_tree, idx, (ulong)weight );
-
-  /* don't assign streams here to avoid unwanted recursion */
 }
