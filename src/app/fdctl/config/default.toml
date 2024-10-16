@@ -848,31 +848,20 @@ dynamic_port_range = "8900-9000"
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
         # simultaneous streams per connection supported by our protocol
-        # implementation.  This is an initial value per connection and
-        # may be lowered further during the connection by the peer.
+        # implementation.
         #
         # If the peer has this many simultaneous streams open and wishes
         # to initiate another stream, they must first retire an existing
         # stream.
         #
-        # The Solana protocol uses one stream per transaction.  If the
-        # expected round trip latency to peers is high, transaction
-        # throughput could be constrained by this option rather than the
-        # underlying link bandwidth.  Supporting more streams per
-        # connection currently has a memory footprint cost on the order
-        # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 32
-
-        # QUIC uses a fixed-size pool of streams to use for all the
-        # connections in the QUIC instance.  When a new connection is
-        # established, QUIC attempts to allocate stream objects to it
-        # for incoming peer-initiated streams.  Locally initiated
-        # streams are allocated explicitly.  16 streams per connection
-        # are reserved, so every connection can be used.  This means that
-        # this value must be at least as high as the value of
-        # `max_concurrent_connections` above multiplied by 16, or else
-        # the validator will refuse to start.
-        stream_pool_cnt = 2097152
+        # The Solana protocol uses one stream per transaction.
+        # Supporting more streams per connection currently has a memory
+        # footprint cost on the order of kilobytes per stream, per
+        # connection.
+        #
+        # Increasing this number causes server-side performance to get
+        # worse.
+        max_concurrent_streams_per_connection = 16
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user

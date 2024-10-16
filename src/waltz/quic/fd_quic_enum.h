@@ -72,10 +72,12 @@
              generated for it.  Stream will be freed after event
              delivery.
    ...RESET: Peer has reset the stream (will not send)
-   ...ABORT: Peer has aborted the stream (will not receive) */
+   ...ABORT: Peer has aborted the stream (will not receive)
+   ...DROP:  Local side dropped the stream */
 #define FD_QUIC_NOTIFY_END   (100)
 #define FD_QUIC_NOTIFY_RESET (101)
 #define FD_QUIC_NOTIFY_ABORT (102)
+#define FD_QUIC_NOTIFY_DROP  (103)
 
 /* defines the packet types */
 #define FD_QUIC_PKT_TYPE_INITIAL   0

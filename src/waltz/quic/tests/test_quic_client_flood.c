@@ -213,13 +213,13 @@ run_quic_client(
         }
       } else {
         if( client_conn ) {
-          cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+          cur_stream = fd_quic_conn_new_stream( client_conn );
         }
         break;
       }
 
       if( client_conn && !cur_stream ) {
-        cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+        cur_stream = fd_quic_conn_new_stream( client_conn );
       }
     }
 

@@ -59,20 +59,12 @@ struct fd_quic_rb_event {
 };
 typedef struct fd_quic_rb_event fd_quic_rb_event_t;
 
-/* structure for a cummulative summation tree */
-struct fd_quic_cs_tree {
-  ulong cnt;
-  ulong values[];
-};
-typedef struct fd_quic_cs_tree fd_quic_cs_tree_t;
-
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
 
 struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Flags */
   ulong flags;
-# define FD_QUIC_FLAGS_ASSIGN_STREAMS (1ul<<1ul)
 
   ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
 
@@ -103,7 +95,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_rb_event_t *    rb_service_queue_root;
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
 
-  fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
   fd_rng_t                _rng[1];        /* random number generator */
 
   /* need to be able to access connections by index */
@@ -210,13 +201,19 @@ fd_quic_conn_free( fd_quic_t *      quic,
                    fd_quic_conn_t * conn );
 
 void
-fd_quic_stream_free( fd_quic_t *        quic,
-                     fd_quic_conn_t *   conn,
-                     fd_quic_stream_t * stream,
-                     int                code );
+fd_quic_tx_stream_free( fd_quic_t *        quic,
+                        fd_quic_conn_t *   conn,
+                        fd_quic_stream_t * stream,
+                        int                code );
+
+/* fd_quic_stream_rx_reclaim frees streams and hashmap entries for
+   incoming unidirectional streams in range [stream_id_lo,stream_id_hi) */
 
 void
-fd_quic_stream_reclaim( fd_quic_conn_t * conn, uint stream_type );
+fd_quic_stream_rx_reclaim( fd_quic_t *      quic,
+                           fd_quic_conn_t * conn,
+                           ulong            stream_id_lo,
+                           ulong            stream_id_hi );
 
 /* Callbacks provided by fd_quic **************************************/
 
@@ -294,13 +291,11 @@ fd_quic_cb_conn_final( fd_quic_t *      quic,
 static inline void
 fd_quic_cb_stream_new( fd_quic_t *        quic,
                        fd_quic_stream_t * stream ) {
+  quic->metrics.stream_opened_cnt++;
+  quic->metrics.stream_active_cnt++;
+
   if( FD_UNLIKELY( !quic->cb.stream_new ) ) return;
   quic->cb.stream_new( stream, quic->cb.quic_ctx );
-
-  /* update metrics */
-  ulong stream_id = stream->stream_id;
-  quic->metrics.stream_opened_cnt[ stream_id&0x3 ]++;
-  quic->metrics.stream_active_cnt[ stream_id&0x3 ]++;
 }
 
 static inline void
@@ -311,12 +306,11 @@ fd_quic_cb_stream_receive( fd_quic_t *        quic,
                            ulong              data_sz,
                            ulong              offset,
                            int                fin ) {
-  if( FD_UNLIKELY( !quic->cb.stream_receive ) ) return;
-  quic->cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
-
-  /* update metrics */
   quic->metrics.stream_rx_event_cnt++;
   quic->metrics.stream_rx_byte_cnt += data_sz;
+
+  if( FD_UNLIKELY( !quic->cb.stream_receive ) ) return;
+  quic->cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
 }
 
 static inline void
@@ -324,13 +318,11 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
                           fd_quic_stream_t * stream,
                           void *             stream_ctx,
                           int                event ) {
+  quic->metrics.stream_closed_cnt++;
+  quic->metrics.stream_active_cnt--;
+
   if( FD_UNLIKELY( !quic->cb.stream_notify ) ) return;
   quic->cb.stream_notify( stream, stream_ctx, event );
-
-  /* update metrics */
-  ulong stream_id = stream->stream_id;
-  quic->metrics.stream_closed_cnt[ stream_id&0x3 ]++;
-  quic->metrics.stream_active_cnt[ stream_id&0x3 ]--;
 }
 
 
@@ -407,72 +399,12 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             reason,
                     uint             error_line );
 
-/* fd_quic_assign_streams attempts to distribute streams across         */
-/* connections fairly                                                   */
-/* The user sets a target number of concurrently usable streams to each */
-/* connection. Across all the connections, it is possible that this     */
-/* target cannot be reached. So we use a policy that assigns available  */
-/* streams randomly by weight, where the weight is the difference       */
-/* between the current number of valid streams and the target.          */
-/* The result is that if the targets can be fulfullied, they will be,   */
-/* otherwise, they will be distributed fairly                           */
-/* The user may terminate connections to free up streams for higher     */
-/* priority connections.                                                */
-void
-fd_quic_assign_streams( fd_quic_t * quic );
-
-/* fd_quic_assign_stream assigns the given stream to the specified connection */
-int
-fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_t * stream );
-
-/* fd_quic_update_cs_tree updates the specified cummulative summation tree  */
-/* This tree allows a weighted random index to be selected in O(log N) time */
-/* This function updates the value in the tree with the given value and     */
-/* updates the rest of its internal state for quick queries                 */
-void
-fd_quic_cs_tree_update( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value );
-
-/* returns the weight for a particular idx */
-ulong
-fd_quic_cs_tree_get_weight( fd_quic_cs_tree_t * cs_tree, ulong idx );
-
-/* fd_quic_choose_weighted_index chooses an index in a random way by weight */
-ulong
-fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng );
-
-/* fd_quic_cs_tree_total returns the total value across all the leaves in */
-/* the supplied cs_tree                                                   */
-static inline ulong
-fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree ) {
-  /* total is the value at node_idx = 1 (which is the root) */
-  return cs_tree->values[1UL];
-}
-
-/* fd_quic_cs_tree_footprint returns the amount of memory required for a  */
-/* cs_tree over cnt elements                                              */
-ulong
-fd_quic_cs_tree_footprint( ulong cnt );
-
-/* fd_quic_cs_tree_align returns the alignment of fd_quic_cs_tree_t */
-FD_FN_CONST static inline
-ulong
-fd_quic_cs_tree_align( void ) {
-  return alignof( fd_quic_cs_tree_t );
-}
-
-void
-fd_quic_cs_tree_init( fd_quic_cs_tree_t * cs_tree, ulong cnt );
-
-static inline
-fd_quic_conn_t *
+static inline fd_quic_conn_t *
 fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
   ulong addr = quic_state->conn_base;
   ulong sz   = quic_state->conn_sz;
   return (fd_quic_conn_t*)( addr + idx * sz );
 }
-
-void
-fd_quic_conn_update_max_streams( fd_quic_conn_t * conn, uint dirtype );
 
 FD_PROTOTYPES_END
 

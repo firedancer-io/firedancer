@@ -228,7 +228,9 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   quic_cfg->net.listen_udp_port   = FD_QUIC_SANDBOX_SELF_PORT;
   quic_cfg->net.ephem_udp_port.lo = FD_QUIC_SANDBOX_SELF_PORT;
   quic_cfg->net.ephem_udp_port.hi = FD_QUIC_SANDBOX_SELF_PORT + 1;
+  quic_cfg->initial_rx_max_stream_data = 512UL; /* arbitrary */
   memcpy( quic_cfg->identity_public_key, fd_quic_sandbox_self_ed25519_keypair + 32, 32 );
+  memset( &quic->metrics, 0, sizeof(fd_quic_metrics_t) );
 
   fd_aio_t aio_tx = {
     .send_func = fd_quic_sandbox_aio_send,

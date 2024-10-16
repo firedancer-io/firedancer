@@ -10,9 +10,6 @@
 #include "fd_quic_pkt_meta.h"
 #include "templ/fd_quic_union.h"
 
-/* Minimum number of streams per connection */
-#define FD_QUIC_STREAM_MIN 16UL
-
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
 #define FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE 2 /* handshake complete, confirming with peer */
@@ -167,35 +164,12 @@ struct fd_quic_conn {
   ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
                                 /* next_stream_id is used for streams coming from the stream pool */
 
-  /* use of supremum here:
-       this is the smallest stream id greater than all the allowed stream ids
-       so stream_id is valid if stream_id < sup_stream_id
-       so sup_stream_id = max_stream_id + 4 */
-
-  /* min_stream_id, sup_stream_id represent the "current range" */
-  /* stream_ids within this range have been allocated to the connection */
-  /* they may have been closed and deallocated */
-  ulong min_stream_id[4];       /* minimum stream id by type */
-  ulong sup_stream_id[4];       /* supremum stream id by type */
-      /* sup_stream_id[j] == min_stream_id[j] implies no available stream_ids */
-      /* valid range of stream ids is:                                        */
-      /*     ( min_stream_id[j], sup_stream_id[j] ]                           */
-      /* number of streams in valid range is:                                 */
-      /* ( sup_stream_id[j] - min_stream_id[j]] ) / 4                         */
-
-  /* peer_sup_stream_id[type] represents the peer imposed limit on self initiated */
-  /* streams. */
-  /* tgt_sup_stream_id[type] represents our limit on the stream_id of peer initiated */
-  /* stream_ids */
-  /* tgt_sup_stream_id is derived from max_concur_streams, cur_stream_cnt */
-  /* and sup_stream_id thus: */
-  /* tgt_sup_stream_id = sup_stream_id + ( max_concur_streams - cur_stream_cnt ) * 4 */
-  ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids            */
-  ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type           */
-                                /* sup_stream_id cannot drop                        */
+  ulong rx_hi_stream_id;    /* highest RX stream ID sent by peer + 4 */
+  ulong rx_sup_stream_id;   /* highest allowed RX stream ID + 4 */
+  ulong tx_next_stream_id;  /* stream ID to be used for new stream */
+  ulong tx_sup_stream_id;   /* highest allowed TX stream ID + 4 */
 
   ulong max_concur_streams[4];  /* user set concurrent max */
-  ulong cur_stream_cnt[4];      /* current number of streams by type */
 
   /* stream id limits */
   /* limits->stream_cnt */
@@ -217,8 +191,6 @@ struct fd_quic_conn {
   /* the peer will create streams at will up to our imposed limit via max_streams */
   /* frames */
   /* max_streams frames are derived from changes to sup_stream_id */
-  /* fd_quic_assign_streams assigns streams to connections in preparation for use */
-  /* upon assignment, sup_stream_id and cur_stream_cnt are adjusted */
 
   /* self initiated streams */
   /* we can create streams at will up to the peer imposed limit in peer_sup_stream_id */
@@ -323,6 +295,16 @@ struct fd_quic_conn {
   ulong                idle_timeout;
   ulong                last_activity;
 
+  /* rx_limit_pktnum is the newest inflight packet number in which
+     the current rx_{sup_stream_id,max_data} values were sent to the
+     peer.  (via MAX_STREAMS and MAX_DATA quota frames)
+     FD_QUIC_PKT_NUM_UNUSED indicates that the peer ACked the latest
+     quota update, and thus is in sync with the server.
+     FD_QUIC_PKT_NUM_PENDING indicates that no packet with the current
+     rx_{sup_stream_id,max_data} value was sent yet.  Will trigger a
+     send attempt at the next fd_quic_conn_tx call. */
+  ulong rx_limit_pktnum;
+
   /* next connection in the free list, or in service list */
   fd_quic_conn_t *     next;
   ulong token_len;
@@ -353,23 +335,6 @@ fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
 /* get the user-defined context value from a connection */
 void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn );
-
-
-/* set the max concurrent streams value for the specified type
-   This is used to flow control the peer.
-
-   type is one of:
-     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
-     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
-FD_QUIC_API void
-fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint type, ulong stream_cnt );
-
-
-/* update the tree weight
-   called whenever weight may have changed */
-void
-fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype );
-
 
 FD_PROTOTYPES_END
 

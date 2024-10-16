@@ -109,10 +109,8 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
   ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count         */
 
   ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
-
-  ulong  stream_cnt[4];         /* per-conn, max concurrent stream count                 */
-  ulong  initial_stream_cnt[4]; /* per-conn, initial target max concurrent stream count  */
-
+  ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count              */
+  ulong  rx_stream_cnt;         /* per-conn, max concurrent stream count                 */
   ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
 
   ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                        */
@@ -334,10 +332,10 @@ union fd_quic_metrics {
     ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
 
     /* Stream metrics */
-    ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
-    ulong stream_closed_cnt  [ 4 ]; /* number of streams closed (per type) */
+    ulong stream_opened_cnt;        /* number of streams opened */
+    ulong stream_closed_cnt;        /* number of streams closed */
        /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
-    ulong stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
+    ulong stream_active_cnt;        /* number of active streams */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
   };
@@ -535,17 +533,16 @@ fd_quic_service( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/
 
-/* fd_quic_conn_new_stream creates a new stream on the given conn.
-   type is one of FD_QUIC_TYPE_{UNI,BI}DIR.  On success, returns the
-   newly created stream.  On failure, returns NULL.  Reasons for failure
-   include invalid conn state or out of stream quota.
+/* fd_quic_conn_new_stream creates a new unidirectional stream on the
+   given conn.  On success, returns the newly created stream.
+   On failure, returns NULL.  Reasons for failure include invalid conn
+   state or out of stream quota.
 
    The user does not own the returned pointer: its lifetime is managed
    by the connection. */
 
 FD_QUIC_API fd_quic_stream_t *
-fd_quic_conn_new_stream( fd_quic_conn_t * conn,
-                         int              type );
+fd_quic_conn_new_stream( fd_quic_conn_t * conn );
 
 /* fd_quic_stream_send sends a chunk on a stream in order.
 

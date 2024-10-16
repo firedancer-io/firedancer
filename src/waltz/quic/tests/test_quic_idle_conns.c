@@ -226,15 +226,8 @@ main( int argc,
      .conn_cnt           = num_conns,
      .handshake_cnt      = num_conns,
      .conn_id_cnt        = 16UL,
-     .stream_cnt         = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-     .initial_stream_cnt = { 0UL,   // FD_QUIC_STREAM_TYPE_BIDI_CLIENT
-                             0UL,   // FD_QUIC_STREAM_TYPE_BIDI_SERVER
-                             2UL,   // FD_QUIC_STREAM_TYPE_UNI_CLIENT
-                             0UL }, // FD_QUIC_STREAM_TYPE_UNI_SERVER
-     .stream_pool_cnt    = num_conns * FD_QUIC_STREAM_MIN,
+     .rx_stream_cnt      = 2UL,
+     .stream_pool_cnt    = num_conns * 2,
      .inflight_pkt_cnt   = 64UL,
      .tx_buf_sz          = 0
   };

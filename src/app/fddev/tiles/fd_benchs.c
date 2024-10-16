@@ -281,21 +281,13 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   //char * args[] = { NULL };
   //char ** argv = args;
   //fd_quic_limits_from_env( &argc, &argv, limits );
-  limits->stream_cnt[0] = 0;
-  limits->stream_cnt[1] = 0;
-  limits->stream_cnt[2] = 1500;
-  limits->stream_cnt[3] = 0;
-  limits->initial_stream_cnt[0] = 0;
-  limits->initial_stream_cnt[1] = 0;
-  limits->initial_stream_cnt[2] = 1500;
-  limits->initial_stream_cnt[3] = 0;
-
   limits->conn_cnt = 2;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->inflight_pkt_cnt = 1500;
   limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
-  limits->stream_pool_cnt = 1<<16;
+  limits->stream_pool_cnt = 1UL<<16;
+  limits->stream_id_cnt = 1UL<<16;
 }
 
 void
@@ -410,7 +402,7 @@ during_frag( void * _ctx,
 
     fd_quic_stream_t * stream = ctx->stream;
     if( FD_UNLIKELY( !stream ) ) {
-      ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn, FD_QUIC_TYPE_UNIDIR );
+      ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn );
       if( FD_LIKELY( stream ) ) {
         fd_quic_stream_set_context( stream, ctx );
       }
@@ -431,7 +423,7 @@ during_frag( void * _ctx,
 
       if( FD_LIKELY( rtn == FD_QUIC_SUCCESS ) ) {
         /* after using, fetch a new stream */
-        ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn, FD_QUIC_TYPE_UNIDIR );
+        ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn );
         if( FD_LIKELY( stream ) ) {
           fd_quic_stream_set_context( stream, ctx );
         }
@@ -464,6 +456,7 @@ privileged_init( fd_topo_t *      topo,
     fd_quic_limits_t quic_limits = {0};
     populate_quic_limits( &quic_limits );
     ulong quic_fp = fd_quic_footprint( &quic_limits );
+    if( FD_UNLIKELY( !quic_fp ) ) FD_LOG_ERR(( "invalid QUIC parameters" ));
     void * quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), quic_fp );
     fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &quic_limits ) );
 
