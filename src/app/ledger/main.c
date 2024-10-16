@@ -624,7 +624,7 @@ init_funk( fd_ledger_args_t * args ) {
     fd_funk_txn_cancel_all( funk, 0 );
     fd_funk_end_write( funk );
   } else {
-    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
@@ -1086,11 +1086,11 @@ prune( fd_ledger_args_t * args ) {
 
   /* Create funk */
   fd_funk_t * pruned_funk = NULL;
-  shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+  shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_funk_align(), fd_funk_footprint(), 1 );
   if( shmem == NULL ) {
     FD_LOG_ERR(( "failed to allocate a funky" ));
   }
-  pruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, args->hashseed,
+  pruned_funk = fd_funk_join( fd_funk_new( shmem, 1, args->hashseed,
                                            args->txns_max, args->index_max_pruned ) );
   if( pruned_funk == NULL ) {
     fd_wksp_free_laddr( shmem );
