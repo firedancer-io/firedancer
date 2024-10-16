@@ -6,16 +6,15 @@
 struct fd_quic_conn_map {
   ulong conn_id;
   uint  seq; /* sequence number used to manage new and retired connection ids */
-  fd_quic_conn_t *  conn;
+  uint  conn_idx;
 };
 typedef struct fd_quic_conn_map fd_quic_conn_map_t;
 
-#define MAP_NAME        fd_quic_conn_map
-#define MAP_T           fd_quic_conn_map_t
-#define MAP_KEY         conn_id
-#define MAP_QUERY_OPT   1
-#define MAP_MEMOIZE     0
-#define MAP_KEY_HASH(k) ((uint)k)
+#define MAP_NAME      fd_quic_conn_map
+#define MAP_T         fd_quic_conn_map_t
+#define MAP_KEY       conn_id
+#define MAP_QUERY_OPT 1
+#define MAP_MEMOIZE   0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_conn_map_h */

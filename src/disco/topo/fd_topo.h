@@ -151,11 +151,9 @@ typedef struct {
     struct {
       ulong  depth;
       uint   reasm_cnt;
-      ulong  max_concurrent_connections;
-      ulong  max_concurrent_handshakes;
-      ulong  max_inflight_quic_packets;
-      ulong  max_concurrent_streams_per_connection;
-      ulong  stream_pool_cnt;
+      uint   max_concurrent_connections;
+      uint   max_concurrent_handshakes;
+      uint   max_inflight_quic_packets;
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;

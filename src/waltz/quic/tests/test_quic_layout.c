@@ -8,7 +8,7 @@ main( int argc, char ** argv ) {
   (void)argc;
   (void)argv;
 
-  ulong pkt_sz = sizeof( fd_quic_pkt_u );
+  ulong pkt_sz   = sizeof( fd_quic_pkt_u );
 
   printf( "packet union size: %lu\n", pkt_sz );
 

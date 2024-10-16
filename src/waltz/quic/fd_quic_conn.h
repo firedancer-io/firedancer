@@ -1,17 +1,13 @@
 #ifndef HEADER_fd_src_waltz_quic_fd_quic_conn_h
 #define HEADER_fd_src_waltz_quic_fd_quic_conn_h
 
-#include "fd_quic.h"
-#include "fd_quic_retry.h"
-#include "fd_quic_stream.h"
-#include "fd_quic_conn_id.h"
+#include "fd_quic_common.h"
 #include "crypto/fd_quic_crypto_suites.h"
-#include "templ/fd_quic_transport_params.h"
+#include "fd_quic_ack_tx.h"
+#include "fd_quic_conn_id.h"
 #include "fd_quic_pkt_meta.h"
-#include "templ/fd_quic_union.h"
-
-/* Minimum number of streams per connection */
-#define FD_QUIC_STREAM_MIN 16UL
+#include "fd_rollset.h"
+#include "fd_quic_tx_streams.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
@@ -46,34 +42,8 @@ enum {
   FD_QUIC_CONN_REASON_HANDSHAKE_FAILURE            = 0x128    /* Handshake failed. */
 };
 
-typedef struct fd_quic_conn       fd_quic_conn_t;
-typedef struct fd_quic_ack        fd_quic_ack_t;
-
-/* we track the range of offsets we acked for handshake and stream data
-   these get freed when a packet containing the relevant acks is acked by the
-     peer
-   we try to send all acks stored each packet
-     we will "over ack"
-     it simplifies the ack logic since freeing one ack implies we can free
-       all preceding acks. ack ids are only increasing
-   enc_level of acks is implied by the list it's in */
-
-struct fd_quic_ack {
-  /* stores data about what was ack'ed */
-  ulong           tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
-  ulong           tx_time;       /* the time the ack was sent, or should be sent */
-  ulong           pkt_rcvd;      /* the time the original packet was received */
-  fd_quic_range_t pkt_number;    /* range of packet numbers being acked */
-  fd_quic_ack_t * next;          /* next ack in linked list - e.g. free list */
-  uchar           enc_level;
-  uchar           pn_space;
-  uchar           flags;
-# define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
-# define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
-};
-
 struct fd_quic_conn {
-  ulong              conn_idx;            /* connection index */
+  uint               conn_idx;            /* connection index */
                                           /* connections are sized at runtime */
                                           /* storing the index avoids a division */
 
@@ -84,16 +54,16 @@ struct fd_quic_conn {
   uint               established : 1;     /* used by clients to determine whether to
                                              switch the destination conn id used */
   uint               transport_params_set : 1;
+  uint               called_conn_new : 1; /* whether we need to call conn_final on teardown */
 
   uint               version;             /* QUIC version of the connection */
 
   ulong              next_service_time;   /* time service should be called next */
-  ulong              sched_service_time;  /* time service is scheduled for, if conn in service_queue */
+  ulong              sched_service_time;  /* time service is scheduled for, if in_service=1 */
   int                in_schedule;         /* whether the conn is in the service schedule */
-  uchar              called_conn_new;     /* whether we need to call conn_final on teardown */
 
   /* we can have multiple connection ids */
-  ulong              our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  ulong our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
   /* Save original destination connection id
      This will be used when we receive a retransmitted initial packet
@@ -112,7 +82,7 @@ struct fd_quic_conn {
 
   /* Peer network endpoints – have multiple connection ids and ip:port */
   /* TODO: footprint allows specifying conn_id_cnt but hardcoded limit used here */
-  fd_quic_endpoint_t  peer[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  fd_quic_endpoint_t peer[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
   ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
 
@@ -124,8 +94,6 @@ struct fd_quic_conn {
 
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
-
-  uint               tx_max_datagram_sz;  /* size of maximum datagram allowed by peer */
 
   /* handshake members */
   uint               handshake_complete  : 1; /* have we completed a successful handshake? */
@@ -157,89 +125,6 @@ struct fd_quic_conn {
                                            value of keys */
   uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
 
-  fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
-  fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
-  /* invariant: an allocated stream must be in exactly one of the following lists:
-     send_streams
-     used_streams */
-
-  /* stream id members */
-  ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
-                                /* next_stream_id is used for streams coming from the stream pool */
-
-  /* use of supremum here:
-       this is the smallest stream id greater than all the allowed stream ids
-       so stream_id is valid if stream_id < sup_stream_id
-       so sup_stream_id = max_stream_id + 4 */
-
-  /* min_stream_id, sup_stream_id represent the "current range" */
-  /* stream_ids within this range have been allocated to the connection */
-  /* they may have been closed and deallocated */
-  ulong min_stream_id[4];       /* minimum stream id by type */
-  ulong sup_stream_id[4];       /* supremum stream id by type */
-      /* sup_stream_id[j] == min_stream_id[j] implies no available stream_ids */
-      /* valid range of stream ids is:                                        */
-      /*     ( min_stream_id[j], sup_stream_id[j] ]                           */
-      /* number of streams in valid range is:                                 */
-      /* ( sup_stream_id[j] - min_stream_id[j]] ) / 4                         */
-
-  /* peer_sup_stream_id[type] represents the peer imposed limit on self initiated */
-  /* streams. */
-  /* tgt_sup_stream_id[type] represents our limit on the stream_id of peer initiated */
-  /* stream_ids */
-  /* tgt_sup_stream_id is derived from max_concur_streams, cur_stream_cnt */
-  /* and sup_stream_id thus: */
-  /* tgt_sup_stream_id = sup_stream_id + ( max_concur_streams - cur_stream_cnt ) * 4 */
-  ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids            */
-  ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type           */
-                                /* sup_stream_id cannot drop                        */
-
-  ulong max_concur_streams[4];  /* user set concurrent max */
-  ulong cur_stream_cnt[4];      /* current number of streams by type */
-
-  /* stream id limits */
-  /* limits->stream_cnt */
-  /*   used to size stream_map, and provides an upper limit on the temporary limits */
-  /*   on streams */
-
-  /* max_concur_streams */
-  /*   temporary limit on the number of streams */
-  /*   currently only applies to peers */
-  /*   may be adjusted via fd_quic_conn_set_max_streams */
-
-  /* limits->initial_stream_cnt */
-  /*   new connections attempt to assign initial_stream_cnt streams from the pool */
-  /*   for peer initiated streams */
-  /*   however many streams are assigned at this point becomes the limit imposed */
-  /*   on the peer */
-
-  /* peer initiated streams */
-  /* the peer will create streams at will up to our imposed limit via max_streams */
-  /* frames */
-  /* max_streams frames are derived from changes to sup_stream_id */
-  /* fd_quic_assign_streams assigns streams to connections in preparation for use */
-  /* upon assignment, sup_stream_id and cur_stream_cnt are adjusted */
-
-  /* self initiated streams */
-  /* we can create streams at will up to the peer imposed limit in peer_sup_stream_id */
-  /* these streams also come from the stream pool, and so the size of the stream pool */
-  /* also imposes a limit on self initiated streams */
-
-  /* rfc9000:
-       19.11 Note that these frames (and the corresponding transport parameters)
-               do not describe the number of streams that can be opened concurrently.
-        4.6  Only streams with a stream ID less than
-               (max_streams * 4 + first_stream_id_of_type) can be opened
-        2.1  Stream types:
-             0x00 Client-Initiated, Bidirectional
-             0x01 Server-Initiated, Bidirectional
-             0x02 Client-Initiated, Unidirectional
-             0x03 Server-Initiated, Unidirectional */
-
-  ulong rx_max_streams_unidir_ackd; /* value of MAX_STREAMS acked for UNIDIR */
-
-  fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
-
   /* packet number info
      each encryption level maps to a packet number space
      0-RTT and 1-RTT both map to APPLICATION
@@ -249,63 +134,25 @@ struct fd_quic_conn {
   ulong exp_pkt_number[3]; /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];     /* tx packet number by pn space */
-  ulong last_pkt_number[3]; /* last (highest) packet numer seen */
+  ulong last_pkt_number[3]; /* last (highest) packet number seen */
 
   ushort ipv4_id;           /* ipv4 id field */
-
-  /* buffer to send next */
-  /* rename tx_buf, since it's easy to confuse with stream->tx_buf */
-  /* must be at least FD_QUIC_MAX_UDP_PAYLOAD_SZ */
-  uchar   tx_buf[2048];
-  uchar * tx_ptr; /* ptr to free space in tx_scratch */
-  ulong   tx_sz;  /* sz remaining at ptr */
 
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
   uint int_reason; /* internal reason */
 
+  fd_quic_pkt_meta_list_t sent_pkt_meta[ FD_QUIC_NUM_ENC_LEVELS ];
 
-  /* TODO find better name than pool */
-  fd_quic_pkt_meta_pool_t pkt_meta_pool;
-  ulong                   num_pkt_meta;
-  fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
-
-  fd_quic_ack_t *      acks;               /* array of acks allocate during init */
-  fd_quic_ack_t *      acks_free;          /* free list of acks */
-
-  /* list of acks to be transmitted at each encryption level */
-  fd_quic_ack_t *      acks_tx[4];
-  fd_quic_ack_t *      acks_tx_end[4];     /* the ends of each list in acks_tx */
-
-  ulong                peer_max_ack_delay; /* limit on the delay we intentionally impose on acks
-                                              in nanoseconds */
-
-  /* flow control */
-  ulong                tx_max_data;        /* the limit on the number of bytes we are allowed
-                                              to send to the peer across all streams */
-                                           /* even if a bytes on a stream are not received,
-                                              higher offsets received imply the usage of those bytes,
-                                              and they count against the max */
-  ulong                tx_tot_data;        /* total of all bytes received across all streams
-                                              and including implied bytes */
-  ulong                rx_max_data;        /* the limit on the number of bytes the peer is allowed to
-                                              send to us */
-  ulong                rx_tot_data;        /* total of all bytes received across all streams
-                                              and including implied bytes */
-  ulong                rx_max_data_ackd;   /* max max_data acked by peer */
+  fd_quic_ack_gen_t ack_gen[1];
 
   uint                 flags;
-# define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
 # define FD_QUIC_CONN_FLAGS_CLOSE_SENT         (1u<<1u)
-# define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
 # define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
 # define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
 
   uchar                spin_bit;                   /* spin bit used for latency measurements */
-
-  /* max stream data per stream type */
-  ulong                tx_initial_max_stream_data_uni;
 
   /* last tx packet num with max_data frame referring to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
@@ -323,53 +170,91 @@ struct fd_quic_conn {
   ulong                idle_timeout;
   ulong                last_activity;
 
-  /* next connection in the free list, or in service list */
-  fd_quic_conn_t *     next;
+  /* Stream related (server only) *************************************/
+
+    /* rx_limit_pktnum is the newest inflight packet number in which
+       the current rx_{sup_stream_id,max_data} values were sent to the
+       peer.  (via MAX_STREAMS and MAX_DATA quota frames)
+
+       FD_QUIC_PKT_NUM_UNUSED indicates that the peer ACked the latest
+       quota update, and thus is in sync with the server.
+
+       FD_QUIC_PKT_NUM_PENDING indicates that no packet with the current
+       rx_{sup_stream_id,max_data} value was sent yet.  Will trigger a
+       send attempt at the next fd_quic_conn_tx call. */
+    ulong rx_limit_pktnum;
+
+    /* rx_sup_stream_id: smallest stream ID greater than all allowed
+       stream IDs. Never decreases.  When modified, rx_limit_pktnum
+       should be set to FD_QUIC_PKT_NUM_PENDING. */
+    ulong rx_sup_stream_id;
+
+    /* rx_max_data: limit on the number of bytes the peer is allowed to
+       send to us.  If a high offset is received on a stream, all prior
+       bytes count towards this limit, even those that were not yet
+       received due to reordering.  When modified, rx_limit_pktnum
+       should be set to FD_QUIC_PKT_NUM_PENDING. */
+    ulong rx_max_data;
+
+    /* fin_streams: bit set of RX streams that were completed */
+    fd_rollset_t fin_streams;
+
+  /* Stream related (client only) *************************************/
+
+    /* tx_streams: in-flight outgoing streams */
+    fd_quic_tx_stream_treap_t tx_streams[1];
+
+    /* invariant: an allocated stream must be in exactly one of the following lists:
+       send_streams, wait_streams */
+    fd_quic_tx_stream_dlist_t send_streams[1];
+    fd_quic_tx_stream_dlist_t wait_streams[1];
+
+    /* tx_next_stream_id: next unused stream ID, see rfc9000 2.1 */
+    ulong tx_next_stream_id;
+
+    /* tx_sup_stream_id: peer imposed limit on self-initiated streams */
+    ulong tx_sup_stream_id;
+
+    /* tx_max_data: the limit on the number of bytes we are allowed to
+       send to the peer across all streams. */
+    ulong tx_max_data;
+
+    /* tx_tot_data: total number of bytes sent across all streams */
+    ulong tx_tot_data;
+
+    /* tx_initial_max_stream_data_uni: number of bytes we are permitted
+       to send for each new opened stream (further bytes permitted via
+       further MAX_STREAM_DATA frames from the server) */
+    ulong tx_initial_max_stream_data_uni;
+
+  /* End stream related ***********************************************/
+
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
+  /* next connection in the free list, or in service list */
+  uint next;
 };
+
+typedef struct fd_quic_conn fd_quic_conn_t;
+
+#define POOL_NAME  fd_quic_conn_pool
+#define POOL_T     fd_quic_conn_t
+#define POOL_IDX_T uint
+#include "../../util/tmpl/fd_pool.c"
 
 FD_PROTOTYPES_BEGIN
 
-/* returns the alignment requirement of fd_quic_conn_t */
-FD_FN_CONST ulong
-fd_quic_conn_align( void );
+/* fd_quic_conn_rx_window_cnt returns the number of new streams the
+   peer may deliver. */
 
-/* returns the footprint of the connection object for given limits */
-FD_FN_PURE ulong
-fd_quic_conn_footprint( fd_quic_limits_t const * );
-
-/* called by fd_quic_new to initialize the connection objects
-   used by fd_quic */
-fd_quic_conn_t *
-fd_quic_conn_new( void *                   mem,
-                  fd_quic_t *              quic,
-                  fd_quic_limits_t const * limits );
-
-/* set the user-defined context value on the connection */
-void
-fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
-
-/* get the user-defined context value from a connection */
-void *
-fd_quic_conn_get_context( fd_quic_conn_t * conn );
-
-
-/* set the max concurrent streams value for the specified type
-   This is used to flow control the peer.
-
-   type is one of:
-     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
-     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
-FD_QUIC_API void
-fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint type, ulong stream_cnt );
-
-
-/* update the tree weight
-   called whenever weight may have changed */
-void
-fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype );
-
+FD_FN_PURE static inline ulong
+fd_quic_conn_rx_window_cnt( fd_quic_conn_t * const conn ) {
+  long max = (long)conn->rx_sup_stream_id >> 2;
+  long min = (long)conn->fin_streams.min;
+  long cnt = (max - min) - fd_ulong_popcnt( conn->fin_streams.set );
+  FD_LOG_NOTICE(( "max: %ld min: %ld cnt: %ld", max, min, cnt ));
+  return (ulong)fd_long_max( 0, cnt );
+}
 
 FD_PROTOTYPES_END
 

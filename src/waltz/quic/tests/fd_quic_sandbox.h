@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_tests_fd_quic_sandbox_h
 
 #include "../fd_quic.h"
+#include "../fd_quic_common.h"
 #include "../../../tango/mcache/fd_mcache.h"
 #include "../../../tango/dcache/fd_dcache.h"
 #include "../../../util/net/fd_ip4.h"
