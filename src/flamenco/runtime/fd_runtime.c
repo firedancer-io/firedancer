@@ -2335,7 +2335,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, 0 );
   if( result != 0 ) {
     FD_LOG_WARNING(("update bpf program cache failed"));
@@ -3188,7 +3187,7 @@ static long
 fd_runtime_get_rent_due( fd_exec_slot_ctx_t * slot_ctx, fd_account_meta_t * acc, ulong epoch ) {
 
   fd_epoch_bank_t     * epoch_bank     = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t * schedule       = &epoch_bank->epoch_schedule;
+  fd_epoch_schedule_t * schedule       = &epoch_bank->rent_epoch_schedule;
   fd_rent_t           * rent           = &epoch_bank->rent;
   double                slots_per_year = epoch_bank->slots_per_year;
 
@@ -3310,6 +3309,7 @@ fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t *  slot_ctx,
                                       fd_account_meta_t  *  acc,
                                       fd_pubkey_t const  *  key,
                                       ulong                 epoch ) {
+
   if( !FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
     fd_runtime_collect_from_existing_account( slot_ctx, acc, key, epoch );
   } else {
@@ -3566,6 +3566,7 @@ int fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a,
 
 void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
                                                ulong rent_to_be_distributed ) {
+
   FD_SCRATCH_SCOPE_BEGIN {
     ulong total_staked = 0;
 
@@ -3858,9 +3859,8 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
 {
   FD_SCRATCH_SCOPE_BEGIN
   {
+    fd_epoch_schedule_t schedule = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
 
-    fd_epoch_schedule_t schedule;
-    fd_sysvar_epoch_schedule_read( &schedule, slot_ctx );
     FD_LOG_INFO(("schedule->slots_per_epoch = %lu", schedule.slots_per_epoch));
     FD_LOG_INFO(("schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset));
     FD_LOG_INFO(("schedule->warmup = %d", schedule.warmup));
@@ -3874,6 +3874,7 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
     ulong slot_cnt = fd_epoch_slot_cnt(&schedule, epoch);
 
     FD_LOG_INFO(("starting rent list init"));
+
     fd_acc_mgr_set_slots_per_epoch(slot_ctx, fd_epoch_slot_cnt(&schedule, epoch));
     FD_LOG_INFO(("rent list init done"));
 
