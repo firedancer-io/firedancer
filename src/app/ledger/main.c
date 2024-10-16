@@ -156,7 +156,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   fd_slot_meta_t         slot_meta        = {0};
   ulong                  curr_rocksdb_idx = 0UL;
   if( ledger_args->on_demand_block_ingest ) {
-    fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
+    char * err = fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
+    if( FD_UNLIKELY( err!=NULL ) ) {
+      FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", ledger_args->rocksdb_list[ 0UL ], err ));
+    }
     fd_rocksdb_root_iter_new( &iter );
     if( fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, ledger_args->slot_ctx->valloc ) ) {
       FD_LOG_ERR(( "unable to seek to first slot" ));
@@ -290,7 +293,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         fd_memset( &iter,      0, sizeof(fd_rocksdb_root_iter_t) );
         fd_memset( &slot_meta, 0, sizeof(fd_slot_meta_t)         );
 
-        fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[curr_rocksdb_idx] );
+        char * err = fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[curr_rocksdb_idx] );
+        if( FD_UNLIKELY( err!=NULL ) ) {
+          FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", ledger_args->rocksdb_list[curr_rocksdb_idx], err ));
+        }
         fd_rocksdb_root_iter_new( &iter );
         int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
         if( ret<0 ) {
@@ -447,13 +453,13 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
   fd_rocksdb_t rocks_db;
-  char *err = fd_rocksdb_init( &rocks_db, file );
-  if( err != NULL ) {
+  char * err = fd_rocksdb_init( &rocks_db, file );
+  if( FD_UNLIKELY( err!=NULL ) ) {
     FD_LOG_ERR(( "fd_rocksdb_init returned %s", err ));
   }
 
   ulong last_slot = fd_rocksdb_last_slot( &rocks_db, &err );
-  if( err != NULL ) {
+  if( FD_UNLIKELY( err!=NULL ) ) {
     FD_LOG_ERR(( "fd_rocksdb_last_slot returned %s", err ));
   }
 
@@ -759,8 +765,8 @@ minify( fd_ledger_args_t * args ) {
 
 
   fd_rocksdb_t big_rocksdb;
-  char *err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_list[ 0UL ] );
-  if( err != NULL ) {
+  char * err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_list[ 0UL ] );
+  if( FD_UNLIKELY( err!=NULL ) ) {
     FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", args->rocksdb_list[ 0UL ], err ));
   }
 
