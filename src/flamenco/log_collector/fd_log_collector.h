@@ -223,6 +223,7 @@ FD_STATIC_ASSERT( 2*FD_LOG_COLLECTOR_PRINTF_MAX_2B <= FD_LOG_COLLECTOR_EXTRA, "I
    we serialize msg_sz as a variable int, we must guarantee
    that msg_sz <= 127, i.e. fits in 1 byte, otherwise we'd have
    to memmove the log msg. */
+__attribute__ ((format (printf, 2, 3)))
 static inline void
 fd_log_collector_printf_dangerous_max_127( fd_exec_instr_ctx_t * ctx,
                                            char const * fmt, ... ) {
@@ -280,6 +281,7 @@ fd_log_collector_printf_dangerous_max_127( fd_exec_instr_ctx_t * ctx,
 
    Moreover, we need to guarantee that the log buf is big enough
    to fit the log msg.  Hence we further limit msg_sz < 2000. */
+__attribute__ ((format (printf, 2, 3)))
 static inline void
 fd_log_collector_printf_dangerous_128_to_2k( fd_exec_instr_ctx_t * ctx,
                                              char const * fmt, ... ) {
@@ -329,6 +331,7 @@ fd_log_collector_printf_dangerous_128_to_2k( fd_exec_instr_ctx_t * ctx,
    the complexity when msg_sz can be below or above 127, for
    example in many error messages where we have to print 2
    pubkeys. */
+__attribute__ ((format (printf, 2, 3)))
 static inline void
 fd_log_collector_printf_inefficient_max_512( fd_exec_instr_ctx_t * ctx,
                                              char const * fmt, ... ) {
