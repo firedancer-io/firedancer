@@ -276,8 +276,7 @@ fd_calculate_stake_weighted_timestamp(
   FD_LOG_DEBUG(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
-  fd_epoch_schedule_t schedule;
-  fd_sysvar_epoch_schedule_read( &schedule, slot_ctx );
+  fd_epoch_schedule_t schedule = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
   ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
   FD_LOG_DEBUG(("Epoch start slot %lu", epoch_start_slot));
   ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(slot_ctx->slot_bank.slot, epoch_start_slot));

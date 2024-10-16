@@ -2407,6 +2407,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   uint cluster_type;
   uint cluster_version[3];
   fd_vote_accounts_t next_epoch_stakes;
+  fd_epoch_schedule_t rent_epoch_schedule;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
@@ -2430,6 +2431,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank_off {
   uint cluster_type_off;
   uint cluster_version_off;
   uint next_epoch_stakes_off;
+  uint rent_epoch_schedule_off;
 };
 typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
 #define FD_EPOCH_BANK_OFF_FOOTPRINT sizeof(fd_epoch_bank_off_t)
