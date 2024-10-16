@@ -1560,7 +1560,7 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to restore %s: error %d", ctx->snapshot, err ));
     }
     fd_wksp_tag_query_info_t info;
-    ulong tag = FD_FUNK_MAGIC;
+    ulong tag = 1;
     if( fd_wksp_tag_query( ctx->funk_wksp, &tag, 1, &info, 1 ) > 0 ) {
       void * funk_shmem = fd_wksp_laddr_fast( ctx->funk_wksp, info.gaddr_lo );
       ctx->funk = fd_funk_join( funk_shmem );
