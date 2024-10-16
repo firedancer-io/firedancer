@@ -416,7 +416,8 @@ The skip rate of an epoch is the ratio of `skipped_slots/total_slots`
 for our leader slots in that epoch.  The skip rate is only known for
 slots that have happened since the validator was started, and we do
 not incorporate slots from before boot, as we cannot know if they were
-skipped or not.
+skipped or not.  If no slot has happened since boot, i.e.
+total_slots==0, skip_rate is 0.
 
 **`SkipRate`**
 | Field     | Type     | Description |
@@ -585,21 +586,21 @@ potential underflow.
 | Field               | Type                | Description
 |---------------------|---------------------|------------
 | next_leader_slot    | `number\|null`      | The next leader slot |
-| tile_primary_metric | `TilePrimaryMetric` | Per-tile-type primary metrics since the end of the previous leader slot |
+| tile_primary_metric | `TilePrimaryMetric` | Per-tile-type primary metrics.  Some of these are point-in-time values (P), and some are aggregated since the end of the previous leader slot (A) |
 
 **`TilePrimaryMetric`**
 | Field   | Type     | Description |
 |---------|----------|-------------|
-| net_in  | `number` | Ingress bytes per second |
-| quic    | `number` | Active QUIC connections |
-| verify  | `number` | Fraction of transactions that failed sigverify |
-| dedup   | `number` | Fraction of transactions deduplicated |
-| pack    | `number` | Fraction of pack buffer filled |
-| bank    | `number` | Execution TPS |
-| poh     | `number` | Fraction of time spent hashing |
-| shred   | `number` | Shreds processed per second |
-| store   | `number` | 50% percentile latency |
-| net_out | `number` | Egress bytes per second |
+| net_in  | `number` | Ingress bytes per second (P) |
+| quic    | `number` | Active QUIC connections (P) |
+| verify  | `number` | Fraction of transactions that failed sigverify (A) |
+| dedup   | `number` | Fraction of transactions deduplicated (A) |
+| pack    | `number` | Fraction of pack buffer filled (P) |
+| bank    | `number` | Execution TPS (P) |
+| poh     | `number` | Fraction of time spent hashing (P) |
+| shred   | `number` | Shreds processed per second (P) |
+| store   | `number` | 50% percentile latency (A) |
+| net_out | `number` | Egress bytes per second (P) |
 
 
 #### `summary.live_tile_timers`
@@ -977,6 +978,7 @@ are skipped on the currently active fork.
                 "verify_duplicate": 114,
                 "dedup_duplicate": 19387,
                 "pack_invalid": 0,
+                "pack_expired": 0,
                 "pack_retained": 2225,
                 "pack_wait_full": 0,
                 "pack_leader_slow": 0,
@@ -1079,7 +1081,8 @@ are skipped on the currently active fork.
 | verify_failed     | `number` | Transactions were dropped because signature verification failed |
 | verify_duplicate  | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
 | dedup_duplicate   | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
-| pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction expired, requested too many compute units, or was too large to fit in a block |
+| pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
+| pack_expired      | `number` | Transactions were dropped because pack determined that their TTL expired |
 | pack_retained     | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
 | pack_leader_slow  | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
 | pack_wait_full    | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
