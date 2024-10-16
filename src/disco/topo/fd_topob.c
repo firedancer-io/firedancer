@@ -427,6 +427,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "sign",
 #ifdef FD_HAS_NO_AGAVE
     "gossip", /* FIREDANCER only */
+    "gspvfy", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "thread", /* FIREDANCER only */
