@@ -57,6 +57,10 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   volatile int *       wait,
                   volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run ) {
+  char thread_name[ 20 ];
+  FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile->name, tile->kind_id ) );
+  if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
@@ -206,10 +210,6 @@ run_tile_thread_main( void * _args ) {
   fd_topo_run_thread_args_t args = *(fd_topo_run_thread_args_t *)_args;
   FD_COMPILER_MFENCE();
   ((fd_topo_run_thread_args_t *)_args)->copied = 1;
-
-  char thread_name[ 20 ];
-  FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", args.tile->name, args.tile->kind_id ) );
-  if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_topo_run_tile( args.topo, args.tile, 0, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
   if( FD_UNLIKELY( args.done_futex ) ) {
