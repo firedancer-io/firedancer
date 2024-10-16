@@ -40,7 +40,22 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
-struct fd_vm {
+/* In Agave, all the regions are 16-byte aligned in host address space. There is then an alignment check
+   which is done inside each syscall memory translation, checking if the data is aligned in host address
+   space. This is a layering violation, as it leaks the host address layout into the consensus model.
+   
+   In the future we will change this alignment check in the vm to purely operate on the virtual address space,
+   taking advantage of the fact that Agave regions are known to be aligned. For now, we align our regions to 
+   either 8 or 16 bytes, as there are no 16-byte alignment translations in the syscalls currently:
+   stack:  16 byte aligned
+   heap:   16 byte aligned
+   input:  8 byte aligned
+   rodata: 8 byte aligned
+   
+    https://github.com/solana-labs/rbpf/blob/cd19a25c17ec474e6fa01a3cc3efa325f44cd111/src/ebpf.rs#L39-L40  */
+#define FD_VM_HOST_REGION_ALIGN                   (16UL)
+
+struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   /* VM configuration */
 
@@ -172,11 +187,11 @@ struct fd_vm {
                                                                 As such, malformed instructions, which can have src/dst reg index in
                                                                 [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
   fd_vm_shadow_t            shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
-                                                                bottom/top.  Aligned 8. */
+                                                                bottom/top.  Aligned 16. */
   uchar                     stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
                                                                 frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
                                                                 FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-                                                                current stack frame.  Aligned 8. */
+                                                                current stack frame.  Aligned 16. */
   uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
 
    fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
@@ -195,7 +210,7 @@ FD_PROTOTYPES_BEGIN
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
-#define FD_VM_ALIGN     (8UL     )
+#define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
 #define FD_VM_FOOTPRINT (527264UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
