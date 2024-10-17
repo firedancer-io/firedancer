@@ -61,6 +61,7 @@ export default defineConfig({
           items: [
             { text: 'Commands Line Interface', link: 'cli' },
             { text: 'Metrics', link: 'metrics' },
+            { text: 'WebSocket', link: 'websocket' },
           ]
         }
       ] },

@@ -473,9 +473,12 @@ stem_run1( ulong                        in_cnt,
       continue;
     }
 
+    ulong prefrag_ticks = 0UL;
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT)
     long prefrag_next = fd_tickcount();
-    ulong prefrag_ticks = (ulong)(prefrag_next - now);
+    prefrag_ticks = (ulong)(prefrag_next - now);
     now = prefrag_next;
+#endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
     in_seq++;

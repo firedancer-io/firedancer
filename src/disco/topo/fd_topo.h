@@ -195,6 +195,15 @@ typedef struct {
     } sign;
 
     struct {
+      ushort listen_port;
+
+      int    is_voting;
+
+      char   cluster[ 32 ];
+      char   identity_key_path[ PATH_MAX ];
+    } gui;
+
+    struct {
       ushort prometheus_listen_port;
     } metric;
 

@@ -308,6 +308,9 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
 
+  CFG_POP      ( bool,   tiles.gui.enabled                                );
+  CFG_POP      ( ushort, tiles.gui.gui_listen_port                        );
+
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.no_agave                             );
@@ -449,6 +452,8 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
+
+  CFG_HAS_NON_ZERO( tiles.gui.gui_listen_port );
 
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );
