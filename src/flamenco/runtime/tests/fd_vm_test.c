@@ -178,7 +178,7 @@ do{
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
+  uint                   input_regions_cnt = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
@@ -338,7 +338,8 @@ do{
 uint
 setup_vm_input_regions( fd_vm_input_region_t *                   input,
                         fd_exec_test_input_data_region_t const * test_input,
-                        ulong                                    test_input_count ) {
+                        ulong                                    test_input_count,
+                        fd_valloc_t                              valloc ) {
   ulong offset = 0UL;
   uint input_idx = 0UL;
   for( ulong i=0; i<test_input_count; i++ ) {
@@ -348,8 +349,10 @@ setup_vm_input_regions( fd_vm_input_region_t *                   input,
       continue; /* skip empty regions https://github.com/anza-xyz/agave/blob/3072c1a72b2edbfa470ca869f1ea891dfb6517f2/programs/bpf_loader/src/serialization.rs#L136 */
     }
 
+    uchar * haddr = fd_valloc_malloc( valloc, 8UL, array->size );
+    fd_memcpy( haddr, array->bytes, array->size );
     input[input_idx].vaddr_offset     = offset;
-    input[input_idx].haddr            = (ulong)array->bytes;
+    input[input_idx].haddr            = (ulong)haddr;
     input[input_idx].region_sz        = array->size;
     input[input_idx].is_writable      = region->is_writable;
 

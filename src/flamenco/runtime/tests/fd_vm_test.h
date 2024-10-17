@@ -47,7 +47,8 @@ setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
 uint
 setup_vm_input_regions( fd_vm_input_region_t *                   input,
                        fd_exec_test_input_data_region_t const * test_input,
-                       ulong                                    test_input_count );
+                       ulong                                    test_input_count,
+                       fd_valloc_t                              valloc );
 
 ulong
 load_from_vm_input_regions( fd_vm_input_region_t const *        input,
