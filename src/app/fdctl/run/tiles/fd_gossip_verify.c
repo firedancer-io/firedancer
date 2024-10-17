@@ -45,7 +45,7 @@ struct fd_gossip_verify_tile_ctx {
   ulong           gossip_out_wmark;
   ulong           gossip_out_chunk;
 
-  fd_mux_context_t * mux;
+  fd_stem_context_t * stem;
 };
 
 typedef struct fd_gossip_verify_tile_ctx fd_gossip_verify_tile_ctx_t;
@@ -165,38 +165,23 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_gossip_verify_tile_ctx_t) );
 }
 
-static void
-before_frag( void * _ctx      FD_PARAM_UNUSED,
-             ulong  in_idx    FD_PARAM_UNUSED,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
-  fd_gossip_verify_tile_ctx_t * ctx = (fd_gossip_verify_tile_ctx_t *)_ctx;
-
-  if( FD_LIKELY( seq % ctx->round_robin_cnt != ctx->round_robin_idx ) ) {
-    *opt_filter = 1;
-    return;
-  }
-
-  if( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_GOSSIP ) {
-    *opt_filter = 1;
-    return;
-  }
+static inline int
+before_frag( fd_gossip_verify_tile_ctx_t * ctx       FD_PARAM_UNUSED,
+             ulong                         in_idx    FD_PARAM_UNUSED,
+             ulong                         seq,
+             ulong                         sig ) {
+  return ( seq % ctx->round_robin_cnt != ctx->round_robin_idx ) || ( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_GOSSIP );
 }
 
 static void
-during_frag( void * _ctx,
-             ulong  in_idx    FD_PARAM_UNUSED,
-             ulong  seq       FD_PARAM_UNUSED,
-             ulong  sig       FD_PARAM_UNUSED,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
-  fd_gossip_verify_tile_ctx_t * ctx = (struct fd_gossip_verify_tile_ctx *)_ctx;
-
+during_frag( fd_gossip_verify_tile_ctx_t * ctx,
+             ulong                         in_idx    FD_PARAM_UNUSED,
+             ulong                         seq       FD_PARAM_UNUSED,
+             ulong                         sig       FD_PARAM_UNUSED,
+             ulong                         chunk,
+             ulong                         sz ) {
   if( FD_UNLIKELY( chunk<ctx->net_in_chunk || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk, ctx->net_in_wmark ));
-    *opt_filter = 1;
     return;
   }
 
@@ -207,23 +192,20 @@ during_frag( void * _ctx,
 }
 
 static void
-after_frag( void *             _ctx,
-            ulong              in_idx     FD_PARAM_UNUSED,
-            ulong              seq        FD_PARAM_UNUSED,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig FD_PARAM_UNUSED,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
-  fd_gossip_verify_tile_ctx_t * ctx = (fd_gossip_verify_tile_ctx_t *)_ctx;
-
-  ctx->mux = mux;
-  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
+after_frag( fd_gossip_verify_tile_ctx_t *  ctx,
+            ulong                          in_idx     FD_PARAM_UNUSED,
+            ulong                          seq        FD_PARAM_UNUSED,
+            ulong                          sig,
+            ulong                          chunk      FD_PARAM_UNUSED,
+            ulong                          sz,
+            ulong                          tsorig     FD_PARAM_UNUSED,
+            fd_stem_context_t *            stem ) {
+  ctx->stem = stem;
+  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *) fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
 
   uchar * udp_payload = (uchar *)hdr + hdr_sz;
-  ulong payload_sz = (*opt_sz - hdr_sz);
+  ulong payload_sz = (sz - hdr_sz);
 
   if( FD_UNLIKELY( payload_sz > FD_NET_MTU ) ) {
     FD_LOG_ERR(( "gossip_verify payload_sz %lu > FD_NET_MTU %lu", payload_sz, FD_NET_MTU ));
@@ -240,7 +222,6 @@ after_frag( void *             _ctx,
     fd_gossip_msg_t gossip_msg[1];
     if( fd_gossip_msg_decode( gossip_msg, &decode_ctx ) ) {
       FD_LOG_WARNING(( "corrupt gossip message" ));
-      *opt_filter = 1;
       return;
     }
 
@@ -310,21 +291,22 @@ after_frag( void *             _ctx,
     }
   
     if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
-      *opt_filter = 1;
       return;
     }
 
   } FD_SCRATCH_SCOPE_END;
 
   /* GOSSIP VERIFY LOGIC ENDS HERE, assuming returned on fail */
-  *opt_chunk = ctx->gossip_out_chunk;
-  ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, *opt_sz, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, GOSSIP_OUT_IDX, sig, ctx->gossip_out_chunk, sz, 0UL, tsorig, tspub );
+  ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, sz, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
 }
 
 static void
 privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile,
-                 void           * scratch ) {
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_verify_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_verify_tile_ctx_t), sizeof(fd_gossip_verify_tile_ctx_t) );
 
@@ -334,22 +316,19 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 
 static void
 unprivileged_init( fd_topo_t      * topo,
-                   fd_topo_tile_t * tile,
-                   void           * scratch ) {
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   if( FD_UNLIKELY( tile->in_cnt != 1UL ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX ] ].name, "net_gspvfy" ) ) ) {
     FD_LOG_ERR(( "gossip_verify tile has none or unexpected input links %lu %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ||
-                   strcmp( topo->links[ tile->out_link_id_primary ].name, "gspvfy_gossi" ) ) ) {
+  if( FD_UNLIKELY( tile->out_cnt == 0UL ||
+                   strcmp( topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ].name, "gspvfy_gossi" ) ) ) {
     FD_LOG_ERR(( "gossip_verify tile has none or unexpected output links %lu %s",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name ));
-  }
-
-  if( FD_UNLIKELY( tile->out_link_id_primary==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "gossip_verify tile has no primary output link" ));
+                 tile->out_cnt, topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ].name ));
   }
 
   /* Scratch mem setup */
@@ -365,7 +344,7 @@ unprivileged_init( fd_topo_t      * topo,
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
 
-  fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ];
 
   ctx->gossip_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
   ctx->gossip_out_mem = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
@@ -385,19 +364,20 @@ unprivileged_init( fd_topo_t      * topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
+populate_allowed_seccomp( fd_topo_t const *      topo     FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile     FD_PARAM_UNUSED,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
   populate_sock_filter_policy_gossip( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_gossip_instr_cnt;
 }
 
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
+populate_allowed_fds( fd_topo_t const *      topo         FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile         FD_PARAM_UNUSED,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
   if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
@@ -407,19 +387,24 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE          fd_gossip_verify_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_verify_tile_ctx_t)
+
+#define STEM_CALLBACK_BEFORE_FRAG  before_frag
+#define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
+
+#include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_gossip_verify = {
   .name                     = "gspvfy",
-  .mux_flags                = FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };
