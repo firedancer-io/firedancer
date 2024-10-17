@@ -1698,7 +1698,7 @@ after_frag( fd_poh_ctx_t *      ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     if( FD_LIKELY( txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       executed_txn_cnt++;
-      cus_used += txns[ i ].executed_cus;
+      cus_used += txns[ i ].bank_cu.total_executed_cus;
     }
   }
 

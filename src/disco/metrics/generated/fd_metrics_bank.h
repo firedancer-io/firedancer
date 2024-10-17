@@ -791,6 +791,12 @@
 #define FD_METRICS_COUNTER_BANK_TILE_TRANSACTION_EXECUTED_PROGRAM_CACHE_HIT_MAX_LIMIT_DESC "When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail. (The total program cache size hit the maximum allowed limit.)"
 #define FD_METRICS_COUNTER_BANK_TILE_TRANSACTION_EXECUTED_PROGRAM_CACHE_HIT_MAX_LIMIT_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_COUNTER_BANK_TILE_COST_MODEL_UNDERCOUNT_OFF  (145UL)
+#define FD_METRICS_COUNTER_BANK_TILE_COST_MODEL_UNDERCOUNT_NAME "bank_tile_cost_model_undercount"
+#define FD_METRICS_COUNTER_BANK_TILE_COST_MODEL_UNDERCOUNT_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_BANK_TILE_COST_MODEL_UNDERCOUNT_DESC "Count of transactions that used more CUs than the cost model should have permitted them to"
+#define FD_METRICS_COUNTER_BANK_TILE_COST_MODEL_UNDERCOUNT_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_BANK_TOTAL (129UL)
+
+#define FD_METRICS_BANK_TOTAL (130UL)
 extern const fd_metrics_meta_t FD_METRICS_BANK[FD_METRICS_BANK_TOTAL];
