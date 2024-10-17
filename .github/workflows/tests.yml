@@ -74,7 +74,7 @@ jobs:
             run-integration-tests: false
           - test-case: native
             machine: native
-            label: self-hosted
+            label: 512G
             extras: rpath
             targets: "all integration-test fdctl"
             compiler: clang
