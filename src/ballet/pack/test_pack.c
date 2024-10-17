@@ -916,7 +916,7 @@ test_limits( void ) {
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    outcome.results->executed_cus = 0U;
+    outcome.results->bank_cu.rebated_cus = outcome.results->pack_cu.requested_execution_cus;
     fd_pack_rebate_cus( pack, outcome.results, 1UL );
     /* Now consumed CUs is 11,520,059, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
@@ -953,9 +953,9 @@ test_limits( void ) {
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    outcome.results[ 0 ].executed_cus = 0U;
-    outcome.results[ 1 ].executed_cus = 0U;
-    outcome.results[ 2 ].executed_cus = 0U;
+    outcome.results[ 0 ].bank_cu.rebated_cus = outcome.results[ 0 ].pack_cu.requested_execution_cus;
+    outcome.results[ 1 ].bank_cu.rebated_cus = outcome.results[ 1 ].pack_cu.requested_execution_cus;
+    outcome.results[ 2 ].bank_cu.rebated_cus = outcome.results[ 2 ].pack_cu.requested_execution_cus;
     fd_pack_rebate_cus( pack, outcome.results, 3UL );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
