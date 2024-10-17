@@ -333,16 +333,16 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       ele->contact_info = contact_info;
     }
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
-    fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
+    // fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
 
-    uchar * duplicate_shred_msg = fd_chunk_to_laddr( ctx->duplicate_shred_out_mem, ctx->duplicate_shred_out_chunk );
-    memcpy( duplicate_shred_msg, duplicate_shred->chunk, duplicate_shred->chunk_len );
+    // uchar * duplicate_shred_msg = fd_chunk_to_laddr( ctx->duplicate_shred_out_mem, ctx->duplicate_shred_out_chunk );
+    // memcpy( duplicate_shred_msg, duplicate_shred->chunk, duplicate_shred->chunk_len );
 
-    ulong sig = 1UL;
-    fd_mcache_publish( ctx->duplicate_shred_out_mcache, ctx->duplicate_shred_out_depth, ctx->duplicate_shred_out_seq, sig, ctx->duplicate_shred_out_chunk,
-      duplicate_shred->chunk_len, 0UL, 0, 0 );
-    ctx->duplicate_shred_out_seq   = fd_seq_inc( ctx->duplicate_shred_out_seq, 1UL );
-    ctx->duplicate_shred_out_chunk = fd_dcache_compact_next( ctx->duplicate_shred_out_chunk, duplicate_shred->chunk_len, ctx->duplicate_shred_out_chunk0, ctx->duplicate_shred_out_wmark );
+    // ulong sig = 1UL;
+    // fd_mcache_publish( ctx->duplicate_shred_out_mcache, ctx->duplicate_shred_out_depth, ctx->duplicate_shred_out_seq, sig, ctx->duplicate_shred_out_chunk,
+    //   duplicate_shred->chunk_len, 0UL, 0, 0 );
+    // ctx->duplicate_shred_out_seq   = fd_seq_inc( ctx->duplicate_shred_out_seq, 1UL );
+    // ctx->duplicate_shred_out_chunk = fd_dcache_compact_next( ctx->duplicate_shred_out_chunk, duplicate_shred->chunk_len, ctx->duplicate_shred_out_chunk0, ctx->duplicate_shred_out_wmark );
   }
 }
 
