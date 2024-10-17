@@ -398,11 +398,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
   volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
 
-  ulong gossip_votes_dup = fd_metrics_link_in( dedup->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
-  cur->out.dedup_duplicate = gossip_votes_dup;
-  for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
-    cur->out.dedup_duplicate += fd_metrics_link_in( dedup->metrics, i+1UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
-  }
+  cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_DEDUP_FAILURE ) ];
 
   
   cur->out.verify_overrun   = 0UL;
