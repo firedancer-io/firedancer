@@ -297,13 +297,14 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
   /* Unpack the time stashed in the CUs field */
-  long now = (long)((((ulong)insert->executed_cus)<<32) | ((ulong)insert->requested_cus));
+  long receive_time = (long)((((ulong)insert->executed_cus)<<32) | ((ulong)insert->requested_cus));
 
   long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)now+TIME_OFFSET );
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)receive_time+TIME_OFFSET );
   insert_duration      += fd_tickcount();
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+  FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, 1UL );
   return result;
 }
 
@@ -475,7 +476,6 @@ after_credit( void *             _ctx,
     int any_successes = 0;
     for( ulong i=0UL; i<qty_to_insert; i++ ) any_successes |= (0<=insert_from_extra( ctx ));
     if( FD_LIKELY( any_successes ) ) ctx->last_successful_insert = now;
-    FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, qty_to_insert );
   }
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
