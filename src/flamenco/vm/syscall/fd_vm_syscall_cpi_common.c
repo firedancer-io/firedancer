@@ -333,10 +333,11 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     for( ulong j=0; (j < account_infos_length) && !found; j++ ) {
 
       /* Look up the pubkey to see if it is the account we're looking for */
+      uchar is_multi = 0;
       fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD_UNCHECKED( 
-        vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
+        vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t), &is_multi );
       /* If the address does not point to a valid address, then we should skip over this account, not error out. */
-      if ( acct_addr == 0UL ) {
+      if ( acct_addr == 0UL || is_multi ) {
         continue;
       }
 
