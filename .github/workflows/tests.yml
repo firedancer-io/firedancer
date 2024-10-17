@@ -117,7 +117,7 @@ jobs:
           machine: ${{ matrix.machine }}
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ contains(matrix.targets, 'fdctl') }}
+        if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
 
       - name: build targets
         run: |
