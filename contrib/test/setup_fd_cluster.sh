@@ -4,19 +4,20 @@ IFS=$'\n\t'
 
 PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1)
 RPC_URL="http://$PRIMARY_IP:8899/"
+AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 
 mkdir ../test-ledger
 cd ../test-ledger
 
 echo "Creating mint and stake authority keys..."
-solana-keygen new --no-bip39-passphrase --force -o faucet-keypair.json > /dev/null
-solana-keygen new --no-bip39-passphrase --force -o authority.json > /dev/null
+$AGAVE_PATH/solana-keygen new --no-bip39-passphrase --force -o faucet-keypair.json > /dev/null
+$AGAVE_PATH/solana-keygen new --no-bip39-passphrase --force -o authority.json > /dev/null
 
 # Create bootstrap validator keys
 echo "Creating keys for Validator"
-solana-keygen new --no-bip39-passphrase --force -o validator-keypair.json > id.seed
-solana-keygen new --no-bip39-passphrase --force -o vote-account-keypair.json > vote.seed
-solana-keygen new --no-bip39-passphrase --force -o stake-account-keypair.json > stake.seed
+$AGAVE_PATH/solana-keygen new --no-bip39-passphrase --force -o validator-keypair.json > id.seed
+$AGAVE_PATH/solana-keygen new --no-bip39-passphrase --force -o vote-account-keypair.json > vote.seed
+$AGAVE_PATH/solana-keygen new --no-bip39-passphrase --force -o stake-account-keypair.json > stake.seed
 cd ..
 
 # Genesis
@@ -71,7 +72,8 @@ genesis_args+=(--upgradeable-program NanoToken1111111111111111111111111111111111
 
 echo "${genesis_args[@]}"
 
-GENESIS_OUTPUT=$(./agave/target/release/solana-genesis \
+pwd
+GENESIS_OUTPUT=$($AGAVE_PATH/solana-genesis \
     --cluster-type mainnet-beta \
     --ledger test-ledger \
     --bootstrap-validator test-ledger/validator-keypair.json test-ledger/vote-account-keypair.json test-ledger/stake-account-keypair.json \
@@ -92,7 +94,7 @@ GENESIS_HASH=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Genesis hash:).*(?=Shred v
 SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks per slot:)' | xargs)
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 
-RUST_LOG=debug ./agave/target/release/agave-validator \
+RUST_LOG=debug $AGAVE_PATH/agave-validator \
     --identity test-ledger/validator-keypair.json \
     --ledger test-ledger \
     --limit-ledger-size 1000000000 \
@@ -100,7 +102,7 @@ RUST_LOG=debug ./agave/target/release/agave-validator \
     --no-snapshot-fetch \
     --no-poh-speed-test \
     --no-os-network-limits-test \
-    --vote-account $(solana-keygen pubkey test-ledger/vote-account-keypair.json) \
+    --vote-account $($AGAVE_PATH/solana-keygen pubkey test-ledger/vote-account-keypair.json) \
     --expected-shred-version $SHRED_VERSION \
     --expected-genesis-hash $GENESIS_HASH \
     --no-wait-for-vote-to-start-leader \
