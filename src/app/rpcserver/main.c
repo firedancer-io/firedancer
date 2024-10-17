@@ -26,7 +26,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
   fd_wksp_tag_query_info_t info;
-  ulong tag = FD_FUNK_MAGIC;
+  ulong tag = 1;
   if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
     FD_LOG_ERR(( "workspace \"%s\" does not contain a funk", wksp_name ));
   }
@@ -42,7 +42,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-  tag = FD_BLOCKSTORE_MAGIC;
+  tag = 1;
   if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
     FD_LOG_ERR(( "workspace \"%s\" does not contain a blockstore", wksp_name ));
   }

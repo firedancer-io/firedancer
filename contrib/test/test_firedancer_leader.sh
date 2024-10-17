@@ -30,6 +30,7 @@ while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 15
 done
 
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
+SHRED_VERS=`grep shred_version: validator.log | sed -e 's@.*shred_version: \([0-9]*\).*@\1@'`
 
 echo "
 name = \"fd1\"
@@ -45,7 +46,7 @@ name = \"fd1\"
         entrypoints = [\"$PRIMARY_IP\"]
         peer_ports = [8001]
         gossip_listen_port = 8700
-    
+
     [tiles.repair]
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
@@ -66,7 +67,10 @@ name = \"fd1\"
     level_stderr = \"INFO\"
     level_logfile = \"NOTICE\"
     level_flush = \"ERR\"
+[rpc]
+    extended_tx_metadata_storage = true
 [consensus]
+    expected_shred_version = $SHRED_VERS
     vote = true
     identity_path = \"fd-identity-keypair.json\"
     vote_account_path = \"fd-vote-keypair.json\"

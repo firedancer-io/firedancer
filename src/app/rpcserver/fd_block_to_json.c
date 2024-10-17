@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include <unistd.h>
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#include <errno.h>
 #include "../../util/fd_util.h"
 #include "../../flamenco/nanopb/pb_decode.h"
 #include "fd_webserver.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/zstd/fd_zstd.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
@@ -851,6 +855,16 @@ fd_account_to_json( fd_webserver_t * ws,
     }
     encstr = "base64";
     break;
+  case FD_ENC_BASE64_ZSTD: {
+    size_t const cBuffSize = ZSTD_compressBound( val_sz );
+    void * cBuff = fd_scratch_alloc( 1, cBuffSize );
+    size_t const cSize = ZSTD_compress( cBuff, cBuffSize, val, val_sz, 1 );
+    if (fd_web_reply_encode_base64(ws, cBuff, cSize)) {
+      return "failed to encode data in base64";
+    }
+    encstr = "base64+zstd";
+    break;
+  }
   default:
     return "unsupported encoding";
   }
