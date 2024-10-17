@@ -1523,7 +1523,14 @@ after_frag( fd_poh_ctx_t *      ctx,
   ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
   fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
   ulong executed_txn_cnt = 0UL;
-  for( ulong i=0; i<txn_cnt; i++ ) { executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS); }
+  ulong cus_used         = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    if( FD_LIKELY( txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+      executed_txn_cnt++;
+      cus_used += txns[ i ].bank_cu.actual_consumed_cus;
+    }
+  }
+  (void)cus_used; /* for use in the GUI */
 
   /* We don't publish transactions that fail to execute.  If all the
      transactions failed to execute, the microblock would be empty,

@@ -659,10 +659,10 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
     fd_acct_addr_t const * acct_addr = fd_txn_get_acct_addrs( txn, txnp->payload ) + (ulong)prog_id_idx;
   }
   */
-  out->rewards            = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
-  out->compute_est        = (uint)cost;
-  out->txn->requested_cus = (uint)execution_cus;
-  out->txn->executed_cus  = 0U;
+  out->rewards                              = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
+  out->compute_est                          = (uint)cost;
+  out->txn->pack_cu.requested_execution_cus = (uint)execution_cus;
+  out->txn->pack_cu.non_execution_cus       = (uint)(cost - execution_cus);
 
   out->root = (txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
@@ -1087,11 +1087,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       _mm512_stream_si512( (void*)(out->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
       /* Copied out to 1280 bytes, which copies some other fields we needed to
          copy anyway. */
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz   )+sizeof(((fd_txn_p_t*)NULL)->payload_sz   )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, requested_cus)+sizeof(((fd_txn_p_t*)NULL)->requested_cus)<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, executed_cus )+sizeof(((fd_txn_p_t*)NULL)->executed_cus )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags        )+sizeof(((fd_txn_p_t*)NULL)->flags        )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _            )                                           <=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, received_ticks )+sizeof(((fd_txn_p_t*)NULL)->received_ticks)<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags          )+sizeof(((fd_txn_p_t*)NULL)->flags         )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _              )                                            <=1280UL, nt_memcpy );
       const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
       fd_memcpy( offset_into_txn+(uchar *)TXN(out), offset_into_txn+(uchar const *)txn,
           fd_ulong_max( offset_into_txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) )-offset_into_txn );
@@ -1099,10 +1098,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     } else {
       fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
       fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-      out->payload_sz    = cur->txn->payload_sz;
-      out->requested_cus = cur->txn->requested_cus;
-      out->executed_cus  = 0U;
-      out->flags         = cur->txn->flags;
+      out->payload_sz                      = cur->txn->payload_sz;
+      out->pack_cu.requested_execution_cus = cur->txn->pack_cu.requested_execution_cus;
+      out->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
+      out->flags                           = cur->txn->flags;
     }
     out++;
 
@@ -1368,28 +1367,13 @@ fd_pack_rebate_cus( fd_pack_t        * pack,
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t const * txn = txns+i;
-    ulong requested_cus = txn->requested_cus;
-    ulong executed_cus  = txn->executed_cus;
+    ulong rebated_cus   = txn->bank_cu.rebated_cus;
     int   in_block      = !!(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
-    if( FD_UNLIKELY( !in_block && executed_cus>0UL ) ) FD_LOG_ERR(( "Transaction failed execution but consumed CUs?" ));
-    if( FD_UNLIKELY( executed_cus>requested_cus    ) ) {
-      /* There's basically a bug in the Agave codebase right now
-         regarding the cost model for some transactions.  Some built-in
-         instructions like creating an address lookup table consume more
-         CUs than the cost model allocates for them, which is only
-         allowed because the runtime computes requested CUs differently
-         from the cost model.  Rather than implement a broken system,
-         we'll just permit the risk of slightly overpacking blocks by
-         ignoring these transactions when it comes to rebating. */
-      FD_LOG_INFO(( "Transaction executed %lu CUs but only requested %lu CUs", executed_cus, requested_cus ));
-      FD_MCNT_INC( PACK, COST_MODEL_UNDERCOUNT, 1UL );
-      continue;
-    }
-    cumulative_block_cost  -= requested_cus - executed_cus;
-    cumulative_vote_cost   -= fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, requested_cus-executed_cus, 0UL );
-    data_bytes_consumed    -= fd_ulong_if( !in_block,                                  txn->payload_sz,            0UL );
-    cumulative_rebated_cus += requested_cus - executed_cus;
+    cumulative_block_cost  -= rebated_cus;
+    cumulative_vote_cost   -= fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, rebated_cus,     0UL );
+    data_bytes_consumed    -= fd_ulong_if( !in_block,                                  txn->payload_sz, 0UL );
+    cumulative_rebated_cus += rebated_cus;
 
     fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
@@ -1399,7 +1383,7 @@ fd_pack_rebate_cus( fd_pack_t        * pack,
 
       fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
       if( FD_UNLIKELY( !in_wcost_table ) ) FD_LOG_ERR(( "Rebate to unknown written account" ));
-      in_wcost_table->total_cost -= requested_cus - executed_cus;
+      in_wcost_table->total_cost -= rebated_cus;
       /* Important: Even if this is 0, don't delete it from the table so
          that the insert order doesn't get messed up. */
     }
