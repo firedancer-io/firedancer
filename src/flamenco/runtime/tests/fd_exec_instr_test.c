@@ -722,6 +722,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Provide a default clock if not present */
   if( !slot_ctx->sysvar_cache->has_clock ) {
     fd_sysvar_clock_init( slot_ctx );
+    fd_sysvar_clock_update( slot_ctx );
   }
 
   /* Epoch schedule and rent get set from the epoch bank */
