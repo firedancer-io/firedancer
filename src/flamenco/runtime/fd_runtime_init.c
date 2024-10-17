@@ -158,7 +158,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
@@ -196,7 +196,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
       fd_slot_bank_destroy(&slot_ctx->slot_bank, &ctx);
     }
     fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
@@ -222,7 +222,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
                     (long)slot_ctx->slot_bank.slot,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ),
-                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.lthash ) ));
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.lthash.lthash ) ));
 
     slot_ctx->slot_bank.collected_execution_fees = 0;
     slot_ctx->slot_bank.collected_priority_fees = 0;
