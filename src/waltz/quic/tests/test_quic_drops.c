@@ -200,7 +200,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   (void)stream;
   (void)fin;
 
-  FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
+  FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu",
                 (ulong)stream->stream_id, data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
