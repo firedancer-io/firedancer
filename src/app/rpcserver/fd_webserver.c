@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include "fd_methods.h"
 #include "fd_webserver.h"
+#include "../../ballet/http/fd_http_server_private.h"
 
 struct fd_websocket_ctx {
   fd_webserver_t * ws;
@@ -175,6 +176,11 @@ request( fd_http_server_request_t const * request ) {
       fd_web_protocol_error( ws, "content type must be \"application/json\"" );
 
     } else {
+#ifdef FD_RPC_DEBUG
+      fwrite((const char*)request->post.body, 1, request->post.body_len, stdout);
+      fwrite("\n", 1, 1, stdout);
+      fflush(stdout);
+#endif
       json_lex_state_t lex;
       json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len);
       json_parse_root(ws, &lex);
@@ -198,6 +204,11 @@ request( fd_http_server_request_t const * request ) {
       };
       return response;
     }
+#ifdef FD_RPC_DEBUG
+    fwrite(ws->server->oring + response._body_off, 1, response._body_len, stdout);
+    fwrite("\n", 1, 1, stdout);
+    fflush(stdout);
+#endif
     return response;
   }
 }

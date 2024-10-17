@@ -966,14 +966,14 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
         fd_tpool_wait( ctx->tpool, i+1 );
       }
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
+      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+      fork->slot_ctx.block = block_;
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
         FD_LOG_ERR(("block finished failed"));
       }
-
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
 
       // Notify for updated slot info
       publish_slot_notifications( ctx, fork, block_map_entry, curr_slot );
@@ -1381,7 +1381,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
     init_snapshot( ctx, stem );
     ctx->snapshot_init_done = 1;
-  } 
+  }
 }
 
 

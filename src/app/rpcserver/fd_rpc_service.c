@@ -558,12 +558,85 @@ method_getBlockHeight(struct json_values* values, fd_rpc_ctx_t * ctx) {
 }
 
 // Implementation of the "getBlockProduction" methods
+
+struct product_rb_node {
+    fd_pubkey_t key;
+    uint nleader, nproduced;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+typedef struct product_rb_node product_rb_node_t;
+#define REDBLK_T product_rb_node_t
+#define REDBLK_NAME product_rb
+FD_FN_PURE long product_rb_compare(product_rb_node_t* left, product_rb_node_t* right) {
+  for( uint i = 0; i < sizeof(fd_pubkey_t)/sizeof(ulong); ++i ) {
+    ulong a = left->key.ul[i];
+    ulong b = right->key.ul[i];
+    if( a != b ) return (fd_ulong_bswap( a ) < fd_ulong_bswap( b ) ? -1 : 1);
+  }
+  return 0;
+}
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_NAME
+
 static int
 method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  (void)ctx;
-  FD_LOG_WARNING(( "getBlockProduction is not implemented" ));
-  fd_method_error(ctx, -1, "getBlockProduction is not implemented");
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_webserver_t * ws = &glob->ws;
+  fd_blockstore_t * blockstore = glob->blockstore;
+  FD_SCRATCH_SCOPE_BEGIN {
+    ulong startslot = blockstore->min;
+    ulong endslot = blockstore->max;
+    fd_per_epoch_info_t const * ei = glob->stake_ci->epoch_info;
+    startslot = fd_ulong_max( startslot, fd_ulong_min( ei[0].start_slot, ei[1].start_slot ) );
+
+    ulong n = (endslot - startslot)/4U + 1U;
+    void * shmem = fd_scratch_alloc( product_rb_align(), product_rb_footprint( n ) );
+    product_rb_node_t * pool = product_rb_join( product_rb_new( shmem, n ) );
+    product_rb_node_t * root = NULL;
+
+    fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( glob->stake_ci, startslot );
+    if( lsched ) {
+      for ( ulong i = startslot; i <= endslot; ++i ) {
+        fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, i );
+        if( slot_leader ) {
+          product_rb_node_t key;
+          fd_memcpy( key.key.uc, slot_leader->uc, sizeof(fd_pubkey_t) );
+          product_rb_node_t * nd = product_rb_find( pool, root, &key );
+          if( !nd ) {
+            nd = product_rb_acquire( pool );
+            fd_memcpy( nd->key.uc, slot_leader->uc, sizeof(fd_pubkey_t) );
+            nd->nproduced = nd->nleader = 0;
+            product_rb_insert( pool, &root, nd );
+          }
+          nd->nleader++;
+          fd_block_map_t block_map_entry = { 0 };
+          if( fd_blockstore_block_map_query_volatile( blockstore, i, &block_map_entry ) ) {
+            continue;
+          }
+          if( !block_map_entry.block_gaddr ) {
+            continue;
+          }
+          nd->nproduced++;
+        }
+      }
+    }
+
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"byIdentity\":{",
+                         ctx->global->last_slot_notify.slot_exec.slot);
+    int first=1;
+    for ( product_rb_node_t* nd = product_rb_minimum(pool, root); nd; nd = product_rb_successor(pool, nd) ) {
+      char str[50];
+      fd_base58_encode_32(nd->key.uc, 0, str);
+      fd_web_reply_sprintf(ws, "%s\"%s\":[%u,%u]", (first ? "" : ","), str, nd->nleader, nd->nproduced);
+      first=0;
+    }
+    fd_web_reply_sprintf(ws, "},\"range\":{\"firstSlot\":%lu,\"lastSlot\":%lu}}},\"id\":%s}" CRLF,
+                         startslot, endslot, ctx->call_id);
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -1754,10 +1827,11 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
 // Implementation of the "minimumLedgerSlot" methods
 static int
 method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  FD_LOG_WARNING(( "minimumLedgerSlot is not implemented" ));
-  fd_method_error(ctx, -1, "minimumLedgerSlot is not implemented");
+  (void) values;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_webserver_t * ws = &ctx->global->ws;
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
+                       glob->blockstore->min, ctx->call_id);
   return 0;
 }
 

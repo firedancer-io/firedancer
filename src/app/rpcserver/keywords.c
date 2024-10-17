@@ -623,24 +623,33 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
     }
   break;
   case 22:
-    if ((*(unsigned long*)&keyw[0] & 0xFFFFFFUL) == 0x746567UL) {
-      switch (keyw[3]) {
-      case 'F':
-        if (*(unsigned long*)&keyw[4] == 0x6961764174737269UL && *(unsigned long*)&keyw[12] == 0x6F6C42656C62616CUL && (*(unsigned long*)&keyw[20] & 0xFFFFUL) == 0x6B63UL) {
-          return KEYW_RPCMETHOD_GETFIRSTAVAILABLEBLOCK; // "getFirstAvailableBlock"
-        }
-        break;
-      case 'H':
-        if (*(unsigned long*)&keyw[4] == 0x6E53747365686769UL && *(unsigned long*)&keyw[12] == 0x6C53746F68737061UL && (*(unsigned long*)&keyw[20] & 0xFFFFUL) == 0x746FUL) {
-          return KEYW_RPCMETHOD_GETHIGHESTSNAPSHOTSLOT; // "getHighestSnapshotSlot"
-        }
-        break;
-      case 'T':
-        if (*(unsigned long*)&keyw[4] == 0x6F6363416E656B6FUL && *(unsigned long*)&keyw[12] == 0x6E616C6142746E75UL && (*(unsigned long*)&keyw[20] & 0xFFFFUL) == 0x6563UL) {
-          return KEYW_RPCMETHOD_GETTOKENACCOUNTBALANCE; // "getTokenAccountBalance"
-        }
-        break;
+    switch (keyw[0]) {
+    case 'd':
+      if (*(unsigned long*)&keyw[1] == 0x6E6575716E696C65UL && *(unsigned long*)&keyw[9] == 0x736944746F6C5374UL && (*(unsigned long*)&keyw[17] & 0xFFFFFFFFFFUL) == 0x65636E6174UL) {
+        return KEYW_JSON_DELINQUENTSLOTDISTANCE; // "delinquentSlotDistance"
       }
+      break;
+    case 'g':
+      if ((*(unsigned long*)&keyw[1] & 0xFFFFUL) == 0x7465UL) {
+        switch (keyw[3]) {
+        case 'F':
+          if (*(unsigned long*)&keyw[4] == 0x6961764174737269UL && *(unsigned long*)&keyw[12] == 0x6F6C42656C62616CUL && (*(unsigned long*)&keyw[20] & 0xFFFFUL) == 0x6B63UL) {
+            return KEYW_RPCMETHOD_GETFIRSTAVAILABLEBLOCK; // "getFirstAvailableBlock"
+          }
+          break;
+        case 'H':
+          if (*(unsigned long*)&keyw[4] == 0x6E53747365686769UL && *(unsigned long*)&keyw[12] == 0x6C53746F68737061UL && (*(unsigned long*)&keyw[20] & 0xFFFFUL) == 0x746FUL) {
+            return KEYW_RPCMETHOD_GETHIGHESTSNAPSHOTSLOT; // "getHighestSnapshotSlot"
+          }
+          break;
+        case 'T':
+          if (*(unsigned long*)&keyw[4] == 0x6F6363416E656B6FUL && *(unsigned long*)&keyw[12] == 0x6E616C6142746E75UL && (*(unsigned long*)&keyw[20] & 0xFFFFUL) == 0x6563UL) {
+            return KEYW_RPCMETHOD_GETTOKENACCOUNTBALANCE; // "getTokenAccountBalance"
+          }
+          break;
+        }
+      }
+      break;
     }
   break;
   case 23:
@@ -675,6 +684,11 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
           }
           break;
         }
+      }
+      break;
+    case 'k':
+      if (*(unsigned long*)&keyw[1] == 0x6174736E55706565UL && *(unsigned long*)&keyw[9] == 0x6E696C654464656BUL && (*(unsigned long*)&keyw[17] & 0xFFFFFFFFFFFFUL) == 0x73746E657571UL) {
+        return KEYW_JSON_KEEPUNSTAKEDDELINQUENTS; // "keepUnstakedDelinquents"
       }
       break;
     case 's':
@@ -775,10 +789,12 @@ const char* un_fd_webserver_json_keyword(long id) {
   case KEYW_JSON_COMMITMENT: return "commitment";
   case KEYW_JSON_DATASIZE: return "dataSize";
   case KEYW_JSON_DATASLICE: return "dataSlice";
+  case KEYW_JSON_DELINQUENTSLOTDISTANCE: return "delinquentSlotDistance";
   case KEYW_JSON_ENCODING: return "encoding";
   case KEYW_JSON_EPOCH: return "epoch";
   case KEYW_JSON_FILTERS: return "filters";
   case KEYW_JSON_IDENTITY: return "identity";
+  case KEYW_JSON_KEEPUNSTAKEDDELINQUENTS: return "keepUnstakedDelinquents";
   case KEYW_JSON_LENGTH: return "length";
   case KEYW_JSON_LIMIT: return "limit";
   case KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION: return "maxSupportedTransactionVersion";
