@@ -10,6 +10,9 @@ jobs:
       url: 'https://isol-clusterfuzz.appspot.com/'
     strategy:
       matrix:
+        sanitizer_combos:
+          - "fuzz asan ubsan"
+          - "fuzz msan"
         machine:
           - linux_clang_haswell
           - linux_clang_icelake
@@ -24,14 +27,17 @@ jobs:
       group: github-v1
     env:
       MACHINE: ${{ matrix.machine }}
-      EXTRAS: fuzz asan ubsan
+      EXTRAS: ${{ matrix.sanitizer_combos }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - uses: ./.github/actions/hugepages
-      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/deps # "regular" non-msan dependencies (./opt)
+      - uses: ./.github/actions/deps # build deps with msan       (./opt-msan)
+        with:
+          msan-opt: true
 
       - run: sudo apt update && sudo apt install -y zip
 
