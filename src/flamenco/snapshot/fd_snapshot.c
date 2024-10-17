@@ -49,6 +49,7 @@ fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
 static int
 restore_manifest( void *                 ctx,
                   fd_solana_manifest_t * manifest ) {
+  FD_LOG_WARNING(("RESTORING MANIFEST"));
   return (!!fd_exec_slot_ctx_recover( ctx, manifest ) ? 0 : EINVAL);
 }
 
@@ -62,6 +63,8 @@ static void
 load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
                    char *               source_cstr,
                    fd_snapshot_name_t * name_out ) {
+
+  FD_LOG_WARNING(("LOADING ONE SNAPSHOT"));
 
   /* FIXME don't hardcode this param */
   static ulong const zstd_window_sz = 33554432UL;
@@ -81,6 +84,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     name_out->slot = slot_ctx->slot_bank.slot;
     return;
   }
+
   fd_exec_epoch_ctx_bank_mem_clear( slot_ctx->epoch_ctx );
 
   fd_valloc_t     valloc   = slot_ctx->valloc;

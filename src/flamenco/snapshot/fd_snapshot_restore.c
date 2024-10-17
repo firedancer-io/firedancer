@@ -282,12 +282,15 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   /* Move over objects and recover state
      This destroys all remaining fields with the slot context valloc. */
 
+  FD_LOG_WARNING(("starting manifest callback"));
   int err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+  FD_LOG_WARNING(("ending manifest callback"));
 
   /* Read AccountVec map */
 
-  if( FD_LIKELY( !err ) )
+  if( FD_LIKELY( !err ) ) {
     err = fd_snapshot_accv_index( restore->accv_map, &accounts_db );
+  }
 
   /* Discard superfluous fields that the callback didn't move */
 
@@ -603,6 +606,7 @@ fd_snapshot_read_manifest_chunk( fd_snapshot_restore_t * restore,
                                  ulong                   bufsz ) {
   uchar const * end = fd_snapshot_read_buffered( restore, buf, bufsz );
   if( fd_snapshot_read_is_complete( restore ) ) {
+    FD_LOG_WARNING(("READ IS COMPLETE"));
     int err = fd_snapshot_restore_manifest( restore );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_snapshot_restore_manifest failed" ));
@@ -673,7 +677,7 @@ fd_snapshot_restore_chunk( void *       restore_,
   if( restore->failed ) return EINVAL;
 
   while( bufsz ) {
-    uchar const * buf_new = fd_snapshot_restore_chunk1( restore, buf, bufsz );
+     uchar const * buf_new = fd_snapshot_restore_chunk1( restore, buf, bufsz );
     if( FD_UNLIKELY( !buf_new ) ) {
       FD_LOG_WARNING(( "Aborting snapshot read" ));
       return EINVAL;
