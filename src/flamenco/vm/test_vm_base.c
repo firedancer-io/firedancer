@@ -5,8 +5,8 @@
 FD_STATIC_ASSERT( FD_VM_FOOTPRINT                       == sizeof( fd_vm_t ), vm_struct );
 FD_STATIC_ASSERT( FD_VM_ALIGN                           == alignof( fd_vm_t ), vm_struct );
 FD_STATIC_ASSERT( FD_VM_HOST_REGION_ALIGN               == alignof( fd_vm_t ), vm_struct );
-FD_STATIC_ASSERT( FD_VM_HOST_REGION_ALIGN               == offsetof( fd_vm_t, stack ) % FD_VM_HOST_REGION_ALIGN == 0, vm_struct );
-FD_STATIC_ASSERT( FD_VM_HOST_REGION_ALIGN               == offsetof( fd_vm_t, heap ) % FD_VM_HOST_REGION_ALIGN == 0, vm_struct );
+FD_STATIC_ASSERT( offsetof( fd_vm_t, stack ) % FD_VM_HOST_REGION_ALIGN == 0, vm_struct );
+FD_STATIC_ASSERT( offsetof( fd_vm_t, heap )  % FD_VM_HOST_REGION_ALIGN == 0, vm_struct );
 
 /* Verify error codes */
 

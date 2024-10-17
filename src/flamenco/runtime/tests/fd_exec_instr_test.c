@@ -1727,15 +1727,19 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( input->has_exec_effects ){
     cpi_exec_effects = &input->exec_effects;
   }
-  uchar * rodata = input->vm_ctx.rodata ? input->vm_ctx.rodata->bytes : NULL;
+
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
+  uchar * rodata = fd_valloc_malloc( valloc, 8UL, rodata_sz );
+  if ( input->vm_ctx.rodata != NULL ) {
+    fd_memcpy( rodata, input->vm_ctx.rodata, rodata_sz );
+  }
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions = NULL;
   uint input_regions_count = 0U;
   if( !!(input->vm_ctx.input_data_regions_count) ) {
     input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
+    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
     if ( !input_regions_count ) {
       goto error;
     }
