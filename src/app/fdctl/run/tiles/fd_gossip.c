@@ -356,6 +356,11 @@ gossip_signer( void *        signer_ctx,
   fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
 }
 
+static void
+during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
+  fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
+}
+
 static inline int
 before_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -461,7 +466,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
   fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
 
-  long now = fd_log_wallclock();
+  long now = fd_gossip_gettime( ctx->gossip );
   if( ( now - ctx->last_shred_dest_push_time )>CONTACT_INFO_PUBLISH_TIME_NS ) {
     ctx->last_shred_dest_push_time = now;
 
@@ -570,7 +575,6 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   if( shred_version!=0U ) {
     *fd_shred_version = shred_version;
   }
-  fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
 }
 
@@ -816,10 +820,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_BEFORE_FRAG  before_frag
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 
