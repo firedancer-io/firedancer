@@ -7,6 +7,7 @@ cd ../test-ledger
 PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1)
 # RPC_URL="http:/n/$PRIMARY_IP:8899/"
 RPC_URL="http://localhost:8899/"
+AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-identity-keypair.json
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-stake-keypair.json
