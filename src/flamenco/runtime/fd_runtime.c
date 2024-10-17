@@ -3787,6 +3787,11 @@ fd_feature_activate( fd_exec_slot_ctx_t * slot_ctx,
                     fd_feature_id_t const * id,
                     uchar const       acct[ static 32 ] ) {
 
+  // Skip reverted features from being activated
+  if ( id->reverted==1 ) {
+    return;
+  }
+
   FD_BORROWED_ACCOUNT_DECL(acct_rec);
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec);
   if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
