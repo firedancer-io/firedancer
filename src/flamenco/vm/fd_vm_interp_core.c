@@ -183,8 +183,6 @@ interp_exec:
   /* 0x00 - 0x0f ******************************************************/
 
 /* FIXME: MORE THINKING AROUND LDQ HANDLING HERE (see below) */
-interp_0x00: // FD_SBPF_OP_ADDL_IMM
-
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
     reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
   FD_VM_INTERP_INSTR_END;
