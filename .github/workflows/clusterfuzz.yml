@@ -25,6 +25,7 @@ jobs:
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
+      BUILDDIR: clang-fuzz
     steps:
       - uses: actions/checkout@v4
         with:
