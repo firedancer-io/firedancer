@@ -196,7 +196,11 @@ after_frag( fd_bank_ctx_t *     ctx,
   for( ulong i=0; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
-    txn->executed_cus  = 0UL; /* Assume failure, set below if success */
+    uint requested_cus       = txn->pack_cu.requested_execution_cus;
+    uint non_execution_cus   = txn->pack_cu.non_execution_cus;
+    /* Assume failure, set below if success.  If it doesn't land in the
+       block, rebate the non-execution CUs too. */
+    txn->bank_cu.rebated_cus = requested_cus + non_execution_cus;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
@@ -207,8 +211,24 @@ after_frag( fd_bank_ctx_t *     ctx,
     if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
 
     ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
-    txn->flags        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    txn->executed_cus  = consumed_cus[ sanitized_idx-1UL ];
+    txn->flags                      |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    uint executed_cus                = consumed_cus[ sanitized_idx-1UL ];
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + executed_cus;
+    if( FD_UNLIKELY( executed_cus>requested_cus ) ) {
+      /* There's basically a bug in the Agave codebase right now
+         regarding the cost model for some transactions.  Some built-in
+         instructions like creating an address lookup table consume more
+         CUs than the cost model allocates for them, which is only
+         allowed because the runtime computes requested CUs differently
+         from the cost model.  Rather than implement a broken system,
+         we'll just permit the risk of slightly overpacking blocks by
+         ignoring these transactions when it comes to rebating. */
+      FD_LOG_INFO(( "Transaction executed %u CUs but only requested %u CUs", executed_cus, requested_cus ));
+      FD_MCNT_INC( BANK_TILE, COST_MODEL_UNDERCOUNT, 1UL );
+      txn->bank_cu.rebated_cus = 0U;
+      continue;
+    }
+    txn->bank_cu.rebated_cus = requested_cus - executed_cus;
   }
 
   /* Commit must succeed so no failure path.  This function takes

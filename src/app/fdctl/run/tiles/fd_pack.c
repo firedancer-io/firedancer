@@ -287,7 +287,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
   /* Unpack the time stashed in the CUs field */
-  long receive_time = (long)((((ulong)insert->executed_cus)<<32) | ((ulong)insert->requested_cus));
+  long receive_time = insert->received_ticks;
 
   long insert_duration = -fd_tickcount();
   int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)receive_time+TIME_OFFSET );
@@ -565,9 +565,8 @@ during_frag( fd_pack_ctx_t * ctx,
       /* We want to store the current time in cur_spot so that we can
          track its expiration better.  We just stash it in the CU
          fields, since those aren't important right now. */
-      ctx->cur_spot->requested_cus = (uint)((ulong)now & UINT_MAX);
-      ctx->cur_spot->executed_cus  = (uint)((ulong)now>>32       );
-      ctx->insert_to_extra = 1;
+      ctx->cur_spot->received_ticks = now;
+      ctx->insert_to_extra          = 1;
       FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
     }
 
