@@ -517,9 +517,9 @@ typedef struct {
      2. Signal to the tile they wish to acquire the lock, by setting
         fd_poh_waiting_lock to 1.
 
-   During housekeeping, the tile will check if there is the waiting lock
-   is set to 1, and if so, set the returned lock to 1, indicating to the
-   waiter that they may now proceed.
+   During before credit, the tile will check if there is the waiting
+   lock is set to 1, and if so, set the returned lock to 1, indicating
+   to the waiter that they may now proceed.
 
    When the waiter is done reading and writing, they restore the
    returned lock value back to zero, and the POH tile continues with its
@@ -1303,7 +1303,14 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-during_housekeeping( fd_poh_ctx_t * ctx ) {
+metrics_write( fd_poh_ctx_t * ctx ) {
+  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
+  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
+}
+
+static inline void
+before_credit( fd_poh_ctx_t * ctx ) {
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( fd_poh_waiting_lock ) )  {
     FD_VOLATILE( fd_poh_returned_lock ) = 1UL;
@@ -1316,10 +1323,6 @@ during_housekeeping( fd_poh_ctx_t * ctx ) {
     FD_VOLATILE( fd_poh_waiting_lock ) = 0UL;
   }
   FD_COMPILER_MFENCE();
-
-  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
-  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
-  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
 static inline void
@@ -1836,10 +1839,11 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_AFTER_CREDIT        after_credit
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 
