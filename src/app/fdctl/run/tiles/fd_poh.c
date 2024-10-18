@@ -1055,7 +1055,8 @@ publish_tick( fd_poh_ctx_t *      ctx,
 static inline void
 after_credit( fd_poh_ctx_t *      ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in ) {
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
   if( FD_UNLIKELY( is_leader && !ctx->current_leader_bank ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
@@ -1079,6 +1080,7 @@ after_credit( fd_poh_ctx_t *      ctx,
        all the skipped ticks have been published out; otherwise we would
        intersperse skipped tick messages with microblocks. */
     *opt_poll_in = 0;
+    *charge_busy = 1;
     return;
   }
 
@@ -1261,6 +1263,8 @@ after_credit( fd_poh_ctx_t *      ctx,
   FD_TEST( target_hashcnt <= restricted_hashcnt );
 
   if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return; /* Nothing to do, don't publish a tick twice */
+  
+  *charge_busy = 1;
 
   while( ctx->hashcnt<target_hashcnt ) {
     fd_sha256_hash( ctx->hash, 32UL, ctx->hash );

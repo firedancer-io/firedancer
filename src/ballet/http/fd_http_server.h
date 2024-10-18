@@ -421,9 +421,10 @@ int
 fd_http_server_ws_broadcast( fd_http_server_t * http );
 
 /* fd_http_server_poll needs to be continuously called in a spin loop to
-   drive the HTTP server forward. */
+   drive the HTTP server forward.  Returns 1 if there was any work to do
+   on the HTTP server, or 0 otherwise. */
 
-void
+int
 fd_http_server_poll( fd_http_server_t * http );
 
 FD_PROTOTYPES_END

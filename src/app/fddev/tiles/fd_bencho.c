@@ -51,9 +51,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static void
+static int
 service_block_hash( fd_bencho_ctx_t *   ctx,
                     fd_stem_context_t * stem ) {
+  int did_work = 0;
+
   if( FD_UNLIKELY( ctx->blockhash_state==FD_BENCHO_STATE_WAIT ) ) {
     if( FD_LIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
       ctx->blockhash_state = FD_BENCHO_STATE_READY;
@@ -65,6 +67,8 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
 
     ctx->blockhash_state    = FD_BENCHO_STATE_SENT;
     ctx->blockhash_deadline = fd_log_wallclock() + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
+
+    did_work = 1;
   }
 
   if( FD_UNLIKELY( ctx->blockhash_state==FD_BENCHO_STATE_SENT ) ) {
@@ -72,7 +76,7 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
       if( FD_UNLIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
         FD_LOG_ERR(( "timed out waiting for RPC server to respond" ));
-      return;
+      return did_work;
     }
 
     if( FD_UNLIKELY( fd_log_wallclock()<ctx->rpc_ready_deadline && response->status==FD_RPC_CLIENT_ERR_NETWORK ) ) {
@@ -80,7 +84,7 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
       ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
       ctx->blockhash_deadline = fd_log_wallclock() + 100L * 1000L * 1000L; /* 100 millis to retry */
       fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
-      return;
+      return did_work;
     }
 
     if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
@@ -96,12 +100,18 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) {
       ctx->txncount_nextprint = fd_log_wallclock();
     }
+
+    did_work = 1;
   }
+
+  return did_work;
 }
 
-static void
+static int
 service_txn_count( fd_bencho_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) return;
+  if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) return 0;
+
+  int did_work = 0;
 
   if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_WAIT ) ) {
     if( FD_LIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
@@ -114,6 +124,8 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
 
     ctx->txncount_state    = FD_BENCHO_STATE_SENT;
     ctx->txncount_deadline = fd_log_wallclock() + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
+
+    did_work = 1;
   }
 
   if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_SENT ) ) {
@@ -121,7 +133,7 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
     if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
       if( FD_UNLIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
         FD_LOG_ERR(( "timed out waiting for RPC server to respond" ));
-      return;
+      return did_work;
     }
 
     if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
@@ -137,18 +149,25 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
     fd_rpc_client_close( ctx->rpc, ctx->txncount_request );
     ctx->txncount_state = FD_BENCHO_STATE_WAIT;
     ctx->txncount_deadline = ctx->txncount_nextprint;
+
+    did_work = 1;
   }
+
+  return did_work;
 }
 
 static inline void
 after_credit( fd_bencho_ctx_t *   ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in ) {
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   (void)opt_poll_in;
 
-  fd_rpc_client_service( ctx->rpc, 0 );
-  service_block_hash( ctx, stem );
-  service_txn_count( ctx );
+  int did_work_rpc                = fd_rpc_client_service( ctx->rpc, 0 );
+  int did_work_service_block_hash = service_block_hash( ctx, stem );
+  int did_work_service_txn_count  = service_txn_count( ctx );
+
+  *charge_busy = did_work_rpc | did_work_service_block_hash | did_work_service_txn_count;
 }
 
 static void

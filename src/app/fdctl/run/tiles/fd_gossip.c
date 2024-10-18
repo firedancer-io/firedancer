@@ -447,8 +447,13 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 static void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
-              int *                  opt_poll_in ) {
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
   (void)opt_poll_in;
+
+  /* TODO: Don't charge the tile as busy if after_credit isn't actually
+     doing any work. */
+  *charge_busy = 1;
 
   ctx->stem = stem;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );

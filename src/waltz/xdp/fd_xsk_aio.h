@@ -95,9 +95,10 @@ FD_FN_CONST fd_aio_t const *
 fd_xsk_aio_get_tx( fd_xsk_aio_t const * xsk_aio );
 
 /* fd_xsk_aio_service services aio callbacks for incoming packets and
-   handles completions for tx requests. */
+   handles completions for tx requests.  Returns 1 if any work was done
+   (tx or rx was handled), otherwise 0. */
 
-void
+int
 fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio );
 
 FD_PROTOTYPES_END

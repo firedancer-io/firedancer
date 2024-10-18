@@ -259,10 +259,13 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
 
 static inline void
 before_credit( fd_pack_ctx_t *     ctx,
-               fd_stem_context_t * stem ) {
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
   (void)stem;
 
   if( FD_UNLIKELY( ctx->cur_spot ) ) {
+    *charge_busy = 1;
+
     /* If we were overrun while processing a frag from an in, then cur_spot
        is left dangling and not cleaned up, so clean it up here (by returning
        the slot to the pool of free slots). */
@@ -301,7 +304,8 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in ) {
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   (void)opt_poll_in;
 
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
@@ -319,6 +323,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   /* If any banks are busy, check one of the busy ones see if it is
      still busy. */
   if( FD_LIKELY( ctx->bank_idle_bitset!=fd_ulong_mask_lsb( (int)bank_cnt ) ) ) {
+    *charge_busy = 1;
+
     int   poll_cursor = ctx->poll_cursor;
     ulong busy_bitset = (~ctx->bank_idle_bitset) & fd_ulong_mask_lsb( (int)bank_cnt );
 
@@ -354,6 +360,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   /* If we time out on our slot, then stop being leader.  This can only
      happen in the first after_credit after a housekeeping. */
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
+    *charge_busy = 1;
+
     if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
       /* As an optimization, The PoH tile will automatically end a slot
          if it receives the maximum allowed microblocks, since it knows
@@ -384,6 +392,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
     if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
          fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+      *charge_busy = 1;
+
       int result = insert_from_extra( ctx );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
     }
@@ -409,6 +419,7 @@ after_credit( fd_pack_ctx_t *     ctx,
   int any_ready     = 0;
   int any_scheduled = 0;
 
+  *charge_busy = 1;
 
   /* Try to schedule the next microblock.  Do we have any idle bank
      tiles? */

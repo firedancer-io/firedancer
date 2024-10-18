@@ -3003,10 +3003,11 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   return FD_QUIC_SUCCESS;
 }
 
-void
+int
 fd_quic_service( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
+  int handled_event = 0;
   ulong now = fd_quic_now( quic );
 
   state->now = now;
@@ -3028,6 +3029,8 @@ fd_quic_service( fd_quic_t * quic ) {
     if( now < service_time ) {
       break;
     }
+
+    handled_event = 1;
 
     /* set an initial next_service_time */
     conn->next_service_time = now + fd_quic_get_service_interval( quic );
@@ -3099,6 +3102,8 @@ fd_quic_service( fd_quic_t * quic ) {
         }
     }
   }
+
+  return handled_event;
 }
 
 /* attempt to transmit buffered data
