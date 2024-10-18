@@ -7,6 +7,7 @@
 #include "../../../nanopb/pb_firedancer.h"
 #include "invoke.pb.h"
 #include "context.pb.h"
+#include "metadata.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -141,6 +142,8 @@ typedef struct fd_exec_test_syscall_context {
 
 /* A syscall processing test fixture. */
 typedef struct fd_exec_test_syscall_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
     bool has_input;
     fd_exec_test_syscall_context_t input;
     bool has_output;
@@ -158,6 +161,8 @@ typedef struct fd_exec_test_full_vm_context {
 
 /* Fixture for fd_vm_validate fuzz harness */
 typedef struct fd_exec_test_validate_vm_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
     bool has_input;
     fd_exec_test_full_vm_context_t input;
     bool has_output;
@@ -192,20 +197,20 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN}
-#define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
-#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT    {NULL, NULL}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN}
-#define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
-#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_RETURN_DATA_INIT_ZERO       {NULL, NULL}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -258,12 +263,14 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INSTR_CTX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_SYSCALL_INVOCATION_TAG 3
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_EXEC_EFFECTS_TAG 4
-#define FD_EXEC_TEST_SYSCALL_FIXTURE_INPUT_TAG   1
-#define FD_EXEC_TEST_SYSCALL_FIXTURE_OUTPUT_TAG  2
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_METADATA_TAG 1
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_INPUT_TAG   2
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_OUTPUT_TAG  3
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_VM_CTX_TAG  1
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_FEATURES_TAG 3
-#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INPUT_TAG 1
-#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_OUTPUT_TAG 2
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_METADATA_TAG 1
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INPUT_TAG 2
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_OUTPUT_TAG 3
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_FIELDLIST(X, a) \
@@ -339,10 +346,12 @@ X(a, STATIC,   SINGULAR, UENUM,    error_kind,       12)
 #define fd_exec_test_syscall_effects_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
 
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_DEFAULT NULL
+#define fd_exec_test_syscall_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
 #define fd_exec_test_syscall_fixture_t_input_MSGTYPE fd_exec_test_syscall_context_t
 #define fd_exec_test_syscall_fixture_t_output_MSGTYPE fd_exec_test_syscall_effects_t
 
@@ -361,10 +370,12 @@ X(a, STATIC,   SINGULAR, BOOL,     success,           2)
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_DEFAULT NULL
 
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_CALLBACK NULL
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_DEFAULT NULL
+#define fd_exec_test_validate_vm_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
 #define fd_exec_test_validate_vm_fixture_t_input_MSGTYPE fd_exec_test_full_vm_context_t
 #define fd_exec_test_validate_vm_fixture_t_output_MSGTYPE fd_exec_test_validate_vm_effects_t
 
