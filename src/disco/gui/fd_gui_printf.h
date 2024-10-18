@@ -89,7 +89,5 @@ fd_gui_printf_live_txn_waterfall( fd_gui_t *               gui,
                                   ulong                    next_leader_slot );
 
 void
-fd_gui_printf_live_tile_prime_metric( fd_gui_t *                   gui,
-                                      fd_gui_tile_prime_metric_t * prev,
-                                      fd_gui_tile_prime_metric_t * cur,
-                                      ulong                        next_leader_slot );
+fd_gui_printf_live_tile_prime_metric( fd_gui_t * gui,
+                                      ulong      next_leader_slot );
