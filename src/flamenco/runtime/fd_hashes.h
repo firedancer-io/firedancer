@@ -29,46 +29,23 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
                          fd_tpool_t *         tpool );
-/* fd_hash_account_v0 is the legacy method to compute the account
-   hash.  It includes the following content:
+
+/* fd_hash_account_v1 was introduced in Oct-2022 via
+   https://github.com/solana-labs/solana/pull/28405 and was enabled via
+   the "account_hash_ignore_slot" feature gate.  It includes the
+   following content:
     - lamports
-    - slot
     - rent_epoch
     - data
     - executable
     - owner
-    - pubkey
-
-   Writes the resulting hash to hash, and returns hash. */
-
-void const *
-fd_hash_account_v0( uchar                     hash[ static 32 ],
-                    fd_account_meta_t const * account,
-                    uchar const               pubkey[ static 32 ],
-                    uchar const             * data,
-                    ulong                     slot );
-
-/* fd_hash_account_v1 was introduced in Oct-2022 via
-   https://github.com/solana-labs/solana/pull/28405 and is enabled via
-   the "account_hash_ignore_slot" feature gate.
-
-   It is like fd_hash_account_with_slot, but omits the slot param. */
+    - pubkey */
 
 void const *
 fd_hash_account_v1( uchar                     hash  [ static 32 ],
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data );
-
-/* fd_hash_account_current chooses the correct account hash function
-   based on feature activation state. */
-
-void const *
-fd_hash_account_current( uchar                      hash  [ static 32 ],
-                         fd_account_meta_t const *  account,
-                         uchar const                pubkey[ static 32 ],
-                         uchar const *              data,
-                         fd_exec_slot_ctx_t const * slot_ctx );
 
 /* Generate a complete accounts_hash of the entire account database. */
 int
