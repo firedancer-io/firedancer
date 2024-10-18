@@ -277,13 +277,13 @@ parse_response( char *                     response,
   }
 }
 
-void
+int
 fd_rpc_client_service( fd_rpc_client_t * rpc,
                        int               wait ) {
   int timeout = wait ? -1 : 0;
   int nfds = poll( rpc->fds, FD_RPC_CLIENT_REQUEST_CNT, timeout );
-  if( FD_UNLIKELY( 0==nfds ) ) return;
-  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
+  if( FD_UNLIKELY( 0==nfds ) ) return 0;
+  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
   for( ulong i=0UL; i<FD_RPC_CLIENT_REQUEST_CNT; i++ ) {
@@ -338,6 +338,8 @@ fd_rpc_client_service( fd_rpc_client_t * rpc,
       }
     }
   }
+
+  return 1;
 }
 
 fd_rpc_client_response_t *

@@ -390,7 +390,7 @@ fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
   }
 }
 
-void
+int
 fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
                           int *               opt_poll_in ) {
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
@@ -399,7 +399,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
        bank object is from the replay stage, do not do any hashing.
 
        This is not ideal, but greatly simplifies the control flow. */
-    return;
+    return 0;
   }
 
   /* If we have skipped ticks pending because we skipped some slots to
@@ -416,7 +416,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
        all the skipped ticks have been published out; otherwise we would
        intersperse skipped tick messages with microblocks. */
     *opt_poll_in = 0;
-    return;
+    return 1;
   }
 
 
@@ -598,7 +598,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
   FD_TEST( target_hashcnt >= min_hashcnt        );
   FD_TEST( target_hashcnt <= restricted_hashcnt );
 
-  if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return; /* Nothing to do, don't publish a tick twice */
+  if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return 0; /* Nothing to do, don't publish a tick twice */
 
   while( ctx->hashcnt<target_hashcnt ) {
     fd_sha256_hash( ctx->hash, 32UL, ctx->hash );
@@ -637,6 +637,8 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
     fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
+
+  return 1;
 }
 
 void

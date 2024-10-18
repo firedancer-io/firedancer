@@ -1133,11 +1133,11 @@ write_conn( fd_http_server_t * http,
   else                                        write_conn_ws(   http, conn_idx );
 }
 
-void
+int
 fd_http_server_poll( fd_http_server_t * http ) {
   int nfds = poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL, 0 );
-  if( FD_UNLIKELY( 0==nfds ) ) return;
-  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
+  if( FD_UNLIKELY( 0==nfds ) ) return 0;
+  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
   /* Poll existing connections for new data. */
@@ -1152,6 +1152,8 @@ fd_http_server_poll( fd_http_server_t * http ) {
       /* No need to handle POLLHUP, read() will return 0 soon enough. */
     }
   }
+
+  return 1;
 }
 
 void

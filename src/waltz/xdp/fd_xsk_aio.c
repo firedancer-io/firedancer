@@ -244,7 +244,7 @@ fd_xsk_aio_set_rx( fd_xsk_aio_t *   xsk_aio,
 }
 
 
-void
+int
 fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
   fd_xsk_t *            xsk         = xsk_aio->xsk;
   fd_aio_t *            ingress     = &xsk_aio->rx;
@@ -290,6 +290,8 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
                                            xsk_aio->tx_stack       + xsk_aio->tx_top,
                                            xsk_aio->tx_stack_depth - xsk_aio->tx_top );
   xsk_aio->tx_top += tx_completed;
+
+  return rx_avail || tx_completed;
 }
 
 

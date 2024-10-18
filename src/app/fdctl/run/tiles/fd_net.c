@@ -292,11 +292,14 @@ metrics_write( fd_net_ctx_t * ctx ) {
 
 static void
 before_credit( fd_net_ctx_t *      ctx,
-               fd_stem_context_t * stem ) {
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
   (void)stem;
 
   for( ulong i=0; i<ctx->xsk_aio_cnt; i++ ) {
-    fd_xsk_aio_service( ctx->xsk_aio[i] );
+    if( FD_LIKELY( fd_xsk_aio_service( ctx->xsk_aio[i] ) ) ) {
+      *charge_busy = 1;
+    }
   }
 }
 
