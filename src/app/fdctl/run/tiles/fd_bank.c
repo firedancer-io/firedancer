@@ -157,6 +157,7 @@ after_frag( fd_bank_ctx_t *     ctx,
 
     void * abi_txn = ctx->txn_abi_mem + (sanitized_txn_cnt*FD_BANK_ABI_TXN_FOOTPRINT);
     void * abi_txn_sidecar = ctx->txn_sidecar_mem + sidecar_footprint_bytes;
+    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
@@ -201,6 +202,7 @@ after_frag( fd_bank_ctx_t *     ctx,
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
     txn->bank_cu.rebated_cus = requested_cus + non_execution_cus;
+    txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
