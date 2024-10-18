@@ -163,24 +163,30 @@ fd_log_collector_msg( fd_exec_instr_ctx_t * ctx,
 #define fd_log_collector_msg_literal( ctx, log ) fd_log_collector_msg( ctx, FD_EXEC_LITERAL( log ) )
 
 /* fd_log_collector_msg_many logs a msg supplied as many
-   buffers.  msg := msg0 | msg1.
-
-   The current implementation supports two buffers, but
-   the idea is that we should probably extend to multiple. */
+   buffers.  msg := msg0 | msg1 | ... | msgN
+   
+   num_buffers informs the number of (char const * msg, ulong sz) pairs
+   in the function call.
+   NOTE: you must explicitly pass in ulong values for sz, either by cast
+   or with the UL literal. va_args behaves weirdly otherwise */
 static inline void
-fd_log_collector_msg_many( fd_exec_instr_ctx_t * ctx,
-                           char const *          msg0,
-                           ulong                 msg0_sz,
-                           char const *          msg1,
-                           ulong                 msg1_sz ) {
+fd_log_collector_msg_many( fd_exec_instr_ctx_t * ctx, int num_buffers, ... ) {
   fd_log_collector_t * log = &ctx->txn_ctx->log_collector;
   if( FD_LIKELY( log->disabled ) ) {
     return;
   }
 
-  /* Compute msg_sz = msg0_sz + msg1_sz, and decide if
-     we should include the log or truncate. */
-  ulong msg_sz = fd_ulong_sat_add( msg0_sz, msg1_sz );
+  va_list args;
+  va_start( args, num_buffers );
+
+  /* Calculate the total message size and check for overflow */
+  ulong msg_sz = 0;
+  for( int i = 0; i < num_buffers; i++ ) {
+      va_arg( args, char const * );
+      ulong msg_sz_part = va_arg( args, ulong );
+      msg_sz = fd_ulong_sat_add( msg_sz, msg_sz_part );
+  }
+  va_end( args );
   ulong bytes_written = fd_log_collector_check_and_truncate( log, msg_sz );
   if( FD_LIKELY( bytes_written < ULONG_MAX ) ) {
     log->log_sz = (ushort)bytes_written;
@@ -189,16 +195,24 @@ fd_log_collector_msg_many( fd_exec_instr_ctx_t * ctx,
     ulong   buf_sz = log->buf_sz;
 
     /* Store tag + msg_sz */
-    ulong needs_2b = (msg_sz>0x7F);
-    buf[ buf_sz   ] = FD_LOG_COLLECTOR_PROTO_TAG;
+    ulong needs_2b  = (msg_sz>0x7F);
+    buf[ buf_sz ]   = FD_LOG_COLLECTOR_PROTO_TAG;
     buf[ buf_sz+1 ] = (uchar)( (msg_sz&0x7F) | (needs_2b<<7) );
     buf[ buf_sz+2 ] = (uchar)( (msg_sz>>7) & 0x7F ); /* This gets overwritten if 0 */
 
-    /* Copy msg0, msg1, and update total buf_sz */
+    /* Copy all messages and update total buf_sz */
     ulong buf_start = buf_sz + 2 + needs_2b;
-    fd_memcpy( buf + buf_start, msg0, msg0_sz );
-    fd_memcpy( buf + buf_start + msg0_sz, msg1, msg1_sz );
-    log->buf_sz = (ushort)( buf_start + msg_sz );
+    ulong offset = buf_start;
+
+    va_start(args, num_buffers);  // Restart argument list traversal
+    for (int i = 0; i < num_buffers; i++) {
+        char const *msg = va_arg( args, char const * );
+        ulong msg_sz_part = va_arg( args, ulong );
+        fd_memcpy( buf + offset, msg, msg_sz_part );
+        offset += msg_sz_part;
+    }
+    va_end(args);
+    log->buf_sz = (ushort)offset;
   }
 }
 
@@ -386,7 +400,7 @@ fd_log_collector_program_invoke( fd_exec_instr_ctx_t * ctx ) {
    validate that.  This is the implementation underlying _sol_log() syscall. */
 static inline void
 fd_log_collector_program_log( fd_exec_instr_ctx_t * ctx, char const * msg, ulong msg_sz ) {
-  fd_log_collector_msg_many( ctx, "Program log: ", 13, msg, msg_sz );
+  fd_log_collector_msg_many( ctx, 2, "Program log: ", 13UL, msg, msg_sz );
 }
 
 /* fd_log_collector_program_return logs:
@@ -471,7 +485,7 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
     int err_prefix_len = sprintf( err_prefix, "Program %s failed: ", ctx->program_id_base58 );
     if( err_prefix_len > 0 ) {
       /* Equivalent to: "Program %s failed: %s" */
-      fd_log_collector_msg_many( ctx, err_prefix, (ulong)err_prefix_len, err, strlen(err) );
+      fd_log_collector_msg_many( ctx, 2, err_prefix, (ulong)err_prefix_len, err, (ulong)strlen(err) );
     }
   }
 }
