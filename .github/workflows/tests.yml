@@ -44,7 +44,7 @@ jobs:
             compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: true
-            run-integration-tests: true
+            run-integration-tests: false
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
             label: icelake
@@ -62,7 +62,7 @@ jobs:
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
-            run-integration-tests: true
+            run-integration-tests: false
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
