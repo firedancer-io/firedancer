@@ -522,42 +522,40 @@ fd_gui_printf_live_txn_waterfall( fd_gui_t *               gui,
 }
 
 static void
-fd_gui_printf_tile_prime_metric( fd_gui_t *                   gui,
-                                 fd_gui_tile_prime_metric_t * prev,
-                                 fd_gui_tile_prime_metric_t * cur ) {
+fd_gui_printf_tile_prime_metric( fd_gui_t *                                  gui,
+                                 fd_gui_tile_prime_metric_running_window_t * window,
+                                 int print_cur ) {
   jsonp_open_object( gui, "tile_primary_metric" );
-    /* Connection count is a point-in-time value not a cumulative value. */
-    jsonp_ulong( gui, "quic",    cur->quic_conns );
-    jsonp_ulong( gui, "net_in",  (cur->net_in_bytes-prev->net_in_bytes)*1000000000UL/(ulong)(cur->ts_nanos-prev->ts_nanos) );
-    jsonp_ulong( gui, "net_out", (cur->net_out_bytes - prev->net_out_bytes)*1000000000UL/(ulong)(cur->ts_nanos-prev->ts_nanos) );
-    if( FD_LIKELY( cur->verify_drop_denominator>prev->verify_drop_denominator ) ) {
-      jsonp_double( gui, "verify", (double)(cur->verify_drop_numerator-prev->verify_drop_numerator)/(double)(cur->verify_drop_denominator-prev->verify_drop_denominator) );
-    } else {
-      jsonp_double( gui, "verify", -1 );
-    }
-    if( FD_LIKELY( cur->dedup_drop_denominator>prev->dedup_drop_denominator ) ) {
-      jsonp_double( gui, "dedup", (double)(cur->dedup_drop_numerator-prev->dedup_drop_numerator)/(double)(cur->dedup_drop_denominator-prev->dedup_drop_denominator) );
-    } else {
-      jsonp_double( gui, "dedup", -1 );
-    }
-    jsonp_ulong( gui, "bank", (cur->bank_txn-prev->bank_txn)*1000000000UL/(ulong)(cur->ts_nanos-prev->ts_nanos) );
-    /* pack fill rate is a point-in-time value not a cumulative value. */
-    jsonp_double( gui, "pack", (double)(cur->pack_fill_numerator)/(double)(cur->pack_fill_denominator) );
-    jsonp_double( gui, "poh", 0.0 );  //TODO
-    jsonp_double( gui, "shred", 0.0 );//TODO
-    jsonp_double( gui, "store", 0.0 );//TODO
+  if( FD_LIKELY( print_cur ) ) {
+    jsonp_ulong( gui, "quic",    window->quic_conns_cur );
+    jsonp_ulong( gui, "net_in",  window->net_in_bytes_cur );
+    jsonp_ulong( gui, "net_out", window->net_out_bytes_cur );
+    jsonp_double( gui, "verify", window->verify_drop_ratio_cur );
+    jsonp_double( gui, "dedup", window->dedup_drop_ratio_cur );
+    jsonp_ulong( gui, "bank", window->bank_txn_cur );
+    jsonp_double( gui, "pack", window->pack_fill_ratio_cur );
+  } else {
+    jsonp_ulong( gui, "quic",    window->quic_conns_max );
+    jsonp_ulong( gui, "net_in",  window->net_in_bytes_max );
+    jsonp_ulong( gui, "net_out", window->net_out_bytes_max );
+    jsonp_double( gui, "verify", window->verify_drop_ratio_max );
+    jsonp_double( gui, "dedup", window->dedup_drop_ratio_max );
+    jsonp_ulong( gui, "bank", window->bank_txn_max );
+    jsonp_double( gui, "pack", window->pack_fill_ratio_max );
+  }
+    jsonp_double( gui, "poh", 0.0 );  //TODO Fraction of time spent hashing
+    jsonp_double( gui, "shred", 0.0 );//TODO Shreds processed per second
+    jsonp_double( gui, "store", 0.0 );//TODO 50% percentile latency
   jsonp_close_object( gui );
 }
 
 void
-fd_gui_printf_live_tile_prime_metric( fd_gui_t *                   gui,
-                                      fd_gui_tile_prime_metric_t * prev,
-                                      fd_gui_tile_prime_metric_t * cur,
-                                      ulong                        next_leader_slot ) {
+fd_gui_printf_live_tile_prime_metric( fd_gui_t * gui,
+                                      ulong      next_leader_slot ) {
   jsonp_open_envelope( gui, "summary", "live_tile_primary_metric" );
     jsonp_open_object( gui, "value" );
       jsonp_ulong( gui, "next_leader_slot", next_leader_slot );
-      fd_gui_printf_tile_prime_metric( gui, prev, cur );
+      fd_gui_printf_tile_prime_metric( gui, gui->summary.tile_prime_metric_running_window, 1 );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
@@ -999,7 +997,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
         fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
-        fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
+        fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_window, 0 );
       } else {
         jsonp_null( gui, "waterfall" );
         jsonp_null( gui, "tile_primary_metric" );
@@ -1086,7 +1084,7 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
           jsonp_null( gui, "tile_timers" );
         }
 
-        fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
+        fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_window, 0 );
       } else {
         jsonp_null( gui, "waterfall" );
         jsonp_null( gui, "tile_timers" );

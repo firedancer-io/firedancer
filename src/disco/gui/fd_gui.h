@@ -16,6 +16,10 @@
 #define FD_GUI_TILE_TIMER_LEADER_CNT               (4096UL)
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT    (50UL)
 #define FD_GUI_TILE_TIMER_TILE_CNT                 (128UL)
+/* We sample these every 100ms, so this should be enough for computing
+   values in the past 1-second window. */
+#define FD_GUI_TILE_METRIC_SAMPLE_CNT              (16UL)
+#define FD_GUI_TILE_METRIC_WINDOW_DURATION_SECONDS (1L)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -146,6 +150,25 @@ struct fd_gui_tile_prime_metric {
 
 typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
 
+struct fd_gui_tile_prime_metric_running_window {
+  ulong net_in_bytes_cur;
+  ulong net_in_bytes_max;
+  ulong quic_conns_cur;
+  ulong quic_conns_max;
+  double verify_drop_ratio_cur;
+  double verify_drop_ratio_max;
+  double dedup_drop_ratio_cur;
+  double dedup_drop_ratio_max;
+  double pack_fill_ratio_cur;
+  double pack_fill_ratio_max;
+  ulong bank_txn_cur;
+  ulong bank_txn_max;
+  ulong net_out_bytes_cur;
+  ulong net_out_bytes_max;
+};
+
+typedef struct fd_gui_tile_prime_metric_running_window fd_gui_tile_prime_metric_running_window_t;
+
 #define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
 #define FD_GUI_SLOT_LEADER_STARTED   (1UL)
 #define FD_GUI_SLOT_LEADER_ENDED     (2UL)
@@ -171,8 +194,7 @@ struct fd_gui_slot {
   fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
 
-  fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
-  fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
+  fd_gui_tile_prime_metric_running_window_t tile_prime_metric_window[ 1 ];
 
   ulong tile_timers_history_idx;
 };
@@ -248,8 +270,9 @@ struct fd_gui {
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
 
-    fd_gui_tile_prime_metric_t tile_prime_metric_ref[ 1 ];
-    fd_gui_tile_prime_metric_t tile_prime_metric_cur[ 1 ];
+    ulong tile_prime_metric_history_idx;
+    fd_gui_tile_prime_metric_t tile_prime_metric_history[ FD_GUI_TILE_METRIC_SAMPLE_CNT ];
+    fd_gui_tile_prime_metric_running_window_t tile_prime_metric_running_window[ 1 ];
 
     ulong                tile_timers_snap_idx;
     ulong                tile_timers_snap_idx_slot_start;

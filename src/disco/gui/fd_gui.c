@@ -19,6 +19,8 @@ fd_gui_footprint( void ) {
   return sizeof(fd_gui_t);
 }
 
+static void fd_gui_tile_prime_metric_window_reset( fd_gui_t * gui );
+
 void *
 fd_gui_new( void *             shmem,
             fd_http_server_t * http,
@@ -92,9 +94,14 @@ fd_gui_new( void *             shmem,
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
   memset( gui->summary.txn_waterfall_current,   0, sizeof(gui->summary.txn_waterfall_current) );
 
-  memset( gui->summary.tile_prime_metric_ref, 0, sizeof(gui->summary.tile_prime_metric_ref) );
-  memset( gui->summary.tile_prime_metric_cur, 0, sizeof(gui->summary.tile_prime_metric_cur) );
-  gui->summary.tile_prime_metric_ref[ 0 ].ts_nanos = fd_log_wallclock();
+  /* Sample 0 is initialized below, so start from 1. */
+  gui->summary.tile_prime_metric_history_idx = 1UL;
+  for( ulong i=1UL; i<FD_GUI_TILE_METRIC_SAMPLE_CNT; i++ ) {
+    gui->summary.tile_prime_metric_history[ i ].ts_nanos = 0L;
+  }
+  memset( gui->summary.tile_prime_metric_history, 0, sizeof(gui->summary.tile_prime_metric_history[ 0 ]) );
+  gui->summary.tile_prime_metric_history[ 0 ].ts_nanos = fd_log_wallclock();
+  fd_gui_tile_prime_metric_window_reset( gui );
 
   memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
   memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
@@ -477,11 +484,60 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 }
 
 static void
-fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
-                               fd_gui_txn_waterfall_t *     w_cur,
-                               fd_gui_tile_prime_metric_t * m_cur ) {
+fd_gui_tile_prime_metric_window_reset( fd_gui_t * gui ) {
+  gui->summary.tile_prime_metric_running_window->net_in_bytes_max      = 0UL;
+  gui->summary.tile_prime_metric_running_window->quic_conns_max        = 0UL;
+  gui->summary.tile_prime_metric_running_window->verify_drop_ratio_max = 0.0;
+  gui->summary.tile_prime_metric_running_window->dedup_drop_ratio_max  = 0.0;
+  gui->summary.tile_prime_metric_running_window->pack_fill_ratio_max   = 0.0;
+  gui->summary.tile_prime_metric_running_window->bank_txn_max          = 0UL;
+  gui->summary.tile_prime_metric_running_window->net_out_bytes_max     = 0UL;
+}
+
+static void
+fd_gui_tile_prime_metric_recompute_window( fd_gui_t * gui,
+                                           fd_gui_tile_prime_metric_t * ref,
+                                           fd_gui_tile_prime_metric_t * cur ) {
+  fd_gui_tile_prime_metric_running_window_t * window = gui->summary.tile_prime_metric_running_window;
+
+  ulong net_in_cur   = (cur->net_in_bytes-ref->net_in_bytes)*1000000000UL/(ulong)(cur->ts_nanos-ref->ts_nanos);
+  ulong net_out_cur  = (cur->net_out_bytes-ref->net_out_bytes)*1000000000UL/(ulong)(cur->ts_nanos-ref->ts_nanos);
+  ulong bank_txn_cur = (cur->bank_txn-ref->bank_txn)*1000000000UL/(ulong)(cur->ts_nanos-ref->ts_nanos);
+
+  double verify_drop_cur = -1.0;
+  if( FD_LIKELY( cur->verify_drop_denominator>ref->verify_drop_denominator ) ) {
+    verify_drop_cur = (double)(cur->verify_drop_numerator-ref->verify_drop_numerator)/(double)(cur->verify_drop_denominator-ref->verify_drop_denominator);
+  }
+  double dedup_drop_cur = -1.0;
+  if( FD_LIKELY( cur->dedup_drop_denominator>ref->dedup_drop_denominator ) ) {
+    dedup_drop_cur = (double)(cur->dedup_drop_numerator-ref->dedup_drop_numerator)/(double)(cur->dedup_drop_denominator-ref->dedup_drop_denominator);
+  }
+
+  double pack_fill_cur = (double)(cur->pack_fill_numerator)/(double)(cur->pack_fill_denominator);
+
+  window->quic_conns_max    = fd_ulong_max( window->quic_conns_max, cur->quic_conns );
+  window->net_in_bytes_max  = fd_ulong_max( window->net_in_bytes_max, net_in_cur );
+  window->net_out_bytes_max = fd_ulong_max( window->net_out_bytes_max, net_out_cur );
+  window->bank_txn_max      = fd_ulong_max( window->bank_txn_max, bank_txn_cur );
+  window->verify_drop_ratio_max = verify_drop_cur > window->verify_drop_ratio_max ? verify_drop_cur : window->verify_drop_ratio_max;
+  window->dedup_drop_ratio_max  = dedup_drop_cur > window->dedup_drop_ratio_max ? dedup_drop_cur : window->dedup_drop_ratio_max;
+  window->pack_fill_ratio_max   = pack_fill_cur > window->pack_fill_ratio_max ? pack_fill_cur : window->pack_fill_ratio_max;
+
+  window->quic_conns_cur        = cur->quic_conns;
+  window->net_in_bytes_cur      = net_in_cur;
+  window->verify_drop_ratio_cur = verify_drop_cur;
+  window->dedup_drop_ratio_cur  = dedup_drop_cur;
+  window->pack_fill_ratio_cur   = pack_fill_cur;
+  window->bank_txn_cur          = bank_txn_cur;
+  window->net_out_bytes_cur     = net_out_cur;
+}
+
+static void
+fd_gui_tile_prime_metric_snap( fd_gui_t *               gui,
+                               fd_gui_txn_waterfall_t * w_cur ) {
   fd_topo_t * topo = gui->topo;
 
+  fd_gui_tile_prime_metric_t * m_cur = &gui->summary.tile_prime_metric_history[ gui->summary.tile_prime_metric_history_idx ];
   m_cur->ts_nanos = fd_log_wallclock();
 
   m_cur->net_in_bytes  = 0UL;
@@ -519,6 +575,36 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
   m_cur->pack_fill_denominator = pack->pack.max_pending_transactions;
 
   m_cur->bank_txn = w_cur->out.block_fail + w_cur->out.block_success;
+
+  gui->summary.tile_prime_metric_history_idx = (gui->summary.tile_prime_metric_history_idx+1UL) % FD_GUI_TILE_METRIC_SAMPLE_CNT;
+
+  fd_gui_tile_prime_metric_t * m_ref = NULL;
+  for( ulong i=0UL; i<FD_GUI_TILE_METRIC_SAMPLE_CNT-1; i++ ) {
+    /* Find reference sample for computing window values. */
+    fd_gui_tile_prime_metric_t * m_tmp = &gui->summary.tile_prime_metric_history[ (gui->summary.tile_prime_metric_history_idx+i)%FD_GUI_TILE_METRIC_SAMPLE_CNT ];
+    if( FD_LIKELY( m_tmp->ts_nanos!=0L && ( m_tmp->ts_nanos+FD_GUI_TILE_METRIC_WINDOW_DURATION_SECONDS*1000L*1000L*1000L>=m_cur->ts_nanos ) ) ) {
+      /* This is the first sample within the most recent window. */
+      m_ref = m_tmp;
+      break;
+    }
+  }
+  if( FD_UNLIKELY( !m_ref ) ) {
+    /* We didn't find a suitable sample as reference.
+       This could be due to we just booted and sample 0 has a timestamp
+       that is too far away.
+       So just use the sample that's one before the last one we
+       sampled. */
+    ulong ref_idx = (gui->summary.tile_prime_metric_history_idx+FD_GUI_TILE_METRIC_SAMPLE_CNT-2UL)%FD_GUI_TILE_METRIC_SAMPLE_CNT;
+    m_ref = &gui->summary.tile_prime_metric_history[ ref_idx ];
+    FD_TEST( m_ref->ts_nanos!=0L );
+    if( FD_UNLIKELY( ref_idx!=0UL ) ) {
+      FD_LOG_WARNING(( "Couldn't find a recent enough reference sample for tile primary metrics "
+                       "and it doesn't appear to be due to fresh boot m_ref->ts_nanos=%ld m_cur->ts_nanos=%ld ref_idx=%lu; "
+                       "GUI should be non-blocking and sampling frequent enough",
+                       m_ref->ts_nanos, m_cur->ts_nanos, ref_idx ));
+    }
+  }
+  fd_gui_tile_prime_metric_recompute_window( gui, m_ref, m_cur );
 }
 
 int
@@ -541,8 +627,8 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
     fd_http_server_ws_broadcast( gui->http );
 
-    fd_gui_tile_prime_metric_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_prime_metric_cur );
-    fd_gui_printf_live_tile_prime_metric( gui, gui->summary.tile_prime_metric_ref, gui->summary.tile_prime_metric_cur, 0UL ); // TODO: REAL NEXT LEADER SLOT
+    fd_gui_tile_prime_metric_snap( gui, gui->summary.txn_waterfall_current );
+    fd_gui_printf_live_tile_prime_metric( gui, 0UL ); // TODO: REAL NEXT LEADER SLOT
     fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_100millis += 100L*1000L*1000L;
@@ -1103,11 +1189,11 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
      slot. */
 
   fd_gui_txn_waterfall_snap( gui, slot->waterfall_end );
-  fd_gui_tile_prime_metric_snap( gui, slot->waterfall_end, slot->tile_prime_metric_end );
+  fd_gui_tile_prime_metric_snap( gui, slot->waterfall_end );
   memcpy( slot->waterfall_begin, gui->summary.txn_waterfall_reference, sizeof(slot->waterfall_begin) );
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
-  memcpy( slot->tile_prime_metric_begin, gui->summary.tile_prime_metric_ref, sizeof(slot->tile_prime_metric_begin) );
-  memcpy( gui->summary.tile_prime_metric_ref, slot->tile_prime_metric_end, sizeof(gui->summary.tile_prime_metric_ref) );
+  memcpy( slot->tile_prime_metric_window, gui->summary.tile_prime_metric_running_window, sizeof(slot->tile_prime_metric_window) );
+  fd_gui_tile_prime_metric_window_reset( gui );
 }
 
 static void
