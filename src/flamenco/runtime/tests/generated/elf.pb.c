@@ -15,7 +15,7 @@ PB_BIND(FD_EXEC_TEST_ELF_LOADER_CTX, fd_exec_test_elf_loader_ctx_t, AUTO)
 PB_BIND(FD_EXEC_TEST_ELF_LOADER_EFFECTS, fd_exec_test_elf_loader_effects_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_ELF_LOADER_FIXTURE, fd_exec_test_elf_loader_fixture_t, AUTO)
+PB_BIND(FD_EXEC_TEST_ELF_LOADER_FIXTURE, fd_exec_test_elf_loader_fixture_t, 2)
 
 
 

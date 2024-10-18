@@ -6,6 +6,7 @@
 
 #include "../../../nanopb/pb_firedancer.h"
 #include "context.pb.h"
+#include "metadata.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -143,6 +144,8 @@ typedef struct fd_exec_test_txn_result {
 
 /* Txn fixtures */
 typedef struct fd_exec_test_txn_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
     /* Context */
     bool has_input;
     fd_exec_test_txn_context_t input;
@@ -167,7 +170,7 @@ extern "C" {
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
 #define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT}
-#define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
@@ -178,7 +181,7 @@ extern "C" {
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
 #define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO}
-#define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_MESSAGE_HEADER_NUM_REQUIRED_SIGNATURES_TAG 1
@@ -225,8 +228,9 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  10
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 11
 #define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  12
-#define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       1
-#define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      2
+#define FD_EXEC_TEST_TXN_FIXTURE_METADATA_TAG    1
+#define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       2
+#define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      3
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_MESSAGE_HEADER_FIELDLIST(X, a) \
@@ -326,10 +330,12 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      12)
 #define fd_exec_test_txn_result_t_fee_details_MSGTYPE fd_exec_test_fee_details_t
 
 #define FD_EXEC_TEST_TXN_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define FD_EXEC_TEST_TXN_FIXTURE_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_FIXTURE_DEFAULT NULL
+#define fd_exec_test_txn_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
 #define fd_exec_test_txn_fixture_t_input_MSGTYPE fd_exec_test_txn_context_t
 #define fd_exec_test_txn_fixture_t_output_MSGTYPE fd_exec_test_txn_result_t
 

@@ -6,6 +6,7 @@
 
 #include "../../../nanopb/pb_firedancer.h"
 #include "context.pb.h"
+#include "metadata.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -42,6 +43,8 @@ typedef struct fd_exec_test_elf_loader_effects {
 } fd_exec_test_elf_loader_effects_t;
 
 typedef struct fd_exec_test_elf_loader_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
     bool has_input;
     fd_exec_test_elf_loader_ctx_t input;
     bool has_output;
@@ -57,11 +60,11 @@ extern "C" {
 #define FD_EXEC_TEST_ELF_BINARY_INIT_DEFAULT     {NULL}
 #define FD_EXEC_TEST_ELF_LOADER_CTX_INIT_DEFAULT {false, FD_EXEC_TEST_ELF_BINARY_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0}
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_DEFAULT {NULL, 0, 0, 0, 0, 0, NULL}
-#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_ELF_LOADER_CTX_INIT_DEFAULT, false, FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_ELF_LOADER_CTX_INIT_DEFAULT, false, FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_ELF_BINARY_INIT_ZERO        {NULL}
 #define FD_EXEC_TEST_ELF_LOADER_CTX_INIT_ZERO    {false, FD_EXEC_TEST_ELF_BINARY_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0}
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_ZERO {NULL, 0, 0, 0, 0, 0, NULL}
-#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_ELF_LOADER_CTX_INIT_ZERO, false, FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_ELF_LOADER_CTX_INIT_ZERO, false, FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_ELF_BINARY_DATA_TAG         1
@@ -75,8 +78,9 @@ extern "C" {
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_TEXT_OFF_TAG 5
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_ENTRY_PC_TAG 6
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_CALLDESTS_TAG 7
-#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INPUT_TAG 1
-#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_OUTPUT_TAG 2
+#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_METADATA_TAG 1
+#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INPUT_TAG 2
+#define FD_EXEC_TEST_ELF_LOADER_FIXTURE_OUTPUT_TAG 3
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_ELF_BINARY_FIELDLIST(X, a) \
@@ -105,10 +109,12 @@ X(a, POINTER,  REPEATED, UINT64,   calldests,         7)
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_DEFAULT NULL
 
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_CALLBACK NULL
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_DEFAULT NULL
+#define fd_exec_test_elf_loader_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
 #define fd_exec_test_elf_loader_fixture_t_input_MSGTYPE fd_exec_test_elf_loader_ctx_t
 #define fd_exec_test_elf_loader_fixture_t_output_MSGTYPE fd_exec_test_elf_loader_effects_t
 

@@ -6,6 +6,7 @@
 
 #include "../../../nanopb/pb_firedancer.h"
 #include "context.pb.h"
+#include "metadata.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -63,6 +64,8 @@ typedef struct fd_exec_test_instr_effects {
 
 /* An instruction processing test fixture. */
 typedef struct fd_exec_test_instr_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
     bool has_input;
     fd_exec_test_instr_context_t input;
     bool has_output;
@@ -78,11 +81,11 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_DEFAULT     {0, 0, 0}
 #define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT  {0, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_ZERO        {0, 0, 0}
 #define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO     {0, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_INSTR_ACCT_INDEX_TAG        1
@@ -100,8 +103,9 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_EFFECTS_MODIFIED_ACCOUNTS_TAG 3
 #define FD_EXEC_TEST_INSTR_EFFECTS_CU_AVAIL_TAG  4
 #define FD_EXEC_TEST_INSTR_EFFECTS_RETURN_DATA_TAG 5
-#define FD_EXEC_TEST_INSTR_FIXTURE_INPUT_TAG     1
-#define FD_EXEC_TEST_INSTR_FIXTURE_OUTPUT_TAG    2
+#define FD_EXEC_TEST_INSTR_FIXTURE_METADATA_TAG  1
+#define FD_EXEC_TEST_INSTR_FIXTURE_INPUT_TAG     2
+#define FD_EXEC_TEST_INSTR_FIXTURE_OUTPUT_TAG    3
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_INSTR_ACCT_FIELDLIST(X, a) \
@@ -137,10 +141,12 @@ X(a, POINTER,  SINGULAR, BYTES,    return_data,       5)
 #define fd_exec_test_instr_effects_t_modified_accounts_MSGTYPE fd_exec_test_acct_state_t
 
 #define FD_EXEC_TEST_INSTR_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define FD_EXEC_TEST_INSTR_FIXTURE_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_FIXTURE_DEFAULT NULL
+#define fd_exec_test_instr_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
 #define fd_exec_test_instr_fixture_t_input_MSGTYPE fd_exec_test_instr_context_t
 #define fd_exec_test_instr_fixture_t_output_MSGTYPE fd_exec_test_instr_effects_t
 
