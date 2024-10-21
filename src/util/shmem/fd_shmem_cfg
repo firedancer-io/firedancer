@@ -61,6 +61,11 @@ try_defrag_memory() {
   fi
 }
 
+full_drop_caches() {
+  sync
+  echo 3 | sudo tee /proc/sys/vm/drop_caches
+}
+
 init() {
   SHMEM_PERM=$1
   SHMEM_USER=$2
@@ -378,6 +383,10 @@ while [ $# -gt 0 ]; do
   elif [ "$OP" = "reset" ]; then
 
     reset
+
+  elif [ "$OP" = "defrag" ]; then
+
+    full_drop_caches
 
   else
 
