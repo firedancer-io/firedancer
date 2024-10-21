@@ -158,7 +158,8 @@ struct fd_gui_slot {
   ulong failed_txn_cnt;
   ulong nonvote_failed_txn_cnt;
   ulong compute_units;
-  ulong fees;
+  ulong transaction_fee;
+  ulong priority_fee;
 
   int leader_state;
 

@@ -1002,8 +1002,10 @@ fd_gui_printf_slot( fd_gui_t * gui,
         else                                                 jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
         if( FD_UNLIKELY( slot->compute_units==ULONG_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                                jsonp_ulong( gui, "compute_units", slot->compute_units );
-        if( FD_UNLIKELY( slot->fees==ULONG_MAX ) ) jsonp_null( gui, "fees" );
-        else                                       jsonp_ulong( gui, "fees", slot->fees );
+        if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
+        else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
+        if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
+        else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
@@ -1090,8 +1092,10 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         else                                                 jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
         if( FD_UNLIKELY( slot->compute_units==ULONG_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                                jsonp_ulong( gui, "compute_units", slot->compute_units );
-        if( FD_UNLIKELY( slot->fees==ULONG_MAX ) ) jsonp_null( gui, "fees" );
-        else                                       jsonp_ulong( gui, "fees", slot->fees );
+        if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
+        else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
+        if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
+        else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {

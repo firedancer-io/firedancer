@@ -972,7 +972,8 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->failed_txn_cnt         = ULONG_MAX;
   slot->nonvote_failed_txn_cnt = ULONG_MAX;
   slot->compute_units          = ULONG_MAX;
-  slot->fees                   = ULONG_MAX;
+  slot->transaction_fee        = ULONG_MAX;
+  slot->priority_fee           = ULONG_MAX;
   slot->prior_leader_slot      = ULONG_MAX;
   slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
   slot->completed_time         = LONG_MAX;
@@ -1247,8 +1248,9 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   ulong failed_txn_count = msg[ 3 ];
   ulong nonvote_failed_txn_count = msg[ 4 ];
   ulong compute_units = msg[ 5 ];
-  ulong fees = msg[ 6 ];
-  ulong _parent_slot = msg[ 7 ];
+  ulong transaction_fee = msg[ 6 ];
+  ulong priority_fee = msg[ 7 ];
+  ulong _parent_slot = msg[ 8 ];
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
@@ -1273,12 +1275,13 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->vote_txn_cnt           = total_txn_count - nonvote_txn_count;
   slot->failed_txn_cnt         = failed_txn_count;
   slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
+  slot->transaction_fee        = transaction_fee;
+  slot->priority_fee           = priority_fee;
   if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_UNSTARTED ) ) {
     /* If we were already leader for this slot, then the poh component
        calculated the CUs used and sent them there, rather than the
        replay component which is sending this completed slot. */
-    slot->compute_units = compute_units;
-    slot->fees          = fees;
+    slot->compute_units   = compute_units;
   }
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {

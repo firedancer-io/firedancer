@@ -901,6 +901,8 @@ initially replay one but the cluster votes on the other one.
 | vote_transactions | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
 | failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block |
 | compute_units | `number\|null`       | Total number of compute units used by the slot |
+| transaction_fee | `number\|null`     | Total amount of transaction fees that this slot collects in lamports after any burning |
+| priority_fee    | `number\|null`     | Total amount of priority fees that this slot collects in lamports after any burning |
 
 #### `slot.skipped_history`
 | frequency | type | example |
