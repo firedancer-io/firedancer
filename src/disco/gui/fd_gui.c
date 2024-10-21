@@ -38,7 +38,7 @@ fd_gui_new( void *             shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( topo->tile_cnt>64UL ) ) {
+  if( FD_UNLIKELY( topo->tile_cnt>128UL ) ) {
     FD_LOG_WARNING(( "too many tiles" ));
     return NULL;
   }
