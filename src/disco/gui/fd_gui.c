@@ -38,7 +38,7 @@ fd_gui_new( void *             shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( topo->tile_cnt>128UL ) ) {
+  if( FD_UNLIKELY( topo->tile_cnt>FD_GUI_TILE_TIMER_TILE_CNT ) ) {
     FD_LOG_WARNING(( "too many tiles" ));
     return NULL;
   }
@@ -1264,11 +1264,11 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
        then later we replay this one anyway to track the bank fork. */
 
     if( FD_LIKELY( _slot<gui->summary.slot_optimistically_confirmed ) ) {
-      slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
-    } else {
       /* Cluster might have already optimistically confirmed by the time
          we finish replaying it. */
       slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
+    } else {
+      slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
     }
   }
   slot->total_txn_cnt          = total_txn_count;
