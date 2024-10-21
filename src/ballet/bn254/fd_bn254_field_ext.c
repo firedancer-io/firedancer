@@ -97,6 +97,9 @@ fd_bn254_fp2_tobytes_be_nm( uchar                  buf[64],
    Returns 1 if x < 0, 0 otherwise. */
 static inline int
 fd_bn254_fp2_is_neg_nm( fd_bn254_fp2_t * x ) {
+  if( FD_UNLIKELY( fd_bn254_fp_is_zero( &x->el[1] ) ) ) {
+    return fd_bn254_fp_is_neg_nm( &x->el[0] );
+  }
   return fd_bn254_fp_is_neg_nm( &x->el[1] );
 }
 
