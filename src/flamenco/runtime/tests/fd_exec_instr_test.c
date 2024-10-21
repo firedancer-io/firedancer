@@ -1770,7 +1770,12 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if ( !vm ) {
     goto error;
   }
-  uchar is_deprecated = !memcmp( input_instr_ctx->program_id, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
+  uchar is_deprecated = false; /* tl;dr: solfuzz-agave always checks alignemnt.
+    Agave does NOT check alignment if the owner of the program is deprecated BPF loader,
+    otherwise it defaults to checking alignement.
+    However, in most syscall tests we don't set transaction accounts at all, i.e. there's
+    no account corresponding to "the program", i.e. there's no owner, i.e. alignment is
+    always checked. We rely to txn harness to test non-alignment cases. */
   fd_vm_init(
     vm,
     ctx,
