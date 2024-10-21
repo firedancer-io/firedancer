@@ -123,6 +123,16 @@ fd_funk_create_file( const char * filename,
       return NULL;
     }
 
+    ulong page_sz  = 1<<12;  /* 4 KiB */
+    ulong page_cnt = total_sz>>12;
+    int join_err = fd_shmem_join_anonymous( "funk", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, shmem, page_sz, page_cnt );
+    if( join_err ) {
+      FD_LOG_ERR(( "fd_shmem_join_anonymous failed" ));
+      munmap( shmem, total_sz );
+      close( fd );
+      return NULL;
+    }
+
     void * funk_shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), wksp_tag );
     if( funk_shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
@@ -148,6 +158,16 @@ fd_funk_create_file( const char * filename,
     fd_wksp_t * wksp = fd_wksp_join( shmem );
     if( FD_UNLIKELY( !wksp ) ) {
       FD_LOG_ERR(( "fd_wksp_join(%p) failed", shmem ));
+      munmap( shmem, total_sz );
+      close( fd );
+      return NULL;
+    }
+
+    ulong page_sz  = 1<<12;  /* 4 KiB */
+    ulong page_cnt = total_sz>>12;
+    int join_err = fd_shmem_join_anonymous( "funk", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, shmem, page_sz, page_cnt );
+    if( join_err ) {
+      FD_LOG_ERR(( "fd_shmem_join_anonymous failed" ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
