@@ -2121,7 +2121,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         // Dump txns in waves
         if( dump_txn ) {
           for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
-            dump_txn_to_protobuf( wave_task_infos[i].txn_ctx );
+            dump_txn_to_protobuf( wave_task_infos[i].txn_ctx, spads[0] );
           }
         }
 

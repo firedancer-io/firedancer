@@ -313,10 +313,10 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   ulong region    = fd_ulong_min( vaddr_hi, 5UL );
   ulong offset    = vaddr & 0xffffffffUL;
 
-  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
+  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
     */
-  if ( FD_UNLIKELY( region == 2UL ) ) {
+  if ( FD_UNLIKELY( region == 2UL && !vm->direct_mapping ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if ( !!( vaddr & 0x1000 ) ) {
       return sentinel;

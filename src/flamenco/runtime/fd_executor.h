@@ -149,7 +149,7 @@ fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
 }
 
 void
-dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx );
+dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
 
 FD_PROTOTYPES_END
 

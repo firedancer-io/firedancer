@@ -240,7 +240,9 @@ int
 deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                 uchar * const         programdata,
                 ulong                 programdata_size ) {
-  int deploy_mode = 1;
+  int deploy_mode    = 1;
+  int direct_mapping = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
+
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(),
                                                                           fd_sbpf_syscalls_footprint() ) );
   if( FD_UNLIKELY( !syscalls ) ) {
@@ -303,7 +305,8 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* mem_regions     */ NULL,
     /* mem_regions_cnt */ 0,
     /* mem_region_accs */ NULL,
-    /* is_deprecated   */ 0 );
+    /* is_deprecated   */ 0,
+    /* direct mapping */  direct_mapping );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "NULL vm" ));
   }
@@ -513,7 +516,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     /* input_mem_regions     */ input_mem_regions,
     /* input_mem_regions_cnt */ input_mem_regions_cnt,
     /* acc_region_metas      */ acc_region_metas,
-    /* is_deprecated         */ is_deprecated );
+    /* is_deprecated         */ is_deprecated,
+    /* direct_mapping        */ direct_mapping );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "null vm" ));
   }

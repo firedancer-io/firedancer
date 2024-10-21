@@ -163,7 +163,7 @@
   shadow[ frame_cnt ].r9 = reg[9];                                                                          \
   shadow[ frame_cnt ].pc = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  reg[10] += FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ
+  reg[10] += vm->stack_frame_size
 
   /* We subtract the heap cost in the BPF loader */
 
@@ -663,7 +663,7 @@ interp_exec:
     reg[8]   = shadow[ frame_cnt ].r8;
     reg[9]   = shadow[ frame_cnt ].r9;
     pc       = shadow[ frame_cnt ].pc;
-    reg[10] -= FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ;
+    reg[10] -= vm->stack_frame_size;
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x97) /* FD_SBPF_OP_MOD64_IMM */

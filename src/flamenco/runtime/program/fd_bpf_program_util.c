@@ -222,7 +222,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
                        NULL,
                        0U,
                        NULL,
-                       0 );
+                       0,
+                       FD_FEATURE_ACTIVE( slot_ctx, bpf_account_data_direct_mapping ) );
             
       if( FD_UNLIKELY( !vm ) ) {
         FD_LOG_ERR(( "fd_vm_init() failed" ));

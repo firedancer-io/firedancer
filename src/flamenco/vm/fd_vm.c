@@ -444,7 +444,8 @@ fd_vm_init(
    fd_vm_input_region_t * mem_regions,
    uint mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
-   uchar is_deprecated ) {
+   uchar is_deprecated,
+   int direct_mapping ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
@@ -485,6 +486,8 @@ fd_vm_init(
   vm->input_mem_regions_cnt = mem_regions_cnt;
   vm->acc_region_metas = acc_region_metas;
   vm->is_deprecated = is_deprecated;
+  vm->direct_mapping = direct_mapping;
+  vm->stack_frame_size = FD_VM_STACK_FRAME_SZ + ( direct_mapping ? 0UL : FD_VM_STACK_GUARD_SZ );
 
   /* Unpack the configuration */
   int err = fd_vm_setup_state_for_execution( vm );
