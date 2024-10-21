@@ -586,21 +586,21 @@ potential underflow.
 | Field               | Type                | Description
 |---------------------|---------------------|------------
 | next_leader_slot    | `number\|null`      | The next leader slot |
-| tile_primary_metric | `TilePrimaryMetric` | Per-tile-type primary metrics.  Some of these are point-in-time values (P), and some are aggregated since the end of the previous leader slot (A) |
+| tile_primary_metric | `TilePrimaryMetric` | Per-tile-type primary metrics.  Some of these are point-in-time values (P), and some are moving window averages (W) |
 
 **`TilePrimaryMetric`**
 | Field   | Type     | Description |
 |---------|----------|-------------|
-| net_in  | `number` | Ingress bytes per second (P) |
+| net_in  | `number` | Ingress bytes per second (W) |
 | quic    | `number` | Active QUIC connections (P) |
-| verify  | `number` | Fraction of transactions that failed sigverify (A) |
-| dedup   | `number` | Fraction of transactions deduplicated (A) |
+| verify  | `number` | Fraction of transactions that failed sigverify (W) |
+| dedup   | `number` | Fraction of transactions deduplicated (W) |
 | pack    | `number` | Fraction of pack buffer filled (P) |
-| bank    | `number` | Execution TPS (P) |
-| poh     | `number` | Fraction of time spent hashing (P) |
-| shred   | `number` | Shreds processed per second (P) |
-| store   | `number` | 50% percentile latency (A) |
-| net_out | `number` | Egress bytes per second (P) |
+| bank    | `number` | Execution TPS (W) |
+| poh     | `number` | Fraction of time spent hashing (W) |
+| shred   | `number` | Shreds processed per second (W) |
+| store   | `number` | 50% percentile latency (W) |
+| net_out | `number` | Egress bytes per second (W) |
 
 
 #### `summary.live_tile_timers`
@@ -1053,7 +1053,7 @@ are skipped on the currently active fork.
 |---------------------|---------------------------|-------------|
 | publish             | `SlotPublish`             | General information about the slot |
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
-| tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, per-tile-type primary metrics since the end of the prior leader slot |
+| tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest |
 
 **`TxnWaterfall`**

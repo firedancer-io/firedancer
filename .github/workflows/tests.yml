@@ -47,7 +47,7 @@ jobs:
             run-integration-tests: false
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
-            label: icelake
+            label: ci1
             extras: rpath
             targets: "all integration-test fdctl"
             compiler: gcc
@@ -65,7 +65,7 @@ jobs:
             run-integration-tests: false
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
-            label: icelake
+            label: ci16
             extras: "asan ubsan rpath"
             targets: "all integration-test fdctl"
             compiler: clang
@@ -105,7 +105,6 @@ jobs:
         with:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-      - uses: ./.github/actions/hugepages
       - uses: dtolnay/rust-toolchain@1.73.0
 
       - name: clean targets
@@ -119,10 +118,28 @@ jobs:
           compiler-version: ${{ matrix.compiler-version }}
         if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
 
+      - name: free kernel hugepage pool
+        if: ${{ matrix.label == 'icelake' || contains(matrix.label, 'ci') }}
+        shell: bash
+        run: |
+          set -x
+          sudo src/util/shmem/fd_shmem_cfg fini || true
+          sudo src/util/shmem/fd_shmem_cfg free huge 0
+          sudo src/util/shmem/fd_shmem_cfg free gigantic 0
+
       - name: build targets
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           FIREDANCER_CI_COMMIT=none ./contrib/make-j ${{ matrix.targets }}
+
+      - name: defrag
+        if: ${{ matrix.label == 'icelake' }}
+        shell: bash
+        run: |
+          set -x
+          sudo src/util/shmem/fd_shmem_cfg defrag
+
+      - uses: ./.github/actions/hugepages
 
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}

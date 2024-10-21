@@ -12,6 +12,10 @@
 #define FD_GUI_SLOTS_CNT (864000UL)
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L) /* 10 second moving average */
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
+/* We sample these every 100ms, so this should be enough for computing
+   values in the past 1-second window. */
+#define FD_GUI_TILE_METRIC_SAMPLE_CNT              (16UL)
+#define FD_GUI_TILE_METRIC_WINDOW_DURATION_SECONDS (1L)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -141,6 +145,25 @@ struct fd_gui_tile_prime_metric {
 
 typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
 
+struct fd_gui_tile_prime_metric_running_window {
+  ulong net_in_bytes_cur;
+  ulong net_in_bytes_max;
+  ulong quic_conns_cur;
+  ulong quic_conns_max;
+  double verify_drop_ratio_cur;
+  double verify_drop_ratio_max;
+  double dedup_drop_ratio_cur;
+  double dedup_drop_ratio_max;
+  double pack_fill_ratio_cur;
+  double pack_fill_ratio_max;
+  ulong bank_txn_cur;
+  ulong bank_txn_max;
+  ulong net_out_bytes_cur;
+  ulong net_out_bytes_max;
+};
+
+typedef struct fd_gui_tile_prime_metric_running_window fd_gui_tile_prime_metric_running_window_t;
+
 #define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
 #define FD_GUI_SLOT_LEADER_STARTED   (1UL)
 #define FD_GUI_SLOT_LEADER_ENDED     (2UL)
@@ -165,8 +188,7 @@ struct fd_gui_slot {
   ulong prior_leader_slot;
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
 
-  fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
-  fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
+  fd_gui_tile_prime_metric_running_window_t tile_prime_metric_window[ 1 ];
 
   /* Index into periodic sample array. Inclusive.
      Points to first sample after slot start sample. */
@@ -252,8 +274,9 @@ struct fd_gui {
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
 
-    fd_gui_tile_prime_metric_t tile_prime_metric_ref[ 1 ];
-    fd_gui_tile_prime_metric_t tile_prime_metric_cur[ 1 ];
+    ulong tile_prime_metric_history_idx;
+    fd_gui_tile_prime_metric_t tile_prime_metric_history[ FD_GUI_TILE_METRIC_SAMPLE_CNT ];
+    fd_gui_tile_prime_metric_running_window_t tile_prime_metric_running_window[ 1 ];
 
     ulong                tile_timers_snap_idx;
     fd_gui_tile_timers_t tile_timers_snap[ 432000UL ][ 64 ]; /* TODO: This can only store about 1 hour of samples */
