@@ -2026,6 +2026,16 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   /* outstanding_microblock_mask never has the writable bit set, so we
      don't care about clearing it here either. */
   pack->outstanding_microblock_mask &= clear_mask;
+
+  if( FD_UNLIKELY( pack->outstanding_microblock_mask==0UL &&
+        ((acct_uses_key_cnt( pack->acct_in_use )>0UL) |
+         (!FD_PACK_BITSET_ISNULL( bitset_rw_in_use )) |
+         (!FD_PACK_BITSET_ISNULL( bitset_w_in_use ))) ) ) {
+    FD_LOG_WARNING(( "accounts in use (%lu %i %i) but no outstanding microblocks", acct_uses_key_cnt( pack->acct_in_use ),
+                                                                                   !FD_PACK_BITSET_ISNULL( bitset_rw_in_use ),
+                                                                                   !FD_PACK_BITSET_ISNULL( bitset_w_in_use  ) ));
+  }
+
   return 1;
 }
 
@@ -2732,6 +2742,80 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   return delete_transaction( pack, sig0, 1, 1 );
 }
 
+#include "../../ballet/base58/fd_base58.h"
+
+int
+fd_pack_dump( fd_pack_t const * pack ) {
+  char base58[ FD_BASE58_ENCODED_64_SZ ];
+
+  for( ulong i=0UL; i<pack->written_list_cnt; i++) {
+    fd_pack_addr_use_t const * written = pack->written_list[i];
+
+    fd_base58_encode_32( written->key.b, NULL, base58 );
+    if( FD_UNLIKELY( written->total_cost>12000000UL-1400000UL ) ) FD_LOG_NOTICE(( "%s: %lu", base58, written->total_cost ));
+  }
+
+  fd_pack_ord_txn_t  * pool = pack->pool;
+  treap_t const * treaps[ 2 ] = { pack->pending, pack->pending_votes };
+  ulong txn_cnt = 0UL;
+
+  ulong last_cus = 0UL;
+  ulong last_rew = 0UL;
+  ulong duplicate_cnt = 0UL;
+  for( ulong k=0UL; k<2; k++ ) {
+    treap_t const * treap = treaps[ k ];
+    FD_LOG_NOTICE(( "Treap %lu contains %lu transactions", k, treap_ele_cnt( treaps[k] ) ));
+
+    for( treap_rev_iter_t _cur=treap_rev_iter_init( treap, pool ); !treap_rev_iter_done( _cur );
+        _cur=treap_rev_iter_next( _cur, pool ) ) {
+      txn_cnt++;
+      fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+      fd_txn_t const * txn = TXN(cur->txn);
+      fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+      fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+      fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
+
+      if( FD_LIKELY( cur->compute_est==last_cus && cur->rewards==last_rew ) ) {
+        duplicate_cnt++;
+        continue;
+      } else {
+        if ( duplicate_cnt ) FD_LOG_NOTICE(( "%lu other transactions that look similar", duplicate_cnt ));
+        duplicate_cnt = 0UL;
+        last_cus = cur->compute_est;
+        last_rew = cur->rewards;
+      }
+
+      fd_base58_encode_64( *sig0, NULL, base58 );
+      FD_LOG_NOTICE(( "  %.8s (%u CUs):", base58, cur->compute_est ));
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+        fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
+
+        fd_base58_encode_32( acct.b, NULL, base58 );
+        FD_LOG_NOTICE(( "    W: %s:", base58 ));
+      }
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+        fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
+        fd_base58_encode_32( acct.b, NULL, base58 );
+        FD_LOG_NOTICE(( "    R: %s:", base58 ));
+      }
+    }
+  }
+
+  FD_LOG_NOTICE(("\n\nFast bitset has %lu available", pack->bitset_avail_cnt ));
+
+  for( ulong i=0UL; i<bitset_map_slot_cnt( pack->acct_to_bitset ); i++ ) {
+    fd_pack_bitset_acct_mapping_t * e = pack->acct_to_bitset+i;
+    if( bitset_map_key_inval( e->key ) ) continue;
+
+    fd_base58_encode_32( e->key.b, NULL, base58 );
+    FD_LOG_NOTICE(( "%s %lu %hu", base58, e->ref_cnt, e->bit ));
+  }
+  return 0;
+}
 
 int
 fd_pack_verify( fd_pack_t * pack,

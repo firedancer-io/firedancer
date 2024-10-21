@@ -124,6 +124,10 @@ typedef struct {
   fd_txn_e_t * cur_spot;
   int          is_bundle; /* is the current transaction a bundle */
 
+  void * pack_dump;
+  ulong pack_footprint;
+  ulong last_dedup_seq;
+
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
 
@@ -240,6 +244,7 @@ typedef struct {
     long time;
     ulong all[ FD_METRICS_TOTAL_SZ ];
   } last_sched_metrics[1];
+  ulong slow_path_at_idle;
 
   struct {
     ulong id;
@@ -326,6 +331,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t )                                   );
   l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()                                        );
+  l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
+                                                                        BUNDLE_META_SZ,
+                                                                        tile->pack.bank_tile_count,
+                                                                        limits                               ) );
   l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
                                                                         BUNDLE_META_SZ,
                                                                         tile->pack.bank_tile_count,
@@ -487,6 +496,9 @@ after_credit( fd_pack_ctx_t *     ctx,
         (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) ) ) {
       *charge_busy = 1;
       ctx->bank_idle_bitset |= 1UL<<poll_cursor;
+
+      if( FD_LIKELY( ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt ) ) )
+        ctx->slow_path_at_idle = fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_SLOW_PATH) ];
     }
 
     ctx->poll_cursor = poll_cursor;
@@ -509,12 +521,19 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       fd_stem_publish( stem, 0UL, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
+      FD_LOG_INFO(( "At end of slot %lu, in seq is %lu", ctx->leader_slot, ctx->last_dedup_seq ));
+    }
+    if( FD_UNLIKELY( ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt ) &&
+        ctx->slow_path_at_idle < fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_SLOW_PATH) ] ) ) {
+      fd_memcpy( ctx->pack_dump, ctx->pack, ctx->pack_footprint );
+      FD_LOG_INFO(( "dumped a copy of pack for slot %lu", ctx->leader_slot ));
     }
 
     log_end_block_metrics( ctx, now, "time" );
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
+
     fd_pack_end_block( ctx->pack );
     remove_ib( ctx );
 
@@ -864,6 +883,8 @@ during_frag( fd_pack_ctx_t * ctx,
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    32UL*txn->addr_table_adtl_cnt );
     ctx->cur_spot->txnp->payload_sz = txnm->payload_sz;
 
+    ctx->last_dedup_seq = seq;
+
   #if DETAILED_LOGGING
     FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", txnm->payload_sz, txnm->txn_t_sz ));
   #endif
@@ -995,6 +1016,11 @@ unprivileged_init( fd_topo_t *      topo,
                                          tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count,
                                          limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
+
+  ctx->pack_dump      = FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint );
+  ctx->pack_footprint = pack_footprint;
+  ctx->last_dedup_seq = 0UL;
+  FD_LOG_INFO(( "pack dump stored at %p, offset %lu from start of scratch. Original at %p.  Max pending %lu, bank %lu", ctx->pack_dump, (ulong)ctx->pack_dump - (ulong)scratch, (void*)ctx->pack, tile->pack.max_pending_transactions, tile->pack.bank_tile_count ));
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
 
