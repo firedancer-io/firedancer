@@ -51,8 +51,17 @@ typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 struct __attribute__((aligned(64))) fd_txn_p {
   uchar payload[FD_TPU_MTU];
   ulong payload_sz;
-  uint  requested_cus; /* Populated by pack. Bank does not read this. */
-  uint  executed_cus;  /* Populated by bank */
+  union {
+   struct {
+     uint non_execution_cus;
+     uint requested_execution_cus;
+   } pack_cu; /* Populated by pack. Bank reads these to populate the other struct of the union. */
+   struct {
+     uint rebated_cus; /* requested_execution_cus-real execution CUs. Pack reads this for CU rebating. */
+     uint actual_consumed_cus; /* non_execution_cus+real execution CUs. PoH reads this for block CU counting. */
+   } bank_cu; /* Populated by bank. */
+   long received_ticks; /* Timestamp when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
+  };
   uint  flags; /* Populated by pack, bank.  A combination of the bitfields FD_TXN_P_FLAGS_* defined above */
   /* union {
     This would be ideal but doesn't work because of the flexible array member

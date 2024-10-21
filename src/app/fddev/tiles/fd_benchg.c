@@ -174,10 +174,13 @@ FD_STATIC_ASSERT( sizeof(large_noop_t)==1232UL, txn );
 static inline void
 after_credit( fd_benchg_ctx_t *   ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in ) {
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   (void)opt_poll_in;
 
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;
+
+  *charge_busy = 1;
 
   int is_contending = fd_rng_float_c( ctx->rng ) < ctx->contending_fraction;
   ulong sender_idx = fd_ulong_if( is_contending, 0UL, ctx->sender_idx );

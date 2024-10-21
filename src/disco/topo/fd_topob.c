@@ -359,6 +359,8 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "storei", /* FIREDANCER only */
 #endif
     "sign",
+    "plugin",
+    "gui",
 #ifdef FD_HAS_NO_AGAVE
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */

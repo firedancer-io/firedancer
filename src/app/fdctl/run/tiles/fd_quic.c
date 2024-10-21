@@ -155,11 +155,12 @@ during_housekeeping( fd_quic_ctx_t * ctx ) {
    up the stack to the network itself. */
 static inline void
 before_credit( fd_quic_ctx_t *     ctx,
-               fd_stem_context_t * stem ) {
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
   ctx->stem = stem;
 
   /* Publishes to mcache via callbacks */
-  fd_quic_service( ctx->quic );
+  *charge_busy = fd_quic_service( ctx->quic );
 }
 
 static inline void

@@ -526,9 +526,10 @@ FD_QUIC_API ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
 /* fd_quic_service services QUIC conns and housekeeps fd_quic_t internal
-   state.  The user should call service regularly. */
+   state.  The user should call service regularly.  Returns 1 if the
+   service call did any work, or 0 otherwise. */
 
-FD_QUIC_API void
+FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/

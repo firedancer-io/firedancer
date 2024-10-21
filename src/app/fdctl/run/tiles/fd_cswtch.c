@@ -33,12 +33,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 before_credit( fd_cswtch_ctx_t *   ctx,
-               fd_stem_context_t * mux ) {
+               fd_stem_context_t * mux,
+               int *               charge_busy ) {
   (void)mux;
 
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now<ctx->next_report_nanos ) ) return;
   ctx->next_report_nanos += REPORT_INTERVAL_MILLIS*1000L*1000L;
+
+  *charge_busy = 1;
 
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( FD_UNLIKELY( -1==lseek( ctx->status_fds[ i ], 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
@@ -195,6 +198,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_cswtch_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_cswtch_ctx_t)

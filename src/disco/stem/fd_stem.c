@@ -43,6 +43,10 @@
    this callback. The stem should only be used for calling
    fd_stem_publish to publish a fragment to downstream consumers.
 
+   The charge_busy argument is 0 by default, and should be set to 1 if
+   the before_credit function is doing work that should be accounted for
+   as part of the tiles busy indicator.
+
       AFTER_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not, except in cases where the stem is
@@ -64,6 +68,10 @@
    checked again.  By default, opt_poll_in is true and the stem will
    poll for fragments right away without rerunning the loop or checking
    for credits.
+
+   The charge_busy argument is 0 by default, and should be set to 1 if
+   the after_credit function is doing work that should be accounted for
+   as part of the tiles busy indicator.
 
       BEFORE_FRAG
    Is called immediately whenever a new fragment has been detected that
@@ -428,7 +436,8 @@ stem_run1( ulong                        in_cnt,
 #endif
 
 #ifdef STEM_CALLBACK_BEFORE_CREDIT
-    STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem );
+    int charge_busy_before = 0;
+    STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before );
 #endif
 
   /* Check if we are backpressured.  If so, count any transition into
@@ -453,7 +462,8 @@ stem_run1( ulong                        in_cnt,
 
 #ifdef STEM_CALLBACK_AFTER_CREDIT
     int poll_in = 1;
-    STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in );
+    int charge_busy_after = 0;
+    STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
     if( FD_UNLIKELY( !poll_in ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
       long next = fd_tickcount();
@@ -473,9 +483,21 @@ stem_run1( ulong                        in_cnt,
       continue;
     }
 
-    long prefrag_next = fd_tickcount();
-    ulong prefrag_ticks = (ulong)(prefrag_next - now);
-    now = prefrag_next;
+    ulong prefrag_ticks = 0UL;
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) && defined(STEM_CALLBACK_AFTER_CREDIT)
+    if( FD_LIKELY( charge_busy_before || charge_busy_after ) ) {
+#elif defined(STEM_CALLBACK_BEFORE_CREDIT)
+    if( FD_LIKELY( charge_busy_before ) ) {
+#elif defined(STEM_CALLBACK_AFTER_CREDIT)
+    if( FD_LIKELY( charge_busy_after ) ) {
+#endif
+
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT)
+      long prefrag_next = fd_tickcount();
+      prefrag_ticks = (ulong)(prefrag_next - now);
+      now = prefrag_next;
+    }
+#endif
 
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
     in_seq++;

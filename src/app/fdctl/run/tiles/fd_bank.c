@@ -157,6 +157,7 @@ after_frag( fd_bank_ctx_t *     ctx,
 
     void * abi_txn = ctx->txn_abi_mem + (sanitized_txn_cnt*FD_BANK_ABI_TXN_FOOTPRINT);
     void * abi_txn_sidecar = ctx->txn_sidecar_mem + sidecar_footprint_bytes;
+    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
@@ -196,7 +197,12 @@ after_frag( fd_bank_ctx_t *     ctx,
   for( ulong i=0; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
-    txn->executed_cus  = 0UL; /* Assume failure, set below if success */
+    uint requested_cus       = txn->pack_cu.requested_execution_cus;
+    uint non_execution_cus   = txn->pack_cu.non_execution_cus;
+    /* Assume failure, set below if success.  If it doesn't land in the
+       block, rebate the non-execution CUs too. */
+    txn->bank_cu.rebated_cus = requested_cus + non_execution_cus;
+    txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
@@ -207,8 +213,24 @@ after_frag( fd_bank_ctx_t *     ctx,
     if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
 
     ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
-    txn->flags        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    txn->executed_cus  = consumed_cus[ sanitized_idx-1UL ];
+    txn->flags                      |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    uint executed_cus                = consumed_cus[ sanitized_idx-1UL ];
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + executed_cus;
+    if( FD_UNLIKELY( executed_cus>requested_cus ) ) {
+      /* There's basically a bug in the Agave codebase right now
+         regarding the cost model for some transactions.  Some built-in
+         instructions like creating an address lookup table consume more
+         CUs than the cost model allocates for them, which is only
+         allowed because the runtime computes requested CUs differently
+         from the cost model.  Rather than implement a broken system,
+         we'll just permit the risk of slightly overpacking blocks by
+         ignoring these transactions when it comes to rebating. */
+      FD_LOG_INFO(( "Transaction executed %u CUs but only requested %u CUs", executed_cus, requested_cus ));
+      FD_MCNT_INC( BANK_TILE, COST_MODEL_UNDERCOUNT, 1UL );
+      txn->bank_cu.rebated_cus = 0U;
+      continue;
+    }
+    txn->bank_cu.rebated_cus = requested_cus - executed_cus;
   }
 
   /* Commit must succeed so no failure path.  This function takes
@@ -233,6 +255,12 @@ after_frag( fd_bank_ctx_t *     ctx,
      so there's always 64 extra bytes at the end to stash the hash. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
+
+  /* We have a race window with the GUI, where if the slot is ending it
+    will snap these metrics to draw the waterfall, but see them outdated
+    because housekeeping hasn't run.  For now just update them here, but
+    PoH should eventually flush the pipeline before ending the slot. */
+  metrics_write( ctx );
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks

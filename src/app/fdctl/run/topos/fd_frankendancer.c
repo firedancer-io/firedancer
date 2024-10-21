@@ -220,10 +220,10 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_quic",      i                                                  );
   }
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
-    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",     i                                                    );
-    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",     i                                                    );
+    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",     i                                                  );
+    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",     i                                                  );
   }
 
   /* PoH tile represents the Agave address space, so it's
@@ -232,6 +232,81 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_dedup", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "stake_out",    0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "crds_shred",   0UL                                                  );
+
+  /* For now the only plugin consumer is the GUI */
+  int plugins_enabled = config->tiles.gui.enabled;
+  if( FD_LIKELY( plugins_enabled ) ) {
+    fd_topob_wksp( topo, "plugin_in"    );
+    fd_topob_wksp( topo, "plugin_out"   );
+    fd_topob_wksp( topo, "plugin"       );
+
+    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
+    /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    0,        128UL,                                    4098*8UL,               1UL );
+    /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
+    /**/                 fd_topob_link( topo, "poh_plugin",   "plugin_in",    0,        128UL,                                    16UL,                   1UL );
+    /**/                 fd_topob_link( topo, "startp_plugi", "plugin_in",    0,        128UL,                                    56UL,                   1UL );
+    /**/                 fd_topob_link( topo, "votel_plugin", "plugin_in",    0,        128UL,                                    8UL,                    1UL );
+
+    /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+
+    /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "replay_plugi", 0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_plugi", 0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "poh_plugin",   0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "startp_plugi", 0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "votel_plugin", 0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "plugin", 0UL,                        "plugin_out", 0UL                                                    );
+
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "replay_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "gossip_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "poh_plugin",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "startp_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "votel_plugin", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) {
+    fd_topob_wksp( topo, "gui"          );
+    /**/                 fd_topob_tile( topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+
+  if( FD_LIKELY( !is_auto_affinity ) ) {
+    if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
+      FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                   "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                   "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                   topo->tile_cnt, affinity_tile_cnt ));
+    if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
+      FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                       "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                       "individual tile counts in the [layout] section of the configuration file.",
+                       topo->tile_cnt, affinity_tile_cnt ));
+
+    if( FD_LIKELY( strcmp( "", config->layout.agave_affinity ) ) ) {
+      ushort agave_cpu[ FD_TILE_MAX ];
+      ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
+
+      for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
+        if( FD_UNLIKELY( agave_cpu[ i ]>=fd_numa_cpu_cnt() ) )
+          FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies a CPU index of %hu, but the system "
+                       "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
+                       "in the system.",
+                       agave_cpu[ i ], fd_numa_cpu_cnt() ));
+
+        for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+          fd_topo_tile_t * tile = &topo->tiles[ j ];
+          if( tile->cpu_idx==agave_cpu[ i ] ) FD_LOG_WARNING(( "Tile `%s:%lu` is already assigned to CPU %hu, but the CPU is also assigned to Agave. "
+                                                               "This may cause contention between the two tiles.", tile->name, tile->kind_id, agave_cpu[ i ] ));
+        }
+
+        if( FD_UNLIKELY( topo->agave_affinity_cnt>FD_TILE_MAX ) ) {
+          FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies more CPUs than Firedancer can use. "
+                        "You should either reduce the number of CPUs in the affinity string." ));
+        }
+        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = agave_cpu[ i ];
+      }
+    }
+  }
 
   /* There is a special fseq that sits between the pack, bank, and poh
      tiles to indicate when the bank/poh tiles are done processing a
@@ -320,6 +395,7 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
       strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
 
+      tile->poh.plugins_enabled = plugins_enabled;
       tile->poh.bank_cnt = config->layout.bank_tile_count;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
@@ -343,6 +419,14 @@ fd_topo_initialize( config_t * config ) {
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "cswtch" ) ) ) {
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
+      tile->gui.listen_port = config->tiles.gui.gui_listen_port;
+      tile->gui.is_voting = strcmp( config->consensus.vote_account_path, "" );
+      strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
+      strncpy( tile->gui.identity_key_path, config->consensus.identity_path, sizeof(tile->gui.identity_key_path) );
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));

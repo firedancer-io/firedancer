@@ -1748,7 +1748,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
   uchar * rodata = fd_valloc_malloc( valloc, 8UL, rodata_sz );
   if ( input->vm_ctx.rodata != NULL ) {
-    fd_memcpy( rodata, input->vm_ctx.rodata, rodata_sz );
+    fd_memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
   }
 
   /* Load input data regions */

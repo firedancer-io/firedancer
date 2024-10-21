@@ -3003,10 +3003,11 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   return FD_QUIC_SUCCESS;
 }
 
-void
+int
 fd_quic_service( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
+  int handled_event = 0;
   ulong now = fd_quic_now( quic );
 
   state->now = now;
@@ -3028,6 +3029,8 @@ fd_quic_service( fd_quic_t * quic ) {
     if( now < service_time ) {
       break;
     }
+
+    handled_event = 1;
 
     /* set an initial next_service_time */
     conn->next_service_time = now + fd_quic_get_service_interval( quic );
@@ -3099,6 +3102,8 @@ fd_quic_service( fd_quic_t * quic ) {
         }
     }
   }
+
+  return handled_event;
 }
 
 /* attempt to transmit buffered data
@@ -3717,21 +3722,20 @@ fd_quic_gen_max_streams_frame( fd_quic_conn_t *     conn,
 }
 
 static ulong
-fd_quic_gen_ping_frame( fd_quic_conn_t *     conn,
-                        uchar *              payload_ptr,
-                        uchar *              payload_end,
-                        fd_quic_pkt_meta_t * pkt_meta,
-                        ulong                pkt_number,
-                        ulong                now ) {
+fd_quic_gen_ping_frame( fd_quic_conn_t * conn,
+                        uchar *          payload_ptr,
+                        uchar *          payload_end,
+                        ulong            pkt_number ) {
+
+  if( ~conn->flags & FD_QUIC_CONN_FLAGS_PING       ) return 0UL;
+  if(  conn->flags & FD_QUIC_CONN_FLAGS_PING_SENT  ) return 0UL;
 
   fd_quic_ping_frame_t ping = {0};
   ulong frame_sz = fd_quic_encode_ping_frame( payload_ptr,
       (ulong)( payload_end - payload_ptr ),
       &ping );
   if( FD_UNLIKELY( frame_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
-
-  pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_PING;
-  pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+  conn->flags |= FD_QUIC_CONN_FLAGS_PING_SENT;
 
   conn->upd_pkt_number = pkt_number;
   return frame_sz;
@@ -3891,7 +3895,7 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
       if( conn->upd_pkt_number >= pkt_number ) {
         payload_ptr += fd_quic_gen_max_data_frame   ( conn, payload_ptr, payload_end, pkt_meta, pkt_number, now );
         payload_ptr += fd_quic_gen_max_streams_frame( conn, payload_ptr, payload_end, pkt_meta, pkt_number, now );
-        payload_ptr += fd_quic_gen_ping_frame       ( conn, payload_ptr, payload_end, pkt_meta, pkt_number, now );
+        payload_ptr += fd_quic_gen_ping_frame       ( conn, payload_ptr, payload_end,           pkt_number      );
       }
       if( FD_LIKELY( conn->hs_data_empty ) ) {
         payload_ptr = fd_quic_gen_stream_frames( conn, payload_ptr, payload_end, pkt_meta, pkt_number, now );
@@ -5133,11 +5137,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
         conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
       }
-    }
-    if( flags & FD_QUIC_PKT_META_FLAGS_PING               ) {
-      /* set max_data to be sent only if unacked */
-      conn->flags         |= FD_QUIC_CONN_FLAGS_PING_SENT;
-      conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
       /* do we still need to send? */

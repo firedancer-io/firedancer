@@ -4,6 +4,7 @@ bin
 dump
 unit-test
 tmp
+frontend
 
 genhtml/
 target/

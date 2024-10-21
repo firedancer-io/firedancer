@@ -813,6 +813,9 @@ write_conn_http( fd_http_server_t * http,
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
+        case 405:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n" ) );
+          break;
         case 500:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
           break;
@@ -1133,11 +1136,11 @@ write_conn( fd_http_server_t * http,
   else                                        write_conn_ws(   http, conn_idx );
 }
 
-void
+int
 fd_http_server_poll( fd_http_server_t * http ) {
   int nfds = poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL, 0 );
-  if( FD_UNLIKELY( 0==nfds ) ) return;
-  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
+  if( FD_UNLIKELY( 0==nfds ) ) return 0;
+  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
   /* Poll existing connections for new data. */
@@ -1152,6 +1155,8 @@ fd_http_server_poll( fd_http_server_t * http ) {
       /* No need to handle POLLHUP, read() will return 0 soon enough. */
     }
   }
+
+  return 1;
 }
 
 void

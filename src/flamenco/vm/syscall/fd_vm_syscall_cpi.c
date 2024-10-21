@@ -323,7 +323,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
     char id_b58[45]; ulong id_b58_len;
     fd_base58_encode_32( callee_instr->program_id_pubkey.uc, &id_b58_len, id_b58 );
-    fd_log_collector_msg_many( instr_ctx, "Unknown program ", 16, id_b58, id_b58_len );
+    fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }

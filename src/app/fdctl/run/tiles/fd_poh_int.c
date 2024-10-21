@@ -188,7 +188,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 after_credit( fd_poh_ctx_t *      ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in ) {
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   ctx->stem = stem;
 
   if( FD_UNLIKELY( !ctx->is_initialized ) ) return;
@@ -202,9 +203,12 @@ after_credit( fd_poh_ctx_t *      ctx,
       fd_poh_tile_begin_leader( ctx->poh_tile_ctx, leader_slot, ctx->poh_tile_ctx->hashcnt_per_tick );
       ctx->recently_reset = 0;
     }
+    *charge_busy = 1;
   }
 
-  fd_poh_tile_after_credit( ctx->poh_tile_ctx, opt_poll_in );
+  if( FD_LIKELY( fd_poh_tile_after_credit( ctx->poh_tile_ctx, opt_poll_in ) ) ) {
+    *charge_busy = 1;
+  }
 
   fd_fseq_update( ctx->current_slot, ctx->poh_tile_ctx->slot );
 }

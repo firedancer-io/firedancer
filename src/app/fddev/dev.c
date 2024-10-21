@@ -126,6 +126,15 @@ update_config_for_dev( config_t * const config ) {
                                    NULL,
                                    "%s/vote-account.json",
                                    config->scratch_directory ) );
+
+  ulong gui_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
+  if( FD_LIKELY( gui_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t * gui = &config->topo.tiles[ gui_idx ];
+    gui->gui.is_voting = 1;
+    if( FD_LIKELY( !strcmp( gui->gui.cluster, "unknown" ) ) ) {
+      strcpy( gui->gui.cluster, "development" );
+    }
+  }
 }
 
 static void *

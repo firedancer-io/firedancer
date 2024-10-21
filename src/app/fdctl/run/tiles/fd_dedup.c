@@ -49,6 +49,10 @@ typedef struct {
   ulong       out_chunk;
 
   ulong       hashmap_seed;
+
+  struct {
+    ulong dedup_fail_cnt;
+  } metrics;
 } fd_dedup_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -63,6 +67,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_dedup_ctx_t ), sizeof( fd_dedup_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->dedup.tcache_depth, 0 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static inline void
+metrics_write( fd_dedup_ctx_t * ctx ) {
+  FD_MCNT_SET( DEDUP, TRANSACTION_DEDUP_FAILURE,  ctx->metrics.dedup_fail_cnt );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -183,7 +192,9 @@ after_frag( fd_dedup_ctx_t *    ctx,
 
   int is_dup;
   FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
-  if( FD_LIKELY( !is_dup ) ) {
+  if( FD_LIKELY( is_dup ) ) {
+    ctx->metrics.dedup_fail_cnt++;
+  } else {
     fd_stem_publish( stem, 0UL, 0, ctx->out_chunk, sz, 0UL, tsorig, 0UL );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );
   }
@@ -298,8 +309,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_dedup_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_dedup_ctx_t)
 
-#define STEM_CALLBACK_DURING_FRAG during_frag
-#define STEM_CALLBACK_AFTER_FRAG  after_frag
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 
