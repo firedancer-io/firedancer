@@ -1248,6 +1248,21 @@ typedef struct fd_reward_info_off fd_reward_info_off_t;
 #define FD_REWARD_INFO_OFF_FOOTPRINT sizeof(fd_reward_info_off_t)
 #define FD_REWARD_INFO_OFF_ALIGN (8UL)
 
+/* Encoded Size: Fixed (2048 bytes) */
+struct __attribute__((aligned(128UL))) fd_slot_lthash {
+  uchar lthash[2048];
+};
+typedef struct fd_slot_lthash fd_slot_lthash_t;
+#define FD_SLOT_LTHASH_FOOTPRINT sizeof(fd_slot_lthash_t)
+#define FD_SLOT_LTHASH_ALIGN (128UL)
+
+struct __attribute__((aligned(128UL))) fd_slot_lthash_off {
+  uint lthash_off;
+};
+typedef struct fd_slot_lthash_off fd_slot_lthash_off_t;
+#define FD_SLOT_LTHASH_OFF_FOOTPRINT sizeof(fd_slot_lthash_off_t)
+#define FD_SLOT_LTHASH_OFF_ALIGN (128UL)
+
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(16UL))) fd_solana_manifest {
   fd_deserializable_versioned_bank_t bank;
@@ -1257,6 +1272,7 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest {
   fd_hash_t * epoch_account_hash;
   ulong versioned_epoch_stakes_len;
   fd_versioned_epoch_stakes_pair_t * versioned_epoch_stakes;
+  fd_slot_lthash_t * lthash;
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
@@ -1269,6 +1285,7 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest_off {
   uint bank_incremental_snapshot_persistence_off;
   uint epoch_account_hash_off;
   uint versioned_epoch_stakes_off;
+  uint lthash_off;
 };
 typedef struct fd_solana_manifest_off fd_solana_manifest_off_t;
 #define FD_SOLANA_MANIFEST_OFF_FOOTPRINT sizeof(fd_solana_manifest_off_t)
@@ -2440,7 +2457,7 @@ typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
 #define FD_EPOCH_BANK_OFF_ALIGN (16UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(16UL))) fd_slot_bank {
+struct __attribute__((aligned(128UL))) fd_slot_bank {
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
   ulong slot;
@@ -2461,16 +2478,16 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   fd_vote_accounts_t vote_account_keys;
   ulong lamports_per_signature;
   ulong transaction_count;
-  uchar lthash[2048];
+  fd_slot_lthash_t lthash;
   fd_block_hash_queue_t block_hash_queue;
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
-#define FD_SLOT_BANK_ALIGN (16UL)
+#define FD_SLOT_BANK_ALIGN (128UL)
 
-struct __attribute__((aligned(16UL))) fd_slot_bank_off {
+struct __attribute__((aligned(128UL))) fd_slot_bank_off {
   uint recent_block_hashes_off;
   uint timestamp_votes_off;
   uint slot_off;
@@ -2497,7 +2514,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)
-#define FD_SLOT_BANK_OFF_ALIGN (16UL)
+#define FD_SLOT_BANK_OFF_ALIGN (128UL)
 
 /* Encoded Size: Fixed (32 bytes) */
 struct __attribute__((aligned(8UL))) fd_prev_epoch_inflation_rewards {
@@ -5373,6 +5390,22 @@ void fd_reward_info_walk( void * w, fd_reward_info_t const * self, fd_types_walk
 ulong fd_reward_info_size( fd_reward_info_t const * self );
 ulong fd_reward_info_footprint( void );
 ulong fd_reward_info_align( void );
+
+void fd_slot_lthash_new( fd_slot_lthash_t * self );
+int fd_slot_lthash_decode( fd_slot_lthash_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_lthash_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_slot_lthash_decode_unsafe( fd_slot_lthash_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_lthash_decode_offsets( fd_slot_lthash_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_lthash_encode( fd_slot_lthash_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_slot_lthash_destroy( fd_slot_lthash_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_slot_lthash_walk( void * w, fd_slot_lthash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_slot_lthash_size( fd_slot_lthash_t const * self );
+ulong fd_slot_lthash_footprint( void );
+ulong fd_slot_lthash_align( void );
+int fd_slot_lthash_decode_archival( fd_slot_lthash_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_lthash_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_slot_lthash_decode_archival_unsafe( fd_slot_lthash_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_lthash_encode_archival( fd_slot_lthash_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_solana_manifest_new( fd_solana_manifest_t * self );
 int fd_solana_manifest_decode( fd_solana_manifest_t * self, fd_bincode_decode_ctx_t * ctx );

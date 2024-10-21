@@ -209,7 +209,7 @@ slot_ctx_restore( ulong                 slot,
       FD_LOG_ERR(( "missing txn, parent slot %lu", slot ));
     }
   }
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
   if( rec == NULL ) FD_LOG_ERR(( "failed to read banks record" ));
   void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
