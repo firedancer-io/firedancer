@@ -79,6 +79,12 @@ recvmsg: (and (or (eq (arg 0) xsk_fd)
                   (eq (arg 0) lo_xsk_fd))
               (eq (arg 2) MSG_DONTWAIT))
 
+# XDP: We use getsockopt( SOL_XDP, XDP_STATISTICS ) to periodically
+#      retrieve packet drop counters for the XDP socket.
+getsockopt: (and (eq (arg 0) xsk_fd)
+                 (eq (arg 1) SOL_XDP)
+                 (eq (arg 2) XDP_STATISTICS))
+
 # netlink: receive netlink messages from kernel for ARP tables
 #
 # This is the receive side of the above sendto() call, so when we send

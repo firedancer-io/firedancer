@@ -89,6 +89,7 @@ struct fd_gui_txn_waterfall {
   } in;
 
   struct {
+    ulong net_overrun;
     ulong quic_overrun;
     ulong quic_quic_invalid;
     ulong quic_udp_invalid;

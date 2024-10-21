@@ -177,6 +177,8 @@ metric introduced.
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
     <counter name="SentPackets" summary="Number of IP packets sent." />
     <counter name="SentBytes" summary="Total bytes sent (including IP, UDP headers)." />
+    <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
+    <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
 </group>
 
 <group name="QuicTile" tile="quic">
