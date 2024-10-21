@@ -962,8 +962,7 @@ fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
 void
 fd_gui_printf_slot( fd_gui_t * gui,
                     ulong      _slot ) {
-  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
+  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   char const * level;
   switch( slot->level ) {
@@ -975,7 +974,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % slots_sz ];
+  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
 
   long duration_nanos = LONG_MAX;
@@ -1049,8 +1048,7 @@ void
 fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      _slot,
                             ulong      id ) {
-  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
+  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   char const * level;
   switch( slot->level ) {
@@ -1062,7 +1060,7 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % slots_sz ];
+  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
 
   long duration_nanos = LONG_MAX;
