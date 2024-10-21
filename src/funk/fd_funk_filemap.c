@@ -31,7 +31,7 @@ fd_funk_open_file( const char * filename,
     can_resize = 0;
     do_new = 0;
     break;
-  case FD_FUNK_CREATE_OR_REUSE:
+  case FD_FUNK_CREATE:
     open_flags = O_CREAT|O_RDWR;
     can_create = 1;
     can_resize = 0;
