@@ -6,10 +6,10 @@
 
 
 struct fd_http_static_file {
-    const char * name;
-    const uchar * data;
+    char const * name;
+    uchar const * data;
     ulong const * data_len;
-    const uchar * zstd_data;
+    uchar const * zstd_data;
     ulong const * zstd_data_len;
 };
 
