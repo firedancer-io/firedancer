@@ -309,16 +309,26 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  uchar              write,           /* 1 if the access is a write, 0 if it is a read */
                  ulong              sentinel,
                  uchar *            is_multi_region ) {
-  ulong vaddr_hi  = vaddr >> 32;
-  ulong region    = fd_ulong_min( vaddr_hi, 5UL );
-  ulong offset    = vaddr & 0xffffffffUL;
+  ulong vaddr_hi       = vaddr >> 32;
+  ulong region         = fd_ulong_min( vaddr_hi, 5UL );
+  ulong offset         = vaddr & 0xffffffffUL;
+  uchar direct_mapping = FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
     */
-  if ( FD_UNLIKELY( region == 2UL ) ) {
+  if( FD_UNLIKELY( region == 2UL ) ) {
+    /* Stack frame gaps are only enabled when direct mapping is disabled. vm_gap_shift is 63 when direct mapping is enabled,
+       and 12 otherwise.
+       https://github.com/anza-xyz/agave/blob/v2.0.10/programs/bpf_loader/src/syscalls/mod.rs#L297 */
+    uchar vm_gap_shift = direct_mapping ? 63 : 12;
+
     /* If an access starts in a gap region, that is an access violation */
-    if ( !!( vaddr & 0x1000 ) ) {
+    uchar is_in_gap = ( offset >> vm_gap_shift ) & 1;
+
+    /* https://github.com/solana-labs/rbpf/blob/v0.8.5/src/memory_region.rs#L140-L145
+       Region OOB access checks are performed later in our implementation. */
+    if( FD_UNLIKELY( is_in_gap ) ) {
       return sentinel;
     }
 
@@ -326,8 +336,8 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
        physical address space, we need to subtract from the offset the size of all the virtual
        gap frames underneath it.
        
-       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
-    ulong gap_mask = 0xFFFFFFFFFFFFF000;
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/memory_region.rs#L137 */
+    ulong gap_mask = ( 0xFFFFFFFFFFFFFFFFUL << vm_gap_shift );
     offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask ); 
   }
 
