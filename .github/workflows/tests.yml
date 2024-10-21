@@ -47,7 +47,7 @@ jobs:
             run-integration-tests: false
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
-            label: icelake
+            label: ci1
             extras: rpath
             targets: "all integration-test fdctl"
             compiler: gcc
@@ -65,7 +65,7 @@ jobs:
             run-integration-tests: false
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
-            label: icelake
+            label: ci16
             extras: "asan ubsan rpath"
             targets: "all integration-test fdctl"
             compiler: clang
@@ -119,7 +119,7 @@ jobs:
         if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
 
       - name: free kernel hugepage pool
-        if: ${{ matrix.label == 'icelake' }}
+        if: ${{ matrix.label == 'icelake' || contains(matrix.label, 'ci') }}
         shell: bash
         run: |
           set -x
