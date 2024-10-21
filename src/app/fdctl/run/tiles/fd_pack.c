@@ -97,6 +97,9 @@ typedef struct {
   fd_pack_t *  pack;
   fd_txn_p_t * cur_spot;
 
+  void * pack_dump;
+  ulong pack_footprint;
+
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
 
@@ -238,6 +241,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
                                                                         tile->pack.bank_tile_count,
                                                                         limits                               ) );
+  l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
+                                                                        tile->pack.bank_tile_count,
+                                                                        limits                               ) );
   l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -374,10 +380,15 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_stem_publish( stem, 0UL, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, 0UL );
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
+    if( FD_UNLIKELY( ctx->leader_slot%4UL == 3UL ) ) {
+      fd_memcpy( ctx->pack_dump, ctx->pack, ctx->pack_footprint );
+      FD_LOG_INFO(( "dumped a copy of pack for slot %lu", ctx->leader_slot ));
+    }
 
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
+
     fd_pack_end_block( ctx->pack );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
@@ -692,6 +703,10 @@ unprivileged_init( fd_topo_t *      topo,
                                          tile->pack.max_pending_transactions, tile->pack.bank_tile_count,
                                          limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
+
+  ctx->pack_dump      = FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint );
+  ctx->pack_footprint = pack_footprint;
+  FD_LOG_INFO(( "pack dump stored at %p, offset %lu from start of scratch. Max pending %lu, bank %lu", ctx->pack_dump, (ulong)ctx->pack_dump - (ulong)scratch, tile->pack.max_pending_transactions, tile->pack.bank_tile_count ));
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
 

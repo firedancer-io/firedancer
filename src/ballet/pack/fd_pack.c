@@ -1421,6 +1421,8 @@ fd_pack_end_block( fd_pack_t * pack ) {
   fd_histf_sample( pack->rebated_cus_per_block,   pack->cumulative_rebated_cus                               );
   fd_histf_sample( pack->scheduled_cus_per_block, pack->cumulative_rebated_cus + pack->cumulative_block_cost );
 
+  FD_LOG_INFO(( "pack_end_block: consumed %lu CUs net (%lu vote) %lu bytes over %lu microblocks", pack->cumulative_block_cost, pack->cumulative_vote_cost, pack->data_bytes_consumed, pack->microblock_cnt ));
+
   pack->microblock_cnt         = 0UL;
   pack->data_bytes_consumed    = 0UL;
   pack->cumulative_block_cost  = 0UL;
@@ -1567,6 +1569,48 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   return 1;
 }
 
+#include "../base58/fd_base58.h"
+
+int
+fd_pack_dump( fd_pack_t const * pack ) {
+  fd_pack_ord_txn_t  * pool = pack->pool;
+  treap_t const * treaps[ 2 ] = { pack->pending, pack->pending_votes };
+  ulong txn_cnt = 0UL;
+
+  for( ulong k=0UL; k<2; k++ ) {
+    treap_t const * treap = treaps[ k ];
+    FD_LOG_NOTICE(( "Treap %lu contains %lu transactions", k, treap_ele_cnt( treaps[k] ) ));
+
+    for( treap_rev_iter_t _cur=treap_rev_iter_init( treap, pool ); !treap_rev_iter_done( _cur );
+        _cur=treap_rev_iter_next( _cur, pool ) ) {
+      txn_cnt++;
+      fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+      fd_txn_t const * txn = TXN(cur->txn);
+      fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+
+      fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
+
+      char base58[ FD_BASE58_ENCODED_64_SZ ];
+      fd_base58_encode_64( *sig0, NULL, base58 );
+      FD_LOG_NOTICE(( "  %.8s (%u CUs):", base58, cur->compute_est ));
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+        fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+
+        fd_base58_encode_32( acct.b, NULL, base58 );
+        FD_LOG_NOTICE(( "    W: %s:", base58 ));
+      }
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+        fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+        fd_base58_encode_32( acct.b, NULL, base58 );
+        FD_LOG_NOTICE(( "    R: %s:", base58 ));
+      }
+    }
+  }
+  return 0;
+}
 
 int
 fd_pack_verify( fd_pack_t * pack,
