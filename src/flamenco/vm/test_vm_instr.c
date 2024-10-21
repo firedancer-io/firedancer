@@ -452,7 +452,8 @@ run_input( test_input_t const * input,
       /* mem_regions      */ input_region,
       /* mem_regions_cnt  */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
       /* mem_regions_accs */ NULL,
-      /* is_deprecated    */ 0
+      /* is_deprecated    */ 0,
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping )
   );
   assert( vm_ok );
 

@@ -91,7 +91,8 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       NULL, /* mem regions */
       0,    /* mem regions count */
       NULL, /* mem regions accs */
-      0     /* is deprecated */
+      0,    /* is deprecated */
+      FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping ) /* direct mapping */
     );
     effects->result = fd_vm_validate( vm );
 
@@ -249,7 +250,8 @@ do{
     input_regions,
     input_regions_cnt,
     NULL, /* vm_acc_region_meta*/
-    0 /* is deprecated */
+    0, /* is deprecated */
+    FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) /* direct mapping */
   );
 
   // Propagate the acc_regions_meta to the vm

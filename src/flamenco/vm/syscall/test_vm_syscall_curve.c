@@ -97,7 +97,8 @@ main( int     argc,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
       /* mem_regions_accs */ NULL,
-      /* is_deprecated    */ 0
+      /* is_deprecated    */ 0,
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping )
   );
   FD_TEST( vm_ok );
 

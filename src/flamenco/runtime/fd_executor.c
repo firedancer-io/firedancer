@@ -1402,7 +1402,8 @@ fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
 */
 static void
 create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_msg,
-                                               fd_exec_txn_ctx_t *          txn_ctx ) {
+                                      fd_exec_txn_ctx_t *          txn_ctx,
+                                      fd_spad_t *                  spad ) {
   fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
   uchar const * txn_payload = (uchar const *) txn_ctx->_txn_raw->raw;
   fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
@@ -1511,8 +1512,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   // For executable accounts, we need to set up dummy borrowed accounts by cluttering txn ctx state and resetting it after
   // TODO: Revisit this hacky approach
-  fd_valloc_t orig_valloc = txn_ctx->valloc;
-  txn_ctx->valloc = fd_scratch_virtual();
+  txn_ctx->spad = spad;
+  fd_spad_push( txn_ctx->spad );
   txn_ctx->funk_txn = slot_ctx->funk_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
 
@@ -1525,9 +1526,9 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   }
 
   // Reset state
-  txn_ctx->valloc = orig_valloc;
   txn_ctx->funk_txn = NULL;
   txn_ctx->executable_cnt = 0;
+  fd_spad_pop( txn_ctx->spad );
 
   // Dump LUT accounts
   fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
@@ -1724,7 +1725,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
         * File name format is "txn-<base58_enc_sig>.bin"
 */
 void
-dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx ) {
+dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad ) {
   FD_SCRATCH_SCOPE_BEGIN {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
@@ -1743,7 +1744,7 @@ dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx ) {
     }
 
     fd_exec_test_txn_context_t txn_context_msg = FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT;
-    create_txn_context_protobuf_from_txn( &txn_context_msg, txn_ctx );
+    create_txn_context_protobuf_from_txn( &txn_context_msg, txn_ctx, spad );
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
