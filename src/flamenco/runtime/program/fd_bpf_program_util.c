@@ -123,6 +123,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
        program account can't be deserialized then it is also intentionally not
        added to the program blacklist. */
 
+    if( !fd_account_is_executable( program_acc->const_meta ) ) {
+      return -1;
+    }
+
     int res;
     if( !memcmp( program_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
       res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, &program_data, &program_data_len );
