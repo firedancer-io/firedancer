@@ -8,6 +8,7 @@ $(call run-unit-test,test_funk_txn)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_funk_txn2,test_funk_txn2,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn2)
+$(call make-unit-test,test_funk_file,test_funk_file,fd_funk fd_util)
 $(call make-unit-test,test_funk_archive,test_funk_archive,fd_funk fd_util)
 $(call run-unit-test,test_funk_archive)
 endif

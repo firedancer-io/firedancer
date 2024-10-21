@@ -12,13 +12,24 @@ enum fd_funk_file_mode {
 };
 typedef enum fd_funk_file_mode fd_funk_file_mode_t;
 
+struct fd_funk_close_file_args {
+  void * shmem;
+  int fd;
+  ulong total_sz;
+};
+typedef struct fd_funk_close_file_args fd_funk_close_file_args_t;
+
 fd_funk_t *
-fd_funk_create_file( const char * filename,
-                     ulong        wksp_tag,
-                     ulong        seed,
-                     ulong        txn_max,
-                     ulong        rec_max,
-                     ulong        total_sz,
-                     fd_funk_file_mode_t mode );
+fd_funk_open_file( const char * filename,
+                   ulong        wksp_tag,
+                   ulong        seed,
+                   ulong        txn_max,
+                   ulong        rec_max,
+                   ulong        total_sz,
+                   fd_funk_file_mode_t mode,
+                   fd_funk_close_file_args_t * close_args_out );
+
+void
+fd_funk_close_file( fd_funk_close_file_args_t * close_args );
 
 #endif /* HEADER_fd_src_funk_fd_funk_filemap_h */

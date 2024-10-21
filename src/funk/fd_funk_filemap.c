@@ -7,13 +7,14 @@
 #include <sys/mman.h>
 
 fd_funk_t *
-fd_funk_create_file( const char * filename,
-                     ulong        wksp_tag,
-                     ulong        seed,
-                     ulong        txn_max,
-                     ulong        rec_max,
-                     ulong        total_sz,
-                     fd_funk_file_mode_t mode ) {
+fd_funk_open_file( const char * filename,
+                   ulong        wksp_tag,
+                   ulong        seed,
+                   ulong        txn_max,
+                   ulong        rec_max,
+                   ulong        total_sz,
+                   fd_funk_file_mode_t mode,
+                   fd_funk_close_file_args_t * close_args_out ) {
   /* Open the file */
 
   int open_flags, can_resize, can_create, do_new;
@@ -52,7 +53,7 @@ fd_funk_create_file( const char * filename,
     FD_LOG_ERR(( "invalid mode when opening %s", filename ));
     return NULL;
   }
-  int fd = open( filename, open_flags );
+  int fd = open( filename, open_flags, S_IRUSR|S_IWUSR );
   if( fd < 0 ) {
     FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
     return NULL;
@@ -91,7 +92,7 @@ fd_funk_create_file( const char * filename,
 
     /* Create the data structures */
 
-    ulong part_max = fd_wksp_part_max_est( total_sz, 1UL<<30 );
+    ulong part_max = fd_wksp_part_max_est( total_sz, 1UL<<25 );
     if( FD_UNLIKELY( !part_max ) ) {
       FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,64KiB) failed", total_sz ));
       munmap( shmem, total_sz );
@@ -149,6 +150,11 @@ fd_funk_create_file( const char * filename,
       return NULL;
     }
 
+    if( close_args_out != NULL ) {
+      close_args_out->shmem = shmem;
+      close_args_out->fd = fd;
+      close_args_out->total_sz = total_sz;
+    }
     return funk;
 
   } else {
@@ -175,7 +181,7 @@ fd_funk_create_file( const char * filename,
 
     fd_wksp_tag_query_info_t info;
     if( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info, 1 ) ) {
-      FD_LOG_ERR(( "workspace does not contain a funky" ));
+      FD_LOG_ERR(( "%s does not contain a funky", filename ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -190,6 +196,18 @@ fd_funk_create_file( const char * filename,
       return NULL;
     }
 
+    if( close_args_out != NULL ) {
+      close_args_out->shmem = shmem;
+      close_args_out->fd = fd;
+      close_args_out->total_sz = total_sz;
+    }
     return funk;
   }
+}
+
+void
+fd_funk_close_file( fd_funk_close_file_args_t * close_args ) {
+  fd_shmem_leave_anonymous( close_args->shmem, NULL );
+  munmap( close_args->shmem, close_args->total_sz );
+  close( close_args->fd );
 }
