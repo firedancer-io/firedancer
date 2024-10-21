@@ -75,7 +75,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
     tile_run->privileged_init( topo, tile );
 
   ulong allow_fds_offset = 0UL;
-  int allow_fds[ 32 ] = { 0 };
+  int allow_fds[ 256 ] = { 0 };
   if( FD_LIKELY( -1!=allow_fd ) ) {
     allow_fds_offset = 1UL;
     allow_fds[ 0 ] = allow_fd;
