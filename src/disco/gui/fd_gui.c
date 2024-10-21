@@ -979,7 +979,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->completed_time         = LONG_MAX;
 
   if( FD_LIKELY( slot->mine ) ) {
-    /* All slots start off skipped, until we see it get onto the reset
+    /* All slots start off not skipped, until we see it get off the reset
        chain. */
     gui->epoch.epochs[ epoch_idx ].my_total_slots++;
   }
@@ -1288,6 +1288,17 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
   } else if( FD_UNLIKELY( gui->epoch.has_epoch[ 1 ] && _slot==gui->epoch.epochs[ 1 ].end_slot ) ) {
     gui->epoch.epochs[ 1 ].end_time = slot->completed_time;
+  }
+
+  /* Broadcast new skip rate if one of our slots got completed. */
+  if( FD_LIKELY( slot->mine ) ) {
+    for( ulong i=0UL; i<2UL; i++ ) {
+      if( FD_LIKELY( _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+        fd_gui_printf_skip_rate( gui, i );
+        fd_http_server_ws_broadcast( gui->http );
+        break;
+      }
+    }
   }
 }
 
