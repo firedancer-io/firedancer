@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <net/if.h>
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
+#include <linux/if_xdp.h>
 
 #include "generated/net_seccomp.h"
 
@@ -303,6 +304,46 @@ before_credit( fd_net_ctx_t *      ctx,
   }
 }
 
+struct xdp_statistics_v0 {
+  __u64 rx_dropped; /* Dropped for other reasons */
+  __u64 rx_invalid_descs; /* Dropped due to invalid descriptor */
+  __u64 tx_invalid_descs; /* Dropped due to invalid descriptor */
+};
+
+struct xdp_statistics_v1 {
+  __u64 rx_dropped; /* Dropped for other reasons */
+  __u64 rx_invalid_descs; /* Dropped due to invalid descriptor */
+  __u64 tx_invalid_descs; /* Dropped due to invalid descriptor */
+  __u64 rx_ring_full; /* Dropped due to rx ring being full */
+  __u64 rx_fill_ring_empty_descs; /* Failed to retrieve item from fill ring */
+  __u64 tx_ring_empty_descs; /* Failed to retrieve item from tx ring */
+};
+
+static inline void
+poll_xdp_statistics( fd_net_ctx_t * ctx ) {
+  struct xdp_statistics_v1 stats;
+  uint optlen = (uint)sizeof(stats);
+  if( FD_UNLIKELY( -1==getsockopt( ctx->init.xsk->xsk_fd, SOL_XDP, XDP_STATISTICS, &stats, &optlen ) ) )
+    FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
+
+  if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v1) ) ) {
+    FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
+    FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_RING_FULL, stats.rx_ring_full );
+
+    FD_TEST( !stats.rx_invalid_descs );
+    FD_TEST( !stats.tx_invalid_descs );
+    FD_TEST( !stats.rx_fill_ring_empty_descs );
+    FD_TEST( stats.tx_ring_empty_descs==1UL ); /* Seems to be set to 1 by default... */
+  } else if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v0) ) ) {
+    FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
+
+    FD_TEST( !stats.rx_invalid_descs );
+    FD_TEST( !stats.tx_invalid_descs );
+  } else {
+    FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) returned unexpected size %u", optlen ));
+  }
+}
+
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_log_wallclock();
@@ -311,6 +352,11 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     fd_ip_arp_fetch( ctx->ip );
     fd_ip_route_fetch( ctx->ip );
   }
+
+  /* Only net tile 0 polls the statistics, as they are retrieved for the
+     XDP socket which is shared across all net tiles. */
+
+  if( FD_LIKELY( !ctx->round_robin_id ) ) poll_xdp_statistics( ctx );
 }
 
 FD_FN_PURE static int

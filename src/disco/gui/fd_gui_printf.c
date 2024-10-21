@@ -487,6 +487,7 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
     jsonp_close_object( gui );
 
     jsonp_open_object( gui, "out" );
+      jsonp_ulong( gui, "net_overrun",       cur->out.net_overrun       - prev->out.net_overrun );
       jsonp_ulong( gui, "quic_overrun",      cur->out.quic_overrun      - prev->out.quic_overrun );
       jsonp_ulong( gui, "quic_quic_invalid", cur->out.quic_quic_invalid - prev->out.quic_quic_invalid );
       jsonp_ulong( gui, "quic_udp_invalid",  cur->out.quic_udp_invalid  - prev->out.quic_udp_invalid );

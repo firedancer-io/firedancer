@@ -26,6 +26,18 @@
 #define FD_METRICS_COUNTER_NET_TILE_SENT_BYTES_DESC "Total bytes sent (including IP, UDP headers)."
 #define FD_METRICS_COUNTER_NET_TILE_SENT_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_RING_FULL_OFF  (20UL)
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_RING_FULL_NAME "net_tile_xdp_rx_dropped_ring_full"
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_RING_FULL_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_RING_FULL_DESC "Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues."
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_RING_FULL_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_NET_TOTAL (4UL)
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_OFF  (21UL)
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_NAME "net_tile_xdp_rx_dropped_other"
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_DESC "Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues."
+#define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_CVT  (FD_METRICS_CONVERTER_NONE)
+
+
+#define FD_METRICS_NET_TOTAL (6UL)
 extern const fd_metrics_meta_t FD_METRICS_NET[FD_METRICS_NET_TOTAL];
