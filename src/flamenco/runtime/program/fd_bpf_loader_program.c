@@ -308,7 +308,8 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* is_deprecated   */ 0,
     /* direct mapping */  direct_mapping );
   if ( FD_UNLIKELY( vm == NULL ) ) {
-    FD_LOG_ERR(( "NULL vm" ));
+    FD_LOG_WARNING(( "NULL vm" ));
+    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
   int validate_result = fd_vm_validate( vm );
@@ -519,7 +520,12 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     /* is_deprecated         */ is_deprecated,
     /* direct_mapping        */ direct_mapping );
   if ( FD_UNLIKELY( vm == NULL ) ) {
-    FD_LOG_ERR(( "null vm" ));
+    /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
+       In this case, Agave fails the transaction but does not error out.
+       
+       https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1396 */
+    FD_LOG_WARNING(( "null vm" ));
+    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
 #ifdef FD_DEBUG_SBPF_TRACES

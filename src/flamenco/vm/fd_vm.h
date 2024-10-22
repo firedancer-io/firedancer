@@ -254,7 +254,10 @@ fd_vm_join( void * shmem );
 /* fd_vm_init initializes the given fd_vm_t struct, checking that it is
    not null and has the correct magic value.
 
-   It modifies the vm object and also returns the object for convenience. */
+   It modifies the vm object and also returns the object for convenience.
+   
+   FIXME: we should split out the memory mapping setup from this function 
+          to handle those errors separately. */
 fd_vm_t *
 fd_vm_init(
    fd_vm_t * vm,
