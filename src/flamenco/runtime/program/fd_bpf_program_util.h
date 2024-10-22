@@ -16,8 +16,15 @@ struct fd_sbpf_validated_program {
 
   ulong rodata_sz;
 
-  fd_sbpf_calldests_t calldests[];
+  /* We keep the pointer to the calldests raw memory around, so that we can easily copy the entire
+     data structures (including the private header) later. */
+  void * calldests_shmem;
+  fd_sbpf_calldests_t * calldests;
 
+  uchar * rodata;
+
+  /* Backing memory for calldests and rodata */
+  // uchar calldests_shmem[];
   // uchar rodata[];
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
@@ -25,7 +32,7 @@ typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 FD_PROTOTYPES_BEGIN
 
 fd_sbpf_validated_program_t *
-fd_sbpf_validated_program_new( void * mem );
+fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info );
 
 
 ulong
@@ -33,9 +40,6 @@ fd_sbpf_validated_program_align( void );
 
 ulong
 fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info );
-
-uchar *
-fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog );
 
 /* FIXME: Implement this (or remove?) */
 ulong

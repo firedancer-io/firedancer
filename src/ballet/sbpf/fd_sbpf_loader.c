@@ -599,11 +599,11 @@ fd_sbpf_program_new( void *                     prog_mem,
   /* Initialize calldests map */
 
   ulong pc_max = elf_info->rodata_sz / 8UL;
-  prog->calldests =
-    fd_sbpf_calldests_join( fd_sbpf_calldests_new(
+  prog->calldests_shmem = fd_sbpf_calldests_new(
         FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
                                         fd_sbpf_calldests_footprint( pc_max ) ),
-        pc_max ) );
+        pc_max );
+  prog->calldests = fd_sbpf_calldests_join( prog->calldests_shmem );
 
   return prog;
 }

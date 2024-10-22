@@ -130,6 +130,8 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) ... FIXME: HMMMM ... CODE SEEMS TO USE TEXT[ ENTRY_PC ] */
 
   /* Bit vector of valid call destinations (bit count is rodata_sz) */
+  void * calldests_shmem;
+  /* Local join to bit vector of valid call destinations */
   fd_sbpf_calldests_t * calldests;
 };
 typedef struct fd_sbpf_program fd_sbpf_program_t;
