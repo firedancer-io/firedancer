@@ -558,6 +558,7 @@ typedef struct poh_link poh_link_t;
 poh_link_t gossip_dedup;
 poh_link_t stake_out;
 poh_link_t crds_shred;
+poh_link_t replay_resolv;
 
 poh_link_t replay_plugin;
 poh_link_t gossip_plugin;
@@ -1830,6 +1831,12 @@ fd_ext_plugin_publish_periodic( ulong   sig,
   poh_link_publish( &gossip_plugin, sig, data, data_len );
 }
 
+void
+fd_ext_resolv_publish_root_bank( uchar * data,
+                                 ulong   data_len ) {
+  poh_link_publish( &replay_resolv, 0UL, data, data_len );
+}
+
 static inline fd_poh_out_ctx_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
@@ -1902,10 +1909,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
+  poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
+  poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
+  poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
+  poh_link_init( &replay_resolv,         topo, tile, out1( topo, tile, "replay_resol" ).idx );
+
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
-    poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
-    poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
-    poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
     poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );
     poh_link_init( &gossip_plugin,         topo, tile, out1( topo, tile, "gossip_plugi" ).idx );
     poh_link_init( &start_progress_plugin, topo, tile, out1( topo, tile, "startp_plugi" ).idx );
@@ -1915,9 +1924,6 @@ unprivileged_init( fd_topo_t *      topo,
        memory is not set so nothing will actually get published via.
        the links. */
     FD_COMPILER_MFENCE();
-    gossip_dedup.mcache = (fd_frag_meta_t*)1;
-    stake_out.mcache = (fd_frag_meta_t*)1;
-    crds_shred.mcache = (fd_frag_meta_t*)1;
     replay_plugin.mcache = (fd_frag_meta_t*)1;
     gossip_plugin.mcache = (fd_frag_meta_t*)1;
     start_progress_plugin.mcache = (fd_frag_meta_t*)1;

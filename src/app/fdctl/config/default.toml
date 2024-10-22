@@ -670,6 +670,16 @@ dynamic_port_range = "8900-9000"
     # QUIC tiles are designed to scale linearly when adding more tiles,
     quic_tile_count = 1
 
+    # How many resolver tiles to run.  Should be set to 1.  This is
+    # configurable and designed to scale out for future network
+    # conditions but there is no need to run more than 1 resolver tile
+    # given current `mainnet-beta` conditions, unless the validator is
+    # under a DoS or spam attack.
+    #
+    # Resolve tiles are responsible for resolving address lookup tables
+    # before transactions are scheduled.
+    resolv_tile_count = 1
+
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.

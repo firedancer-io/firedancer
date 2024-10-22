@@ -15,7 +15,7 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define IN_KIND_DEDUP  (0UL)
+#define IN_KIND_RESOLV (0UL)
 #define IN_KIND_POH    (1UL)
 #define IN_KIND_BANK   (2UL)
 #define IN_KIND_BUNDLE (3UL)
@@ -597,7 +597,7 @@ during_frag( fd_pack_ctx_t * ctx,
     fd_memcpy( ctx->pending_rebate, dcache_entry, sz-sizeof(fd_microblock_trailer_t) );
     return;
   }
-  case IN_KIND_DEDUP: {
+  case IN_KIND_RESOLV: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -692,7 +692,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->schedule_next      = compute_schedule_next( ctx, now );
     break;
   }
-  case IN_KIND_DEDUP: {
+  case IN_KIND_RESOLV: {
     /* Normal transaction case */
     if( FD_LIKELY( !ctx->insert_to_extra ) ) {
       long insert_duration = -fd_tickcount();
@@ -744,7 +744,8 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
+    if( FD_LIKELY(      !strcmp( link->name, "resolv_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "bundle_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
