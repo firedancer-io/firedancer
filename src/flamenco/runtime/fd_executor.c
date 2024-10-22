@@ -349,13 +349,14 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->slot_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_ctx->slot_bank.slot, NULL );
 
-  for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+  for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_borrowed_account_t * acct = NULL;
 
     int   err      = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
     ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
 
-    /* Try to collect rent on all writable accounts. If rent is collected
+    /* Try to collect rent on all writable accounts, except the fee payer (who's rent was already
+       collected within fd_executor_validate_transaction_fee_payer()). If rent is collected
        successfully, update the starting lamports accordingly to avoid
        unbalanced lamports issues during instruction execution.
        TODO: the rent epoch check in the conditional should probably be moved
@@ -553,13 +554,7 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
 }
 
 static int
-fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
-
-  fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_modify_idx( txn_ctx, 0, 0UL, &rec );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
-  }
+fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx, fd_borrowed_account_t * fee_payer_rec ) {
 
   ulong execution_fee = 0UL;
   ulong priority_fee  = 0UL;
@@ -574,7 +569,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
     total_fee = fd_rust_cast_double_to_ulong( round( (double)total_fee ) );
   }
 
-  err = fd_validate_fee_payer( rec, &epoch_bank->rent, total_fee );
+  int err = fd_validate_fee_payer( fee_payer_rec, &epoch_bank->rent, total_fee );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -594,12 +589,12 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
      This means that the entire state of the borrowed account must be rolled
      back to this point. */
 
-  rec->meta->info.lamports -= total_fee;
-  rec->starting_lamports    = rec->meta->info.lamports;
+  fee_payer_rec->meta->info.lamports -= total_fee;
+  fee_payer_rec->starting_lamports    = fee_payer_rec->meta->info.lamports;
 
   /* Update the fee payer's rent epoch to ULONG_MAX if it is rent exempt. */
-  if( fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, rec ) ) {
-    rec->meta->info.rent_epoch = ULONG_MAX;
+  if( fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, fee_payer_rec ) ) {
+    fee_payer_rec->meta->info.rent_epoch = ULONG_MAX;
   }
 
   txn_ctx->execution_fee = execution_fee;
@@ -617,8 +612,22 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
     return err;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L436 */
+  fd_borrowed_account_t * fee_payer_rec = NULL;
+  err = fd_txn_borrowed_account_modify_idx( txn_ctx, 0, 0UL, &fee_payer_rec );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+  }
+
+  /* Collect rent from the fee payer and set the starting lamports (to avoid unbalanced lamports issues in instruction execution)
+     https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->slot_ctx->sysvar_cache );
+  ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_ctx->slot_bank.slot, NULL );
+  fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, fee_payer_rec->meta, fee_payer_rec->pubkey, epoch );
+  fee_payer_rec->starting_lamports = fee_payer_rec->meta->info.lamports;
+
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L488 */
-  err = fd_executor_collect_fees( txn_ctx );
+  err = fd_executor_collect_fees( txn_ctx, fee_payer_rec );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }

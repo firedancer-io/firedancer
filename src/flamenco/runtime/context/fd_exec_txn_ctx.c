@@ -3,6 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../../vm/fd_vm.h"
+#include "../fd_account.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -151,11 +152,14 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t *        ctx,
   }
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
+  if( FD_UNLIKELY( !fd_txn_account_is_writable_idx( ctx, (int)idx ) ) ) {
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+
   if( min_data_sz > txn_account->const_meta->dlen ) {
     fd_borrowed_account_resize( txn_account, min_data_sz );
   }
 
-  // TODO: check if writable???
   *account = txn_account;
   return FD_ACC_MGR_SUCCESS;
 }

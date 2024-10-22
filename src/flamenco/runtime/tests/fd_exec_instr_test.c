@@ -687,15 +687,18 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
                                                 .exemption_threshold         = 2.0,
                                                 .burn_percent                = 50
                                                };
-  epoch_bank->epoch_schedule = default_epoch_schedule;
-  epoch_bank->rent           = default_rent;
-  epoch_bank->ticks_per_slot = 64;
-  epoch_bank->slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)epoch_bank->ticks_per_slot;
+  epoch_bank->epoch_schedule      = default_epoch_schedule;
+  epoch_bank->rent_epoch_schedule = default_epoch_schedule;
+  epoch_bank->rent                = default_rent;
+  epoch_bank->ticks_per_slot      = 64;
+  epoch_bank->slots_per_year      = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)epoch_bank->ticks_per_slot;
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    epoch_bank->epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
+    epoch_bank->epoch_schedule      = *slot_ctx->sysvar_cache->val_epoch_schedule;
+    epoch_bank->rent_epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
   }
+
   if( slot_ctx->sysvar_cache->has_rent ) {
     epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
   }
