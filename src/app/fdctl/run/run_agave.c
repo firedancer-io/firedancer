@@ -116,7 +116,7 @@ agave_boot( config_t * config ) {
   if( strcmp( config->gossip.host, "" ) ) {
     ADD( "--gossip-host", config->gossip.host );
   } else {
-    FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) ) );
+    FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.netrx.ip_addr) ) );
     ADD( "--gossip-host", ip_addr );
   }
   if( config->development.gossip.allow_private_address ) {
