@@ -904,6 +904,14 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
     return NULL;
   }
 
+  /* add to map of stream ids */
+  fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
+  if( FD_UNLIKELY( !entry ) ) {
+    /* return stream to pool */
+    fd_quic_stream_pool_free( state->stream_pool, stream );
+    return NULL;
+  }
+
   fd_quic_stream_init( stream );
   FD_QUIC_STREAM_LIST_INIT_STREAM( stream );
 
@@ -920,15 +928,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
   stream->stream_flags = 0u;
 
   memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
-
-  /* add to map of stream ids */
-  fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, stream->stream_id );
-  if( FD_UNLIKELY( !entry ) ) {
-    /* return stream to pool */
-    fd_quic_stream_pool_free( state->stream_pool, stream );
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-    return NULL;
-  }
 
   /* insert into used streams */
   FD_QUIC_STREAM_LIST_REMOVE( stream );
@@ -4129,7 +4128,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
     /* did we add any frames? */
 
-    if( !pkt_meta->flags ) {
+    if( payload_ptr==frame_start ) {
       /* we have data to add, but none was added, presumably due
          so space in the datagram */
       ulong free_bytes = (ulong)( payload_ptr - payload_end );
@@ -4310,13 +4309,18 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     }
 
     /* add to sent list */
-    fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
+    if( pkt_meta->flags ) {
+      fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
 
-    /* update rescheduling variable */
-    schedule = fd_ulong_min( schedule, pkt_meta->expiry );
+      /* update rescheduling variable */
+      schedule = fd_ulong_min( schedule, pkt_meta->expiry );
 
-    /* clear pkt_meta for next loop */
-    pkt_meta = NULL;
+      /* clear pkt_meta for next loop */
+      pkt_meta = NULL;
+    } else {
+      /* next iteration should skip the current packet number */
+      pkt_meta->pkt_number++;
+    }
 
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
