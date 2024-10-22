@@ -27,7 +27,7 @@ static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
-  FD_LOG_WARNING(("slot %lu", slot_ctx->slot_bank.slot));
+  FD_LOG_INFO(("slot %lu", slot_ctx->slot_bank.slot));
   return (long)( epoch_bank->genesis_creation_time + ( ( slot_ctx->slot_bank.slot * epoch_bank->ns_per_slot ) / NS_IN_S ) );
 }
 
