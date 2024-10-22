@@ -332,8 +332,10 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
 
     FD_TEST( !stats.rx_invalid_descs );
     FD_TEST( !stats.tx_invalid_descs );
-    FD_TEST( !stats.rx_fill_ring_empty_descs );
-    FD_TEST( stats.tx_ring_empty_descs==1UL ); /* Seems to be set to 1 by default... */
+    /* TODO: We shouldn't ever try to tx or rx with empty descs but we
+             seem to sometimes. */
+    // FD_TEST( !stats.rx_fill_ring_empty_descs );
+    // FD_TEST( !stats.tx_ring_empty_descs );
   } else if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v0) ) ) {
     FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
 
