@@ -275,6 +275,7 @@ typedef struct {
       ushort  tpu_vote_port;
       ushort  repair_serve_port;
       ulong   expected_shred_version;
+      ushort  gossip_verify_tile_count;
     } gossip;
 
     struct {

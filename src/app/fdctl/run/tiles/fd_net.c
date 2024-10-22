@@ -111,7 +111,7 @@ typedef struct {
 
   fd_net_out_ctx_t quic_out[1];
   fd_net_out_ctx_t shred_out[1];
-  fd_net_out_ctx_t gossip_out[1];
+  fd_net_out_ctx_t gossip_verify_out[1];
   fd_net_out_ctx_t repair_out[1];
 
   fd_ip_t *   ip;
@@ -233,7 +233,7 @@ net_rx_aio_send( void *                    _ctx,
       out = ctx->quic_out;
     } else if( FD_UNLIKELY( udp_dstport==ctx->gossip_listen_port ) ) {
       proto = DST_PROTO_GOSSIP;
-      out = ctx->gossip_out;
+      out = ctx->gossip_verify_out;
     } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
       proto = DST_PROTO_REPAIR;
       out = ctx->repair_out;
@@ -831,16 +831,16 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->shred_out->mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
       ctx->shred_out->wmark  = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
       ctx->shred_out->chunk  = ctx->shred_out->chunk0;
-    } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
+    } else if( strcmp( out_link->name, "net_gspvfy" ) == 0 ) {
       fd_topo_link_t * gossip_out = out_link;
-      ctx->gossip_out->mcache = gossip_out->mcache;
-      ctx->gossip_out->sync   = fd_mcache_seq_laddr( ctx->gossip_out->mcache );
-      ctx->gossip_out->depth  = fd_mcache_depth( ctx->gossip_out->mcache );
-      ctx->gossip_out->seq    = fd_mcache_seq_query( ctx->gossip_out->sync );
-      ctx->gossip_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
-      ctx->gossip_out->mem    = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->gossip_out->wmark  = fd_dcache_compact_wmark ( ctx->gossip_out->mem, gossip_out->dcache, gossip_out->mtu );
-      ctx->gossip_out->chunk  = ctx->gossip_out->chunk0;
+      ctx->gossip_verify_out->mcache = gossip_out->mcache;
+      ctx->gossip_verify_out->sync   = fd_mcache_seq_laddr( ctx->gossip_verify_out->mcache );
+      ctx->gossip_verify_out->depth  = fd_mcache_depth( ctx->gossip_verify_out->mcache );
+      ctx->gossip_verify_out->seq    = fd_mcache_seq_query( ctx->gossip_verify_out->sync );
+      ctx->gossip_verify_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
+      ctx->gossip_verify_out->mem    = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_verify_out->wmark  = fd_dcache_compact_wmark ( ctx->gossip_verify_out->mem, gossip_out->dcache, gossip_out->mtu );
+      ctx->gossip_verify_out->chunk  = ctx->gossip_verify_out->chunk0;
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
       fd_topo_link_t * repair_out = out_link;
       ctx->repair_out->mcache = repair_out->mcache;
@@ -863,7 +863,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_verify_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
