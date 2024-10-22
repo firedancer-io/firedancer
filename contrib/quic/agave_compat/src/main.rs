@@ -206,9 +206,10 @@ unsafe fn agave_to_fdquic_bench() {
         handshake_cnt: 1,
         conn_id_cnt: 4,
         rx_stream_cnt: 16,
+        stream_id_cnt: 16,
         inflight_pkt_cnt: 1024,
         tx_buf_sz: 0,
-        stream_pool_cnt: 1024,
+        stream_pool_cnt: 8,
     };
     let quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
