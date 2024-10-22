@@ -7,7 +7,19 @@
 #include <assert.h>
 
 fd_sbpf_validated_program_t *
-fd_sbpf_validated_program_new( void * mem ) {
+fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info ) {
+  fd_sbpf_validated_program_t * validated_prog = (fd_sbpf_validated_program_t *)mem;
+  
+  ulong l = FD_LAYOUT_INIT;
+
+  /* calldests backing memory */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
+  validated_prog->calldests_shmem = (uchar *)mem + l;
+  
+  /* rodata backing memory */
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
+  validated_prog->rodata = (uchar *)mem + l;
+
   return (fd_sbpf_validated_program_t *)mem;
 }
 
@@ -20,21 +32,10 @@ ulong
 fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
-  assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
   l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
   l = FD_LAYOUT_FINI( l, 128UL );
   return l;
-}
-
-uchar *
-fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog ) {
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
-  assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
-  l = FD_LAYOUT_FINI( l, FD_SBPF_PROG_RODATA_ALIGN );
-  return (uchar *)fd_type_pun(prog) + l;
 }
 
 static inline fd_funk_rec_key_t
@@ -150,14 +151,12 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
       return -1;
     }
 
-    uchar * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_sbpf_validated_program_t * validated_prog = (fd_sbpf_validated_program_t *)val;
-    validated_prog->rodata_sz = elf_info.rodata_sz;
-    uchar * rodata = fd_sbpf_validated_program_rodata( validated_prog );
-
+    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
+    
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-    fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_scratch_alloc( prog_align, prog_footprint ), &elf_info, rodata );
+    fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_scratch_alloc( prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
       if( update_program_blacklist ) {
         fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
@@ -236,7 +235,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
       }
     }
 
-    fd_memcpy( validated_prog->calldests, prog->calldests, fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
+    fd_memcpy( validated_prog->calldests_shmem, prog->calldests_shmem, fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
+    validated_prog->calldests = fd_sbpf_calldests_join( validated_prog->calldests_shmem );
 
     validated_prog->entry_pc = prog->entry_pc;
     validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;

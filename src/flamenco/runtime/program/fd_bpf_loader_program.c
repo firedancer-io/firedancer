@@ -499,9 +499,9 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     /* instr_ctx             */ instr_ctx,
     /* heap_max              */ heap_max, /* TODO configure heap allocator */
     /* entry_cu              */ instr_ctx->txn_ctx->compute_meter,
-    /* rodata                */ fd_sbpf_validated_program_rodata( prog ),
+    /* rodata                */ prog->rodata,
     /* rodata_sz             */ prog->rodata_sz,
-    /* text                  */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
+    /* text                  */ (ulong *)((ulong)prog->rodata + (ulong)prog->text_off), /* Note: text_off is byte offset */
     /* text_cnt              */ prog->text_cnt,
     /* text_off              */ prog->text_off,
     /* text_sz               */ prog->text_sz,
