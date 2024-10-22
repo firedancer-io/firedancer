@@ -116,6 +116,10 @@ typedef struct {
 
   fd_ip_t *   ip;
   long        ip_next_upd;
+
+  struct {
+    ulong tx_dropped_cnt;
+  } metrics;
 } fd_net_ctx_t;
 
 fd_net_init_ctx_t *
@@ -289,6 +293,8 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET_TILE, RECEIVED_BYTES,   rx_sz  );
   FD_MCNT_SET( NET_TILE, SENT_PACKETS,     tx_cnt );
   FD_MCNT_SET( NET_TILE, SENT_BYTES,       tx_sz  );
+
+  FD_MCNT_SET( NET_TILE, TX_DROPPED, ctx->metrics.tx_dropped_cnt );
 }
 
 static void
@@ -425,7 +431,9 @@ send_arp_probe( fd_net_ctx_t * ctx,
 
     /* send the probe */
     fd_aio_pkt_info_t aio_buf = { .buf = arp_buf, .buf_sz = (ushort)arp_len };
-    ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+    ulong sent_cnt;
+    ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
+    ctx->metrics.tx_dropped_cnt += 1UL-sent_cnt;
   }
 }
 
@@ -447,7 +455,9 @@ after_frag( fd_net_ctx_t *      ctx,
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
-    ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
+    ulong sent_cnt;
+    ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, 1 );
+    ctx->metrics.tx_dropped_cnt += 1UL-sent_cnt;
   } else {
     /* extract dst ip */
     uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( sig ) );
@@ -498,7 +508,9 @@ after_frag( fd_net_ctx_t *      ctx,
         /* set source mac address */
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
 
-        ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+        ulong sent_cnt;
+        ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
+        ctx->metrics.tx_dropped_cnt += 1UL-sent_cnt;
         break;
       case FD_IP_RETRY:
         /* refresh tables */
@@ -773,6 +785,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->src_ip_addr = tile->net.src_ip_addr;
   memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
+
+  ctx->metrics.tx_dropped_cnt = 0UL;
 
   ctx->shred_listen_port = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port = tile->net.quic_transaction_listen_port;

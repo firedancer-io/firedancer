@@ -38,6 +38,12 @@
 #define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_DESC "Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues."
 #define FD_METRICS_COUNTER_NET_TILE_XDP_RX_DROPPED_OTHER_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_COUNTER_NET_TILE_TX_DROPPED_OFF  (22UL)
+#define FD_METRICS_COUNTER_NET_TILE_TX_DROPPED_NAME "net_tile_tx_dropped"
+#define FD_METRICS_COUNTER_NET_TILE_TX_DROPPED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_NET_TILE_TX_DROPPED_DESC "Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles."
+#define FD_METRICS_COUNTER_NET_TILE_TX_DROPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_NET_TOTAL (6UL)
+
+#define FD_METRICS_NET_TOTAL (7UL)
 extern const fd_metrics_meta_t FD_METRICS_NET[FD_METRICS_NET_TOTAL];
