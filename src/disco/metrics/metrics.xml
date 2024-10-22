@@ -285,6 +285,20 @@ metric introduced.
   <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </group>
 
+<enum name="LutResolveResult">
+  <int value="-5" name="InvalidLookupIndex" label="The transaction referenced an index in a LUT that didn't exist" />
+  <int value="-4" name="AccountUninitialized" label="The account referenced as a LUT hasn't been initialized" />
+  <int value="-3" name="InvalidAccountData" label="The account referenced as a LUT couldn't be parsed" />
+  <int value="-2" name="InvalidAccountOwner" label="The account referenced as a LUT wasn't owned by the ALUT program ID" />
+  <int value="-1" name="AccountNotFound" label="The account referenced as a LUT couldn't be found" />
+  <int value="0" name="Success" label="Resolved successfully" />
+</enum>
+
+<group name="Resolv" tile="resolv">
+  <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
+  <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
+</group>
+
 <group name="Pack" tile="pack">
   <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of scheduling one microblock</summary>

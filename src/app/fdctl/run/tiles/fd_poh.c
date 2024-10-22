@@ -558,6 +558,7 @@ typedef struct poh_link poh_link_t;
 poh_link_t gossip_dedup;
 poh_link_t stake_out;
 poh_link_t crds_shred;
+poh_link_t replay_resolv;
 
 poh_link_t replay_plugin;
 poh_link_t gossip_plugin;
@@ -862,6 +863,8 @@ CALLED_FROM_RUST static inline void
 publish_plugin_slot_start( fd_poh_ctx_t * ctx,
                            ulong          slot,
                            ulong          parent_slot ) {
+  if( FD_UNLIKELY( !ctx->plugin_out->mem ) ) return;
+
   fd_plugin_msg_slot_start_t * slot_start = (fd_plugin_msg_slot_start_t *)fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
   *slot_start = (fd_plugin_msg_slot_start_t){ .slot = slot, .parent_slot = parent_slot };
   fd_stem_publish( ctx->stem, ctx->plugin_out->idx, FD_PLUGIN_MSG_SLOT_START, ctx->plugin_out->chunk, sizeof(fd_plugin_msg_slot_start_t), 0UL, 0UL, 0UL );
@@ -872,6 +875,8 @@ CALLED_FROM_RUST static inline void
 publish_plugin_slot_end( fd_poh_ctx_t * ctx,
                          ulong          slot,
                          ulong          cus_used ) {
+  if( FD_UNLIKELY( !ctx->plugin_out->mem ) ) return;
+
   fd_plugin_msg_slot_end_t * slot_end = (fd_plugin_msg_slot_end_t *)fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
   *slot_end = (fd_plugin_msg_slot_end_t){ .slot = slot, .cus_used = cus_used };
   fd_stem_publish( ctx->stem, ctx->plugin_out->idx, FD_PLUGIN_MSG_SLOT_END, ctx->plugin_out->chunk, sizeof(fd_plugin_msg_slot_end_t), 0UL, 0UL, 0UL );
@@ -1830,6 +1835,12 @@ fd_ext_plugin_publish_periodic( ulong   sig,
   poh_link_publish( &gossip_plugin, sig, data, data_len );
 }
 
+void
+fd_ext_resolv_publish_root_bank( uchar * data,
+                                 ulong   data_len ) {
+  poh_link_publish( &replay_resolv, 0UL, data, data_len );
+}
+
 static inline fd_poh_out_ctx_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
@@ -1902,10 +1913,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
+  poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
+  poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
+  poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
+  poh_link_init( &replay_resolv,         topo, tile, out1( topo, tile, "replay_resol" ).idx );
+
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
-    poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
-    poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
-    poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
     poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );
     poh_link_init( &gossip_plugin,         topo, tile, out1( topo, tile, "gossip_plugi" ).idx );
     poh_link_init( &start_progress_plugin, topo, tile, out1( topo, tile, "startp_plugi" ).idx );
@@ -1915,9 +1928,6 @@ unprivileged_init( fd_topo_t *      topo,
        memory is not set so nothing will actually get published via.
        the links. */
     FD_COMPILER_MFENCE();
-    gossip_dedup.mcache = (fd_frag_meta_t*)1;
-    stake_out.mcache = (fd_frag_meta_t*)1;
-    crds_shred.mcache = (fd_frag_meta_t*)1;
     replay_plugin.mcache = (fd_frag_meta_t*)1;
     gossip_plugin.mcache = (fd_frag_meta_t*)1;
     start_progress_plugin.mcache = (fd_frag_meta_t*)1;
@@ -1969,6 +1979,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   *ctx->shred_out = out1( topo, tile, "poh_shred" );
   *ctx->pack_out  = out1( topo, tile, "poh_pack" );
+  ctx->plugin_out->mem = NULL;
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
     *ctx->plugin_out = out1( topo, tile, "poh_plugin" );
   }

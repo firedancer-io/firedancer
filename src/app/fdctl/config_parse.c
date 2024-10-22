@@ -272,6 +272,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   layout.agave_affinity                            );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
+  CFG_POP      ( uint,   layout.resolv_tile_count                         );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
@@ -423,6 +424,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
+  CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
