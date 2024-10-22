@@ -4157,9 +4157,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                             FD_QUIC_CRYPTO_TAG_SZ;
     uint padding      = initial_pkt ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
 
-    /* TODO possibly don't need both SAMPLE_SZ and TAG_SZ */
-    if( base_pkt_len + padding < ( FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_TAG_SZ ) ) {
-      padding = FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_TAG_SZ - base_pkt_len;
+    if( base_pkt_len + padding < FD_QUIC_CRYPTO_SAMPLE_SZ ) {
+      padding = FD_QUIC_CRYPTO_SAMPLE_SZ - base_pkt_len;
     }
 
     /* this length includes the packet number length (pkt_number_len+1),
