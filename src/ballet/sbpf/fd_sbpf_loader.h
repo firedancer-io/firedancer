@@ -91,6 +91,7 @@ struct fd_sbpf_elf_info {
      In [-1,USHORT_MAX) where -1 means "not found" */
   int shndx_text;
   int shndx_symtab;
+  int shndx_strtab;
   int shndx_dyn;
   int shndx_dynstr;
 
