@@ -174,7 +174,7 @@ interp_exec:
   /* Note: when tracing or optimizing for code footprint, all
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
-
+  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext;
   fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
 # endif
 
