@@ -37,15 +37,14 @@ static       fd_wksp_t * wksp = NULL;
 #define WKSP_TAG 2
 
 void
-sol_compat_init( void ) {
+sol_compat_init( int log_level ) {
   assert( !smem );
-
   int argc = 1;
   char * argv[2] = { (char *)"fd_exec_sol_compat", NULL };
   char ** argv_ = argv;
   setenv( "FD_LOG_PATH", "", 1 );
   fd_boot( &argc, &argv_ );
-  fd_log_level_logfile_set(5);
+  fd_log_level_logfile_set( log_level );
   fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
