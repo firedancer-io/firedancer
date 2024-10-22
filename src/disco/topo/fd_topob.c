@@ -347,6 +347,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "quic",
     "verify",
     "dedup",
+    "resolv",
     "pack",
     "bank",
     "poh",

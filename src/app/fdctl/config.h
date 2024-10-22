@@ -134,6 +134,7 @@ typedef struct {
 
     uint net_tile_count;
     uint quic_tile_count;
+    uint resolv_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;

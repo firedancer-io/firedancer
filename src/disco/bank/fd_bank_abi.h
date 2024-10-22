@@ -48,12 +48,12 @@
    values are persisted to logs.  Entries should not be renumbered and
    numeric values should never be reused. */
 
-#define FD_BANK_ABI_TXN_INIT_SUCCESS                          (0)
-#define FD_BANK_ABI_TXN_INIT_ERR_SLOT_HASHES_SYSVAR_NOT_FOUND (1)
-#define FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_NOT_FOUND            (2)
-#define FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_OWNER        (3)
-#define FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA         (4)
-#define FD_BANK_ABI_TXN_INIT_ERR_INVALID_INDEX                (5)
+#define FD_BANK_ABI_TXN_INIT_SUCCESS                   ( 0)
+#define FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_NOT_FOUND     (-1)
+#define FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_OWNER (-2)
+#define FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA  (-3)
+#define FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED (-4)
+#define FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX  (-5)
 
 /* fd_bank_abi_txn_t is a struct that is ABI compatible with
    `solana_sdk::transaction::sanitized::SanitizedTransaction`.  It is an
@@ -84,6 +84,27 @@ typedef struct fd_bank_abi_txn_private fd_bank_abi_txn_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* This function resolves the address lookup tables for the provided
+   transaction by writing them out to the out_lut_accts.  The accounts
+   are written, writable first, then readable, in the order they are
+   referenced by the transaction.
+
+   The function returns FD_BANK_ABI_TXN_INIT_SUCCESS on success and one
+   of the FD_BANK_ABI_TXN_INIT_ERR_* error codes on failure.
+   
+   The address lookup table is retrieved as-of a particular slot that's
+   provided.  The slot is important in determining if the ALUT has been
+   deactivated yet, or if it has been extended and the extension is in
+   effect (extensions do not become active on the slot they occur in). */
+
+int
+fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
+                                           int              fixed_root,
+                                           ulong            slot,
+                                           fd_txn_t const * txn,
+                                           uchar const *    payload,
+                                           fd_acct_addr_t * out_lut_accts );
+
 /* This function takes a pointer to a buffer of at least size
    FD_BANK_ABI_TXN_FOOTPRINT where the resulting fd_bank_abi_txn_t will
    be constructed and returns FD_BANK_ABI_TXN_INIT_SUCCESS on success
@@ -93,15 +114,14 @@ FD_PROTOTYPES_BEGIN
    extremely fast, mostly just laying out a struct.
 
    Constructing a "v1" transaction is slower.  In this case we need to
-   load the addresses used by the transaction, which requires locking
-   the "sysvar_cache" of the bank, and might contend with other bank
-   threads.  It also goes and fetches the address from the related
-   address lookup program in the accounts database. */
+   load the addresses used by the transaction, which requires retrieving
+   the related address lookup program accounts in the accounts database. */
 
 int
 fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,       /* Memory to place the result in, must be at least FD_BANK_ABI_TXN_FOOTPRINT bytes. */
                       uchar *             out_sidecar,   /* Memory to place sidecar data in, must be at least FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR( out_txn ) bytes. */
                       void const *        bank,          /* Pointer to an Agave `Bank` object the transaction is being loaded for.  */
+                      ulong               slot,          /* Slot the transaction is being loaded for. */
                       fd_blake3_t *       blake3,        /* Blake3 implementation used to create `message_hash` of the transaction. */
                       uchar *             payload,       /* Transaction raw wire payload. */
                       ulong               payload_sz,    /* Transaction raw wire size. */
