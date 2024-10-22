@@ -90,7 +90,7 @@ struct fd_gui_txn_waterfall {
   } in;
 
   struct {
-    ulong net_overrun;
+    ulong netrx_overrun;
     ulong quic_overrun;
     ulong quic_quic_invalid;
     ulong quic_udp_invalid;
@@ -237,7 +237,8 @@ struct fd_gui {
     ulong balance;
     ulong estimated_slot_duration_nanos;
 
-    ulong net_tile_cnt;
+    ulong netrx_tile_cnt;
+    ulong nettx_tile_cnt;
     ulong quic_tile_cnt;
     ulong verify_tile_cnt;
     ulong bank_tile_cnt;

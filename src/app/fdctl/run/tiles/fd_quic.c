@@ -8,7 +8,6 @@
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xsk_aio.h"
 #include "../../../../waltz/xdp/fd_xsk.h"
-#include "../../../../waltz/ip/fd_netlink.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
 #include <linux/unistd.h>
@@ -53,15 +52,15 @@ typedef struct {
   ulong       in_chunk0;
   ulong       in_wmark;
 
-  fd_frag_meta_t * net_out_mcache;
-  ulong *          net_out_sync;
-  ulong            net_out_depth;
-  ulong            net_out_seq;
+  fd_frag_meta_t * nettx_out_mcache;
+  ulong *          nettx_out_sync;
+  ulong            nettx_out_depth;
+  ulong            nettx_out_seq;
 
-  fd_wksp_t * net_out_mem;
-  ulong       net_out_chunk0;
-  ulong       net_out_wmark;
-  ulong       net_out_chunk;
+  fd_wksp_t * nettx_out_mem;
+  ulong       nettx_out_chunk0;
+  ulong       nettx_out_wmark;
+  ulong       nettx_out_chunk;
 
   fd_wksp_t * verify_out_mem;
 
@@ -137,14 +136,6 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
   fd_stem_advance( stem, 0UL );
-}
-
-/* Because of the separate mcache for publishing network fragments
-   back to networking tiles, which is not managed by the mux, we
-   need to periodically update the sync. */
-static void
-during_housekeeping( fd_quic_ctx_t * ctx ) {
-  fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 }
 
 /* This tile always publishes messages downstream, even if there are
@@ -436,7 +427,7 @@ quic_tx_aio_send( void *                    _ctx,
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
   for( ulong i=0; i<batch_cnt; i++ ) {
-    void * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    void * dst = fd_chunk_to_laddr( ctx->nettx_out_mem, ctx->nettx_out_chunk );
     fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
 
     uchar const * packet = dst;
@@ -465,18 +456,18 @@ quic_tx_aio_send( void *                    _ctx,
     ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dstaddr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_mcache_publish( ctx->net_out_mcache,
-                       ctx->net_out_depth,
-                       ctx->net_out_seq,
+    fd_mcache_publish( ctx->nettx_out_mcache,
+                       ctx->nettx_out_depth,
+                       ctx->nettx_out_seq,
                        sig,
-                       ctx->net_out_chunk,
+                       ctx->nettx_out_chunk,
                        batch[ i ].buf_sz,
                        0,
                        0,
                        tspub );
 
-    ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+    ctx->nettx_out_seq   = fd_seq_inc( ctx->nettx_out_seq, 1UL );
+    ctx->nettx_out_chunk = fd_dcache_compact_next( ctx->nettx_out_chunk, FD_NET_MTU, ctx->nettx_out_chunk0, ctx->nettx_out_wmark );
   }
 
   if( FD_LIKELY( opt_batch_idx ) ) {
@@ -522,14 +513,14 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->in_cnt!=2UL ||
-                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "netrx_quic" ) ||
                    strcmp( topo->links[ tile->in_link_id[ 1UL ] ].name, "sign_quic" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
   if( FD_UNLIKELY( tile->out_cnt!=3UL ||
                    strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_nettx" ) ||
                    strcmp( topo->links[ tile->out_link_id[ 2UL ] ].name, "quic_sign" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
@@ -603,16 +594,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
   ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
+  fd_topo_link_t * nettx_out = &topo->links[ tile->out_link_id[ 1 ] ];
 
-  ctx->net_out_mcache = net_out->mcache;
-  ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
-  ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
-  ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
-  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
-  ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
-  ctx->net_out_chunk  = ctx->net_out_chunk0;
+  ctx->nettx_out_mcache = nettx_out->mcache;
+  ctx->nettx_out_sync   = fd_mcache_seq_laddr( ctx->nettx_out_mcache );
+  ctx->nettx_out_depth  = fd_mcache_depth( ctx->nettx_out_mcache );
+  ctx->nettx_out_seq    = fd_mcache_seq_query( ctx->nettx_out_sync );
+
+  ctx->nettx_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( nettx_out->dcache ), nettx_out->dcache );
+  ctx->nettx_out_mem    = topo->workspaces[ topo->objs[ nettx_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->nettx_out_wmark  = fd_dcache_compact_wmark ( ctx->nettx_out_mem, nettx_out->dcache, nettx_out->mtu );
+  ctx->nettx_out_chunk  = ctx->nettx_out_chunk0;
 
   if( FD_UNLIKELY( !tile->out_cnt ) )
     FD_LOG_ERR(( "quic tile has no primary output link" ));
@@ -672,12 +664,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_METRICS_WRITE       metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

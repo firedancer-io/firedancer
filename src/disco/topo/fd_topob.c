@@ -343,8 +343,9 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
   char const * ORDERED[] = {
     "benchg",
     "benchs",
-    "net",
+    "netrx",
     "quic",
+    "nettx",
     "verify",
     "dedup",
     "pack",

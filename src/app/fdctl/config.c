@@ -492,10 +492,10 @@ fdctl_cfg_from_env( int *      pargc,
   int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
   if( FD_UNLIKELY( netns ) ) {
     config->development.netns.enabled = 1;
-    strncpy( config->tiles.net.interface,
+    strncpy( config->tiles.netrx.interface,
              config->development.netns.interface0,
-             sizeof(config->tiles.net.interface) );
-    config->tiles.net.interface[ sizeof(config->tiles.net.interface) - 1 ] = '\0';
+             sizeof(config->tiles.netrx.interface) );
+    config->tiles.netrx.interface[ sizeof(config->tiles.netrx.interface) - 1 ] = '\0';
   }
 
   if( FD_UNLIKELY( !strcmp( config->user, "" ) ) ) {
@@ -512,7 +512,7 @@ fdctl_cfg_from_env( int *      pargc,
   strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
   config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
-  if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
+  if( FD_UNLIKELY( !strcmp( config->tiles.netrx.interface, "" ) && !config->development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
     if( FD_UNLIKELY( ifindex == -1 ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
@@ -522,7 +522,7 @@ fdctl_cfg_from_env( int *      pargc,
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.net.interface ) ) )
+    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.netrx.interface ) ) )
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
@@ -532,20 +532,20 @@ fdctl_cfg_from_env( int *      pargc,
   config->is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) )
+    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.netrx.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
                    "[development.netns.interface0] is the same as [net.interface]" ));
 
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.netrx.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( config->development.netns.interface0_mac, config->tiles.net.mac_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( config->development.netns.interface0_mac, config->tiles.netrx.mac_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", config->development.netns.interface0_mac ));
   } else {
-    if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
-    uint iface_ip = listen_address( config->tiles.net.interface );
+    if( FD_UNLIKELY( !if_nametoindex( config->tiles.netrx.interface ) ) )
+      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.netrx.interface ));
+    uint iface_ip = listen_address( config->tiles.netrx.interface );
     if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
       uint gossip_ip_addr = iface_ip;
       int  has_gossip_ip4 = 0;
@@ -565,11 +565,11 @@ fdctl_cfg_from_env( int *      pargc,
                    "behind a NAT and this interface is publicly reachable, you can continue by "
                    "manually specifying the IP address to advertise in your configuration under "
                    "[gossip.host].",
-                   config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+                   config->tiles.netrx.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
 
-    config->tiles.net.ip_addr = iface_ip;
-    mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
+    config->tiles.netrx.ip_addr = iface_ip;
+    mac_address( config->tiles.netrx.interface, config->tiles.netrx.mac_addr );
   }
 
   username_to_id( config );
