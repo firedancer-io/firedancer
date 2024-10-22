@@ -365,6 +365,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       REQUIRE( (info->shndx_symtab)<0 );
       info->shndx_symtab = (int)i;
     }
+    else if( 0==memcmp( name, ".strtab",   8UL /* equals     */ ) ) {
+      REQUIRE( (info->shndx_strtab)<0 );
+      info->shndx_strtab = (int)i;
+    }
     else if( 0==memcmp( name, ".dynstr",   8UL /* equals     */ ) ) {
       REQUIRE( (info->shndx_dynstr)<0 );
       info->shndx_dynstr = (int)i;
@@ -491,6 +495,7 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
     .rodata_sz        = 0U,
     .shndx_text       = -1,
     .shndx_symtab     = -1,
+    .shndx_strtab     = -1,
     .shndx_dyn        = -1,
     .shndx_dynstr     = -1,
     .phndx_dyn        = -1,
