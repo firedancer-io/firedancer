@@ -25,7 +25,7 @@ fd_ext_blockstore_insert_shreds( void const *  blockstore FD_PARAM_UNUSED,
                                  int           is_trusted FD_PARAM_UNUSED ) { return 0; }
 
 extern int
-fd_ext_bank_sanitized_txn_load_addresess( void const * bank FD_PARAM_UNUSED,
+fd_ext_bank_sanitized_txn_load_addresses( void const * bank FD_PARAM_UNUSED,
                                           void *       address_table_lookups FD_PARAM_UNUSED,
                                           ulong        address_table_lookups_cnt FD_PARAM_UNUSED,
                                           void *       out_sidecar FD_PARAM_UNUSED ) { return 0; }
