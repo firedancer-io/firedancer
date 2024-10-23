@@ -18,6 +18,7 @@ extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
+extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_poh;
@@ -35,6 +36,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_quic,
   &fd_tile_verify,
   &fd_tile_dedup,
+  &fd_tile_resolv,
   &fd_tile_pack,
   &fd_tile_bank,
   &fd_tile_poh,

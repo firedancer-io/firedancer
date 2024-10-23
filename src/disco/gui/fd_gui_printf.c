@@ -496,6 +496,7 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui, "verify_failed",     cur->out.verify_failed     - prev->out.verify_failed );
       jsonp_ulong( gui, "verify_duplicate",  cur->out.verify_duplicate  - prev->out.verify_duplicate );
       jsonp_ulong( gui, "dedup_duplicate",   cur->out.dedup_duplicate   - prev->out.dedup_duplicate );
+      jsonp_ulong( gui, "resolv_failed",     cur->out.resolv_failed     - prev->out.resolv_failed );
       jsonp_ulong( gui, "pack_invalid",      cur->out.pack_invalid      - prev->out.pack_invalid );
       jsonp_ulong( gui, "pack_expired",      cur->out.pack_expired      - prev->out.pack_expired );
       jsonp_ulong( gui, "pack_retained",     cur->out.pack_retained );
