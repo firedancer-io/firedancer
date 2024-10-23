@@ -161,6 +161,14 @@ fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
 }
 
+/* fd_pack_current_block_cost returns the number of CUs that have been
+   scheduled in the current block, net of any rebates.  It should be
+   between 0 and the specified value of max_cost_per_block, but it can
+   be slightly higher due to temporary cost model nonsense.  Due to
+   rebates, this number may decrease as the block progresses.  pack must
+   be a valid local join. */
+FD_FN_PURE ulong fd_pack_current_block_cost( fd_pack_t const * pack );
+
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
    must be a valid local join.  The result will be in [1,

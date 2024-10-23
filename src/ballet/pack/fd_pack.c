@@ -1605,7 +1605,8 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   return scheduled;
 }
 
-ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack ) { return pack->bank_tile_cnt;   }
+ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
+ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
 
 
 void
