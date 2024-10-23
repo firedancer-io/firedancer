@@ -140,7 +140,11 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     ctx->compute_unit_price      = updated_compute_unit_price;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/runtime-transaction/src/compute_budget_instruction_details.rs#L84-L93 */
   if( has_loaded_accounts_data_size_limit_update ) {
+    if( FD_UNLIKELY( updated_loaded_accounts_data_size_limit==0UL ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+    }
     ctx->loaded_accounts_data_size_limit = 
       fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, updated_loaded_accounts_data_size_limit );
   }

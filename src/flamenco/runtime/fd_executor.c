@@ -304,13 +304,7 @@ accumulate_and_check_loaded_account_data_size( ulong   acc_size,
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  ulong requested_loaded_accounts_data_size = 0UL;
-
-  if( FD_UNLIKELY( txn_ctx->loaded_accounts_data_size_limit==0UL ) ) {
-    return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  }
-  requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-
+  ulong requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
   ulong accumulated_account_size = 0UL;
   uchar loader_v4_active = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_program_runtime_v2_and_loader_v4);
 
