@@ -200,6 +200,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   int   direct_mapping;   /* If direct mapping is enabled or not */
   ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
+
+  /* Agave reports different error codes (for developers to understand the failure cause) if direct mapping is 
+     enabled AND we halt on a segfault caused by a store on an invalid vaddr. */
+  ulong segv_store_vaddr;
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
@@ -214,7 +218,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527280UL)
+#define FD_VM_FOOTPRINT (527296UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.

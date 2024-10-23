@@ -22,6 +22,7 @@ dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/1bb2723ee521
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/1bed4a6615458dbd6911342d71cd8f09868d45f9_3958200.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/1bed4a6615458dbd6911342d71cd8f09868d45f9_3958291.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/1bed4a6615458dbd6911342d71cd8f09868d45f9_3958468.fix
+dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/2090a587a04206ad76243d83c10cc268c36657a1_1935730.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/20cf1977b00393c17a0b72e2402b494f5bdc0e41_1634443.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/20cf1977b00393c17a0b72e2402b494f5bdc0e41_1634460.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/20cf1977b00393c17a0b72e2402b494f5bdc0e41_1634491.fix
@@ -116,6 +117,7 @@ dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/6c6093fe4b20
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/6fcca9123ef81447b6580f68f7e27ad764fe1abd_1634802.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/6fcca9123ef81447b6580f68f7e27ad764fe1abd_1634830.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/6fcca9123ef81447b6580f68f7e27ad764fe1abd_1634861.fix
+dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/73e6f237fac3c2f596ea5a23ed25797253bf21e1_2006324.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/76a85711273506fb453392f07743e86a00544731_3963150.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/76a85711273506fb453392f07743e86a00544731_3963216.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/76a85711273506fb453392f07743e86a00544731_3963386.fix
@@ -215,6 +217,7 @@ dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/c31d2856a338
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/c3a2e63685068875d0ff0be883452e8949e1925a_3962213.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/c3a2e63685068875d0ff0be883452e8949e1925a_3962302.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/c3a2e63685068875d0ff0be883452e8949e1925a_3962448.fix
+dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/c7599be1caf155307b726bf8c36febfde23bfe61_1867361.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/ccb509d556c25ab277b319458f544ce91afb6668_1633515.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/ccb509d556c25ab277b319458f544ce91afb6668_1633533.fix
 dump/test-vectors/instr/fixtures/bpf-loader-upgradeable-v1-programs/ccb509d556c25ab277b319458f544ce91afb6668_1633563.fix
