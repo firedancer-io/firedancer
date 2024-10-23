@@ -2677,6 +2677,12 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * - Feature gated, but live on mainnet.
    */
   case fd_vote_instruction_enum_compact_update_vote_state_switch: {
+    /* https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/vote/src/vote_processor.rs#L183-L191 */
+    if( FD_FEATURE_ACTIVE( ctx->slot_ctx, deprecate_legacy_vote_ixs ) &&
+        FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_tower_sync_ix ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     fd_compact_vote_state_update_t * vote_state_update = NULL;
     if( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
       vote_state_update = &instruction.inner.compact_update_vote_state;
