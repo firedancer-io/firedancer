@@ -78,6 +78,11 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
 fd_slot_hashes_t *
 fd_sysvar_slot_hashes_read( fd_slot_hashes_t *    result,
                             fd_exec_slot_ctx_t *  slot_ctx ) {
+  fd_slot_hashes_t const * ret = fd_sysvar_cache_slot_hashes( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( NULL != ret ) ) {
+    fd_memcpy(result, ret, sizeof(fd_slot_hashes_t));
+    return result;
+  }
 
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->slot_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 

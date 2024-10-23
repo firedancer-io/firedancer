@@ -52,6 +52,11 @@ write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
 fd_epoch_schedule_t *
 fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
                                fd_exec_slot_ctx_t  * slot_ctx ) {
+  fd_epoch_schedule_t const * ret = fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( NULL != ret ) ) {
+    fd_memcpy(result, ret, sizeof(fd_epoch_schedule_t));
+    return result;
+  }
 
   FD_BORROWED_ACCOUNT_DECL(acc);
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_schedule_id, acc );
@@ -99,7 +104,7 @@ fd_epoch_slot0( fd_epoch_schedule_t const * schedule,
   }
 
   return fd_ulong_sat_add(
-          fd_ulong_sat_mul( 
+          fd_ulong_sat_mul(
             fd_ulong_sat_sub(
               epoch,
               schedule->first_normal_epoch),

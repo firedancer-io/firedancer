@@ -12,6 +12,12 @@ fd_rent_t *
 fd_sysvar_rent_read( fd_rent_t *          result,
                      fd_exec_slot_ctx_t * slot_ctx ) {
 
+  fd_rent_t const * ret = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( NULL != ret ) ) {
+    fd_memcpy(result, ret, sizeof(fd_rent_t));
+    return result;
+  }
+
   FD_BORROWED_ACCOUNT_DECL(rent_rec);
 
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_rent_id, rent_rec );

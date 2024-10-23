@@ -36,6 +36,11 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
                                   fd_exec_slot_ctx_t const *          slot_ctx ) {
+  fd_sol_sysvar_last_restart_slot_t const * ret = fd_sysvar_cache_last_restart_slot( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( NULL != ret ) ) {
+    fd_memcpy(result, ret, sizeof(fd_sol_sysvar_last_restart_slot_t));
+    return result;
+  }
 
   FD_BORROWED_ACCOUNT_DECL(acc);
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, acc);
