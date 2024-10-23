@@ -488,6 +488,7 @@ fd_vm_init(
   vm->is_deprecated = is_deprecated;
   vm->direct_mapping = direct_mapping;
   vm->stack_frame_size = FD_VM_STACK_FRAME_SZ + ( direct_mapping ? 0UL : FD_VM_STACK_GUARD_SZ );
+  vm->segv_store_vaddr = ULONG_MAX;
 
   /* Unpack the configuration */
   int err = fd_vm_setup_state_for_execution( vm );

@@ -575,22 +575,62 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     fd_log_collector_program_return( instr_ctx );
   }
 
+  /* Handles instr + EBPF errors */
   if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
+
+    /* Instr error case */
     if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
       return instr_ctx->txn_ctx->exec_err;
+    }
+    
+    /* EBPF error case 
+       Edge case with error codes: if direct mapping is enabled, the EBPF error is an access violation,
+       and the access type was a store, a different error code is returned to give developers more insight
+       as to what caused the error.
+       https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1436-L1470 */
+    if( FD_UNLIKELY( direct_mapping && exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION && vm->segv_store_vaddr!=ULONG_MAX ) ) {
+      /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
+      if( FD_UNLIKELY( vm->segv_store_vaddr>>32UL==0UL ) ) {
+        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+      }
+    
+      /* Find the account meta corresponding to the vaddr */
+      ulong vaddr_offset = vm->segv_store_vaddr & 0xFFFFFFFFUL;
+      ulong acc_region_addl_off = is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
+
+      for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
+        fd_borrowed_account_t * instr_acc = instr_ctx->instr->borrowed_accounts[i];
+        ulong idx = acc_region_metas[i].region_idx;
+
+        if( input_mem_regions[idx].vaddr_offset<=vaddr_offset && vaddr_offset<input_mem_regions[idx].vaddr_offset+pre_lens[i]+acc_region_addl_off ) {
+          /* Found an input mem region! 
+            https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1461-L1467 */
+          int err;
+          if( fd_account_is_executable( instr_acc->const_meta ) ) {
+            err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
+          } else if( fd_instr_acc_is_writable_idx( instr_ctx->instr, i ) ) {
+            err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
+          } else {
+            err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
+          }
+          FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+          return err;
+        }
+      }
     }
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
   }
 
-  /* TODO: vm should report */
-  ulong err = vm->reg[0];
-  if( FD_UNLIKELY( err ) ) {
+  /* Handles syscall errors
+     TODO: vm should report */
+  ulong syscall_err = vm->reg[0];
+  if( FD_UNLIKELY( syscall_err ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1431-L1434 */
     instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
-    return program_error_to_instr_error( err, &instr_ctx->txn_ctx->custom_err );
+    return program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
   }
 
   if( FD_UNLIKELY( is_deprecated ) ) {
