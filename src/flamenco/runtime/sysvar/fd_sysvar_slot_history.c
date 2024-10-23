@@ -120,7 +120,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_valloc_t valloc, 
+                            fd_valloc_t valloc,
                             fd_slot_history_t * out_history) {
   /* Set current_slot, and update next_slot */
 
@@ -137,7 +137,7 @@ fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
   ctx.valloc  = valloc;
   if( fd_slot_history_decode( out_history, &ctx ) )
     FD_LOG_ERR(("fd_slot_history_decode failed"));
-  
+
   return 0;
 }
 
