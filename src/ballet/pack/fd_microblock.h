@@ -62,7 +62,10 @@ struct __attribute__((aligned(64))) fd_txn_p {
    } bank_cu; /* Populated by bank. */
    ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
   };
-  uint  flags; /* Populated by pack, bank.  A combination of the bitfields FD_TXN_P_FLAGS_* defined above */
+  /* Populated by pack, bank.  A combination of the bitfields
+     FD_TXN_P_FLAGS_* defined above.  The bank sets the high byte with
+     the transaction result code. */
+  uint  flags;
   /* union {
     This would be ideal but doesn't work because of the flexible array member
     uchar _[FD_TXN_MAX_SZ];

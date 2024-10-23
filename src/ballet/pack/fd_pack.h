@@ -50,9 +50,18 @@
 
 /* ---- End consensus-critical constants */
 
-#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE   (1U)
-#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
-#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
+#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE     ( 1U)
+#define FD_TXN_P_FLAGS_BUNDLE             ( 2U)
+#define FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ( 4U)
+#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS   ( 8U)
+#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS    (16U)
+
+#define FD_TXN_P_FLAGS_RESULT_MASK  (0xFF000000U)
+
+/* A bundle is a sequence of between 1 and FD_PACK_MAX_TXN_PER_BUNDLE
+   transactions (both inclusive) that executes and commits atomically.
+ */
+#define FD_PACK_MAX_TXN_PER_BUNDLE      5UL
 
 
 /* The Solana network and Firedancer implementation details impose
@@ -115,6 +124,14 @@ typedef struct fd_pack_private fd_pack_t;
    pack_depth sets the maximum number of pending transactions that pack
    stores and may eventually schedule.  pack_depth must be at least 4.
 
+   bundle_depth sets the minimum maximum number of pending bundles that
+   pack stores and may eventually schedule.  That's a confusing way to
+   describe it, but if bundle_depth is N, pack will always be able to
+   store up to N pending bundles; if the bundles are small, it may be
+   able to store a few more than N.  Each bundle may contain up to
+   FD_PACK_MAX_TXN_PER_BUNDLE transactions.  bundle_depth==0 is okay, in
+   which case bundle support will be disabled.
+
    bank_tile_cnt sets the number of bank tiles to which this pack object
    can schedule transactions.  bank_tile_cnt must be in [1,
    FD_PACK_MAX_BANK_TILES].
@@ -126,6 +143,7 @@ FD_FN_CONST static inline ulong fd_pack_align       ( void ) { return FD_PACK_AL
 
 FD_FN_PURE ulong
 fd_pack_footprint( ulong                    pack_depth,
+                   ulong                    bundle_depth,
                    ulong                    bank_tile_cnt,
                    fd_pack_limits_t const * limits );
 
@@ -133,15 +151,19 @@ fd_pack_footprint( ulong                    pack_depth,
 /* fd_pack_new formats a region of memory to be suitable for use as a
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
-   pack_depth, bank_tile_cnt, and limits are as above.  rng is a local
-   join to a random number generator used to perturb estimates.
+   pack_depth, bundle_depth, bank_tile_cnt, and limits are as above.
+   rng is a local join to a random number generator used to perturb
+   estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
-void * fd_pack_new( void * mem,
-    ulong pack_depth, ulong bank_tile_cnt, fd_pack_limits_t const * limits,
-    fd_rng_t * rng );
+void * fd_pack_new( void                   * mem,
+                    ulong                    pack_depth,
+                    ulong                    bundle_depth,
+                    ulong                    bank_tile_cnt,
+                    fd_pack_limits_t const * limits,
+                    fd_rng_t               * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
@@ -155,7 +177,7 @@ fd_pack_t * fd_pack_join( void * mem );
 
 /* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
    in fd_pack.c. */
-#define FD_PACK_PENDING_TXN_CNT_OFF 64
+#define FD_PACK_PENDING_TXN_CNT_OFF 72
 FD_FN_PURE static inline ulong
 fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
@@ -233,6 +255,8 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
       Write-locking a sysvar can cause heavy contention.  Agave
       solves this by downgrading these to read locks, but we instead
       solve it by refusing to pack such transactions.
+    * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
+      account in the bundle blacklist.
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -297,6 +321,178 @@ fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                        
 int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at );
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                   );
 
+
+/* fd_pack_insert_bundle_{init,fini,cancel} are parallel to the
+   similarly named fd_pack_insert_tnx functions but can be used to
+   insert a bundle instead of a transaction.
+
+   fd_pack_insert_bundle_init populates and returns bundle.
+   Specifically, it populates bundle[0], ...  bundle[txn_cnt-1] with
+   pointers to fd_txn_p_t structs that should receive a new transaction.
+   The pointers themselves should not be changed which is what the const
+   indicates, but the contents of the fd_txn_p_t structs must be changed
+   in order for this to be useful.  bundle must be a pointer to the
+   first element of an array of at least txn_cnt pointers.
+
+   The bundle consists of the transactions in the order they are
+   provided.  I.e. bundle[0] will execute first in the bundle.
+
+   Like with insert_txn, every call to fd_pack_insert_bundle_init must
+   be paired with a call to exactly one of _fini or _cancel.  Calling
+   fd_pack_insert_bundle_fini finalizes the bundle insertion process and
+   makes the newly-inserted bundle available for scheduling.  Calling
+   fd_pack_insert_bundle_cancel aborts the transaction insertion
+   process.  The bundle argument passed to _fini or _cancel must be the
+   return value of the most recent call to _init with the same value of
+   txn_cnt.
+
+   The caller of these methods should not retain any read or write
+   interest in the fd_txn_p_t structs that the entries of bundle
+   point to after _fini or _cancel have been called.
+
+   expires_at has the same meaning as above.  Although transactions in
+   the bundle may have different recent blockhashes, all transactions in
+   the bundle have the same expires_at value, since if one expires, the
+   whole bundle becomes invalid.
+
+   If initializer_bundle is non-zero, the transactions in the bundle will
+   not be checked against the bundle blacklist; otherwise, the check will be
+   performed as normal.  See the section below on initializer bundles
+   for more details.  Other than the blacklist check, transactions in a
+   bundle are subject to the same checks as other transactions.  If any
+   transaction in the bundle fails validation, the whole bundle will be
+   rejected.
+
+   txn_cnt must be in [1, MAX_TXN_PER_BUNDLE].  A txn_cnt of 1 inserts a
+   single-transaction bundle which is transaction with extremely high
+   priority.  That said, inserting transactions as bundles instead of
+   transactions can hurt performance and throughput by introducing
+   unnecessary stalls.
+
+   fd_pack_insert_bundle_fini returns one of the FD_PACK_INSERT_ACCEPT_*
+   or FD_PACK_INSERT_REJECT_* codes explained above.  If there are
+   multiple reasons for rejecting a bundle, the exact reason it returns
+   is unspecified.
+
+   These functions must not be called if the pack object was initialized
+   with bundle_depth==0. */
+
+fd_txn_e_t * const * fd_pack_insert_bundle_init  ( fd_pack_t * pack, fd_txn_e_t *       * bundle, ulong txn_cnt                                        );
+int                  fd_pack_insert_bundle_fini  ( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt, ulong expires_at, int initializer_bundle );
+void                 fd_pack_insert_bundle_cancel( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt                                        );
+
+/* =========== More details about initializer bundles ===============
+   Initializer bundles are a special type of bundle with special support
+   from the pack object to facilitate preparing on-chain state for the
+   execution of bundles by this validator.  This design is a bit
+   complicated, but it eliminates excessive coupling between pack and
+   block engine details.
+
+   The pack object maintains a small state machine (initializer bundle
+   abbreviated IB):
+
+      [Not Initialized]  ------------------------->|
+          ^                                        | Schedule an
+          |     End            Rebate shows        | IB
+          |     block          IB failed           |
+          |<----------[Failed]--------------|      v
+          |                               --===[Pending]
+          |<------------------------------/     ^  |
+          |     End block                   /---|  |
+          |                                 |      | Rebate shows
+          |                        Schedule |      | IB succeeded
+          |                      another IB |      |
+          |     End block                   |      V
+          -----------------------------------===[Ready]
+
+
+   When attempting to schedule a bundle the pack object checks the
+   state, and employs the following rules:
+   * [Not Initialized]: If the top bundle is an IB, schedule it without
+     removing it, store that it is the most recently executed IB, and
+     transition to [Pending].  Otherwise, do not schedule a bundle.
+   * [Pending]: Do not schedule a bundle.
+   * [Failed]: Do not schedule a bundle
+   * [Ready]: Ignore the top bundle if it is the most recently executed
+     IB, and attempt to schedule the next bundle.  Otherwise attempt to
+     schedule the top bundle.  If scheduling an IB, delete any prior IBs
+     (at most one in the top bundle), do not remove the scheduled IB,
+     store that it is the most recently executed IB, and transition to
+     [Pending].
+
+   As described in the state machine, ending the block (via
+   fd_pack_end_block) transitions to [Not Initialized], and calls to
+   fd_pack_rebate_cus control the transition out of [Pending].
+
+   The policy of scheduling the top IB without removing it and then
+   normally ignoring it is a bit curious, but is important.  It ensures
+   that the most recently executed IB is also scheduled at the beginning
+   of each slot.  This ensures that everything is initialized properly
+   (e.g. all tips go to the right spot) even if a block builds off a
+   different fork than the previous block.  For the purposes of
+   transitioning from [Pending] to [Ready], AlreadyProcessed is treated
+   as success, which means that the fee payer will not be charged again
+   in the common case that the block builds off the previous block.  The
+   rules are written in such a way that if the only IB is deleted for
+   any reason, bundles can continue to be scheduled until the end of the
+   slot, but not after.  This means the caller should periodically
+   insert a new IB at least prior to the recent blockhash of the
+   previous IB expiring, which is only really a concern if remaining
+   leader for hundreds of slots in a row.
+
+   Often, the contents of the IB may depend on the slot or epoch in
+   which it is executed.  It would be simplest to just expire these
+   transactions and re-insert them, but when using multiple block
+   engines, the ordering of initializer bundles with respect to other
+   bundles is important, and it would be difficult to expose an
+   interface that would allow the caller to re-insert them in the
+   appropriate order.  Instead, pack exposes
+   fd_pack_rewrite_initializer_bundles, which can be used to update
+   them.
+
+   Additionally, a bundle marked as an IB is exempted from the bundle
+   account blacklist checks.  For this reason, it's important that IB be
+   generated by trusted code with minimal or sanitized
+   attacker-controlled input. */
+
+/* fd_pack_ib_rewriter_fn_t: Used by rewrite_initializer_bundles below.
+   This function is invoked for each pending initializer bundle, with
+   bundle[0], ... bundle[txn_cnt-1] pointing to the transactions in the
+   initializer bundle.  expires_at points to the current expiration
+   value for all transactions in the bundle, which can be modified by
+   changing *expires_at.  ctx is an opaque pointer. */
+ typedef void (* fd_pack_ib_rewriter_fn_t)( fd_txn_e_t * const * bundle,
+                                            ulong                txn_cnt,
+                                            ulong              * expires_at,
+                                            void               * ctx );
+
+/* fd_pack_rewrite_initializer_bundles: calls the function provided as
+   `rewriter` on each pending initializer bundle (see long comment above
+   for more details) consisting of transactions bundle[0], ...
+   bundle[txn_cnt-1].  The function can modify the transactions in the
+   bundle, but they all must remain valid transactions, and the number
+   of compute units each one consumes must not change.  Additionally,
+   the number of transactions in the bundle must not change. Of course,
+   new address lookup tables will not be re-expanded.  In particular,
+   it's safe to switch the accounts from one PDA to another, to update
+   data in instruction payloads, to update the recent blockhash, and to
+   update the signature(s), which of course must be done if any other
+   changes are made.
+   The rewriter function will be called with the provided ctx pointer as
+   the ctx argument, but it's not otherwise examined, which means
+   ctx==NULL is okay.  The rewriter function must not call any functions
+   on this pack object.  Calling this function does not change the state
+   for the initializer bundle state machine.  If bundle_depth==0 or
+   there are no pending initializer bundles, this function is a no-op. */
+void fd_pack_rewrite_initializer_bundles( fd_pack_t                * pack,
+                                          fd_pack_ib_rewriter_fn_t   rewriter,
+                                          void                     * ctx );
+
+/* fd_pack_set_initializer_bundles_ready sets the IB state machine state
+   (see long initializer bundle comment above) to the [Ready] state.
+   This function makes it easy to use bundles without initializer
+   bundles.  pack must be a valid local join. */
+void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
 /* fd_pack_schedule_next_microblock schedules transactions to form a
    microblock, which is a set of non-conflicting transactions.
