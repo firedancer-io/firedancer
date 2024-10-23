@@ -261,7 +261,7 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    enter_network_namespace( config->tiles.net.interface );
+    enter_network_namespace( config->tiles.netrx.interface );
     close_network_namespace_original_fd();
   }
 

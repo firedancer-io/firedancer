@@ -132,11 +132,12 @@ typedef struct {
     char affinity[ AFFINITY_SZ ];
     char agave_affinity[ AFFINITY_SZ ];
 
-    uint net_tile_count;
+    uint netrx_tile_count;
     uint quic_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint nettx_tile_count;
   } layout;
 
   struct {
@@ -199,7 +200,7 @@ typedef struct {
       uint xdp_aio_depth;
 
       uint send_buffer_size;
-    } net;
+    } netrx;
 
     struct {
       ushort regular_transaction_listen_port;

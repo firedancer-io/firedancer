@@ -639,22 +639,38 @@ dynamic_port_range = "8900-9000"
     # determined automatically as well.
     agave_affinity = "auto"
 
-    # How many net tiles to run.  Should be set to 1.  This is
+    # How many netrx tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more than 1 net tile given
-    # current `mainnet-beta` conditions.
+    # conditions but there is no need to run more than 1 netrx tile
+    # given current `mainnet-beta` conditions.
     #
-    # Net tiles are responsible for sending and receiving packets from
-    # the network device configured in the [tiles.net] section below.
-    # Each net tile will service exactly one queue from the device, and
-    # firedancer will error on boot if the number of queues on the
+    # netrx tiles are responsible for receiving packets from the network
+    # device configured in the [tiles.netrx] section below.  Each netrx
+    # tile will service exactly one queue from the device, and
+    # Firedancer will error on boot if the number of queues on the
     # device is not configured correctly.
     #
-    # The net tile is designed to scale linearly when adding more tiles.
+    # The netrx tile is designed to scale linearly when adding more
+    # tiles.
     #
-    # See the comments for the [tiles.net] section below for more
+    # See the comments for the [tiles.netrx] section below for more
     # information.
-    net_tile_count = 1
+    netrx_tile_count = 1
+
+    # How many nettx tiles to run.  Should be set to 1.  This is
+    # configurable and designed to scale out for future network
+    # conditions but there is no need to run more than 1 nettx tile
+    # given current `mainnet-beta` conditions.
+
+    # nettx tiles are responsible for sending packets to the network
+    # device configured in the [tiles.nettx] section below.  nettx tiles
+    # do not use XDP, and instead use regular sockets to transmit.
+    #
+    # The nettx tile is designed to scale linearly when adding more
+    # tiles.
+    #
+    # See the comments for the [tiles.nettx] section below for more
+    nettx_tile_count = 1
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -762,17 +778,14 @@ dynamic_port_range = "8900-9000"
 # which CPU core to create a functioning system, below is the individual
 # settings that can change behavior of the tiles.
 [tiles]
-    # A networking tile is responsible for sending and receiving packets
-    # on the network.  Each networking tile is bound to a specific
-    # queue on a network device.  For example, if you have one network
-    # device with four queues, you must run four net tiles.
+    # A netrx tile is responsible for receiving packets from the
+    # network.  Each net rx tile is bound to a specific queue on a
+    # network device.  For example, if you have one network device with
+    # four queues, you must run four netrx tiles.
     #
-    # Net tiles will multiplex in both directions, fanning out packets
-    # to multiple parts of Firedancer that can receive and handle them,
-    # like QUIC tiles and the Turbine retransmission engine.  Then also
-    # fanning in from these various network senders to transmit on the
-    # queues we have available.
-    [tiles.net]
+    # netrx tiles fan incoming packets out do tiles that can receive and
+    # handle them, like QUIC and the Turbine retransmission engine.
+    [tiles.netrx]
         # Which interface to bind to for network traffic.  Currently
         # only one interface is supported for networking.  If this is
         # empty, the default is the interface used to route to 8.8.8.8,

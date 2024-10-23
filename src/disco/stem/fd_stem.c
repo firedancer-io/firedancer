@@ -470,6 +470,15 @@ stem_run1( ulong                        in_cnt,
       metric_regime_ticks[4] += (ulong)(next - now);
       now = next;
       continue;
+    } else if( FD_UNLIKELY( poll_in==2 ) ) {
+      metric_backp_cnt += (ulong)!metric_in_backp;
+      metric_in_backp   = 1UL;
+      FD_SPIN_PAUSE();
+      metric_regime_ticks[2] += housekeeping_ticks;
+      long next = fd_tickcount();
+      metric_regime_ticks[5] += (ulong)(next - now);
+      now = next;
+      continue;
     }
 #endif
 

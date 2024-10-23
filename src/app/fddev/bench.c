@@ -163,9 +163,9 @@ bench_cmd_fn( args_t *         args,
                   0, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
                   dest_port,
-                  config->tiles.net.ip_addr,
+                  config->tiles.netrx.ip_addr,
                   config->rpc.port,
-                  config->tiles.net.ip_addr,
+                  config->tiles.netrx.ip_addr,
                   args->load.no_quic );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {

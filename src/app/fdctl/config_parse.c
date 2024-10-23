@@ -270,20 +270,21 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
-  CFG_POP      ( uint,   layout.net_tile_count                            );
+  CFG_POP      ( uint,   layout.netrx_tile_count                          );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( uint,   layout.nettx_tile_count                          );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
 
-  CFG_POP      ( cstr,   tiles.net.interface                              );
-  CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
-  CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
-  CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
-  CFG_POP      ( uint,   tiles.net.xdp_aio_depth                          );
-  CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
+  CFG_POP      ( cstr,   tiles.netrx.interface                            );
+  CFG_POP      ( cstr,   tiles.netrx.xdp_mode                             );
+  CFG_POP      ( uint,   tiles.netrx.xdp_rx_queue_size                    );
+  CFG_POP      ( uint,   tiles.netrx.xdp_tx_queue_size                    );
+  CFG_POP      ( uint,   tiles.netrx.xdp_aio_depth                        );
+  CFG_POP      ( uint,   tiles.netrx.send_buffer_size                     );
 
   CFG_POP      ( ushort, tiles.quic.regular_transaction_listen_port       );
   CFG_POP      ( ushort, tiles.quic.quic_transaction_listen_port          );
@@ -419,19 +420,20 @@ fdctl_cfg_validate( config_t * cfg ) {
 
   CFG_HAS_NON_EMPTY( layout.affinity );
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
-  CFG_HAS_NON_ZERO ( layout.net_tile_count );
+  CFG_HAS_NON_ZERO ( layout.netrx_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+  CFG_HAS_NON_ZERO ( layout.nettx_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
 
-  CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
-  CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );
-  CFG_HAS_POW2     ( tiles.net.xdp_tx_queue_size );
-  CFG_HAS_NON_ZERO ( tiles.net.xdp_aio_depth );
-  CFG_HAS_NON_ZERO ( tiles.net.send_buffer_size );
+  CFG_HAS_NON_EMPTY( tiles.netrx.xdp_mode );
+  CFG_HAS_POW2     ( tiles.netrx.xdp_rx_queue_size );
+  CFG_HAS_POW2     ( tiles.netrx.xdp_tx_queue_size );
+  CFG_HAS_NON_ZERO ( tiles.netrx.xdp_aio_depth );
+  CFG_HAS_NON_ZERO ( tiles.netrx.send_buffer_size );
 
   CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
   CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );

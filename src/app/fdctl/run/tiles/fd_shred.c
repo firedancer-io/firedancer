@@ -8,7 +8,6 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
-#include "../../../../waltz/ip/fd_ip.h"
 #include "../../../../disco/fd_disco.h"
 
 #include "../../../../util/net/fd_net_headers.h"
@@ -671,7 +670,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->in_cnt!=5UL ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "netrx_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"  )    ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "crds_shred" )    ||
@@ -682,7 +681,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_cnt!=3UL ||
                    (strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_store" ) &&
                       strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_storei" ) )  ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "shred_net"   )  ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "shred_nettx"   )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "shred_sign"  ) ) )
     FD_LOG_ERR(( "shred tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));

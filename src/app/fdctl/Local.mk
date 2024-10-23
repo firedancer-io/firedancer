@@ -23,7 +23,7 @@ $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_util)
 
 # fdctl tiles
-$(call add-objs,run/tiles/fd_net,fd_fdctl)
+$(call add-objs,run/tiles/fd_netrx,fd_fdctl)
 $(call add-objs,run/tiles/fd_quic,fd_fdctl)
 $(call add-objs,run/tiles/fd_verify,fd_fdctl)
 $(call add-objs,run/tiles/fd_dedup,fd_fdctl)
@@ -31,6 +31,7 @@ $(call add-objs,run/tiles/fd_pack,fd_fdctl)
 $(call add-objs,run/tiles/fd_bank,fd_fdctl)
 $(call add-objs,run/tiles/fd_poh,fd_fdctl)
 $(call add-objs,run/tiles/fd_shred,fd_fdctl)
+$(call add-objs,run/tiles/fd_nettx,fd_fdctl)
 $(call add-objs,run/tiles/fd_store,fd_fdctl)
 $(call add-objs,run/tiles/fd_sign,fd_fdctl)
 $(call add-objs,run/tiles/fd_cswtch,fd_fdctl)
@@ -84,12 +85,13 @@ $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default-firedancer.
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: book/public/fire.svg
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_net.o: src/app/fdctl/run/tiles/generated/net_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/pack_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_netrx.o: src/app/fdctl/run/tiles/generated/netrx_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_quic.o: src/app/fdctl/run/tiles/generated/quic_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify.o: src/app/fdctl/run/tiles/generated/verify_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/pack_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_nettx.o: src/app/fdctl/run/tiles/generated/nettx_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated/metric_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_cswtch.o: src/app/fdctl/run/tiles/generated/cswtch_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: src/app/fdctl/run/tiles/generated/gui_seccomp.h src/app/fdctl/run/tiles/generated/http_import_dist.h

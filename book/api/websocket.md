@@ -1077,7 +1077,7 @@ are skipped on the currently active fork.
 **`TxnWaterfallOut`**
 | Field             | Type     | Description |
 |-------------------|----------|-------------|
-| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
+| netrx_overrun     | `number` | Transactions were dropped because the netrx tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
 | quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
 | quic_quic_invalid | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per invalid packet |
 | quic_udp_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid. |

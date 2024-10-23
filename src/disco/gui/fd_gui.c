@@ -75,11 +75,12 @@ fd_gui_new( void *             shmem,
   gui->summary.vote_distance = 0UL;
   gui->summary.vote_state = is_voting ? FD_GUI_VOTE_STATE_VOTING : FD_GUI_VOTE_STATE_NON_VOTING;
 
-  gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
+  gui->summary.netrx_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "netrx"  );
   gui->summary.quic_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "quic"   );
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
+  gui->summary.nettx_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "nettx"  );
 
   gui->summary.slot_rooted                   = 0UL;
   gui->summary.slot_optimistically_confirmed = 0UL;
@@ -443,7 +444,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
     cur->out.quic_overrun      += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_NOTIFY_CLOBBERED ) ];
 
-    for( ulong j=0UL; j<gui->summary.net_tile_cnt; j++ ) {
+    for( ulong j=0UL; j<gui->summary.netrx_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
       /* TODO: Not precise... even if 1 frag gets skipped, it could have been for this QUIC tile */
       cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / gui->summary.quic_tile_cnt;
@@ -451,17 +452,17 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     }
   }
 
-  cur->out.net_overrun = 0UL;
-  for( ulong i=0UL; i<gui->summary.net_tile_cnt; i++ ) {
-    fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
+  cur->out.netrx_overrun = 0UL;
+  for( ulong i=0UL; i<gui->summary.netrx_tile_cnt; i++ ) {
+    fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "netrx", i ) ];
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
 
-    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET_TILE, XDP_RX_DROPPED_RING_FULL ) ];
-    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET_TILE, XDP_RX_DROPPED_OTHER ) ];
+    cur->out.netrx_overrun += net_metrics[ MIDX( COUNTER, NET_RX_TILE, XDP_RX_DROPPED_RING_FULL ) ];
+    cur->out.netrx_overrun += net_metrics[ MIDX( COUNTER, NET_RX_TILE, XDP_RX_DROPPED_OTHER ) ];
   }
 
   cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
-  cur->in.quic     = cur->out.quic_quic_invalid+cur->out.quic_overrun+cur->out.net_overrun;
+  cur->in.quic     = cur->out.quic_quic_invalid+cur->out.quic_overrun+cur->out.netrx_overrun;
   cur->in.udp      = cur->out.quic_udp_invalid;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
@@ -470,9 +471,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_PUBLISH_SUCCESS ) ];
     cur->in.udp  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH_SUCCESS ) ];
   }
-
-  /* TODO: We can get network packet drops between the device and the
-           kernel ring buffer by querying some network device stats... */
 }
 
 static void
@@ -484,13 +482,19 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
   m_cur->ts_nanos = fd_log_wallclock();
 
   m_cur->net_in_bytes  = 0UL;
-  m_cur->net_out_bytes = 0UL;
-  for( ulong i=0UL; i<gui->summary.net_tile_cnt; i++ ) {
-    fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
-    volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
+  for( ulong i=0UL; i<gui->summary.netrx_tile_cnt; i++ ) {
+    fd_topo_tile_t const * netrx = &topo->tiles[ fd_topo_find_tile( topo, "netrx", i ) ];
+    volatile ulong * netrx_metrics = fd_metrics_tile( netrx->metrics );
 
-    m_cur->net_in_bytes  += net_metrics[ MIDX( COUNTER, NET_TILE, RECEIVED_BYTES ) ];
-    m_cur->net_out_bytes += net_metrics[ MIDX( COUNTER, NET_TILE, SENT_BYTES ) ];
+    m_cur->net_in_bytes  += netrx_metrics[ MIDX( COUNTER, NET_RX_TILE, RECEIVED_BYTES ) ];
+  }
+
+  m_cur->net_out_bytes = 0UL;
+  for( ulong i=0UL; i<gui->summary.nettx_tile_cnt; i++ ) {
+    fd_topo_tile_t const * nettx = &topo->tiles[ fd_topo_find_tile( topo, "nettx", i ) ];
+    volatile ulong * nettx_metrics = fd_metrics_tile( nettx->metrics );
+
+    m_cur->net_out_bytes += nettx_metrics[ MIDX( COUNTER, NET_TX_TILE, SENT_BYTES ) ];
   }
 
   m_cur->quic_conns    = 0UL;
