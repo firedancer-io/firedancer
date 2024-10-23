@@ -1018,8 +1018,8 @@ dynamic_port_range = "8900-9000"
         # option determines the maximum number of transactions that
         # will be stored before those with the lowest estimated
         # profitability get dropped.  The maximum allowed, and default
-        # value is 65534 and it is not recommended to change this.
-        max_pending_transactions = 65534
+        # value is 65529 and it is not recommended to change this.
+        max_pending_transactions = 65529
 
         # When a transaction consumes fewer CUs than it requests, the
         # bank and pack tiles work together to adjust the block limits
