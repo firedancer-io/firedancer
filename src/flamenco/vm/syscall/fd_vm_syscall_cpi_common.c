@@ -673,7 +673,18 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+    char id_b58[ FD_BASE58_ENCODED_32_SZ ]; ulong id_b58_len;
+    fd_base58_encode_32( program_id->uc, &id_b58_len, id_b58);
+    /* WIP: precise logging */
+    switch( err ) {
+      case FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE:
+        fd_log_collector_msg_many( vm->instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
+        break;
+    }
+    return err;
+  };
 
   /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
   ulong callee_account_keys[256];
