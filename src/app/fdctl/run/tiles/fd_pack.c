@@ -144,6 +144,18 @@ typedef struct {
   long _slot_end_ns;
   long slot_end_ns;
 
+  /* block_start_ticks, ticks_per_cu, and scaled_ticks_per_ns_cu are
+     used for pacing CUs through the block.  block_start_ticks is the
+     value of fd_tickcount when we receive the BECAME_LEADER frag.
+     ticks_per_cu is the number of CPU ticks per slot / CUs per block *
+     2^16.  scaled_ticks_per_ns_cu is (CPU ticks/ns) * 2^16 / CUs per
+     block, which is fixed on tile boot and means that ticks_per_cu can
+     be calculated just by multiplying scaled_ticks_per_ns_cu by the
+     number of nanoseconds in the block. */
+  long   block_start_ticks;
+  ulong  ticks_per_cu;
+  double scaled_ticks_per_ns_cu;
+
   /* last_successful_insert stores the tickcount of the last
      successful transaction insert. */
   long last_successful_insert;
@@ -168,6 +180,7 @@ typedef struct {
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
   int      use_consumed_cus;
   long     skip_cnt;
+  long     schedule_next; /* the tick value at which to schedule the next block for pacing purposes */
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -301,6 +314,29 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   return result;
 }
 
+/* Compute the time (in fd_tickcount space) at which we should attempt
+   to schedule the next microblock based on what fraction of the block's
+   CUs we've consumed so far.  Factored into its own function to
+   facilitate experimentation. */
+static inline long
+compute_schedule_next( fd_pack_ctx_t const * ctx,
+                       long                  now ) {
+  /* For now, just use linear */
+  (void)now;
+  /* Do it with fixed point math for efficiency for now, even though
+     this isn't really on the critical path.  The block cost is < 2^32.
+     Ticks per CU depends on the CPU and the CUs per block, but is
+     somewhere between 0.1 and 100 probably.  Since we store it as an
+     integer multiplied by 2^16 instead of a float, that means
+     block_cost*ticks_per_cu < 2^32 * 2^7 * 2^16, which safely fits in a
+     ulong.
+
+     To get the bound on ticks per CU:
+     CPU ticks/block  approx 400ms * 10^6 ms/ns * [0.5, 10] GHz
+     CUs / block      approx 48*10^6 * [1, 18]                      */
+  return ctx->block_start_ticks + (long)((fd_pack_current_block_cost( ctx->pack ) * ctx->ticks_per_cu)>>16);
+}
+
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
@@ -311,6 +347,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
+
+  if( FD_UNLIKELY( now<ctx->schedule_next ) ) return;
 
   ulong bank_cnt = ctx->bank_cnt;
 
@@ -444,7 +482,8 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
-      ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+      long  now2   = fd_tickcount();
+      ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
       ulong chunk  = ctx->out_chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
@@ -453,12 +492,13 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
       ctx->bank_expect[ i ] = stem->seqs[0]-1UL;
-      ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
+      ctx->bank_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt++;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
+      ctx->schedule_next    = compute_schedule_next( ctx, now2 );
     }
   }
 
@@ -528,6 +568,7 @@ during_frag( fd_pack_ctx_t * ctx,
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
                                       - 48UL*(became_leader->ticks_per_slot+became_leader->total_skipped_ticks);
+    ctx->block_start_ticks = fd_tickcount();
 
 
     /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
@@ -634,6 +675,8 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
+    ctx->ticks_per_cu  = (ulong)(0.5 + (double)fd_long_max( ctx->slot_end_ns - fd_log_wallclock(), 0L ) * ctx->scaled_ticks_per_ns_cu);
+    ctx->schedule_next = compute_schedule_next( ctx, now );
     break;
   }
   case IN_KIND_BUNDLE: {
@@ -646,6 +689,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
     ctx->pending_rebate_cnt = 0UL;
+    ctx->schedule_next      = compute_schedule_next( ctx, now );
     break;
   }
   case IN_KIND_DEDUP: {
@@ -680,6 +724,8 @@ unprivileged_init( fd_topo_t *      topo,
     .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
+
+  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-1UL ));
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, tile->pack.bank_tile_count, limits );
 
@@ -722,7 +768,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
+  ctx->drain_banks                   = 0;
+  ctx->approx_wallclock_ns           = fd_log_wallclock();
   ctx->rng                           = rng;
+  ctx->block_start_ticks             = LONG_MIN;
+  ctx->ticks_per_cu                  = 0UL;
+  ctx->scaled_ticks_per_ns_cu        = fd_tempo_tick_per_ns( NULL ) * (double)(1UL<<16) / (double)limits->max_cost_per_block;
   ctx->last_successful_insert        = 0L;
   ctx->transaction_lifetime_ticks    = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)TRANSACTION_LIFETIME_NS + 0.5);
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
