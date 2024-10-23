@@ -94,14 +94,13 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn_e->txnp  )==0UL, fd_pack_ord_
 #define FD_ORD_TXN_ROOT_FREE            0
 #define FD_ORD_TXN_ROOT_PENDING         1
 #define FD_ORD_TXN_ROOT_PENDING_VOTE    2
-#define FD_ORD_TXN_ROOT_BUNDLE          3
+#define FD_ORD_TXN_ROOT_PENDING_BUNDLE  3
 #define FD_ORD_TXN_ROOT_PENALTY( idx ) (4 | (idx)<<8)
 
 /* if root & TAG_MASK == PENALTY, then PENALTY_ACCT_IDX(root) gives the index
    in the transaction's list of account addresses of which penalty treap the
    transaction is in. */
 #define FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root ) (((root) & 0xFF00)>>8)
-
 
 #define FD_PACK_IN_USE_WRITABLE    (0x8000000000000000UL)
 #define FD_PACK_IN_USE_BIT_CLEARED (0x4000000000000000UL)
@@ -119,21 +118,28 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn_e->txnp  )==0UL, fd_pack_ord_
    writer cost map instead of only removing the elements we increased. */
 #define DEFAULT_WRITTEN_LIST_MAX 16384UL
 
-/* fd_pack_addr_use_t: Used for two distinct purposes:
+/* fd_pack_addr_use_t: Used for three distinct purposes:
     -  to record that an address is in use and can't be used again until
          certain microblocks finish execution
     -  to keep track of the cost of all transactions that write to the
          specified account.
+    -  to keep track of the write cost for accounts referenced by
+         transactions in a bundle and which transactions use which
+         accounts.
    Making these separate structs might make it more clear, but then
-   they'd have identical shape and result in two fd_map_dynamic sets of
-   functions with identical code.  It doesn't seem like the compiler is
-   very good at merging code like that, so in order to reduce code
+   they'd have identical shape and result in several fd_map_dynamic sets
+   of functions with identical code.  It doesn't seem like the compiler
+   is very good at merging code like that, so in order to reduce code
    bloat, we'll just combine them. */
 struct fd_pack_private_addr_use_record {
   fd_acct_addr_t key; /* account address */
   union {
+    ulong          _;
     ulong          in_use_by;  /* Bitmask indicating which banks */
     ulong          total_cost; /* In cost units/CUs */
+    struct { uint    carried_cost;   /* In cost units */
+             ushort  ref_cnt;        /* In transactions */
+             ushort  last_use_in; }; /* In transactions */
   };
 };
 typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
@@ -250,6 +256,26 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_PERFECT_28 ( SECP256R1_PROG_ID        ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
+
+
+/* pack maintains a small state machine related to initializer bundles.
+   See the header file for more details about it, but it's
+   also summarized here:
+   * NOT_INITIALIZED: The starting state for each block
+   * PENDING: an initializer bundle has been scheduled, but pack has
+     not observed its result yet, so we don't know if it was successful
+     or not.
+   * FAILED: the most recently scheduled initializer bundle failed
+     for reasons other than already being executed.  Most commonly, this
+     could be because of a bug in the code that generated the
+     initializer bundle, a lack of fee payer balance, or an expired
+     blockhash.
+   * READY: the most recently scheduled initialzation bundle succeeded
+     and normal bundles can be scheduled in this slot. */
+#define FD_PACK_IB_STATE_NOT_INITIALIZED 0
+#define FD_PACK_IB_STATE_PENDING         1
+#define FD_PACK_IB_STATE_FAILED          2
+#define FD_PACK_IB_STATE_READY           3
 
 
 /* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
@@ -422,6 +448,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
   ulong      pack_depth;
+  int        enable_bundles; /* if 0, bundles are disabled */
   ulong      bank_tile_cnt;
 
   fd_pack_limits_t lim[1];
@@ -457,9 +484,11 @@ struct fd_pack_private {
   fd_pack_ord_txn_t * pool;
 
   /* Treaps (sorted by priority) of pending transactions.  We store the
-     pending simple votes separately. */
+     pending simple votes and transactions that come from bundles
+     separately. */
   treap_t pending[1];
   treap_t pending_votes[1];
+  treap_t pending_bundles[1];
 
   /* penalty_treaps: an fd_map_dynamic mapping hotly contended account
      addresses to treaps of transactions that write to them.  We try not
@@ -467,6 +496,30 @@ struct fd_pack_private {
      the main treap that write to each account, though this is not
      exact. */
   fd_pack_penalty_treap_t * penalty_treaps;
+
+  /* initializer_bundle_state: The current state of the initialization
+     bundle state machine.  One of the FD_PACK_IB_STATE_* values.  See
+     the long comment in the header and the comments attached to the
+     respective values for a discussion of what each state means and the
+     transitions between them. */
+  int   initializer_bundle_state;
+
+  /* skip_first_bundle: when in the [Pending], [Failed], or
+     [Ready] states, if skip_first_bundle is 1, then the first bundle is
+     the most recently scheduled initialization bundle and should be
+     skipped when scheduling.  Contents are not specified when in the
+     [Not Initialized] state. */
+  int skip_first_bundle;
+
+  /* pending_bundle_cnt: the number of bundles in pending_bundles. */
+  ulong pending_bundle_cnt;
+
+  /* relative_bundle_idx: the number of bundles that have been inserted
+     since the last time pending_bundles was empty.  See the long
+     comment about encoding this index in the rewards field of each
+     transaction in the bundle, and why it is important that this reset
+     to 0 as frequently as possible. */
+  ulong relative_bundle_idx;
 
   /* pending{_votes}_smallest: keep a conservative estimate of the
      smallest transaction (by cost units and by bytes) in each heap.
@@ -516,6 +569,16 @@ struct fd_pack_private {
 
   fd_pack_sig_to_txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 
+  /* bundle_temp_map: A fd_map_dynamic (although it could be an fd_map)
+     used during fd_pack_try_schedule_bundle to store information about
+     what accounts are used by transactions in the bundle.  It's empty
+     (in a map sense) outside of calls to try_schedule_bundle, and each
+     call to try_schedule_bundle clears it after use.  If bundles are
+     disabled, this is a valid fd_map_dynamic, but it's as small as
+     convenient and remains empty. */
+  fd_pack_addr_use_t * bundle_temp_map;
+
+
   /* use_by_bank: An array of size (max_txn_per_microblock *
      FD_TXN_ACCT_ADDR_MAX) for each banking tile.  Only the MSB of
      in_use_by is relevant.  Addressed use_by_bank[i][j] where i is in
@@ -551,9 +614,6 @@ struct fd_pack_private {
   fd_histf_t net_cus_per_block      [ 1 ];
   ulong      cumulative_rebated_cus;
 
-  /* use_bundles: if true (non-zero), allows the use of bundles, groups
-     of transactions that are executed atomically with high priority */
-  int        use_bundles;
 
   /* compressed_slot_number: a number in (FD_PACK_SKIP_CNT, USHORT_MAX]
      that advances each time we start packing for a new slot. */
@@ -578,21 +638,30 @@ typedef struct fd_pack_private fd_pack_t;
 
 FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
 
+/* Forward-declare some helper functions */
+int delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0, int delete_full_bundle, int move_from_penalty_treap );
+static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
+
 ulong
 fd_pack_footprint( ulong                    pack_depth,
+                   int                      enable_bundles,
                    ulong                    bank_tile_cnt,
                    fd_pack_limits_t const * limits         ) {
   if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_BANK_TILES) ) ) return 0UL;
   if( FD_UNLIKELY( pack_depth<4UL ) ) return 0UL;
 
   ulong l;
+  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL ); /* space for use between init and fini */
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
-  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * limits->max_txn_per_microblock + 1UL);
-  ulong max_txn_in_flight  = bank_tile_cnt * limits->max_txn_per_microblock;
+  ulong max_txn_per_mblk   = fd_ulong_max( limits->max_txn_per_microblock,
+                                           fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
+  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_mblk + 1UL);
+  ulong max_txn_in_flight  = bank_tile_cnt * max_txn_per_mblk;
 
   ulong max_w_per_block    = fd_ulong_min( limits->max_cost_per_block / FD_PACK_COST_PER_WRITABLE_ACCT,
-                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
+                                           max_txn_per_mblk * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
+  ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
@@ -600,16 +669,18 @@ fd_pack_footprint( ulong                    pack_depth,
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth                                ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap                         ) );
   int lg_penalty_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap/PENALTY_TREAP_THRESHOLD ) );
+  int lg_bundle_temp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*bundle_temp_accts                         ) );
 
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,       sizeof(fd_pack_t)                               );
-  l = FD_LAYOUT_APPEND( l, trp_pool_align (),   trp_pool_footprint ( pack_depth+1UL           ) ); /* pool           */
+  l = FD_LAYOUT_APPEND( l, trp_pool_align (),   trp_pool_footprint ( pack_depth+extra_depth   ) ); /* pool           */
   l = FD_LAYOUT_APPEND( l, penalty_map_align(), penalty_map_footprint( lg_penalty_trp         ) ); /* penalty_treaps */
-  l = FD_LAYOUT_APPEND( l, expq_align     (),   expq_footprint     ( pack_depth+1UL           ) ); /* expiration prq */
+  l = FD_LAYOUT_APPEND( l, expq_align     (),   expq_footprint     ( pack_depth               ) ); /* expiration prq */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz           ) ); /* acct_in_use    */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_max_writers           ) ); /* writer_costs   */
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max    ); /* written_list   */
   l = FD_LAYOUT_APPEND( l, sig2txn_align  (),   sig2txn_footprint  ( lg_depth                 ) ); /* signature_map  */
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_bundle_temp           ) ); /* bundle_temp_map*/
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight   ); /* use_by_bank    */
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(ulong)*max_txn_in_flight                 ); /* use_by_bank_txn*/
   l = FD_LAYOUT_APPEND( l, bitset_map_align(),  bitset_map_footprint( lg_acct_in_trp          ) ); /* acct_to_bitset */
@@ -619,40 +690,49 @@ fd_pack_footprint( ulong                    pack_depth,
 void *
 fd_pack_new( void                   * mem,
              ulong                    pack_depth,
+             int                      enable_bundles,
              ulong                    bank_tile_cnt,
              fd_pack_limits_t const * limits,
              fd_rng_t                * rng           ) {
 
+  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
-  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * limits->max_txn_per_microblock + 1UL);
-  ulong max_txn_in_flight  = bank_tile_cnt * limits->max_txn_per_microblock;
+  ulong max_txn_per_mblk   = fd_ulong_max( limits->max_txn_per_microblock,
+                                           fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
+  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_mblk + 1UL);
+  ulong max_txn_in_flight  = bank_tile_cnt * max_txn_per_mblk;
+
   ulong max_w_per_block    = fd_ulong_min( limits->max_cost_per_block / FD_PACK_COST_PER_WRITABLE_ACCT,
-                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
+                                           max_txn_per_mblk * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
+  ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
-  int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
-  int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block    ) );
-  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
-  int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
+  int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
+  int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block                           ) );
+  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth                               ) );
+  int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap                         ) );
   int lg_penalty_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap/PENALTY_TREAP_THRESHOLD ) );
+  int lg_bundle_temp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*bundle_temp_accts                         ) );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_pack_t * pack    = FD_SCRATCH_ALLOC_APPEND( l,  FD_PACK_ALIGN,       sizeof(fd_pack_t)                             );
   /* The pool has one extra element that is used between insert_init and
      cancel/fini. */
-  void * _pool        = FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),    trp_pool_footprint ( pack_depth+1UL         ) );
+  void * _pool        = FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),    trp_pool_footprint ( pack_depth+extra_depth ) );
   void * _penalty_map = FD_SCRATCH_ALLOC_APPEND( l,  penalty_map_align(), penalty_map_footprint( lg_penalty_trp       ) );
-  void * _expq        = FD_SCRATCH_ALLOC_APPEND( l,  expq_align(),        expq_footprint     ( pack_depth+1UL         ) );
+  void * _expq        = FD_SCRATCH_ALLOC_APPEND( l,  expq_align(),        expq_footprint     ( pack_depth             ) );
   void * _uses        = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz         ) );
   void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_max_writers         ) );
   void * _written_lst = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max  );
   void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),     sig2txn_footprint  ( lg_depth               ) );
+  void * _bundle_temp = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_bundle_temp         ) );
   void * _use_by_bank = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
   void * _use_by_txn  = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(ulong)*max_txn_in_flight               );
   void * _acct_bitset = FD_SCRATCH_ALLOC_APPEND( l,  bitset_map_align(),  bitset_map_footprint( lg_acct_in_trp        ) );
 
   pack->pack_depth                  = pack_depth;
+  pack->enable_bundles              = enable_bundles;
   pack->bank_tile_cnt               = bank_tile_cnt;
   pack->lim[0]                      = *limits;
   pack->pending_txn_cnt             = 0UL;
@@ -666,30 +746,33 @@ fd_pack_new( void                   * mem,
   pack->cumulative_rebated_cus      = 0UL;
 
 
-  trp_pool_new(  _pool,        pack_depth+1UL );
+  trp_pool_new(  _pool,        pack_depth+extra_depth );
 
   fd_pack_ord_txn_t * pool = trp_pool_join( _pool );
-  treap_seed( pool, pack_depth+1UL, fd_rng_ulong( rng ) );
-  for( ulong i=0UL; i<pack_depth+1UL; i++ ) pool[i].root = FD_ORD_TXN_ROOT_FREE;
+  treap_seed( pool, pack_depth+extra_depth, fd_rng_ulong( rng ) );
+  for( ulong i=0UL; i<pack_depth+extra_depth; i++ ) pool[i].root = FD_ORD_TXN_ROOT_FREE;
+
   (void)trp_pool_leave( pool );
 
   penalty_map_new( _penalty_map, lg_penalty_trp );
 
   treap_new( (void*)pack->pending,         pack_depth );
   treap_new( (void*)pack->pending_votes,   pack_depth );
+  treap_new( (void*)pack->pending_bundles, pack_depth );
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
   pack->pending_votes_smallest->cus   = ULONG_MAX;
   pack->pending_votes_smallest->bytes = ULONG_MAX;
 
-  expq_new( _expq, pack_depth+1UL );
+  expq_new( _expq, pack_depth );
 
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
   acct_uses_new( _uses,        lg_uses_tbl_sz );
   acct_uses_new( _writer_cost, lg_max_writers );
+  acct_uses_new( _bundle_temp, lg_bundle_temp );
 
   pack->written_list     = _written_lst;
   pack->written_list_cnt = 0UL;
@@ -700,9 +783,9 @@ fd_pack_new( void                   * mem,
   fd_pack_addr_use_t * use_by_bank     = (fd_pack_addr_use_t *)_use_by_bank;
   ulong *              use_by_bank_txn = (ulong *)_use_by_txn;
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
-    pack->use_by_bank    [i] = use_by_bank + i*(FD_TXN_ACCT_ADDR_MAX*limits->max_txn_per_microblock+1UL);
+    pack->use_by_bank    [i] = use_by_bank + i*(FD_TXN_ACCT_ADDR_MAX*max_txn_per_mblk+1UL);
     pack->use_by_bank_cnt[i] = 0UL;
-    pack->use_by_bank_txn[i] = use_by_bank_txn + i*limits->max_txn_per_microblock;
+    pack->use_by_bank_txn[i] = use_by_bank_txn + i*max_txn_per_mblk;
     pack->use_by_bank_txn[i][0] = 0UL;
   }
   for( ulong i=bank_tile_cnt; i<FD_PACK_MAX_BANK_TILES; i++ ) {
@@ -723,7 +806,6 @@ fd_pack_new( void                   * mem,
   fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CUS_NET       ),
                                                FD_MHIST_MAX( PACK, CUS_NET       ) );
 
-  pack->use_bundles = 0;
   pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
 
   pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
@@ -743,34 +825,40 @@ fd_pack_join( void * mem ) {
   fd_pack_t * pack  = FD_SCRATCH_ALLOC_APPEND( l, FD_PACK_ALIGN, sizeof(fd_pack_t) );
 
   ulong pack_depth             = pack->pack_depth;
+  ulong extra_depth            = fd_ulong_if( pack->enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   ulong bank_tile_cnt          = pack->bank_tile_cnt;
+  ulong max_txn_per_microblock = fd_ulong_max( pack->lim->max_txn_per_microblock,
+                                               fd_ulong_if( pack->enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
 
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
-  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * pack->lim->max_txn_per_microblock + 1UL);
-  ulong max_txn_in_flight  = bank_tile_cnt * pack->lim->max_txn_per_microblock;
+  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
+  ulong max_txn_in_flight  = bank_tile_cnt * max_txn_per_microblock;
   ulong max_w_per_block    = fd_ulong_min( pack->lim->max_cost_per_block / FD_PACK_COST_PER_WRITABLE_ACCT,
-                                           pack->lim->max_txn_per_microblock * pack->lim->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
+                                           max_txn_per_microblock * pack->lim->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
+  ulong bundle_temp_accts  = fd_ulong_if( pack->enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
 
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
   int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block                           ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth                                ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap                         ) );
   int lg_penalty_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap/PENALTY_TREAP_THRESHOLD ) );
+  int lg_bundle_temp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*bundle_temp_accts                         ) );
 
 
-  pack->pool          = trp_pool_join(   FD_SCRATCH_ALLOC_APPEND( l, trp_pool_align(),   trp_pool_footprint ( pack_depth+1UL ) ) );
-  pack->penalty_treaps= penalty_map_join(FD_SCRATCH_ALLOC_APPEND( l, penalty_map_align(),penalty_map_footprint( lg_penalty_trp )));
-  pack->expiration_q  = expq_join    (   FD_SCRATCH_ALLOC_APPEND( l, expq_align(),       expq_footprint     ( pack_depth+1UL ) ) );
-  pack->acct_in_use   = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz ) ) );
-  pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_writers ) ) );
-  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t*)*written_list_max  );
-  pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint  ( lg_depth       ) ) );
-  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
-  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(ulong)*max_txn_in_flight         );
-  pack->acct_to_bitset= bitset_map_join( FD_SCRATCH_ALLOC_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp) ) );
+  pack->pool          = trp_pool_join(   FD_SCRATCH_ALLOC_APPEND( l, trp_pool_align(),   trp_pool_footprint   ( pack_depth+extra_depth  ) ) );
+  pack->penalty_treaps= penalty_map_join(FD_SCRATCH_ALLOC_APPEND( l, penalty_map_align(),penalty_map_footprint( lg_penalty_trp          ) ) );
+  pack->expiration_q  = expq_join    (   FD_SCRATCH_ALLOC_APPEND( l, expq_align(),       expq_footprint       ( pack_depth              ) ) );
+  pack->acct_in_use   = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_uses_tbl_sz          ) ) );
+  pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_max_writers          ) ) );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t*)*written_list_max       );
+  pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint    ( lg_depth                ) ) );
+  pack->bundle_temp_map=acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_bundle_temp          ) ) );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight      );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(ulong)*max_txn_in_flight                    );
+  pack->acct_to_bitset= bitset_map_join( FD_SCRATCH_ALLOC_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp           ) ) );
 
-  FD_MGAUGE_SET( PACK, PENDING_TRANSACTIONS_HEAP_SIZE, pack_depth );
+  FD_MGAUGE_SET( PACK, PENDING_TRANSACTIONS_HEAP_SIZE, pack->pack_depth );
   return pack;
 }
 
@@ -805,19 +893,16 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
   out->txn->pack_cu.requested_execution_cus = (uint)execution_cus;
   out->txn->pack_cu.non_execution_cus       = (uint)(cost - execution_cus);
 
-#if DETAILED_LOGGING
-  FD_LOG_NOTICE(( "TXN estimated compute %lu+-%f. Rewards: %lu + %lu", compute_expected, (double)compute_variance, sig_rewards, adtl_rewards ));
-#endif
-
   return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
 }
 
 /* Can the fee payer afford to pay a transaction with the specified
    price?  Returns 1 if so, 0 otherwise.  This is just a stub that
-   always returns 1 for now.  In general, this function can't be totally
-   accurate, because the transactions immediately prior to this one can
-   affect the balance of this fee payer, but a simple check here may be
-   helpful for reducing spam. */
+   always returns 1 for now, and the real check is deferred to the bank
+   tile.  In general, this function can't be totally accurate, because
+   the transactions immediately prior to this one can affect the balance
+   of this fee payer, but a simple check here may be helpful for
+   reducing spam. */
 static int
 fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
                               ulong                  price /* in lamports */) {
@@ -838,6 +923,7 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
                            return FD_PACK_INSERT_REJECT_ ## reason; \
                          } while( 0 )
 
+/* These require txn, accts, and alt_adj to be defined as per usual */
 #define ACCT_IDX_TO_PTR( idx ) (__extension__( {                                               \
       ulong __idx = (idx);                                                                     \
       fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
@@ -847,31 +933,130 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
       fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
       }))
 
-int
-fd_pack_insert_txn_fini( fd_pack_t  * pack,
-                         fd_txn_e_t * txne,
-                         ulong        expires_at ) {
 
-  fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
+/* Tries to find the worst transaction in any treap in pack.  If that
+   transaction's score is worse than or equal to threshold_score, it
+   deletes it and returns 1.  If it's higher than threshold_score, it
+   returns 0.  To force this function to delete the worst transaction if
+   there are any eligible ones, pass FLT_MAX as threshold_score. */
+static inline int
+delete_worst( fd_pack_t * pack,
+              float       threshold_score,
+              int         is_vote ) {
+  /* If the tree is full, we want to see if this is better than the
+     worst element in the pool before inserting.  If the new transaction
+     is better than that one, we'll delete it and insert the new
+     transaction. Otherwise, we'll throw away this transaction.
 
-  fd_txn_t * txn   = TXN(txne->txnp);
-  uchar * payload  = txne->txnp->payload;
+     We want to bias the definition of "worst" here to provide better
+     quality of service.  For example, if the pool is filled with
+     transactions that all write to the same account or are all votes,
+     we want to bias towards treating one of those transactions as the
+     worst, even if they pay slightly higher fees per computer unit,
+     since we know we won't actually be able to schedule them all.
 
-  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  /* alt_adj is the pointer to the ALT expansion, adjusted so that if
-     account address n is the first that comes from the ALT, it can be
-     accessed with adj_lut[n]. */
-  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
-  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
-  ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
+     This is a tricky task, however.  All our notions of priority and
+     better/worse are based on static information about the transaction,
+     and there's not an easy way to take into account global
+     information, for example, how many other transactions contend with
+     this one.  One idea is to build a heap (not a treap, since we only
+     need pop-min, insert, and delete) with one element for each element
+     in the pool, with a "delete me" score that's related but not
+     identical to the normal score.  This would allow building in some
+     global information.  The downside is that the global information
+     that gets integrated is static.  E.g. if you bias a transaction's
+     "delete me" score to make it more likely to be deleted because
+     there are many conflicting transactions in the pool, the score
+     stays biased, even if the global conditions change (unless you come
+     up with some complicated re-scoring scheme).  This can work, since
+     when the pool is full, the global bias factors are unlikely to
+     change significantly at the relevant timescales.
 
-  int est_result = fd_pack_estimate_rewards_and_compute( txne, ord );
-  if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
+     However, rather than this, we implement a simpler probabilistic
+     scheme.  We'll sample M transactions, find the worst transaction in
+     each of the M treaps, compute a "delete me" score for those <= M
+     transactions, and delete the worst.  If one penalty treap is
+     starting to get big, then it becomes very likely that the random
+     sample will find it and choose to delete a transaction from it.
 
-  ord->expires_at = expires_at;
-  int is_vote = est_result==1;
+     The exact formula for the "delete me" score should be the matter of
+     some more intense quantitative research.  For now, we'll just use
+     this:
 
+     Treap with N transactions        Scale Factor
+     Pending                      1.0 unless inserting a vote and votes < 25%
+     Pending votes                1.0 until 75% of depth, then 0
+     Penalty treap                1.0 at <= 100 transactions, then sqrt(100/N)
+     Pending bundles              inf (since the rewards value is fudged)
+
+     We'll also use M=8. */
+
+  float worst_score = FLT_MAX;
+  fd_pack_ord_txn_t * worst = NULL;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    uint  pool_max = (uint)trp_pool_max( pack->pool );
+    ulong sample_i = fd_rng_uint_roll( pack->rng, pool_max );
+
+    fd_pack_ord_txn_t * sample = &pack->pool[ sample_i ];
+    /* Presumably if we're calling this, the pool is almost entirely
+       full, so the probability of choosing a free one is small.  If
+       it does happen, find the first one that isn't free. */
+    while( FD_UNLIKELY( sample->root==FD_ORD_TXN_ROOT_FREE ) ) sample = &pack->pool[ (++sample_i)%pool_max ];
+
+    int       root_idx = sample->root;
+    float     score    = 0.0f;
+    switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
+      case FD_ORD_TXN_ROOT_FREE: {
+        FD_TEST( 0 );
+        break;
+      }
+      case FD_ORD_TXN_ROOT_PENDING: {
+        ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
+        if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
+        break;
+      }
+      case FD_ORD_TXN_ROOT_PENDING_VOTE: {
+        ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
+        if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
+        break;
+      }
+      case FD_ORD_TXN_ROOT_PENDING_BUNDLE: {
+        /* We don't have a way to tell how much these actually pay in
+           rewards, so we just assume they are very high. */
+        score = FLT_MAX;
+        break;
+      }
+      case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
+        fd_txn_t * txn = TXN( sample->txn );
+        fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, sample->txn->payload );
+        fd_acct_addr_t const * alt_adj = sample->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+        fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
+        fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
+        FD_TEST( q );
+        ulong cnt = treap_ele_cnt( q->penalty_treap );
+        score = (float)sample->rewards / (float)sample->compute_est * sqrtf( 100.0f / (float)cnt );
+        break;
+      }
+    }
+    worst = fd_ptr_if( score<worst_score, sample, worst );
+    worst_score = fd_float_if( worst_score<score, worst_score, score );
+  }
+
+  if( FD_UNLIKELY( !worst                      ) ) return 0;
+  if( FD_UNLIKELY( threshold_score<worst_score ) ) return 0;
+
+  fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
+  delete_transaction( pack, worst_sig, 0, 0 );
+  return 1;
+}
+
+static inline int
+validate_transaction( fd_pack_t               * pack,
+                      fd_pack_ord_txn_t const * ord,
+                      fd_txn_t          const * txn,
+                      fd_acct_addr_t    const * accts,
+                      fd_acct_addr_t    const * alt_adj,
+                      int                       check_bundle_blacklist ) {
   int writes_to_sysvar = 0;
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
@@ -879,155 +1064,63 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 
   int bundle_blacklist = 0;
-  if( FD_UNLIKELY( pack->use_bundles ) ) {
+  if( FD_UNLIKELY( check_bundle_blacklist ) ) {
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-      bundle_blacklist |= fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) );
+      bundle_blacklist |= (3==fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) ));
     }
   }
 
+  uchar          const * payload = ord->txn->payload;
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
   fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
   fd_chkdup_t * chkdup = pack->chkdup;
+  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards    ) ) ) REJECT( UNAFFORDABLE     );
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards    ) ) ) return FD_PACK_INSERT_REJECT_UNAFFORDABLE;
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block       ) ) REJECT( TOO_LARGE        );
+  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block       ) ) return FD_PACK_INSERT_REJECT_TOO_LARGE;
   /*           ... that load too many accounts (ignoring 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK) */
-  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL     ) ) REJECT( ACCOUNT_CNT      );
+  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL     ) ) return FD_PACK_INSERT_REJECT_ACCOUNT_CNT;
   /*           ... that duplicate an account address */
-  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, alt, alt_cnt ) ) ) REJECT( DUPLICATE_ACCT   );
+  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, alt, alt_cnt ) ) ) return FD_PACK_INSERT_REJECT_DUPLICATE_ACCT;
   /*           ... that try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar                                        ) ) REJECT( WRITES_SYSVAR    );
+  if( FD_UNLIKELY( writes_to_sysvar                                        ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
   /*           ... that we already know about */
-  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL         ) ) ) REJECT( DUPLICATE        );
-  /*           ... that have already expired */
-  if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL         ) ) ) return FD_PACK_INSERT_REJECT_DUPLICATE;
   /*           ... that use an account that violates bundle rules */
-  if( FD_UNLIKELY( bundle_blacklist & 1                                    ) ) REJECT( BUNDLE_BLACKLIST );
+  if( FD_UNLIKELY( bundle_blacklist & 1                                    ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
+
+  return 0;
+}
 
 
-  int replaces = 0;
-  if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
-    /* If the tree is full, we want to see if this is better than the
-       worst element in the pool before inserting.  If the new
-       transaction is better than that one, we'll delete it and insert
-       the new transaction. Otherwise, we'll throw away this
-       transaction.
 
-       We want to bias the definition of "worst" here to provide better
-       quality of service.  For example, if the pool is filled with
-       transactions that all write to the same account or are all votes,
-       we want to bias towards treating one of those transactions as the
-       worst, even if they pay slightly higher fees per computer unit,
-       since we know we won't actually be able to schedule them all.
-
-       This is a tricky task, however.  All our notions of priority and
-       better/worse are based on static information about the
-       transaction, and there's not an easy way to take into account
-       global information, for example, how many other transactions
-       contend with this one.  One idea is to build a heap (not a treap,
-       since we only need pop-min, insert, and delete) with one element
-       for each element in the pool, with a "delete me" score that's
-       related but not identical to the normal score.  This would allow
-       building in some global information.  The downside is that the
-       global information that gets integrated is static.  E.g. if you
-       bias a transaction's "delete me" score to make it more likely to
-       be deleted because there are many conflicting transactions in the
-       pool, the score stays biased, even if the global conditions
-       change (unless you come up with some complicated re-scoring
-       scheme).  This can work, since when the pool is full, the global
-       bias factors are unlikely to change significantly at the relevant
-       timescales.
-
-       However, rather than this, we implement a simpler probabilistic
-       scheme.  We'll sample M transactions, find the worst transaction
-       in each of the M treaps, compute a "delete me" score for those
-       <= M transactions, and delete the worst.  If one penalty treap is
-       starting to get big, then it becomes very likely that the random
-       sample will find it and choose to delete a transaction from it.
-
-       The exact formula for the "delete me" score should be the matter
-       of some more intense quantitative research.  For now, we'll just
-       use this:
-
-         Treap with N transactions        Scale Factor
-            Pending                      1.0 unless inserting a vote and votes < 25%
-            Pending votes                1.0 until 75% of depth, then 0
-            Penalty treap                1.0 at <= 100 transactions, then sqrt(100/N)
-
-       We'll also use M=8. */
-    float worst_score = FLT_MAX;
-    fd_pack_ord_txn_t * worst = NULL;
-    for( ulong i=0UL; i<8UL; i++ ) {
-      ulong sample_i = fd_rng_uint_roll( pack->rng, (uint)(pack->pack_depth+1UL) );
-
-      fd_pack_ord_txn_t * sample = &pack->pool[ sample_i ];
-      /* There is exactly one free one, the one that's currently being
-         inserted, so we can choose it with probability 1/(depth+1),
-         which is small.  If it does happen, just take the previous one,
-         unless there isn't one. */
-      if( FD_UNLIKELY( sample->root==FD_ORD_TXN_ROOT_FREE ) ) sample += fd_int_if( sample_i==0UL, 1, -1 );
-
-      int       root_idx = sample->root;
-      float     score    = 0.0f;
-      switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
-        case FD_ORD_TXN_ROOT_FREE: {
-          FD_TEST( 0 );
-          break;
-        }
-        case FD_ORD_TXN_ROOT_PENDING: {
-          ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-          if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
-          break;
-        }
-        case FD_ORD_TXN_ROOT_PENDING_VOTE: {
-          ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-          if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
-          break;
-        }
-        case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
-          fd_txn_t * txn = TXN( sample->txn );
-          fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, sample->txn->payload );
-          fd_acct_addr_t const * alt_adj = sample->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
-          fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
-          fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
-          FD_TEST( q );
-          ulong cnt = treap_ele_cnt( q->penalty_treap );
-          score = (float)sample->rewards / (float)sample->compute_est * sqrtf( 100.0f / (float)cnt );
-          break;
-        }
-      }
-      worst = fd_ptr_if( score<worst_score, sample, worst );
-      worst_score = fd_float_if( worst_score<score, worst_score, score );
-    }
-
-    float incoming_score = (float)ord->rewards / (float)ord->compute_est;
-    if( FD_UNLIKELY( incoming_score<worst_score ) ) REJECT( PRIORITY );
-
-    replaces = 1;
-    fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
-    fd_pack_delete_transaction( pack, worst_sig );
-  }
-
-
-  /* At this point, we know we have space to insert the transaction and
-     we've committed to insert it. */
-  ord->skip = FD_PACK_SKIP_CNT;
-
+/* returns cumulative penalty "points", i.e. the sum of the populated
+   section of penalties (which also tells the caller how much of the
+   array is populated. */
+static inline ulong
+populate_bitsets( fd_pack_t         * pack,
+                  fd_pack_ord_txn_t * ord,
+                  ushort              penalties  [ static FD_TXN_ACCT_ADDR_MAX ],
+                  uchar               penalty_idx[ static FD_TXN_ACCT_ADDR_MAX ] ) {
   FD_PACK_BITSET_CLEAR( ord->rw_bitset );
   FD_PACK_BITSET_CLEAR( ord->w_bitset  );
 
+  fd_txn_t * txn   = TXN(ord->txn);
+  uchar * payload  = ord->txn->payload;
+
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  /* alt_adj is the pointer to the ALT expansion, adjusted so that if
+     account address n is the first that comes from the ALT, it can be
+     accessed with adj_lut[n]. */
+  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
   ulong  cumulative_penalty = 0UL;
   ulong  penalty_i          = 0UL;
-  /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
-     Each transaction can reference an account at most once, which means
-     that the total number of references for an account is < USHORT_MAX.
-     If these were ulongs, the array would be 512B, which is kind of a
-     lot to zero out.*/
-  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
-  uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
 
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
@@ -1083,6 +1176,61 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     q->ref_cnt++;
     FD_PACK_BITSET_SETN( ord->rw_bitset, q->bit );
   }
+  return cumulative_penalty;
+}
+
+int
+fd_pack_insert_txn_fini( fd_pack_t  * pack,
+                         fd_txn_e_t * txne,
+                         ulong        expires_at ) {
+
+  fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
+
+  fd_txn_t * txn   = TXN(txne->txnp);
+  uchar * payload  = txne->txnp->payload;
+
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  /* alt_adj is the pointer to the ALT expansion, adjusted so that if
+     account address n is the first that comes from the ALT, it can be
+     accessed with adj_lut[n]. */
+  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+  int est_result = fd_pack_estimate_rewards_and_compute( txne, ord );
+  if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
+
+  ord->expires_at = expires_at;
+  int is_vote = est_result==1;
+
+  int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, pack->enable_bundles );
+  if( FD_UNLIKELY( validation_result ) ) {
+    trp_pool_ele_release( pack->pool, ord );
+    return validation_result;
+  }
+
+  /* Reject any transactions that have already expired */
+  if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
+
+  int replaces = 0;
+  if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
+    float threshold_score = (float)ord->rewards/(float)ord->compute_est;
+    if( FD_UNLIKELY( !delete_worst( pack, threshold_score, is_vote ) ) )       REJECT( PRIORITY         );
+    replaces = 1;
+  }
+
+  ord->txn->flags &= ~FD_TXN_P_FLAGS_BUNDLE;
+  ord->skip = FD_PACK_SKIP_CNT;
+
+  /* At this point, we know we have space to insert the transaction and
+     we've committed to insert it. */
+
+  /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
+     Each transaction can reference an account at most once, which means
+     that the total number of references for an account is < USHORT_MAX.
+     If these were ulongs, the array would be 512B, which is kind of a
+     lot to zero out.*/
+  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong cumulative_penalty = populate_bitsets( pack, ord, penalties, penalty_idx );
 
   treap_t * insert_into = pack->pending;
 
@@ -1126,6 +1274,303 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 }
 #undef REJECT
+
+fd_txn_e_t * const *
+fd_pack_insert_bundle_init( fd_pack_t          * pack,
+                            fd_txn_e_t *       * bundle,
+                            ulong                txn_cnt ) {
+  FD_TEST( txn_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE  );
+  FD_TEST( trp_pool_free( pack->pool )>=txn_cnt );
+  for( ulong i=0UL; i<txn_cnt; i++ ) bundle[ i ] = trp_pool_ele_acquire( pack->pool )->txn_e;
+  return bundle;
+}
+
+void
+fd_pack_insert_bundle_cancel( fd_pack_t          * pack,
+                              fd_txn_e_t * const * bundle,
+                              ulong                txn_cnt ) {
+  /* There's no real reason these have to be released in reverse, but it
+     seems fitting to release them in the opposite order they were
+     aquired. */
+  for( ulong i=0UL; i<txn_cnt; i++ ) trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)bundle[ txn_cnt-1UL-i ] );
+}
+
+int
+fd_pack_insert_bundle_fini( fd_pack_t          * pack,
+                            fd_txn_e_t * const * bundle,
+                            ulong                txn_cnt,
+                            ulong                expires_at,
+                            int                  initializer_bundle ) {
+
+  int err = 0;
+
+  ulong pending_b_txn_cnt = treap_ele_cnt( pack->pending_bundles );
+    /* We want to prevent bundles from consuming the whole treap, but in
+       general, we assume bundles are lucrative.  We'll set the policy
+       on capping bundles at half of the pack depth.  We assume that the
+       bundles are coming in a pre-prioritized order, so it doesn't make
+       sense to drop an earlier bundle for this one.  That means that
+       really, the best thing to do is drop this one. */
+  if( FD_UNLIKELY( pending_b_txn_cnt+txn_cnt>pack->pack_depth/2UL ) ) err = FD_PACK_INSERT_REJECT_PRIORITY;
+
+  if( FD_UNLIKELY( expires_at<pack->expire_before                 ) ) err = FD_PACK_INSERT_REJECT_EXPIRED;
+
+
+  for( ulong i=0UL; (i<txn_cnt) && !err; i++ ) {
+    fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)bundle[ i ];
+
+    fd_txn_t const * txn     = TXN(bundle[ i ]->txnp);
+    uchar    const * payload = bundle[ i ]->txnp->payload;
+
+    fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+    fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+    int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord );
+    if( FD_UNLIKELY( !est_result ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL; break; }
+
+    bundle[ i ]->txnp->flags |= FD_TXN_P_FLAGS_BUNDLE;
+    bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0 );
+    ord->expires_at = expires_at;
+
+    int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, 1 );
+    if( FD_UNLIKELY( validation_result ) ) { err = validation_result; break; }
+  }
+
+  if( FD_UNLIKELY( err ) ) {
+    fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
+    return err;
+  }
+
+  int replaces = 0;
+  while( FD_UNLIKELY( pack->pending_txn_cnt+txn_cnt > pack->pack_depth ) ) {
+    if( FD_UNLIKELY( !delete_worst( pack, FLT_MAX, 0 ) ) ) {
+      fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
+      return FD_PACK_INSERT_REJECT_PRIORITY;
+    }
+    replaces = 1;
+  }
+
+  if( FD_UNLIKELY( !pending_b_txn_cnt ) ) {
+    pack->relative_bundle_idx = 0UL;
+    pack->skip_first_bundle   = 0;
+  }
+
+  /* We put bundles in a treap just like all the other transactions, but
+     we actually want to sort them in a very specific order; the order
+     within the bundle is determined at bundle creation time, and the
+     order among the bundles is FIFO.  However, it's going to be a pain
+     to use a different sorting function for this treap, since it's
+     fixed as part of the treap creation for performance.  Don't fear
+     though; we can pull a cool math trick out of the bag to shoehorn
+     the order we'd like into the sort function we need, and to get even
+     more.
+
+     Recall that the sort function is r_i/c_i, smallest to largest,
+     where r_i is the rewards and c_i is the cost units.  r_i and c_i
+     are both uints, and the comparison is done by cross-multiplication
+     as ulongs.  We actually use the c_i value for testing if
+     transactions fit, etc.  so let's assume that's fixed, and we know
+     it's in the range [1020, 1,556,782].
+
+     This means, if c_0, c_1, ... c_4 are the CU costs of the
+     transactions in the first bundle, we require r_0/c_0 > r_1/c_1 >
+     ... > r_4/c_4.  Then, if c_5, ... c_9 are the CU costs of the
+     transactions in the second bundle, we also require that r_4/c_4 >
+     r_5/c_5.  For convenience, we'll impose a slightly stronger
+     constraint: we want the kth bundle to obey L*(N-k) <= r_i/c_i <
+     L*(N+1-k), for fixed constants L and N, real and integer,
+     resepctively, that we'll determine. For example, this means r_4/c_4
+     >= L*N > r_5/c_5.  This enables us to group the transactions in the
+     same bundle more easily.
+
+     For convenience in the math below, we'll set j=N-k and relabel the
+     transactions from the jth bundle c_0, ... c_4.
+     From above, we know that Lj <= r_4/c_4.  We'd like to make it as
+     close as possible given that r_4 is an integers.  Thus, put
+     r_4 = ceil( c_4 * Lj ).  r_4 is clearly an integer, and it satifies
+     the required inequality because:
+            r_4/c_4 = ceil( c_4 * Lj)/c_4 >= c_4*Lj / c_4 >= Lj.
+
+     Following in the same spirit, put r_3 = ceil( c_3 * (r_4+1)/c_4 ).
+     Again, r_3 is clearly an integer, and
+                r_3/c_3  = ceil(c_3*(r_4+1)/c_4)/c_3
+                        >= (c_3*(r_4+1))/(c_3 * c_4)
+                        >= r_4/c_4 + 1/c_4
+                        >  r_4/c_4.
+     Following the pattern, we put
+                r_2 = ceil( c_2 * (r_3+1)/c_3 )
+                r_1 = ceil( c_1 * (r_2+1)/c_2 )
+                r_0 = ceil( c_0 * (r_1+1)/c_1 )
+     which work for the same reason that as r_3.
+
+     We now need for r_0 to satisfy the final inequality with L, and
+     we'll use this to guide our choice of L.  Theoretically, r_0 can be
+     expressed in terms of L, j, and c_0, ... c_4, but that's a truly
+     inscrutible expression.  Instead, we need some bounds so we can get
+     rid of all the ceil using the property that x <= ceil(x) < x+1.
+                     c_4 * Lj <= r_4 < c_4 * Lj + 1
+     The lower bound on r_3 is easy:
+         r_3 >= c_3 * (c_4 * Lj + 1)/c_4 = c_3 * Lj + c_3/c_4
+     For the upper bound,
+         r_3 < 1 + c_3*(r_4+1)/c_4 < 1 + c_3*(c_4*Lj+1 + 1)/c_4
+                                   = 1 + c_3 * Lj + 2*c_3/c_4
+     Continuing similarly gives
+       c_2*Lj +                     c_2/c_3 + c_2/c_4 <= r_2
+       c_1*Lj +           c_1/c_2 + c_1/c_c + c_1/c_4 <= r_1
+       c_0*Lj + c_0/c_1 + c_0/c_2 + c_0/c_3 + c_0/c_4 <= r_0
+     and
+       r_2 < 1 + c_2*Lj +                       2c_2/c_3 + 2c_2/c_4
+       r_1 < 1 + c_1*Lj +            2c_1/c_2 + 2c_1/c_3 + 2c_1/c_4
+       r_0 < 1 + c_0*Lj + 2c_0/c_1 + 2c_0/c_2 + 2c_0/c_3 + 2c_0/c_4.
+
+     Setting L(j+1)>=(1 + c_0*Lj+2c_0/c_1+2c_0/c_2+2c_0/c_3+2c_0/c_4)/c_0
+     is then sufficient to ensure the whole sequence of 5 fits between Lj
+     and L(j+1).  Simplifying gives
+              L<= 1/c_0 + 2/c_1 + 2/c_2 + 2/c_3 + 2/c_4
+     but L must be a constant and not depend on individual values of c_i,
+     so, given that c_i >= 1020, we set L = 9/1020.
+
+     Now all that remains is to determine N.  It's a bit unfortunate
+     that we require N, since it limits our capacity, but it's necessary
+     in any system that tries to compute priorities to enforce a FIFO
+     order.  If we've inserted more than N bundles without ever having
+     the bundle treap go empty, we'll briefly break the FIFO ordering as
+     we underflow.
+
+     Thus, we'd like to make N as big as possible, avoiding overflow.
+     r_0, ..., r_4 are all uints, and taking the bounds from above,
+     given that for any i, i' c_i/c_{i'} < 1527, we have
+               r_i < 1 + 1556782 * Lj + 8*1527.
+     To avoid overflow, we assert the right-hand side is < 2^32, which
+     implies N <= 312671.
+
+     We want to use a fixed point representation for L so that the
+     entire computation can be done with integer arithmetic.  We can do
+     the arithmetic as ulongs, which means defining L' >= L * 2^s, and
+     we compute ceil( c_4*Lj ) as floor( (c_4 * L' * j + 2^s - 1)/2^s ),
+     so c_4 * L' * j + 2^s should fit in a ulong.  With j<=N, this gives
+     s<=32, so we set s=32, which means L' = 37896771 >= 9/1020 * 2^32.
+     Note that 1 + 1556782 * L' * N + 8*1527 + 2^32 is approximately
+     2^63.999993.
+
+     Note that this is all checked by a proof of the code translated
+     into Z3.  Unfortunately CBMC was too slow to prove this code
+     directly. */
+#define BUNDLE_L_PRIME 37896771UL
+#define BUNDLE_N       312671UL
+
+  if( FD_UNLIKELY( pack->relative_bundle_idx>BUNDLE_N ) ) {
+    FD_LOG_WARNING(( "Too many bundles inserted without allowing pending bundles to go empty. "
+                     "Ordering of bundles may be incorrect." ));
+    pack->relative_bundle_idx = 0UL;
+    pack->skip_first_bundle   = 0;
+  }
+  insert_bundle_impl( pack, pack->relative_bundle_idx, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at );
+  pack->relative_bundle_idx++;
+
+  return replaces ? FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE : FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
+
+}
+static inline void
+insert_bundle_impl( fd_pack_t           * pack,
+                    ulong                 bundle_idx,
+                    ulong                 txn_cnt,
+                    fd_pack_ord_txn_t * * bundle,
+                    ulong                 expires_at ) {
+  ulong prev_reward = ((BUNDLE_L_PRIME * (BUNDLE_N - bundle_idx))) - 1UL;
+  ulong prev_cost = 1UL<<32;
+
+  /* Assign last to first */
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_pack_ord_txn_t * ord = bundle[ txn_cnt-1UL - i ];
+    ord->rewards = (uint)(((ulong)ord->compute_est * (prev_reward + 1UL) + prev_cost-1UL)/prev_cost);
+    ord->root    = FD_ORD_TXN_ROOT_PENDING_BUNDLE;
+    prev_reward = ord->rewards;
+    prev_cost   = ord->compute_est;
+
+    /* The penalty information isn't used for bundles. */
+    ushort penalties  [ FD_TXN_ACCT_ADDR_MAX ];
+    uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
+    populate_bitsets( pack, ord, penalties, penalty_idx );
+
+    treap_ele_insert( pack->pending_bundles, ord, pack->pool );
+    pack->pending_txn_cnt++;
+
+    fd_txn_t const * txn     = TXN(bundle[ txn_cnt-1UL-i ]->txn);
+    uchar    const * payload = bundle[ txn_cnt-1UL-i ]->txn->payload;
+    sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
+
+    fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
+    expq_insert( pack->expiration_q, temp );
+  }
+
+}
+
+#define RC_TO_REL_BUNDLE_IDX( r, c ) (BUNDLE_N - ((ulong)(r) * 1UL<<32)/((ulong)(c) * BUNDLE_L_PRIME))
+
+void
+fd_pack_rewrite_initializer_bundles( fd_pack_t                * pack,
+                                     fd_pack_ib_rewriter_fn_t   rewriter,
+                                     void                     * ctx ) {
+  fd_txn_e_t * bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  ulong i = 0UL;
+  ulong cur_bundle = 0UL;
+  ulong expires_at[1] = { 0UL };
+
+  /* Stash a copy of skip_first_bundle because delete will clear it */
+  int skip_first_bundle = pack->skip_first_bundle;
+
+  treap_rev_iter_t _next = treap_idx_null();
+  for( treap_rev_iter_t _cur=treap_rev_iter_init( pack->pending_bundles, pack->pool ); !treap_rev_iter_done( _cur ); _cur=_next ) {
+    _next = treap_rev_iter_next( _cur, pack->pool );
+
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pack->pool );
+    int is_ib = !!(cur->txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
+
+    if( FD_UNLIKELY( is_ib ) ) {
+      cur_bundle = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+      bundle[ i++ ] = cur->txn_e;
+    }
+
+    /* The only bundle boundary we care about is the end of an
+       initializer bundle, so there's no need to put any effort into
+       finding the boundaries between non-initializer bundles. */
+    if( FD_LIKELY( i==0UL ) ) continue;
+
+    int last_in_bundle = 0;
+    if( FD_UNLIKELY ( treap_rev_iter_done( _next ) ) ) last_in_bundle = 1;
+    else {
+      fd_pack_ord_txn_t * next = treap_rev_iter_ele( _next, pack->pool );
+      last_in_bundle = (cur_bundle != RC_TO_REL_BUNDLE_IDX( next->rewards, next->compute_est ));
+    }
+
+    if( FD_UNLIKELY( last_in_bundle ) ) {
+      /* We're going to carefully delete the bundle, call rewrite, then
+         re-add them brand new with the same bundle idx so that they end
+         up in the same spot.  Assuming rewriter obeys the contract in
+         the documentation, nothing can touch these transactions between
+         when they're deleted and we call the rewriter, so this is safe.
+         We need to make sure they don't remain in the pool's free list
+         though. */
+      for( ulong j=0UL; j<i; j++ ) {
+        delete_transaction( pack, fd_txn_get_signatures( TXN(bundle[j]->txnp), bundle[j]->txnp->payload ), 0, 0 );
+        FD_TEST( trp_pool_ele_acquire( pack->pool )->txn_e==bundle[j] );
+      }
+
+      rewriter( bundle, i, expires_at, ctx );
+
+      insert_bundle_impl( pack, cur_bundle, i, (fd_pack_ord_txn_t **)fd_type_pun( bundle ), *expires_at );
+
+      i = 0;
+    }
+  }
+  pack->skip_first_bundle = skip_first_bundle;
+}
+
+void
+fd_pack_set_initializer_bundles_ready( fd_pack_t * pack ) {
+  pack->initializer_bundle_state = FD_PACK_IB_STATE_READY;
+}
 
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
@@ -1447,6 +1892,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
     sig2txn_remove( pack->signature_map, in_tbl );
 
+    cur->root = FD_ORD_TXN_ROOT_FREE;
     expq_remove( pack->expiration_q, cur->expq_idx );
     treap_idx_remove( sched_from, _cur, pool );
     trp_pool_idx_release( pool, _cur );
@@ -1462,10 +1908,6 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, write_limit_c  );
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  slow_path      );
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP, skip_c         );
-
-#if DETAILED_LOGGING
-  FD_LOG_NOTICE(( "cu_limit: %lu, fast_path: %lu, slow_path: %lu", cu_limit_c, fast_path, slow_path ));
-#endif
 
   /* If we scanned the whole treap and didn't break early, we now have a
      better estimate of the smallest. */
@@ -1597,6 +2039,296 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   return 1;
 }
 
+#define TRY_BUNDLE_NO_READY_BUNDLES      0
+#define TRY_BUNDLE_HAS_CONFLICTS       (-1)
+#define TRY_BUNDLE_DOES_NOT_FIT        (-2)
+#define TRY_BUNDLE_SUCCESS(n)          ( n) /* schedule bundle with n transactions */
+static inline int
+fd_pack_try_schedule_bundle( fd_pack_t  * pack,
+                             ulong        bank_tile,
+                             fd_txn_p_t * out ) {
+  int state = pack->initializer_bundle_state;
+  if( FD_UNLIKELY( (state==FD_PACK_IB_STATE_PENDING) | (state==FD_PACK_IB_STATE_FAILED ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
+
+  fd_pack_ord_txn_t * pool    = pack->pool;
+  treap_t           * bundles = pack->pending_bundles;
+
+  int skip_first, require_ib;
+  if( FD_UNLIKELY( state==FD_PACK_IB_STATE_NOT_INITIALIZED ) ) { skip_first = 0;                       require_ib = 1; }
+  if( FD_LIKELY  ( state==FD_PACK_IB_STATE_READY           ) ) { skip_first = pack->skip_first_bundle; require_ib = 0; }
+
+  treap_rev_iter_t _cur  = treap_rev_iter_init( bundles, pool );
+  ulong bundle_idx = ULONG_MAX;
+  while( skip_first & !treap_rev_iter_done( _cur ) ) {
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    ulong this_bundle_idx = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+    int matches = (bundle_idx==ULONG_MAX) | (this_bundle_idx==bundle_idx);
+    bundle_idx = this_bundle_idx;
+
+    /* In the common case of single-transaction IBs, this is false the
+       first time and true the second time through, so hard to say
+       LIKELY/UNLIKELY */
+    if( !matches ) break;
+    _cur = treap_rev_iter_next( _cur, pool );
+  }
+
+  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
+
+  treap_rev_iter_t   _txn0 = _cur;
+  fd_pack_ord_txn_t * txn0 = treap_rev_iter_ele( _txn0, pool );
+  int is_ib = !!(txn0->txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
+  bundle_idx = RC_TO_REL_BUNDLE_IDX( txn0->rewards, txn0->compute_est );
+
+  if( FD_UNLIKELY( require_ib & !is_ib ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
+  if( FD_UNLIKELY( skip_first &  is_ib ) ) {
+    /* This is a new initializer bundle, so the one we skipped is now
+       superseded.  Note: This also clears the skip_first_bundle bit */
+    fd_pack_ord_txn_t      * ib0  = treap_rev_iter_ele( treap_rev_iter_init( bundles, pool ), pool );
+    fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( TXN(ib0->txn), ib0->txn->payload );
+
+    delete_transaction( pack, sig0, 1, 0 );
+  }
+
+  /* At this point, we have our candidate bundle, so we'll schedule it
+     if we can.  If we can't, we won't schedule anything. */
+
+
+  fd_pack_addr_use_t * bundle_temp_inserted[ FD_PACK_MAX_TXN_PER_BUNDLE * FD_TXN_ACCT_ADDR_MAX ];
+  ulong bundle_temp_inserted_cnt = 0UL;
+
+  ulong bank_tile_mask = 1UL << bank_tile;
+
+  int doesnt_fit   = 0;
+  int has_conflict = 0;
+  ulong txn_cnt = 0UL;
+
+  ulong cu_limit         = pack->lim->max_cost_per_block        - pack->cumulative_block_cost;
+  ulong byte_limit       = pack->lim->max_data_bytes_per_block  - pack->data_bytes_consumed;
+  ulong microblock_limit = pack->lim->max_microblocks_per_block - pack->microblock_cnt;
+
+  FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
+  FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
+  FD_PACK_BITSET_COPY( bitset_rw_in_use, pack->bitset_rw_in_use );
+  FD_PACK_BITSET_COPY( bitset_w_in_use,  pack->bitset_w_in_use  );
+
+  /* last_use_in_txn_cnt[i+1] Keeps track of the number of accounts that
+     have their last reference in transaction i of the bundle.  This
+     esoteric value is important for computing use_by_bank_txn.
+     last_use_in_txn_cnt[0] is garbage. */
+  ulong last_use_in_txn_cnt[ 1UL+FD_PACK_MAX_TXN_PER_BUNDLE ] = { 0UL };
+
+  fd_pack_addr_use_t   null_use[1]    = {{{{ 0 }}, { 0 }}};
+
+  while( !(doesnt_fit | has_conflict) & !treap_rev_iter_done( _cur ) ) {
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    ulong this_bundle_idx = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+    if( FD_UNLIKELY( this_bundle_idx!=bundle_idx ) ) break;
+
+    if( FD_UNLIKELY( cur->compute_est>cu_limit ) ) {
+      doesnt_fit = 1;
+      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_CU_LIMIT,   1UL );
+      break;
+    }
+    cu_limit -= cur->compute_est;
+
+    /* Each transaction in a bundle turns into a microblock */
+    if( FD_UNLIKELY( microblock_limit==0UL ) ) {
+      doesnt_fit = 1;
+      FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
+      break;
+    }
+    microblock_limit--;
+
+    if( FD_UNLIKELY( cur->txn->payload_sz+MICROBLOCK_DATA_OVERHEAD>byte_limit ) ) {
+      doesnt_fit = 1;
+      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, 1UL );
+      break;
+    }
+    byte_limit -= cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
+
+    if( FD_UNLIKELY( !FD_PACK_BITSET_INTERSECT4_EMPTY( pack->bitset_rw_in_use, pack->bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) ) {
+      has_conflict = 1;
+      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_FAST_PATH,  1UL );
+      break;
+    }
+
+    /* Don't update the actual in-use bitset, because the transactions
+       in the bundle are allowed to conflict with each other. */
+    FD_PACK_BITSET_OR( bitset_rw_in_use, cur->rw_bitset );
+    FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
+
+
+    fd_txn_t const * txn = TXN(cur->txn);
+    fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+    fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+    /* Check conflicts between this transaction's writable accounts and
+       current readers */
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+      fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
+
+      fd_pack_addr_use_t * in_bundle_temp = acct_uses_query( pack->bundle_temp_map, acct, null_use );
+      ulong current_cost                  = acct_uses_query( pack->writer_costs,    acct, null_use )->total_cost;
+      ulong carried_cost                  = (ulong)in_bundle_temp->carried_cost;
+      if( FD_UNLIKELY( current_cost + carried_cost + cur->compute_est > pack->lim->max_write_cost_per_acct ) ) {
+        doesnt_fit = 1;
+        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, 1UL );
+        break;
+      }
+
+      if( FD_LIKELY( in_bundle_temp==null_use ) ) { /* Not in temp bundle table yet */
+        in_bundle_temp    = acct_uses_insert( pack->bundle_temp_map, acct );
+        in_bundle_temp->_ = 0UL;
+        bundle_temp_inserted[ bundle_temp_inserted_cnt++ ] = in_bundle_temp;
+      }
+      in_bundle_temp->carried_cost += (uint)cur->compute_est; /* < 2^21, but >0 */
+      in_bundle_temp->ref_cnt++;
+      last_use_in_txn_cnt[ in_bundle_temp->last_use_in ]--;
+      in_bundle_temp->last_use_in = (ushort)(txn_cnt+1UL);
+      last_use_in_txn_cnt[ in_bundle_temp->last_use_in ]++;
+
+      if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use, acct, null_use )->in_use_by ) ) {
+        has_conflict = 1;
+        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  1UL );
+        break;
+      }
+    }
+    if( has_conflict | doesnt_fit ) break;
+
+    /* Check conflicts between this transaction's readonly accounts and
+       current writers */
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+      fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+      if( fd_pack_unwritable_contains( acct ) ) continue; /* No need to track sysvars because they can't be writable */
+
+      fd_pack_addr_use_t * in_bundle_temp = acct_uses_query( pack->bundle_temp_map, *acct, null_use );
+      if( FD_LIKELY( in_bundle_temp==null_use ) ) { /* Not in temp bundle table yet */
+        in_bundle_temp = acct_uses_insert( pack->bundle_temp_map, *acct );
+        in_bundle_temp->_ = 0UL;
+        bundle_temp_inserted[ bundle_temp_inserted_cnt++ ] = in_bundle_temp;
+      }
+      in_bundle_temp->ref_cnt++;
+      last_use_in_txn_cnt[ in_bundle_temp->last_use_in ]--;
+      in_bundle_temp->last_use_in = (ushort)(txn_cnt+1UL);
+      last_use_in_txn_cnt[ in_bundle_temp->last_use_in ]++;
+
+      if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use,  *acct, null_use )->in_use_by & FD_PACK_IN_USE_WRITABLE ) ) {
+        has_conflict = 1;
+        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  1UL );
+        break;
+      }
+    }
+
+    if( has_conflict | doesnt_fit ) break;
+
+    txn_cnt++;
+    _cur = treap_rev_iter_next( _cur, pool );
+  }
+  int retval = fd_int_if( doesnt_fit, TRY_BUNDLE_DOES_NOT_FIT,
+                                      fd_int_if( has_conflict, TRY_BUNDLE_HAS_CONFLICTS, TRY_BUNDLE_SUCCESS( (int)txn_cnt ) ) );
+
+  if( FD_UNLIKELY( retval<=0 ) ) {
+    for( ulong i=0UL; i<bundle_temp_inserted_cnt; i++ ) {
+      acct_uses_remove( pack->bundle_temp_map, bundle_temp_inserted[ bundle_temp_inserted_cnt-i-1UL ] );
+    }
+    FD_TEST( acct_uses_key_cnt( pack->bundle_temp_map )==0UL );
+    return retval;
+  }
+
+  /* This bundle passed validation, so now we'll take it! */
+  pack->outstanding_microblock_mask |= bank_tile_mask;
+
+  treap_rev_iter_t   _end  = _cur;
+  treap_rev_iter_t   _next;
+
+  /* We'll carefully incrementally construct use_by_bank and
+     use_by_bank_txn based on the contents of bundle_temp and
+     last_use_in_txn_cnt. */
+  fd_pack_addr_use_t * use_by_bank     = pack->use_by_bank    [bank_tile];
+  ulong              * use_by_bank_txn = pack->use_by_bank_txn[bank_tile];
+  ulong cum_sum = 0UL;
+  for( ulong k=0UL; k<txn_cnt; k++ ) { use_by_bank_txn[k] = cum_sum; cum_sum += last_use_in_txn_cnt[ k+1UL ]; }
+  pack->use_by_bank_cnt[bank_tile] = cum_sum;
+
+
+  for( _cur=_txn0; _cur!=_end; _cur=_next ) {
+    _next = treap_rev_iter_next( _cur, pool );
+
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    fd_txn_t const    * txn = TXN(cur->txn);
+    fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
+    fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    out->payload_sz                      = cur->txn->payload_sz;
+    out->pack_cu.requested_execution_cus = cur->txn->pack_cu.requested_execution_cus;
+    out->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
+    out->flags                           = cur->txn->flags;
+    out++;
+
+    pack->cumulative_block_cost += cur->compute_est;
+    pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
+
+    fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
+    fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
+    FD_TEST( in_tbl );
+    sig2txn_remove( pack->signature_map, in_tbl );
+
+    cur->root = FD_ORD_TXN_ROOT_FREE;
+    expq_remove( pack->expiration_q, cur->expq_idx );
+    treap_idx_remove( pack->pending_bundles, _cur, pack->pool );
+    trp_pool_idx_release( pack->pool, _cur );
+    pack->pending_txn_cnt--;
+  }
+
+
+  for( ulong i=0UL; i<bundle_temp_inserted_cnt; i++ ) {
+    /* In order to clear bundle_temp_map with the typical trick, we need
+       to iterate through bundle_temp_inserted backwards. */
+    fd_pack_addr_use_t * addr_use = bundle_temp_inserted[ bundle_temp_inserted_cnt-i-1UL ];
+
+    int any_writers = addr_use->carried_cost>0U; /* Did any transaction in this bundle write lock this account address? */
+
+    if( FD_LIKELY( any_writers ) ) { /* UNLIKELY? */
+      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( pack->writer_costs, addr_use->key, NULL );
+      if( !in_wcost_table ) {
+        in_wcost_table = acct_uses_insert( pack->writer_costs, addr_use->key );
+        in_wcost_table->total_cost = 0UL;
+        pack->written_list[ pack->written_list_cnt ] = in_wcost_table;
+        pack->written_list_cnt = fd_ulong_min( pack->written_list_cnt+1UL, pack->written_list_max-1UL );
+      }
+      in_wcost_table->total_cost += (ulong)addr_use->carried_cost;
+    }
+
+    /* in_use_by must be set before releasing the bit reference */
+    fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use, addr_use->key, NULL );
+    if( !use ) { use = acct_uses_insert( pack->acct_in_use, addr_use->key ); use->in_use_by = 0UL; }
+    use->in_use_by |= bank_tile_mask | fd_ulong_if( any_writers, FD_PACK_IN_USE_WRITABLE, 0UL );
+    use->in_use_by &= ~FD_PACK_IN_USE_BIT_CLEARED;
+
+    use_by_bank[ use_by_bank_txn[ addr_use->last_use_in-1UL ]++ ] = *use;
+
+    for( ulong k=0UL; k<(ulong)addr_use->ref_cnt; k++ ) {
+      release_result_t ret = release_bit_reference( pack, &(addr_use->key) );
+      FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
+      FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
+    }
+
+    acct_uses_remove( pack->bundle_temp_map, addr_use );
+  }
+
+  FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
+  FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
+
+  if( FD_UNLIKELY( is_ib ) ) {
+    pack->initializer_bundle_state = FD_PACK_IB_STATE_PENDING;
+    pack->skip_first_bundle        = 1;
+  }
+  return retval;
+}
+
 
 ulong
 fd_pack_schedule_next_microblock( fd_pack_t *  pack,
@@ -1604,6 +2336,12 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
                                   float        vote_fraction,
                                   ulong        bank_tile,
                                   fd_txn_p_t * out ) {
+  /* Try to schedule a bundle first */
+  int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
+  if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
+  if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
+  /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
+     normal. */
 
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
@@ -1695,10 +2433,21 @@ fd_pack_rebate_cus( fd_pack_t        * pack,
   ulong data_bytes_consumed    = pack->data_bytes_consumed;
   ulong cumulative_rebated_cus = pack->cumulative_rebated_cus;
 
+  /* make sure rebate with txn_cnt==0 is a no-op */
+  int is_initializer_bundle = txn_cnt>0UL;
+  int ib_success            = 1;
+
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t const * txn = txns+i;
     ulong rebated_cus   = txn->bank_cu.rebated_cus;
     int   in_block      = !!(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
+
+    /* For IB purposes, treat AlreadyProcessed (7) as success.  If one
+       transaction is an initializer bundle, they all must be, so it's
+       unclear if the first line should be an |= or an &=, but &= seems
+       more right. */
+    is_initializer_bundle &= !!(txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
+    ib_success            &= in_block | ((txn->flags&FD_TXN_P_FLAGS_RESULT_MASK)==(7U<<24));
 
     cumulative_block_cost  -= rebated_cus;
     cumulative_vote_cost   -= fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, rebated_cus,     0UL );
@@ -1723,6 +2472,10 @@ fd_pack_rebate_cus( fd_pack_t        * pack,
     }
   }
 
+  if( FD_UNLIKELY( is_initializer_bundle & (pack->initializer_bundle_state==FD_PACK_IB_STATE_PENDING ) ) ) {
+    pack->initializer_bundle_state = fd_int_if( ib_success, FD_PACK_IB_STATE_READY, FD_PACK_IB_STATE_FAILED );
+  }
+
   pack->cumulative_vote_cost   = cumulative_vote_cost;
   pack->cumulative_block_cost  = cumulative_block_cost;
   pack->data_bytes_consumed    = data_bytes_consumed;
@@ -1741,7 +2494,10 @@ fd_pack_expire_before( fd_pack_t * pack,
 
     fd_ed25519_sig_t const * expired_sig = fd_txn_get_signatures( TXN( expired->txn ), expired->txn->payload );
     /* fd_pack_delete_transaction also removes it from the heap */
-    fd_pack_delete_transaction( pack, expired_sig );
+    /* All the transactions in the same bundle have the same expiration
+       time, so this loop will end up deleting them all, even with
+       delete_full_bundle set to 0. */
+    FD_TEST( delete_transaction( pack, expired_sig, 0, 1 ) );
     deleted_cnt++;
   }
 
@@ -1761,6 +2517,9 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->cumulative_vote_cost        = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
   pack->outstanding_microblock_mask = 0UL;
+
+  pack->initializer_bundle_state = FD_PACK_IB_STATE_NOT_INITIALIZED;
+  pack->skip_first_bundle        = 0;
 
   acct_uses_clear( pack->acct_in_use  );
 
@@ -1843,6 +2602,8 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 
   release_tree( pack->pending,         pack->pool );
   release_tree( pack->pending_votes,   pack->pool );
+  release_tree( pack->pending_bundles, pack->pool );
+
   for( ulong i=0UL; i<pack->pack_depth+1UL; i++ ) {
     if( FD_UNLIKELY( pack->pool[ i ].root!=FD_ORD_TXN_ROOT_FREE ) ) {
       fd_pack_ord_txn_t * const del = pack->pool + i;
@@ -1877,9 +2638,19 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i] = 0UL;
 }
 
+
+/* If delete_full_bundle is non-zero and the transaction to delete is
+   part of a bundle, the rest of the bundle it is part of will be
+   deleted as well.
+   If move_from_penalty_treap is non-zero and the transaction to delete
+   is in the pending treap, move the best transaction in any of the
+   conflicting penalty treaps to the pending treap (if there is one). */
 int
-fd_pack_delete_transaction( fd_pack_t              * pack,
-                            fd_ed25519_sig_t const * sig0 ) {
+delete_transaction( fd_pack_t              * pack,
+                    fd_ed25519_sig_t const * sig0,
+                    int                      delete_full_bundle,
+                    int                      move_from_penalty_treap ) {
+
   fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
 
   if( !in_tbl )
@@ -1901,6 +2672,7 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
     case FD_ORD_TXN_ROOT_FREE:             /* Should be impossible */                                                return 0;
     case FD_ORD_TXN_ROOT_PENDING:          root = pack->pending;                                                     break;
     case FD_ORD_TXN_ROOT_PENDING_VOTE:     root = pack->pending_votes;                                               break;
+    case FD_ORD_TXN_ROOT_PENDING_BUNDLE:   root = pack->pending_bundles;                                             break;
     case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
       penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
@@ -1908,6 +2680,54 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
       root = penalty_treap->penalty_treap;
       break;
     }
+  }
+
+  /* Are we deleting the first bundle that we previously wanted to skip?
+     If so, we need to clear the skip_first_bundle flag? */
+  if( FD_UNLIKELY( ((root==pack->pending_bundles) & pack->skip_first_bundle) &&
+        (containing == treap_rev_iter_ele_const( treap_rev_iter_init( pack->pending_bundles, pack->pool ), pack->pool ) ) ) ) {
+    pack->skip_first_bundle = 0;
+  }
+
+  if( FD_UNLIKELY( delete_full_bundle & (root==pack->pending_bundles) ) ) {
+    /* When we delete, the sturcture of the treap may move around, but
+       pointers to inside the pool will remain valid */
+    fd_ed25519_sig_t const * bundle_sigs[ FD_PACK_MAX_TXN_PER_BUNDLE-1UL ];
+    fd_pack_ord_txn_t      * pool       = pack->pool;
+    ulong                    cnt        = 0UL;
+    ulong                    bundle_idx = RC_TO_REL_BUNDLE_IDX( containing->rewards, containing->compute_est );
+
+    /* Iterate in both directions from the current transaction */
+    for( treap_fwd_iter_t _cur=treap_fwd_iter_next( (treap_fwd_iter_t)treap_idx_fast( containing, pool ), pool );
+        !treap_fwd_iter_done( _cur ); _cur=treap_fwd_iter_next( _cur, pool ) ) {
+      fd_pack_ord_txn_t const * cur = treap_fwd_iter_ele_const( _cur, pool );
+      if( FD_LIKELY( bundle_idx==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) {
+        bundle_sigs[ cnt++ ] = fd_txn_get_signatures( TXN(cur->txn), cur->txn->payload );
+      } else {
+        break;
+      }
+      FD_TEST( cnt<FD_PACK_MAX_TXN_PER_BUNDLE );
+    }
+
+    for( treap_rev_iter_t _cur=treap_rev_iter_next( (treap_rev_iter_t)treap_idx_fast( containing, pool ), pool );
+        !treap_rev_iter_done( _cur ); _cur=treap_rev_iter_next( _cur, pool ) ) {
+      fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+      if( FD_LIKELY( bundle_idx==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) {
+        bundle_sigs[ cnt++ ] = fd_txn_get_signatures( TXN(cur->txn), cur->txn->payload );
+      } else {
+        break;
+      }
+      FD_TEST( cnt<FD_PACK_MAX_TXN_PER_BUNDLE );
+    }
+
+    /* Delete them each, setting delete_full_bundle to 0 to avoid
+       infinite recursion. */
+    for( ulong k=0UL; k<cnt; k++ ) delete_transaction( pack, bundle_sigs[ k ], 0, 0 );
+  }
+
+
+  if( FD_UNLIKELY( move_from_penalty_treap & (root==pack->pending) ) ) {
+    /* TODO */ (void)move_from_penalty_treap;
   }
 
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
@@ -1938,6 +2758,12 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   }
 
   return 1;
+}
+
+int
+fd_pack_delete_transaction( fd_pack_t              * pack,
+                            fd_ed25519_sig_t const * sig0 ) {
+  return delete_transaction( pack, sig0, 1, 1 );
 }
 
 

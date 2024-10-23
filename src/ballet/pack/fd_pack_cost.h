@@ -76,33 +76,71 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define FD_PACK_COST_PER_WRITABLE_ACCT       (300UL)
 #define FD_PACK_INV_COST_PER_INSTR_DATA_BYTE (  4UL)
 
-/* This is an extremely conservative upper bound on the max cost.  The
-   majority of it comes from TXN_INSTR_MAX*2370, which is excessively
-   high in this branch.  The only useful insight from this limit is that
-   costs will fit conveniently in a uint and definitely in a ulong.  A
-   transaction with cost this high can't fit in a block, so will never
-   make it on chain, but that's not the job of this part of the code to
-   know about. */
-#define FD_PACK_MAX_TXN_COST (156981760UL)
-FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST>= (
-      ((ulong)FD_TXN_ACCT_ADDR_MAX*(720UL+300UL)) + /* writable signer are the most expensive */
-      ((ulong)FD_TXN_INSTR_MAX*2370UL) + /* the most expensive built-in */
-      (FD_TPU_MTU/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE) +
-      (ulong)FD_COMPUTE_BUDGET_MAX_CU_LIMIT), fd_pack_max_cost );
+/* The computation here is similar to the computation for the max
+   fd_txn_t size.  There are various things a transaction can include
+   that consume CUs, and they also consume some bytes of payload.  It
+   then becomes an integer linear programming problem.  First, the best
+   use of bytes is to include a compute budget program instruction that
+   requests 1.4M CUs.  That also requires the invocation of another
+   non-builtin program, consuming 3 bytes of payload.  In total to do
+   this, we need 2 pubkey and 11 bytes of instruction payload.  This is
+   >18,000 CUs per byte, which is obviously the best move.
+
+   From there, we can also invoke built-in programs with no accounts and
+   no instruction data, which also consumes 3 bytes of payload.  The
+   most expensive built-in is the BPF upgradeable loader.  We're limited
+   to 64 instructions, so we can only consume it at most 62 times.  This
+   is about 675 CUs per byte.
+
+   We've maxed out the instruction limit, so we can only continue to
+   increase the cost by adding writable accounts or writable signer
+   accounts.  Writable signers consume 96 bytes use 1020 CUs.  Writable
+   non-signers consume 32 bytes and use 300 CUs.  That's 10.6 CUs/byte
+   and 9.4 CUs/byte, respectively, so in general, writable signers are
+   more efficient and we want to add as many as we can.  We also need at
+   least one writable signer to be the fee payer, and, although it's
+   unusual, there's actually no reason the non-builtin program can't be
+   a writable signer too.
+
+   Finally, with any bytes that remain, we can add them to one of the
+   instruction datas for 0.25 CUs/byte.
+
+   This gives a transaction that looks like
+     Field                   bytes consumed               CUs used
+     sig cnt                      1                             0
+     fee payer sig               64                           720
+     8 other signatures         512                         5,670
+     fixed header (no ALTs)       3                             0
+     acct addr cnt                1                             0
+     fee payer pubkey            32                           300
+     8 writable pubkeys         256                         2,400
+     2 writable non-signers      64                           600
+     CBP, BPF upg loader         64                             0
+     Recent blockhash            32                             0
+     Instruction count            1                             0
+     Compute budget program ix    8                           151.25
+     62 dummy BPF upg ixs       186                       146,940
+     1 dummy non-builtin ix       8                     1,400,001.25
+   + ---------------------------------------------------------------
+                              1,232                     1,556,782
+
+   One of the main take-aways from this is that the cost of a
+   transaction easily fits in a uint. */
+#define FD_PACK_MAX_TXN_COST (1556782UL)
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 /* Every transaction has at least a fee payer, a writable signer. */
 #define FD_PACK_MIN_TXN_COST (FD_PACK_COST_PER_SIGNATURE+FD_PACK_COST_PER_WRITABLE_ACCT)
 
 /* A typical vote transaction has the authorized voter (writable
-   signer), the vote account (writable non-signer), clock sysvar, slot
-   hashes sysvar (both readonly), and the vote program (readonly).  Then
-   it has one instruction a built-in to the vote program, which is
-   typically 61 bytes (1 slot) or 69 bytes (2 slot) long.  The mean over
-   1000 slots of vote transactions is 69.3 bytes. */
-static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE                +
-                                                 2UL*FD_PACK_COST_PER_WRITABLE_ACCT        +
-                                                 69UL/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE +
+   signer), the vote account (writable non-signer), and the vote program
+   (readonly).  Then it has one instruction, a built-in to the vote
+   program, which is typically 116 bytes long, but occasionally a little
+   less than that.  The mean over several million slots of vote
+   transactions (10B votes) is 115.990 bytes. */
+static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE                 +
+                                                 2UL*FD_PACK_COST_PER_WRITABLE_ACCT         +
+                                                 116UL/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE +
                                                  VOTE_PROG_COST );
 
 #undef VOTE_PROG_COST

@@ -56,14 +56,14 @@ init_all( ulong pack_depth,
     .max_txn_per_microblock    = max_txn_per_microblock,
     .max_microblocks_per_block = MAX_TEST_TXNS,
   } };
-  ulong footprint = fd_pack_footprint( pack_depth, bank_tile_cnt, limits );
+  ulong footprint = fd_pack_footprint( pack_depth, 0UL, bank_tile_cnt, limits );
 
   if( footprint>PACK_SCRATCH_SZ ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, PACK_SCRATCH_SZ ));
 #if DETAILED_STATUS_MESSAGES
   else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
 #endif
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, bank_tile_cnt, limits, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, 0UL, bank_tile_cnt, limits, rng ) );
 #define MAX_BANKING_THREADS 64
 
   outcome->microblock_cnt = 0UL;
@@ -520,12 +520,12 @@ performance_test2( void ) {
 
     payload_sz[ i ] = (ulong)(p-p_base);
   }
-  FD_TEST( fd_pack_footprint( 1024UL, 4UL, limits )<PACK_SCRATCH_SZ );
+  FD_TEST( fd_pack_footprint( 1024UL, 0UL, 4UL, limits )<PACK_SCRATCH_SZ );
 #define INNER_ROUNDS (FD_PACK_MAX_COST_PER_BLOCK/(1020UL * 1024UL))
 #define OUTER_ROUNDS 88
   long elapsed = 0L;
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 4UL, limits, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 0UL, 4UL, limits, rng ) );
 
   for( ulong outer=0UL; outer<OUTER_ROUNDS; outer++ ) {
     elapsed -= fd_log_wallclock();
@@ -586,7 +586,7 @@ void performance_test( int extra_bench ) {
         .max_microblocks_per_block = heap_sz
     } };
 
-    ulong footprint = fd_pack_footprint( heap_sz, 1UL, limits );
+    ulong footprint = fd_pack_footprint( heap_sz, 0UL, 1UL, limits );
     void * _mem;
     if( FD_LIKELY( wksp ) ) _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
     else                    { FD_TEST( footprint<PACK_SCRATCH_SZ ); _mem = pack_scratch; }
@@ -600,7 +600,7 @@ void performance_test( int extra_bench ) {
     long schedule  = 0L;
 
     for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
-      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 1UL, limits, rng ) );
+      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 0UL, 1UL, limits, rng ) );
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
 
@@ -747,13 +747,13 @@ void performance_end_block( void ) {
       .max_txn_per_microblock    = 31UL,
       .max_microblocks_per_block = 16384UL,
   } };
-  ulong footprint = fd_pack_footprint( 4096UL, 8UL, limits );
+  ulong footprint = fd_pack_footprint( 4096UL, 0UL, 8UL, limits );
   void * _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
 
   make_transaction( 0UL, 800U, 4.0, "", "" );
 
   FD_LOG_NOTICE(( "Writers\tTime (ms/call)" ));
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 8UL, limits, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 0UL, 8UL, limits, rng ) );
   for( ulong writers_cnt=1UL; writers_cnt<=16*1024UL; writers_cnt *= 2UL ) {
     long end_block = 0L;
 
@@ -885,7 +885,7 @@ test_limits( void ) {
     for( ulong cu_limit=0UL; cu_limit<45UL*SAMPLE_VOTE_COST; cu_limit += SAMPLE_VOTE_COST ) {
       /* FIXME: CU limit for votes is done based on the typical cost,
          which is slightly different from the sample vote cost. */
-      schedule_validate_microblock( pack, cu_limit*4337/SAMPLE_VOTE_COST, 1.0f, cu_limit/SAMPLE_VOTE_COST, 0UL, 0UL, &outcome );
+      schedule_validate_microblock( pack, cu_limit*4349/SAMPLE_VOTE_COST, 1.0f, cu_limit/SAMPLE_VOTE_COST, 0UL, 0UL, &outcome );
     }
     /* sum_{x=0}^44 x = 990, so there should be 34 transactions left */
     FD_TEST( fd_pack_avail_txn_cnt( pack )==34UL );
