@@ -21,9 +21,9 @@ static fd_topo_obj_t *
 setup_topo_blockstore( fd_topo_t *  topo,
                        char const * wksp_name,
                        ulong        shred_max,
-                       ulong        slot_max,
-                       ulong        lg_txn_max,
-                       ulong        loose_sz ) {
+                       ulong        block_max,
+                       ulong        txn_max,
+                       ulong        alloc_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "blockstore", wksp_name );
 
   ulong seed;
@@ -32,9 +32,14 @@ setup_topo_blockstore( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, 1UL,        "obj.%lu.wksp_tag",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,       "obj.%lu.seed",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, shred_max,  "obj.%lu.shred_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, slot_max,   "obj.%lu.slot_max",   obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, lg_txn_max, "obj.%lu.lg_txn_max", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, loose_sz,   "obj.%lu.loose",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, block_max,  "obj.%lu.block_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max,    "obj.%lu.txn_max",    obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, alloc_max,  "obj.%lu.alloc_max",  obj->id ) );
+
+  /* DO NOT MODIFY LOOSE WITHOUT CHANGING HOW BLOCKSTORE ALLOCATES INTERNAL STRUCTURES */
+
+  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, txn_max, alloc_max );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_footprint,  "obj.%lu.loose", obj->id ) );
 
   return obj;
 }
@@ -241,7 +246,12 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
-  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo, "bstore", FD_BUF_SHRED_MAP_MAX, FD_BLOCK_MAX, FD_TXN_MAP_LG_MAX, ( config->rpc.extended_tx_metadata_storage ? 128UL : 64UL ) * FD_SHMEM_GIGANTIC_PAGE_SZ );
+  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
+                                                          "bstore",
+                                                          config->tiles.store_int.blockstore_shred_max,
+                                                          config->tiles.store_int.blockstore_block_max,
+                                                          config->tiles.store_int.blockstore_txn_max,
+                                                          config->tiles.store_int.blockstore_alloc_max );
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -483,6 +493,10 @@ fd_topo_initialize( config_t * config ) {
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
+      tile->store_int.blockstore_shred_max = config->tiles.store_int.blockstore_shred_max;
+      tile->store_int.blockstore_block_max  = config->tiles.store_int.blockstore_block_max;
+      tile->store_int.blockstore_txn_max   = config->tiles.store_int.blockstore_txn_max;
+      tile->store_int.blockstore_alloc_max = config->tiles.store_int.blockstore_alloc_max;
       strncpy( tile->store_int.blockstore_restore, config->tiles.store_int.blockstore_restore, sizeof(tile->store_int.blockstore_restore) );
       strncpy( tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(tile->store_int.identity_key_path) );
       strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );

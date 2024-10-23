@@ -660,13 +660,13 @@ init_blockstore( fd_ledger_args_t * args ) {
     }
     FD_LOG_NOTICE(( "joined blockstore" ));
   } else {
-    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint(), blockstore_tag );
+    ulong txn_max = 1 << 22UL;
+    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, txn_max, 10 * FD_SHMEM_GIGANTIC_PAGE_SZ ), blockstore_tag );
     if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
-    ulong lg_txn_max = 22UL;
     args->blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
-                                                              args->slot_history_max, lg_txn_max ) );
+                                                              args->slot_history_max, txn_max, 10 * FD_SHMEM_GIGANTIC_PAGE_SZ ) );
     if( args->blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -1072,12 +1072,12 @@ prune( fd_ledger_args_t * args ) {
   }
   /* Create blockstore */
   fd_blockstore_t * pruned_blockstore;
-  void * shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+  void * shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 1UL << 22UL, 10 * FD_SHMEM_GIGANTIC_PAGE_SZ ), FD_BLOCKSTORE_MAGIC );
   if( shmem == NULL ) {
     FD_LOG_ERR(( "failed to allocate a blockstore" ));
   }
   pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
-                                                             args->slot_history_max, 22 ) );
+                                                             args->slot_history_max, 1UL << 22UL, 10 * FD_SHMEM_GIGANTIC_PAGE_SZ ) );
   if( pruned_blockstore == NULL ) {
     fd_wksp_free_laddr( shmem );
     FD_LOG_ERR(( "failed to allocate a blockstore" ));

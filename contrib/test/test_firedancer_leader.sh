@@ -52,14 +52,19 @@ name = \"fd1\"
         repair_serve_listen_port = 8702
     [tiles.replay]
         capture = \"fddev.solcap\"
-        blockstore_publish = true
         blockstore_checkpt = \"fddev-blockstore.checkpt\"
+        blockstore_publish = true
         snapshot = \"$FULL_SNAPSHOT\"
         tpool_thread_count = 8
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
         cluster_version = \"2.0.3\"
+    [tiles.store_int]
+        blockstore_shred_max = 1024
+        blockstore_block_max = 200
+        blockstore_txn_max = 1024
+        blockstore_alloc_max = 100000000
     [tiles.pack]
         use_consumed_cus = false
 [log]
