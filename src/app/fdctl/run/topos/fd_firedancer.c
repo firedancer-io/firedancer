@@ -10,7 +10,6 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../flamenco/runtime/fd_txncache.h"
-#include "../../../../funk/fd_funk.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../util/shmem/fd_shmem_private.h"
 #include "../../../../util/net/fd_net_headers.h"
@@ -29,7 +28,7 @@ setup_topo_blockstore( fd_topo_t *  topo,
 
   ulong seed;
   FD_TEST( sizeof(ulong) == getrandom( &seed, sizeof(ulong), 0 ) );
-  
+
   FD_TEST( fd_pod_insertf_ulong( topo->props, 1UL,        "obj.%lu.wksp_tag",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,       "obj.%lu.seed",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, shred_max,  "obj.%lu.shred_max",  obj->id ) );
@@ -41,33 +40,13 @@ setup_topo_blockstore( fd_topo_t *  topo,
 }
 
 static fd_topo_obj_t *
-setup_topo_funk( fd_topo_t *  topo,
-                     char const * wksp_name,
-                     ulong        txn_max,
-                     ulong        rec_max,
-                     ulong        loose_sz ) {
-  fd_topo_obj_t * obj = fd_topob_obj( topo, "funk", wksp_name );
-
-  ulong seed;
-  FD_TEST( sizeof(ulong) == getrandom( &seed, sizeof(ulong), 0 ) );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, FD_FUNK_MAGIC, "obj.%lu.wksp_tag", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,          "obj.%lu.seed",     obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max,       "obj.%lu.txn_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, rec_max,       "obj.%lu.rec_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, loose_sz,      "obj.%lu.loose", obj->id ) );
-
-  return obj;
-}
-
-static fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_rooted_slots,
-                     ulong        max_live_slots, 
+                     ulong        max_live_slots,
                      ulong        max_txn_per_slot ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
-  
+
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_rooted_slots, "obj.%lu.max_rooted_slots", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,   "obj.%lu.max_live_slots",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
@@ -154,7 +133,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "bhole"      );
   fd_topob_wksp( topo, "bstore"     );
   fd_topob_wksp( topo, "tcache"     );
-  fd_topob_wksp( topo, "funk"       );
   fd_topob_wksp( topo, "pohi"       );
   fd_topob_wksp( topo, "voter"      );
   fd_topob_wksp( topo, "poh_slot"   );
@@ -275,12 +253,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
-
-  /* Create a shared blockstore to be used by replay. */
-  fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk", config->tiles.replay.funk_txn_max, config->tiles.replay.funk_rec_max, config->tiles.replay.funk_sz_gb * FD_SHMEM_GIGANTIC_PAGE_SZ );
-  fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, funk_obj->id, "funk" ) );
 
   fd_topo_tile_t * pack_tile = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
@@ -560,6 +532,7 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
       tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
       tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
+      strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
 
       if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
                     && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
@@ -628,26 +601,6 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
 
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
-
-  const char * snapshot = config->tiles.replay.snapshot;
-  if ( strncmp(snapshot, "wksp:", 5) == 0 ) {
-    /* Make the funk workspace match the parameters used to create the
-       checkpoint. This is a bit nonintuitive because of the way
-       fd_topo_create_workspace works. */
-    uint seed;
-    ulong part_max;
-    ulong data_max;
-    int err = fd_wksp_restore_preview( snapshot+5, &seed, &part_max, &data_max );
-    if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", snapshot, err ));
-    fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ funk_obj->id ].wksp_id ];
-    wksp->part_max = part_max;
-    wksp->known_footprint = 0;
-    wksp->total_footprint = data_max;
-    ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
-    wksp->page_sz = page_sz;
-    ulong footprint = fd_wksp_footprint( part_max, data_max );
-    wksp->page_cnt = footprint / page_sz;
-  }
 
   const char * status_cache = config->tiles.replay.status_cache;
   if ( strlen( status_cache ) > 0 ) {

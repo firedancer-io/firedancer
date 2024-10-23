@@ -80,15 +80,26 @@ struct fake_funk {
     fd_funk_t * _real;
     std::map<ulong,fake_txn*> _txns;
     ulong _lastxid = 0;
+#ifdef TEST_FUNK_FILE
+    fd_funk_close_file_args_t close_args;
+#endif
 
     fake_funk(int * argc, char *** argv) {
       fd_boot( argc, argv );
+      ulong txn_max = 128;
+      ulong rec_max = 1<<16;
+
+#ifdef TEST_FUNK_FILE
+      _real = fd_funk_open_file( "funk_test_file", 1, 1234U, txn_max, rec_max, FD_SHMEM_GIGANTIC_PAGE_SZ, FD_FUNK_OVERWRITE, &close_args );
+      _wksp = fd_funk_wksp( _real );
+
+#else
       ulong  numa_idx = fd_shmem_numa_idx( 0 );
       _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
       void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-      ulong txn_max = 128;
-      ulong rec_max = 1<<16;
       _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+#endif
+
       fd_funk_set_num_partitions( _real, MAX_PARTS );
 
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
@@ -96,7 +107,19 @@ struct fake_funk {
     ~fake_funk() {
       for (auto i : _txns)
         delete i.second;
+#ifdef TEST_FUNK_FILE
+      fd_funk_close_file( &close_args );
+      unlink( "funk_test_file" );
+#endif
     }
+
+#ifdef TEST_FUNK_FILE
+    void reopen_file() {
+      fd_funk_close_file( &close_args );
+      _real = fd_funk_open_file( "funk_test_file", 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, &close_args );
+      _wksp = fd_funk_wksp( _real );
+    }
+#endif
 
     fake_txn * pick_unfrozen_txn() {
       fake_txn* list[MAX_TXNS];

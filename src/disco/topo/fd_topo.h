@@ -220,6 +220,7 @@ typedef struct {
       ulong funk_rec_max;
       ulong funk_sz_gb;
       ulong funk_txn_max;
+      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
