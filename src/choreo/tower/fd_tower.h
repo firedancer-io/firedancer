@@ -182,7 +182,6 @@
              ...  | ... <- 29 votes elided
              1    | 4
 
-
    So the tower is really a double-ended queue rather than a stack.
 
    Rooting has implications beyond the Tower. It's what we use to prune
@@ -335,8 +334,7 @@
      2. We have a latest vote slot that is older than the SMR, meaning
         the cluster has rooted past our latest vote.  This can happen
         when we don't vote for a while (e.g. this validator was not
-        running or we were stuck waiting for lockouts.)
-   */
+        running or we were stuck waiting for lockouts.) */
 
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"

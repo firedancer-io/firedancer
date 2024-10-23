@@ -24,8 +24,8 @@
 #define FD_BLOCKSTORE_MAGIC        (0xf17eda2ce7b10c00UL) /* firedancer bloc version 0 */
 
 /* DO NOT MODIFY. */
-#define FD_BUF_SHRED_MAP_MAX (1UL << 24UL) /* 16 million shreds can be buffered */
-#define FD_TXN_MAP_LG_MAX    (24)          /* 16 million txns can be stored in the txn map */
+// #define FD_BUF_SHRED_MAP_MAX (1UL << 24UL) /* 16 million shreds can be buffered */
+// #define FD_TXN_MAP_LG_MAX    (24)          /* 16 million txns can be stored in the txn map */
 
 /* TODO this can be removed if we explicitly manage a memory pool for
    the fd_block_map_t entries */
@@ -291,17 +291,19 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong hcs;  /* highest confirmed slot */
   ulong smr;  /* supermajority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
 
-  /* Internal data structures */
+  /* Config limits */
 
-  ulong shred_max;        /* max number of temporary shreds */
+  ulong shred_max;  /* max number of temporary shreds */
+  ulong block_max;   /* maximum # of blocks */
+  ulong txn_max;
+  ulong alloc_max;
+
+  /* Internal gaddrs (offsets) */
+
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
-
-  ulong slot_max;           /* maximum # of blocks */
-  ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
-  ulong slot_deque_gaddr;   /* deque of slots (ulongs) used to traverse blockstore ancestry */
-
-  ulong lg_txn_max;
+  ulong slot_map_gaddr;   /* map of slot->(slot_meta, block) */
+  ulong slot_deque_gaddr; /* deque of slots (ulongs) used to traverse blockstore ancestry */
   ulong txn_map_gaddr;
 
   /* The blockstore alloc is used for allocating wksp resources for shred headers, microblock
@@ -325,15 +327,16 @@ FD_FN_CONST ulong
 fd_blockstore_align( void );
 
 FD_FN_CONST ulong
-fd_blockstore_footprint( void );
+fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong txn_max, ulong alloc_max );
 
 void *
 fd_blockstore_new( void * shmem,
                    ulong  wksp_tag,
                    ulong  seed,
                    ulong  shred_max,
-                   ulong  slot_max,
-                   ulong  lg_txn_max );
+                   ulong  block_max,
+                   ulong  txn_max,
+                   ulong  alloc_max );
 
 fd_blockstore_t *
 fd_blockstore_join( void * shblockstore );
@@ -568,9 +571,25 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
 /* fd_blockstore_publish publishes root to the blockstore, pruning any
    paths that are not in root's subtree.  Removes all blocks in the
    pruned paths.  Returns FD_BLOCKSTORE_OK on success,
-   FD_BLOCKSTORE_ERR_X otherwise.  Caller MUST hold the write lock. */
+   FD_BLOCKSTORE_ERR_X otherwise.
+   
+   IMPORTANT SAFETY TIP!  Caller MUST hold the write lock. */
 int
-fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root_slot );
+fd_blockstore_publish( fd_blockstore_t * blockstore, ulong smr );
+
+/* fd_blockstore_evict evicts the minimum slot in the blockstore.  This
+   slot must be strictly before the blockstore's current SMR, which is
+   monotonically strictly increasing by loop invariant.  If there are no
+   slots < SMR, this call is a no-op.
+
+   The difference from fd_blockstore_publish is fd_blockstore_evict does
+   remove from the rooted path, specifically the minimum slot number
+   which must always be finalized.
+
+   IMPORTANT SAFETY TIP!  Caller MUST hold the write lock. */
+
+void
+fd_blockstore_evict( fd_blockstore_t * blockstore );
 
 /* Acquire a read lock */
 static inline void

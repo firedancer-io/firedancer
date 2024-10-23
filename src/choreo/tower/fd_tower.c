@@ -476,20 +476,22 @@ fd_tower_reset_fork( fd_tower_t const * tower,
 
   fd_tower_vote_t const * latest_vote = fd_tower_votes_peek_tail_const( tower->votes );
 
-  /* Consider the 2 cases when our latest vote slot does not descend
-     from ghost root / SMR (see also top-level documentation in
-     fd_tower.h):
+  /* In general our reset fork is our last vote fork, but there are 2
+     cases in which that doesn't apply:
 
-     1. If we are stuck on a minority fork, we know that we cannot
-        sensibly build a block based on our last vote because we know a
-        supermajority of the cluster has rooted a different fork.  So we
-        simply build off the best fork.
-
-     2. If our latest vote slot is older than SMR, we know we don't have
+     1. If our latest vote slot is older than SMR, we know we don't have
         ancestry information about our latest vote slot anymore, so we
-        similarly build off the best fork. */
+        build off the best fork.
 
-  if( FD_UNLIKELY( !fd_ghost_is_descendant( ghost, latest_vote->slot, ghost->root->slot ) ) ) {
+     2. If we are locked out on a minority fork that does not chain back
+        to the SMR, we know that we should definitely not build off this
+        fork given a supermajority of the cluster has already rooted a
+        different fork.  So build off the best fork instead.
+
+    See the top-level documentation in fd_tower.h for more context. */
+
+  if( FD_UNLIKELY( latest_vote->slot < ghost->root->slot ||
+                   !fd_ghost_is_descendant( ghost, latest_vote->slot, ghost->root->slot ) ) ) {
     return fd_tower_best_fork( tower, forks, ghost );
   }
 
@@ -512,8 +514,9 @@ fd_tower_reset_fork( fd_tower_t const * tower,
     fd_fork_t const * fork = fd_fork_frontier_iter_ele_const( iter, frontier, pool );
     ulong slot = fd_ulong_if( fork->lock, fork->slot_ctx.slot_bank.prev_slot, fork->slot );
 
-    FD_LOG_NOTICE(( "\n\nfork lock? %d\nfork slot %lu\nfork prev slot %lu\nlatest vote slot %lu\n"
+    FD_LOG_WARNING(( "\n\n[%s] unable to find altest vote slot in frontier!\nfork lock? %d\nfork slot %lu\nfork prev slot %lu\nlatest vote slot %lu\n"
                     "descendant slot %lu\ndescends? %d",
+                    __func__,
                     fork->lock,
                     fork->slot,
                     fork->slot_ctx.slot_bank.prev_slot,
