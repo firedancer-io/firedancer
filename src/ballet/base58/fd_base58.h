@@ -17,6 +17,18 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Macros for initializing a correctly sized out char 
+   array to encode into. */
+#define FD_BASE58_ENCODE_32_BYTES( bytes, out )    \
+   char out[ FD_BASE58_ENCODED_32_SZ ];            \
+   ulong out##_len;                                \
+   fd_base58_encode_32( bytes, &out##_len, out ); 
+
+#define FD_BASE58_ENCODE_64_BYTES( bytes, out )    \
+   char out[ FD_BASE58_ENCODED_64_SZ ];            \
+   ulong out##_len;                                \
+   fd_base58_encode_64( bytes, &out##_len, out );
+
 /* fd_base58_encode_{32, 64}: Interprets the supplied 32 or 64 bytes
    (respectively) as a large big-endian integer, and converts it to a
    nul-terminated base58 string of:
