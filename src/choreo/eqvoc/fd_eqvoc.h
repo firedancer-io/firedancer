@@ -14,6 +14,13 @@
 #define FD_EQVOC_MAX     ( 1UL << 10 )
 #define FD_EQVOC_FEC_MAX ( 67UL )
 
+/* This is the standard IPv6 MTU - IP / UDP headers - DuplicateShred application headers
+   https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/cluster_info.rs#L113 */
+#define FD_EQVOC_CHUNK_MAX ( 1232UL - 115UL )
+
+/* The chunk_cnt is encoded in a UCHAR_MAX, so you can have at most UCHAR_MAX chunkskj */
+#define FD_EQVOC_CHUNK_MIN ( FD_SHRED_MAX_SZ * 2 / UCHAR_MAX + 1 )
+
 struct fd_eqvoc_key {
   ulong slot;
   uint  fec_set_idx;
@@ -34,6 +41,7 @@ struct fd_eqvoc_entry {
   fd_ed25519_sig_t sig;
   ulong            code_cnt;
   ulong            data_cnt;
+  uint             last_idx;
 };
 typedef struct fd_eqvoc_entry fd_eqvoc_entry_t;
 
@@ -119,15 +127,29 @@ fd_eqvoc_delete( void * sheqvoc );
 void
 fd_eqvoc_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred );
 
-/* fd_eqvoc_test tests for equivocation given a new shred.  Equivocation
-   is when there are two or more shreds for the same (slot, idx) pair.
+/* fd_eqvoc_test tests for equivocation given a new shred.  Returns 1 if
+   the shreds indicate equivocation, 0 otherwise.  Equivocation is when
+   there are two or more shreds for the same (slot, idx) pair.
+
+   Equivocation can be detected both directly and indirectly (implied).
+   Direct equivocation is when two shreds directly conflict, ie. they
+   have the same slot and shred_idx but a different data payload.
+   Indirect equivocation includes a few cases:
+
+   1. Two shreds in the same FEC set have a different merkle root
+   2. Two shreds of the same type that have conflicting indices.  There
+      are two subcases:
+
+      2a. One shred is marked as the last shred in the slot, but the
+          other shred has a higher index.
+      2b. The two shreds are part of different FEC sets that overlap.
 
    A FEC set overlaps with another one if they both contain a data shred
    at idx.  For example, say we have a FEC set containing data shred the
    idxs in the interval [13, 15] and another set containing idxs [15,
    20].  The first FEC set has fec_set_idx 13 and data_cnt 3.  The
-   second FEC set has fec_set_idx 15 and data_cnt
-   6.  The overlapping data shred idx is 15.
+   second FEC set has fec_set_idx 15 and data_cnt 6.  The overlapping
+   data shred idx is 15.
 
    We can detect this arithmetically by adding the data_cnt to the
    fec_set_idx that starts earlier.  If the result is greater than
@@ -139,10 +161,51 @@ fd_eqvoc_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred );
    the max number of data shred idxs in a valid FEC set is 67.  So we
    need to look back at most 67 FEC set idxs to find the previous FEC
    set.  Similarly, we look forward at most data_cnt idxs to find the
-   next FEC set.
- */
+   next FEC set. */
 
 int
 fd_eqvoc_test( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred );
+
+/* fd_eqvoc_from_chunks reconstructs shred1 and shred2 from chunks which
+   is an array of DuplicateShred gossip msgs.
+
+   Assumes chunks contains at least one valid array member for
+   extracting header information.  Also assumes memory is valid and
+   consistent with the metadata presented in the header of the first
+   array member, eg. if the header says 4 chunks then the implementation
+   assumes there are 4 elements in the array.  Does additional
+   sanity-check validation eg. checking chunk_len <= FD_EQVOC_CHUNK_MAX.
+   */
+
+void
+fd_eqvoc_from_chunks( fd_eqvoc_t const *            eqvoc,
+                      fd_gossip_duplicate_shred_t * chunks,
+                      fd_shred_t *                  shred1_out,
+                      fd_shred_t *                  shred2_out );
+
+/* fd_eqvoc_to_chunks constructs an array of DuplicateShred gossip msgs
+   ("chunks") from shred1 and shred2.
+
+   Shred1 and shred2 are concatenated (this concatenation is virtual in
+   the implementation) and then spliced into chunks of length chunk_len.
+   These chunks are included as the msg body in each DuplicateShred msg,
+   along with a common header across all msgs.
+
+   Caller passes in duplicate_shreds, which is an array that MUST
+   contain ceil(shred1_payload_sz + shred2_payload_sz / chunk_len)
+   elements.  Each duplicate_shred MUST have a buffer of at least
+   chunk_len size available in its chunk pointer field.  Behavior is
+   undefined otherwise.
+
+   IMPORTANT SAFETY TIP!  The lifetime of chunks must be at least as
+   long as the lifetime of the array of duplicate_shreds.  Caller is
+   responsible for preserving this memory safety guarantee. */
+
+void
+fd_eqvoc_to_chunks( fd_eqvoc_t const *            eqvoc,
+                    fd_shred_t const *            shred1,
+                    fd_shred_t const *            shred2,
+                    ulong                         chunk_len,
+                    fd_gossip_duplicate_shred_t * chunks_out );
 
 #endif /* HEADER_fd_src_choreo_eqvoc_fd_eqvoc_h */
