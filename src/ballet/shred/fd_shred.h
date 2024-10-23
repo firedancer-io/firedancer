@@ -138,6 +138,9 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
 
+/* Offset of the shred variant. Used for parsing. */
+#define FD_SHRED_VARIANT_OFF 0x40
+
 /* Firedancer-specific internal error codes.
 
    These are not part of the Solana protocol. */

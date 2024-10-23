@@ -2544,6 +2544,15 @@
         { "name": "new_credits_observed", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24"
+    },
+    {
+      "name": "duplicate_slot_proof",
+      "type": "struct",
+      "fields": [
+        { "name": "shred1", "type": "vector", "element": "uchar" },
+        { "name": "shred2", "type": "vector", "element": "uchar" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.0.3/ledger/src/blockstore_meta.rs#L150-L156"
     }
   ]
 }
