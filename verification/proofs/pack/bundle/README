@@ -1,0 +1,6 @@
+I couldn't get CBMC to terminate in a reasonable amount of time, so I
+tried writing it directly in SMTLIB2 code, which has an obtuse syntax.
+If you use the Z3 Theorem Prover from Microsoft Research, it terminates
+in less than a second, proving that the math is correct.  It doesn't
+capture all the overflow behavior of ulongs, but I made it check for
+overflow in the only spot that I think could have a problem.

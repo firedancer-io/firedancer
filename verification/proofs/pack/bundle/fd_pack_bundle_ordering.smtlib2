@@ -1,0 +1,60 @@
+(define-fun compare-worse ((ri Int)  (ci Int)  (rj Int)  (cj Int)) Bool
+   (< (* ri cj) (* rj ci) )
+   )
+
+(define-fun rc-to-rel-bundle-idx ((r Int) (c Int)) Int
+ (- 312671 (div (* r 4294967296) (* c 37896771)))
+)
+
+
+(declare-const c0 Int)
+(declare-const c1 Int)
+(declare-const c2 Int)
+(declare-const c3 Int)
+(declare-const c4 Int)
+(declare-const r0 Int)
+(declare-const r1 Int)
+(declare-const r2 Int)
+(declare-const r3 Int)
+(declare-const r4 Int)
+(declare-const relative_bundle_idx Int)
+(assert (and (<= 0 relative_bundle_idx) (< relative_bundle_idx  312671)))
+(assert (and (<= 1020 c0) (<= c0 1556782)))
+(assert (and (<= 1020 c1) (<= c1 1556782)))
+(assert (and (<= 1020 c2) (<= c2 1556782)))
+(assert (and (<= 1020 c3) (<= c3 1556782)))
+(assert (and (<= 1020 c4) (<= c4 1556782)))
+
+(declare-const pr0 Int)
+(declare-const pc0 Int)
+(assert (= pr0 (- (* 37896771 (- 312671 relative_bundle_idx)) 1)))
+(assert (= pc0 4294967296))
+
+(assert (= r0 (div (+ (* c0 (+ pr0 1)) pc0 -1) pc0)))
+(assert (= r1 (div (+ (* c1 (+ r0 1)) c0 -1) c0)))
+(assert (= r2 (div (+ (* c2 (+ r1 1)) c1 -1) c1)))
+(assert (= r3 (div (+ (* c3 (+ r2 1)) c2 -1) c2)))
+(assert (= r4 (div (+ (* c4 (+ r3 1)) c3 -1) c3)))
+
+(declare-const postconditions Bool)
+(assert (= postconditions (and 
+              (<= r0 4294967295)
+              (<= r1 4294967295)
+              (<= r2 4294967295)
+              (<= r3 4294967295)
+              (<= r4 4294967295)
+              (compare-worse r0 c0 r1 c1)
+              (compare-worse r1 c1 r2 c2)
+              (compare-worse r2 c2 r3 c3)
+              (compare-worse r3 c3 r4 c4)
+              (= relative_bundle_idx (rc-to-rel-bundle-idx r0 c0))
+              (= relative_bundle_idx (rc-to-rel-bundle-idx r1 c1))
+              (= relative_bundle_idx (rc-to-rel-bundle-idx r2 c2))
+              (= relative_bundle_idx (rc-to-rel-bundle-idx r3 c3))
+              (= relative_bundle_idx (rc-to-rel-bundle-idx r4 c4))
+ ) ))
+(assert (not postconditions))
+; We want this to be unsatisfiable, which means the
+; preconditions imply the postconditions (grouped in the variable okay),
+; as desired. 
+(check-sat)
