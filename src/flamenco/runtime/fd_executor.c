@@ -1826,6 +1826,13 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         dump_instr_to_protobuf(txn_ctx, &txn_ctx->instr_infos[i], i);
       }
 
+      /* skip precompiles. precompiles are verified before execution, see fd_executor_verify_precompiles(). */
+      int is_precompile =
+        fd_memeq( &txn_ctx->instr_infos[i].program_id_pubkey, &fd_solana_ed25519_sig_verify_program_id, sizeof(fd_pubkey_t) ) ||
+        fd_memeq( &txn_ctx->instr_infos[i].program_id_pubkey, &fd_solana_keccak_secp_256k_program_id, sizeof(fd_pubkey_t) );
+      if( is_precompile ) {
+        continue;
+      }
 
       int exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
