@@ -199,6 +199,12 @@ typedef struct {
       uint xdp_aio_depth;
 
       uint send_buffer_size;
+
+      struct {
+        ulong src_ip_addr_cnt; /* number of home ip addresses */
+        char  src_ip_addr[FD_NET_MAX_SRC_ADDR][32];
+        uint  src_ip4_addr[FD_NET_MAX_SRC_ADDR];
+      } multihome;
     } net;
 
     struct {

@@ -532,6 +532,7 @@ fdctl_cfg_from_env( int *      pargc,
   config->is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    /* not currently supporting multihoming on netns */
     if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
@@ -570,6 +571,18 @@ fdctl_cfg_from_env( int *      pargc,
 
     config->tiles.net.ip_addr = iface_ip;
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
+
+    /* support for multihomed hosts */
+    ulong multi_cnt = config->tiles.net.multihome.src_ip_addr_cnt;
+    for( ulong j = 0; j < multi_cnt; ++j ) {
+      int success = fd_cstr_to_ip4_addr( config->tiles.net.multihome.src_ip_addr[j],
+          &config->tiles.net.multihome.src_ip4_addr[j] );
+      if( !success ) {
+        FD_LOG_ERR(( "Failed to convert net.multihome address %s to ipv4",
+              config->tiles.net.multihome.src_ip_addr[j] ));
+      }
+    }
+
   }
 
   username_to_id( config );

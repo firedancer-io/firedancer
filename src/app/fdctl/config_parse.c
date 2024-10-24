@@ -284,6 +284,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_aio_depth                          );
   CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
+  CFG_POP_ARRAY( cstr,   tiles.net.multihome.src_ip_addr                  );
 
   CFG_POP      ( ushort, tiles.quic.regular_transaction_listen_port       );
   CFG_POP      ( ushort, tiles.quic.quic_transaction_listen_port          );
