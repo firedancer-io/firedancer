@@ -25,7 +25,7 @@
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/bank.  At 31
    transactions/microblock, that's 62k txn/sec/bank. */
-#define MICROBLOCK_DURATION_NS  (500000L)
+#define MICROBLOCK_DURATION_NS  (0L)
 
 #define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
 
@@ -348,8 +348,13 @@ after_credit( fd_pack_ctx_t *     ctx,
     poll_cursor++;
     poll_cursor = (poll_cursor + fd_ulong_find_lsb( fd_ulong_rotate_right( busy_bitset, (poll_cursor&63) ) )) & 63;
 
-    if( FD_UNLIKELY( (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) &
-                     (ctx->bank_ready_at[poll_cursor]<now) ) ) {
+    if( FD_UNLIKELY(
+        /* if microblock duration is 0, bypass the bank_ready_at check
+           to avoid a potential cache miss.  Can't use an ifdef here
+           because FD_UNLIKELY is a macro, but the compiler should
+           eliminate the check easily. */
+        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->bank_ready_at[poll_cursor]<now) ) &&
+        (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) ) ) {
       ctx->bank_idle_bitset |= 1UL<<poll_cursor;
     }
 
