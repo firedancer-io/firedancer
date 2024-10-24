@@ -14,6 +14,7 @@
 #include "generated/invoke.pb.h"
 
 #include <stdio.h>
+#include "../fd_acc_mgr.h"
 
 
 static int
@@ -69,6 +70,10 @@ main( int     argc,
 
   ulong   scratch_fmem[ 64UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   uchar * scratch_smem = malloc( 1 << 30 ); // 1 GB
+
+  ulong   spad_mem_max = 128UL * FD_ACC_TOT_SZ_MAX;
+  uchar * spad_mem     = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, spad_mem_max, 3 ); /* 1.28 GB */
+  
   fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<30, 64UL );
 
   // Setup usage tracking
@@ -81,7 +86,7 @@ main( int     argc,
   for( int j=1; j<argc; j++ ) {
     // Init runner
     void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
-    fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 2 );
+    fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, spad_mem, 2 );
 
     // Run the test
     FD_TEST( fd_scratch_frame_used()==0UL );
@@ -101,6 +106,7 @@ main( int     argc,
 
   FD_TEST( fd_scratch_frame_used()==0UL );
   free( scratch_smem );
+  fd_wksp_free_laddr( spad_mem );
   fd_wksp_delete_anonymous( wksp );
   fd_halt();
   return fail_cnt>0UL;

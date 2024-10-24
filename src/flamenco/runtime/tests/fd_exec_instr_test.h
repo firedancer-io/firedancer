@@ -28,14 +28,15 @@ fd_exec_instr_test_runner_align( void );
 ulong
 fd_exec_instr_test_runner_footprint( void );
 
-/* fd_exec_instr_test_runner_new formats a memory region for use as an
-   instruction test runner.  mem must be part of an fd_wksp.  Does
-   additional wksp allocs.  wksp_tag is the tag used for wksp allocs
-   managed by the runner.  Returns newly created runner on success.  On
-   failure, returns NULL and logs reason for error. */
+/* fd_exec_instr_test_runner_new formats two memory regions, one for use as an
+   instruction test runner and another for an spad.  `mem` must be 
+   part of an fd_wksp.  Does additional wksp allocs.  wksp_tag is the tag 
+   used for wksp allocs managed by the runner.  Returns newly created runner 
+   on success.  On failure, returns NULL and logs reason for error. */
 
 fd_exec_instr_test_runner_t *
 fd_exec_instr_test_runner_new( void * mem,
+                               void * spad_mem,
                                ulong  wksp_tag );
 
 /* fd_exec_instr_test_runner_delete frees wksp allocations managed by
