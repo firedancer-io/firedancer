@@ -25,7 +25,6 @@ jobs:
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
-      BUILDDIR: clang-fuzz
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +45,7 @@ jobs:
           ls ${{ matrix.artifact_dir }}/fuzz-test
           ls ${{ matrix.artifact_dir }}/lib
           mkdir cf-dist
-          find build/clang-fuzz/fuzz-test -maxdepth 1 -executable -print | while read -r BIN_PATH; do TARGET=$(basename "$BIN_PATH"); mkdir cf-dist/$TARGET && mv $BIN_PATH cf-dist/$TARGET/$TARGET; done
+          find ${{ matrix.artifact_dir }}/fuzz-test -maxdepth 1 -executable -print | while read -r BIN_PATH; do TARGET=$(basename "$BIN_PATH"); mkdir cf-dist/$TARGET && mv $BIN_PATH cf-dist/$TARGET/$TARGET; done
 
       - uses: asymmetric-research/firedancer-clusterfuzz-action@main
         name: Upload fuzz targets to ClusterFuzz
