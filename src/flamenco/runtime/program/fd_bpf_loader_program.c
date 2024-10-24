@@ -633,15 +633,18 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     return program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
   }
 
+  int err;
   if( FD_UNLIKELY( is_deprecated ) ) {
-    if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_unaligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
+    err = fd_bpf_loader_input_deserialize_unaligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping );
+    if( FD_UNLIKELY( err!=0 ) ) {
       fd_valloc_free( instr_ctx->valloc, input );
-      return FD_EXECUTOR_INSTR_SUCCESS;
+      return err;
     }
   } else {
-    if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
+    err = fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping );
+    if( FD_UNLIKELY( err!=0 ) ) {
       fd_valloc_free( instr_ctx->valloc, input );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      return err;
     }
 
   }
