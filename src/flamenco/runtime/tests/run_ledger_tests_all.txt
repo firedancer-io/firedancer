@@ -66,3 +66,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l v208-zk-sdk-ledger -s snapshot-
 src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-294739503 -s snapshot-294739500-2Y8hFyTtyMuHCgpe26Y1HostyWMZjFvskV5ZpaX6X62S.tar.zst -p 50 -y 16 -m 5000000 -e 294739505 -c 2.0.3
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-290621930 -s snapshot-290621927-AxDRmQNPmGzo1V7KRXfPXtDXTBU3AZj3MUEM1ns3CgH.tar.zst -p 50 -y 16 -m 5000000 -e 290621932 -c 1.19.0
 src/flamenco/runtime/tests/run_ledger_test.sh -l devnet-330914784 -s snapshot-330914783-BujhdWiXTfRPfFYMG3GZdEcNc18KyvCcAq9QL9e1i1Fk.tar.zst -p 50 -y 16 -m 5000000 -e 330914785 -c 2.0.8
+src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-mismatch-297489336 -s snapshot-297489335-BgExNqwDtYPo2YQ87C2bra6b5GK2eu52R8Budh85cRUp.tar.zst -p 50 -y 16 -m 5000000 -e 297489363 -c 2.0.3
