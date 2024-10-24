@@ -496,6 +496,19 @@ after_credit( fd_store_tile_ctx_t * ctx,
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
   }
+
+  if( ctx->blockstore->restart_slot != 0 ) {
+    fd_block_map_t * block_map = fd_blockstore_block_map( ctx->blockstore );
+    for( ulong slot=ctx->blockstore->smr+1; slot<=ctx->blockstore->restart_slot; slot++ ){
+      fd_block_map_t * block_map_entry = fd_block_map_query( block_map, &slot, NULL );
+      if( block_map_entry != NULL ){
+        fd_blockstore_slot_remove( ctx->blockstore, slot);
+        FD_LOG_NOTICE(( "Cleaning up slot%lu from blockstore for wen-restart repair", slot ));
+      }
+    }
+    fd_store_add_pending( ctx->store, ctx->blockstore->restart_slot+1, (long)5e6, 0, 0 );
+    ctx->blockstore->restart_slot = 0;
+  }
 }
 
 static void
@@ -588,7 +601,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
     FD_LOG_NOTICE(( "finished blockstore_wksp restore %s", tile->store_int.blockstore_restore ));
     fd_wksp_tag_query_info_t info;
-    ulong tag = FD_BLOCKSTORE_MAGIC;
+    ulong tag = 1;
     if (fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0) {
       void * blockstore_mem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
       ctx->blockstore       = fd_blockstore_join( blockstore_mem );

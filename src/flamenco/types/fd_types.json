@@ -1972,6 +1972,74 @@
       ]
     },
     {
+      "name": "restart_run_length_encoding_inner",
+      "type": "struct",
+      "fields": [
+        { "name": "bits", "type": "ushort", "modifier": "varint" }
+      ]
+    },
+    {
+      "name": "restart_run_length_encoding",
+      "type": "struct",
+      "fields": [
+        { "name": "offsets", "type": "vector", "element": "restart_run_length_encoding_inner" }
+      ]
+    },
+    {
+      "name": "restart_raw_offsets_bitvec_u8_inner",
+      "type": "struct",
+      "fields": [
+        { "name": "bits", "type": "vector", "element": "uchar" }
+      ]
+    },
+    {
+      "name": "restart_raw_offsets_bitvec",
+      "type": "struct",
+      "fields": [
+        { "name": "bits", "type": "option", "element": "restart_raw_offsets_bitvec_u8_inner", "flat": true },
+        { "name": "len", "type": "ulong"  }
+      ]
+    },
+    {
+      "name": "restart_raw_offsets",
+      "type": "struct",
+      "fields": [
+        { "name": "offsets", "type": "restart_raw_offsets_bitvec" }
+      ]
+    },
+    {
+      "name": "restart_slots_offsets",
+      "type": "enum",
+      "variants": [
+        { "name": "run_length_encoding", "type": "restart_run_length_encoding" },
+        { "name": "raw_offsets", "type": "restart_raw_offsets" }
+      ]
+    },
+    {
+      "name": "gossip_restart_last_voted_fork_slots",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "offsets", "type": "restart_slots_offsets" },
+        { "name": "last_voted_slot", "type": "ulong" },
+        { "name": "last_voted_hash", "type": "hash" },
+        { "name": "shred_version", "type": "ushort" }
+      ]
+    },
+    {
+      "name": "gossip_restart_heaviest_fork",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong" },
+        { "name": "last_slot", "type": "ulong" },
+        { "name": "last_slot_hash", "type": "hash" },
+        { "name": "observed_stake", "type": "ulong" },
+        { "name": "shred_version", "type": "ushort" }
+      ]
+    },
+    {
       "name": "crds_data",
       "type": "enum",
       "variants": [
@@ -1986,7 +2054,9 @@
         { "name": "node_instance", "type": "gossip_node_instance" },
         { "name": "duplicate_shred", "type": "gossip_duplicate_shred" },
         { "name": "incremental_snapshot_hashes", "type": "gossip_incremental_snapshot_hashes" },
-        { "name": "contact_info_v2", "type": "gossip_contact_info_v2" }
+        { "name": "contact_info_v2", "type": "gossip_contact_info_v2" },
+        { "name": "restart_last_voted_fork_slots", "type": "gossip_restart_last_voted_fork_slots" },
+        { "name": "restart_heaviest_fork", "type": "gossip_restart_heaviest_fork" }
       ]
     },
     {
