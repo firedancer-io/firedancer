@@ -165,7 +165,7 @@ struct fd_gui_slot {
 
   int leader_state;
 
-  ulong prior_leader_slot;
+  fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
 
   fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
@@ -251,7 +251,6 @@ struct fd_gui {
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
 
-    ulong last_leader_slot;
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
 

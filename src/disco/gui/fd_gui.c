@@ -89,7 +89,6 @@ fd_gui_new( void *             shmem,
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
 
-  gui->summary.last_leader_slot = ULONG_MAX;
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
   memset( gui->summary.txn_waterfall_current,   0, sizeof(gui->summary.txn_waterfall_current) );
 
@@ -983,7 +982,6 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->compute_units          = ULONG_MAX;
   slot->transaction_fee        = ULONG_MAX;
   slot->priority_fee           = ULONG_MAX;
-  slot->prior_leader_slot      = ULONG_MAX;
   slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
   slot->completed_time         = LONG_MAX;
 
@@ -1066,9 +1064,6 @@ fd_gui_handle_slot_start( fd_gui_t * gui,
 
   fd_gui_tile_timers_snap( gui, slot->tile_timers_begin );
   slot->tile_timers_begin_snap_idx = gui->summary.tile_timers_snap_idx;
-
-  slot->prior_leader_slot = gui->summary.last_leader_slot;
-  gui->summary.last_leader_slot = _slot;
 }
 
 static void
@@ -1096,6 +1091,7 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
 
   fd_gui_txn_waterfall_snap( gui, slot->waterfall_end );
   fd_gui_tile_prime_metric_snap( gui, slot->waterfall_end, slot->tile_prime_metric_end );
+  memcpy( slot->waterfall_begin, gui->summary.txn_waterfall_reference, sizeof(slot->waterfall_begin) );
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
   memcpy( slot->tile_prime_metric_begin, gui->summary.tile_prime_metric_ref, sizeof(slot->tile_prime_metric_begin) );
   memcpy( gui->summary.tile_prime_metric_ref, slot->tile_prime_metric_end, sizeof(gui->summary.tile_prime_metric_ref) );
