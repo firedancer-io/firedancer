@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_quic_defs.h fd_quic_frames_templ.h fd_quic_dft.h fd_quic_templ.h fd_quic_undefs.h fd_quic_union_decl.h)
+$(call add-hdrs,fd_quic_defs.h fd_quic_frames_templ.h fd_quic_dft.h fd_quic_templ.h fd_quic_undefs.h)
 $(call add-objs,fd_quic_parse_util,fd_quic)
 $(call add-hdrs,fd_quic_transport_params.h)
 $(call add-objs,fd_quic_transport_params,fd_quic)

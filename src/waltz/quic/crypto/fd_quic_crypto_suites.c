@@ -397,7 +397,3 @@ fd_quic_crypto_decrypt_hdr(
 
   return FD_QUIC_SUCCESS;
 }
-
-int
-fd_quic_crypto_lookup_suite( uchar major,
-                             uchar minor );
