@@ -938,16 +938,6 @@ fd_gui_printf_peers_all( fd_gui_t * gui ) {
   jsonp_close_envelope( gui );
 }
 
-static fd_gui_txn_waterfall_t const *
-reference_waterfall( fd_gui_t const *      gui,
-                     fd_gui_slot_t const * slot ) {
-  if( FD_UNLIKELY( slot->prior_leader_slot==ULONG_MAX ) ) return NULL;
-
-  fd_gui_slot_t const * reference_slot = gui->slots[ slot->prior_leader_slot % FD_GUI_SLOTS_CNT ];
-  if( FD_LIKELY( reference_slot->slot==slot->prior_leader_slot ) ) return reference_slot->waterfall_end;
-  else                                                             return NULL;
-}
-
 static void
 fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
                               fd_gui_tile_timers_t const * prev,
@@ -1009,9 +999,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
-        fd_gui_txn_waterfall_t const * ref = reference_waterfall( gui, slot );
-        if( FD_LIKELY( ref ) ) fd_gui_printf_waterfall( gui, ref, slot->waterfall_end );
-        else                   jsonp_null( gui, "waterfall" );
+        fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
         /*jsonp_open_array( gui, "tile_timers" );
           fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
@@ -1098,9 +1086,7 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
-        fd_gui_txn_waterfall_t const * ref = reference_waterfall( gui, slot );
-        if( FD_LIKELY( ref ) ) fd_gui_printf_waterfall( gui, ref, slot->waterfall_end );
-        else                   jsonp_null( gui, "waterfall" );
+        fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
         jsonp_open_array( gui, "tile_timers" );
           fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
