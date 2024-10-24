@@ -14,7 +14,7 @@
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
 #include "../../flamenco/runtime/fd_hashes.h"
-#include "../../funk/fd_funk.h"
+#include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_account.h"
@@ -32,7 +32,7 @@
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
 struct fd_ledger_args {
-  fd_wksp_t *           wksp;                    /* wksp for blockstore, it may include funk */
+  fd_wksp_t *           wksp;                    /* wksp for blockstore */
   fd_wksp_t *           funk_wksp;               /* wksp for funk */
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
@@ -54,6 +54,9 @@ struct fd_ledger_args {
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
   ulong                 txns_max;                /* txns_max*/
   ulong                 index_max;               /* size of funk index (same as rec max) */
+  char const *          funk_file;               /* path to funk backing store */
+  ulong                 funk_page_cnt;
+  fd_funk_close_file_args_t funk_close_args;
   char const *          snapshot;                /* path to agave snapshot */
   char const *          incremental;             /* path to agave incremental snapshot */
   char const *          genesis;                 /* path to agave genesis */
@@ -627,42 +630,21 @@ cleanup_scratch( void ) {
 
 void
 init_funk( fd_ledger_args_t * args ) {
-  fd_wksp_t * wksp = args->funk_wksp == NULL ? args->wksp : args->funk_wksp;
-  void * shmem;
-  fd_wksp_tag_query_info_t info;
-  ulong tag = FD_FUNK_MAGIC;
   fd_funk_t * funk;
-  if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) > 0 ) {
-    FD_LOG_NOTICE(("found funk in wksp"));
-    shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-    funk = fd_funk_join( shmem );
-    if( funk == NULL ) {
-      FD_LOG_ERR(( "failed to join a funky" ));
-    }
-    if( args->verify_funk ) {
-      if( fd_funk_verify( funk ) ) {
-        FD_LOG_ERR(( "verification failed" ));
-      }
-    }
-    /* Clean up old transactions */
-    fd_funk_start_write( funk );
-    fd_funk_txn_cancel_all( funk, 0 );
-    fd_funk_end_write( funk );
-  } else {
-    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
-    if( shmem == NULL ) {
-      FD_LOG_ERR(( "failed to allocate a funky" ));
-    }
-    funk = fd_funk_join( fd_funk_new( shmem, 1, args->hashseed, args->txns_max, args->index_max ) );
-
-    if( funk == NULL ) {
-      fd_wksp_free_laddr( shmem );
-      FD_LOG_ERR(( "failed to allocate a funky" ));
-    }
+  if( args->restore_funk ) {
+    funk = fd_funk_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
+  } else  {
+    funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ),
-                                                                       fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   args->funk = funk;
+  args->funk_wksp = fd_funk_wksp( funk );
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( args->funk_wksp, funk ),
+                                                                       fd_funk_rec_cnt( fd_funk_rec_map( funk, args->funk_wksp ) ) ));
+}
+
+void
+cleanup_funk( fd_ledger_args_t * args ) {
+  fd_funk_close_file( &args->funk_close_args );
 }
 
 void
@@ -758,10 +740,6 @@ archive_restore( fd_ledger_args_t * args ) {
 
 void
 wksp_restore( fd_ledger_args_t * args ) {
-  if( args->restore_funk != NULL ) {
-    FD_LOG_NOTICE(( "restoring funk wksp %s", args->restore_funk ));
-    fd_wksp_restore( args->funk_wksp, args->restore_funk, args->hashseed );
-  }
   if( args->restore != NULL ) {
     FD_LOG_NOTICE(( "restoring wksp %s", args->restore ));
     fd_wksp_restore( args->wksp, args->restore, args->hashseed );
@@ -934,6 +912,8 @@ ingest( fd_ledger_args_t * args ) {
 
   checkpt( args, slot_ctx );
 
+  cleanup_funk( args );
+
   cleanup_scratch();
 }
 
@@ -1037,6 +1017,8 @@ replay( fd_ledger_args_t * args ) {
   int ret = runtime_replay( args );
 
   fd_ledger_main_teardown( args );
+
+  cleanup_funk( args );
 
   return ret;
 }
@@ -1304,6 +1286,8 @@ prune( fd_ledger_args_t * args ) {
   args->wksp = pruned_wksp;
   checkpt( args, slot_ctx_pruned );
 
+  cleanup_funk( args );
+
   cleanup_scratch();
 }
 
@@ -1318,13 +1302,13 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   fd_flamenco_boot( &argc, &argv );
 
   char const * wksp_name               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name",               NULL, NULL      );
-  char const * wksp_name_funk          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk-wksp-name",          NULL, NULL      );
   ulong        funk_page_cnt           = fd_env_strip_cmdline_ulong( &argc, &argv, "--funk-page-cnt",           NULL, 5         );
   ulong        page_cnt                = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",                NULL, 5         );
   int          reset                   = fd_env_strip_cmdline_int  ( &argc, &argv, "--reset",                   NULL, 0         );
   char const * cmd                     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",                     NULL, NULL      );
   ulong        index_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--index-max",               NULL, 450000000 );
   ulong        txns_max                = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",                 NULL,      1000 );
+  char const * funk_file               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk-file",               NULL, NULL      );
   int          verify_funk             = fd_env_strip_cmdline_int  ( &argc, &argv, "--verify-funky",            NULL, 0         );
   char const * snapshot                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshot",                NULL, NULL      );
   char const * incremental             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",             NULL, NULL      );
@@ -1363,7 +1347,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * dump_proto_sig_filter   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-proto-sig-filter",   NULL, NULL      );
   char const * dump_proto_output_dir   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-proto-output-dir",   NULL, NULL      );
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
-  int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
   char const * cluster_version         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cluster-version",         NULL, "2.0.0"   );
@@ -1400,24 +1383,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
 
   init_scratch( wksp );
 
-  /* Setup funk workspace if specified. */
-  if( use_funk_wksp ) {
-    fd_wksp_t * funk_wksp = NULL;
-    if( wksp_name_funk == NULL ) {
-      FD_LOG_NOTICE(( "--funk-wksp-name not specified, using an anonymous local funk workspace" ));
-      funk_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, funk_page_cnt, 0, "funk_wksp", 0UL );
-    } else {
-      fd_shmem_info_t shmem_info[1];
-      if( FD_UNLIKELY( fd_shmem_info( wksp_name_funk, 0UL, shmem_info ) ) )
-        FD_LOG_ERR(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", wksp_name_funk ));
-      funk_wksp = fd_wksp_attach( wksp_name_funk );
-    }
-    if( reset || snapshot ) {
-      fd_wksp_reset( funk_wksp, args->hashseed );
-    }
-    args->funk_wksp = funk_wksp;
-  }
-
   if( checkpt_status_cache && checkpt_status_cache[0] != '\0' ) {
     FD_LOG_NOTICE(( "Creating status cache wksp" ));
     fd_wksp_t * status_cache_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 23UL, 0, "status_cache_wksp", 0UL );
@@ -1448,6 +1413,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->slot_history_max        = slot_history_max;
   args->txns_max                = txns_max;
   args->index_max               = index_max;
+  args->funk_page_cnt           = funk_page_cnt;
+  args->funk_file               = funk_file;
   args->restore                 = restore;
   args->restore_funk            = restore_funk;
   args->restore_archive         = restore_archive;
