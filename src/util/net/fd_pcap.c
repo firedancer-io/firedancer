@@ -141,7 +141,7 @@ fd_pcap_iter_next( fd_pcap_iter_t * iter,
 
   } else {
 
-    if( FD_UNLIKELY( fread( hdr, sizeof(fd_eth_hdr_t), 1, file ) ) != 1 ) {
+    if( FD_UNLIKELY( fread( hdr, sizeof(fd_eth_hdr_t), 1, file )!= 1 ) ) {
       if( FD_UNLIKELY( !feof( file ) ) )
         FD_LOG_WARNING(( "packet eth header fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       else
@@ -239,7 +239,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
 
   } else {
 
-    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_eth_hdr_t), 1, file ) ) != 1 ) {
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_eth_hdr_t), 1, file ) != 1 ) ) {
       if( FD_UNLIKELY( !feof( file ) ) )
         FD_LOG_WARNING(( "packet eth header fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       else                               FD_LOG_WARNING(( "packet eth header fread failed (truncated pcap file?)" ));
@@ -256,7 +256,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
     ushort net_type = hdr->net_type; /* In network byte order */
     while( FD_UNLIKELY( net_type == fd_ushort_bswap( FD_ETH_HDR_TYPE_VLAN ) ) ) {
       if( FD_UNLIKELY( hdr_rem<sizeof(fd_eth_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for vlan tags" )); return 0; }
-      if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_vlan_tag_t), 1, file ) ) != 1 ) {
+      if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_vlan_tag_t), 1, file ) != 1 ) ) {
         if( FD_UNLIKELY( !feof( file ) ) )
           FD_LOG_WARNING(( "packet vlan tag fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         else
@@ -275,7 +275,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
 
     if( FD_UNLIKELY( hdr_rem<sizeof(fd_ip4_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for IP header" )); return 0; }
 
-    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_ip4_hdr_t), 1, file ) ) != 1 ) {
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_ip4_hdr_t), 1, file )!=1 ) ) {
       if( FD_UNLIKELY( !feof( file ) ) )
         FD_LOG_WARNING(( "packet ip4 hdr fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       else
@@ -296,7 +296,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
     if( FD_UNLIKELY( hdr_rem<options_len ) ) { FD_LOG_WARNING(( "Header buffer too small for IP options" )); return 0; }
 
     if( FD_UNLIKELY( options_len ) ) {
-      if( FD_UNLIKELY( fread( _hdr_buf, options_len, 1, file ) ) != 1 ) {
+      if( FD_UNLIKELY( fread( _hdr_buf, options_len, 1, file )!=1 ) ) {
         if( FD_UNLIKELY( !feof( file ) ) )
           FD_LOG_WARNING(( "packet ip4 hdr options fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         else
@@ -315,7 +315,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
 
     if( FD_UNLIKELY( hdr_rem<sizeof(fd_udp_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for UDP hdr" )); return 0; }
 
-    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_udp_hdr_t), 1, file ) ) != 1 ) {
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_udp_hdr_t), 1, file ) )!=1 ) {
       if( FD_UNLIKELY( !feof( file ) ) )
         FD_LOG_WARNING(( "packet udp hdr fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       else
