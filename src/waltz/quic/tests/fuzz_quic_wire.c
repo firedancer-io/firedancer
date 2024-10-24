@@ -192,19 +192,20 @@ guess_packet_size( uchar const * data,
   ulong pkt_num_pnoff = 0UL;
   ulong total_len     = size;
 
-  fd_quic_common_hdr_t common_hdr[1];
-  ulong rc = fd_quic_decode_common_hdr( common_hdr, data, size );
-  if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
-  cur_ptr += rc; cur_sz -= rc;
+  if( FD_UNLIKELY( size < 1) ) return FD_QUIC_PARSE_FAIL;
+  uchar hdr_form = fd_quic_extract_hdr_form( *cur_ptr );
 
-  if( common_hdr->hdr_form == 1 ) {  /* long header */
+  ulong rc;
+  if( hdr_form == 1 ) {  /* long header */
 
+    uchar long_packet_type = fd_quic_extract_long_packet_type( *cur_ptr );
+    cur_ptr += 1; cur_sz -= 1UL;
     fd_quic_long_hdr_t long_hdr[1];
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr, cur_sz );
     if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
     cur_ptr += rc; cur_sz -= rc;
 
-    switch( common_hdr->long_packet_type ) {
+    switch( long_packet_type ) {
     case FD_QUIC_PKTTYPE_V1_INITIAL: {
       fd_quic_initial_t initial[1];
       rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );

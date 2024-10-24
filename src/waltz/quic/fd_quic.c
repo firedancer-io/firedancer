@@ -2364,17 +2364,15 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   /* keep end */
   uchar * orig_ptr = cur_ptr;
 
-  fd_quic_common_hdr_t common_hdr[1];
-  ulong rc = fd_quic_decode_common_hdr( common_hdr, cur_ptr, cur_sz );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_common_hdr failed" )); )
-    return FD_QUIC_PARSE_FAIL;
-  }
+  /* No need for cur_sz check, since we are safe from the above check.
+     Decrementing cur_sz is done in the long header branch, the short header
+     branch parses the first byte again using the parser generator.
+   */
+  uchar hdr_form = fd_quic_extract_hdr_form( *cur_ptr );
+  ulong rc;
 
-  /* TODO simplify, as this function only called for long_hdr packets now */
   /* hdr_form is 1 bit */
-  if( common_hdr->hdr_form == 1 ) { /* long header */
-
+  if( hdr_form ) { /* long header */
     fd_quic_long_hdr_t * long_hdr = pkt->long_hdr;
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr+1, cur_sz-1 );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
@@ -2389,14 +2387,16 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       conn  = entry ? entry->conn : NULL;
     }
 
+    uchar long_packet_type = fd_quic_extract_long_packet_type( *cur_ptr );
+
     /* encryption level matches that of TLS */
-    pkt->enc_level = common_hdr->long_packet_type; /* V2 uses an indirect mapping */
+    pkt->enc_level = long_packet_type; /* V2 uses an indirect mapping */
 
     /* initialize packet number to unused value */
     pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
     /* long_packet_type is 2 bits, so only four possibilities */
-    switch( common_hdr->long_packet_type ) {
+    switch( long_packet_type ) {
       case FD_QUIC_PKTTYPE_V1_INITIAL:
         rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
         if( FD_UNLIKELY( !conn ) ) {
@@ -2416,7 +2416,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     }
 
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet (type=%d)", common_hdr->long_packet_type )); )
+      FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet (type=%d)", long_packet_type )); )
       return FD_QUIC_PARSE_FAIL;
     }
 

@@ -142,7 +142,21 @@ fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
         );
 }
 
+/* fd_quic_extract_hdr_form extract the 'Header Form' bit, the first bit of a QUIC v1 packet.
+   Returns 1 if the packet is a long header packet, 0 if the packet is a short header packet.
+   Does not require decryption of the packet header. */
+static inline uchar
+fd_quic_extract_hdr_form( uchar hdr ) {
+  return hdr>>7;
+}
 
+/* fd_quic_extract_long_packet_type extracts the 'Long Packet Type' from
+   the first byte of a QUIC v1 long header packet.  Returns FD_QUIC_PKTTYPE_V1_{...}
+   in range [0,4).  Does not require decryption of the packet header. */
+static inline uchar
+fd_quic_extract_long_packet_type( uchar hdr ) {
+  return (hdr>>4)&3;
+}
 
 /* encode contiguous unaligned bits across bytes
    caller responsible for ensuring enough space for operation
