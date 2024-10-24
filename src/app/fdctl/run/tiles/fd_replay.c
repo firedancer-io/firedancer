@@ -243,6 +243,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count *  fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
@@ -1459,6 +1460,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  ulong  total_spad_size     = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
+  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * total_spad_size );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
@@ -1691,11 +1694,11 @@ unprivileged_init( fd_topo_t *      topo,
      spad allocator should be bound to a transaction executor tile and should
      be bounded out for the maximum amount of allocations used in the runtime. */
 
+  uchar * spad_mem_cur = spad_mem;
   for( ulong i=0UL; i<tile->replay.tpool_thread_count; i++ ) {
-    ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
-    uchar *     mem          = fd_wksp_alloc_laddr( ctx->blockstore_wksp, FD_SPAD_ALIGN, total_mem_sz, 999UL );
-    fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
+    fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem_cur, total_spad_size ) );
     ctx->spads[ ctx->spad_cnt++ ] = spad;
+    spad_mem_cur += total_spad_size;
   }
 
   /**********************************************************************/
