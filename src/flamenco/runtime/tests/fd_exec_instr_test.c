@@ -467,6 +467,14 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
   }
 
+  if ( !slot_ctx->sysvar_cache->has_last_restart_slot ) {
+    slot_ctx->sysvar_cache->has_last_restart_slot = 1;
+
+    fd_sol_sysvar_last_restart_slot_t restart = {.slot = 5000};
+
+    memcpy( slot_ctx->sysvar_cache->val_last_restart_slot, &restart, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+  }
+
   /* Set slot bank variables */
   slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache )->slot;
 
@@ -830,9 +838,9 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Message */
   /* For v0 transactions, the highest bit of the num_required_signatures is set, and an extra byte is used for the version.
-     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 
-     
-     We will always create a transaction with at least 1 signature, and cap the signature count to 127 to avoid 
+     https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0
+
+     We will always create a transaction with at least 1 signature, and cap the signature count to 127 to avoid
      collisions with the header_b0 tag. */
   uchar num_required_signatures = fd_uchar_max( 1, fd_uchar_min( 127, (uchar) test_ctx->tx.message.header.num_required_signatures ) );
   if( !test_ctx->tx.message.is_legacy ) {
@@ -1882,7 +1890,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       effects->error = (exec_err <= 0) ? -exec_err : -1;
 
       /* Map error kind, equivalent to:
-          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind + 1); */ 
+          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind + 1); */
       switch (vm->instr_ctx->txn_ctx->exec_err_kind) {
         case FD_EXECUTOR_ERR_KIND_EBPF:
           effects->error_kind = FD_EXEC_TEST_ERR_KIND_EBPF;
@@ -2003,8 +2011,8 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         if( memcmp( acct_state->address, acct_pubkey, sizeof(fd_pubkey_t) ) != 0 ) continue;
 
         /* Fetch borrowed account */
-        /* First check if account is read-only. 
-           TODO: Once direct mapping is enabled we _technically_ don't need 
+        /* First check if account is read-only.
+           TODO: Once direct mapping is enabled we _technically_ don't need
                  this check */
 
         if( fd_txn_borrowed_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
@@ -2036,7 +2044,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         /* Follow solfuzz-agave, which skips if pubkey is malformed */
         if( memcmp( acct_state->owner, zero_blk, sizeof(fd_pubkey_t) ) != 0 ) {
           fd_memcpy( acct->meta->info.owner, acct_state->owner, sizeof(fd_pubkey_t) );
-        } 
+        }
 
         break;
       }
