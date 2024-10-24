@@ -81,6 +81,7 @@
 
 /* TODO provide fd_quic on non-hosted targets */
 
+#include "fd_quic_common.h"
 #include "fd_quic_enum.h"
 
 #include "../aio/fd_aio.h"
@@ -155,6 +156,11 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
    /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
   int retry;
 
+  /* ack_threshold: immediately send an ACK when the number of
+     unacknowledged stream bytes exceeds this value. */
+  ulong ack_threshold;
+# define FD_QUIC_DEFAULT_ACK_THRESHOLD (65536UL) /* 64 KiB */
+
   /* TLS config ********************************************/
 
   /* identity_key: Ed25519 public key of node identity */
@@ -204,7 +210,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
     uchar dscp;
   } net;
 };
-typedef struct fd_quic_config fd_quic_config_t;
 
 /* Callback API *******************************************************/
 
@@ -361,7 +366,6 @@ struct fd_quic {
 
   /* ... private variable-length structures follow ... */
 };
-typedef struct fd_quic fd_quic_t;
 
 FD_PROTOTYPES_BEGIN
 
