@@ -1,16 +1,11 @@
 #include <stdio.h>
 #include "../fd_quic_proto.h"
-#include "../templ/fd_quic_union.h"
 #include "../templ/fd_quic_parse_util.h"
 
 int
 main( int argc, char ** argv ) {
   (void)argc;
   (void)argv;
-
-  ulong pkt_sz = sizeof( fd_quic_pkt_u );
-
-  printf( "packet union size: %lu\n", pkt_sz );
 
   printf( "\n" );
   printf( "frame sizes:\n" );

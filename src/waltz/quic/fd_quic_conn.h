@@ -8,7 +8,6 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
-#include "templ/fd_quic_union.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
