@@ -630,7 +630,12 @@ cleanup_scratch( void ) {
 
 void
 init_funk( fd_ledger_args_t * args ) {
-  fd_funk_t * funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+  fd_funk_t * funk;
+  if( args->restore_funk ) {
+    funk = fd_funk_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
+  } else  {
+    funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+  }
   args->funk = funk;
   args->funk_wksp = fd_funk_wksp( funk );
   FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( args->funk_wksp, funk ),
