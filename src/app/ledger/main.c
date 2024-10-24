@@ -1303,7 +1303,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * cmd                     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",                     NULL, NULL      );
   ulong        index_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--index-max",               NULL, 450000000 );
   ulong        txns_max                = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",                 NULL,      1000 );
-  char const * funk_file               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk_file",               NULL, "./funk_db" );
+  char const * funk_file               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk_file",               NULL, NULL      );
   int          verify_funk             = fd_env_strip_cmdline_int  ( &argc, &argv, "--verify-funky",            NULL, 0         );
   char const * snapshot                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshot",                NULL, NULL      );
   char const * incremental             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",             NULL, NULL      );

@@ -1,3 +1,7 @@
+#if FD_HAS_THREADS /* THREADS implies HOSTED */
+#define _GNU_SOURCE
+#endif
+
 #include "fd_funk_filemap.h"
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -22,12 +26,20 @@ fd_funk_open_file( const char * filename,
   int open_flags, can_resize, can_create, do_new;
   switch (mode) {
   case FD_FUNK_READONLY:
+    if( filename == NULL ) {
+      FD_LOG_ERR(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace" ));
+      return NULL;
+    }
     open_flags = O_RDONLY;
     can_create = 0;
     can_resize = 0;
     do_new = 0;
     break;
   case FD_FUNK_READ_WRITE:
+    if( filename == NULL ) {
+      FD_LOG_ERR(( "mode FD_FUNK_READ_WRITE can not be used with an anonymous workspace" ));
+      return NULL;
+    }
     open_flags = O_RDWR;
     can_create = 0;
     can_resize = 0;
@@ -55,31 +67,41 @@ fd_funk_open_file( const char * filename,
     FD_LOG_ERR(( "invalid mode when opening %s", filename ));
     return NULL;
   }
-  int fd = open( filename, open_flags, S_IRUSR|S_IWUSR );
-  if( fd < 0 ) {
-    FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
-    return NULL;
-  }
 
-  /* Resize the file */
+  int fd;
+  if( filename == NULL || filename[0] == '\0'  ) {
+    fd = -1; /* Anonymous */
+    do_new = 1;
+  } else {
 
-  struct stat statbuf;
-  int r = fstat( fd, &statbuf );
-  if( r < 0 ) {
-    FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
-    close( fd );
-    return NULL;
-  }
-  if( (can_create && statbuf.st_size == 0) ||
-      (can_resize && statbuf.st_size != (off_t)total_sz) ) {
-    if( ftruncate( fd, (off_t)total_sz ) < 0 ) {
-      FD_LOG_ERR(( "error resizing %s: %s", filename, strerror(errno) ));
+    /* Open the file */
+
+    fd = open( filename, open_flags, S_IRUSR|S_IWUSR );
+    if( fd < 0 ) {
+      FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
+      return NULL;
+    }
+
+    /* Resize the file */
+
+    struct stat statbuf;
+    int r = fstat( fd, &statbuf );
+    if( r < 0 ) {
+      FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
       close( fd );
       return NULL;
     }
-    do_new = 1;
-  } else {
-    total_sz = (ulong)statbuf.st_size;
+    if( (can_create && statbuf.st_size == 0) ||
+        (can_resize && statbuf.st_size != (off_t)total_sz) ) {
+      if( ftruncate( fd, (off_t)total_sz ) < 0 ) {
+        FD_LOG_ERR(( "error resizing %s: %s", filename, strerror(errno) ));
+        close( fd );
+        return NULL;
+      }
+      do_new = 1;
+    } else {
+      total_sz = (ulong)statbuf.st_size;
+    }
   }
 
   if( total_sz & (PAGESIZE-1) ) {
@@ -91,9 +113,9 @@ fd_funk_open_file( const char * filename,
   /* Create the memory map */
 
   void * shmem = mmap( NULL, total_sz, (mode == FD_FUNK_READONLY ? PROT_READ : (PROT_READ|PROT_WRITE)),
-                       MAP_SHARED, fd, 0 );
-  if( shmem == NULL ) {
-    FD_LOG_ERR(( "error mapping %s: %s", filename, strerror(errno) ));
+                       (fd == -1 ? (MAP_ANONYMOUS|MAP_PRIVATE) : MAP_SHARED), fd, 0 );
+  if( shmem == NULL || shmem == MAP_FAILED ) {
+    FD_LOG_ERR(( "error mapping %s: %s", (filename ? filename : "(NULL)"), strerror(errno) ));
     close( fd );
     return NULL;
   }
@@ -160,7 +182,7 @@ fd_funk_open_file( const char * filename,
       return NULL;
     }
 
-    FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), filename ));
+    FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (filename ? filename : "(NULL)") ));
 
     if( close_args_out != NULL ) {
       close_args_out->shmem = shmem;
@@ -171,7 +193,7 @@ fd_funk_open_file( const char * filename,
 
   } else {
 
-    /* Join the data structures */
+    /* Join the data existiing structures */
 
     fd_wksp_t * wksp = fd_wksp_join( shmem );
     if( FD_UNLIKELY( !wksp ) ) {
@@ -208,7 +230,7 @@ fd_funk_open_file( const char * filename,
       return NULL;
     }
 
-    FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), filename ));
+    FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (filename ? filename : "(NULL)") ));
 
     if( close_args_out != NULL ) {
       close_args_out->shmem = shmem;
@@ -236,34 +258,44 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   }
   ulong total_sz = fd_wksp_footprint( part_max, data_max );
 
-  int fd = open( funk_filename, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR );
-  if( fd < 0 ) {
-    FD_LOG_ERR(( "error opening %s: %s", funk_filename, strerror(errno) ));
-    return NULL;
-  }
+  int fd;
+  if( funk_filename == NULL || funk_filename[0] == '\0' ) {
+    fd = -1; /* Anonymous */
 
-  /* Resize the file */
+  } else {
 
-  struct stat statbuf;
-  int r = fstat( fd, &statbuf );
-  if( r < 0 ) {
-    FD_LOG_ERR(( "error opening %s: %s", funk_filename, strerror(errno) ));
-    close( fd );
-    return NULL;
-  }
-  if( statbuf.st_size != (off_t)total_sz ) {
-    if( ftruncate( fd, (off_t)total_sz ) < 0 ) {
-      FD_LOG_ERR(( "error resizing %s: %s", funk_filename, strerror(errno) ));
+    /* Open the file */
+    fd = open( funk_filename, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR );
+    if( fd < 0 ) {
+      FD_LOG_ERR(( "error opening %s: %s", funk_filename, strerror(errno) ));
+      return NULL;
+    }
+
+    /* Resize the file */
+
+    struct stat statbuf;
+    int r = fstat( fd, &statbuf );
+    if( r < 0 ) {
+      FD_LOG_ERR(( "error opening %s: %s", funk_filename, strerror(errno) ));
       close( fd );
       return NULL;
+    }
+    if( statbuf.st_size != (off_t)total_sz ) {
+      if( ftruncate( fd, (off_t)total_sz ) < 0 ) {
+        FD_LOG_ERR(( "error resizing %s: %s", funk_filename, strerror(errno) ));
+        close( fd );
+        return NULL;
+      }
     }
   }
 
   /* Create the memory map */
 
-  void * shmem = mmap( NULL, total_sz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0 );
-  if( shmem == NULL ) {
-    FD_LOG_ERR(( "error mapping %s: %s", funk_filename, strerror(errno) ));
+  void * shmem = mmap( NULL, total_sz, PROT_READ|PROT_WRITE,
+                       (fd == -1 ? (MAP_ANONYMOUS|MAP_PRIVATE) : MAP_SHARED), fd, 0 );
+
+  if( shmem == NULL || shmem == MAP_FAILED ) {
+    FD_LOG_ERR(( "error mapping %s: %s", (funk_filename ? funk_filename : "(NULL)"), strerror(errno) ));
     close( fd );
     return NULL;
   }
@@ -309,7 +341,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
   fd_wksp_tag_query_info_t info;
   if( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info, 1 ) ) {
-    FD_LOG_ERR(( "%s does not contain a funky", funk_filename ));
+    FD_LOG_ERR(( "%s does not contain a funky", checkpt_filename ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -324,7 +356,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
     return NULL;
   }
 
-  FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), funk_filename ));
+  FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (funk_filename ? funk_filename : "(NULL)") ));
 
   if( close_args_out != NULL ) {
     close_args_out->shmem = shmem;
