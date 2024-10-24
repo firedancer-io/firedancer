@@ -27,3 +27,5 @@ $(call add-objs,fd_quic_stream_pool,fd_quic)
 
 $(call add-hdrs,fd_quic_stream.h)
 $(call add-objs,fd_quic_stream,fd_quic)
+
+$(call make-bin,fd_quic_pcap,fd_quic_pcap_main,fd_quic fd_waltz fd_tls fd_ballet fd_util)
