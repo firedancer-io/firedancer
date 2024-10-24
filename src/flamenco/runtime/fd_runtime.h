@@ -145,6 +145,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t * spad,
                               fd_capture_ctx_t * capture_ctx,
                               fd_txn_p_t * txns,
                               ulong txn_cnt );
@@ -218,6 +219,7 @@ fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
+                                         fd_spad_t *                  spad,
                                          fd_capture_ctx_t *           capture_ctx,
                                          fd_txn_p_t *                 txn,
                                          fd_execute_txn_task_info_t * task_info );

@@ -288,8 +288,9 @@ fd_exec_packed_txns_task( void *tpool,
   ulong * bank_busy = (ulong *)m0;
   fd_replay_out_ctx_t * bank_out = (fd_replay_out_ctx_t *)m1;
   void * bmtree = (void *)n0;
+  fd_spad_t * spad = (fd_spad_t *)n1;
 
-  fd_runtime_execute_pack_txns( slot_ctx, capture_ctx, txns, txn_cnt );
+  fd_runtime_execute_pack_txns( slot_ctx, spad, capture_ctx, txns, txn_cnt );
 
   fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
@@ -906,7 +907,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
         // FD_LOG_WARNING(("MBLK4: %lu %lu %lu", ctx->curr_slot, seq, bank_idx+1));
         fd_tpool_wait( ctx->tpool, bank_idx+1 );
-        fd_tpool_exec( ctx->tpool, bank_idx+1, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], 0UL );
+
+        fd_tpool_exec( ctx->tpool, bank_idx+1, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], (ulong)ctx->spads[ bank_idx ] );
       } else {
         for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
           fd_tpool_wait( ctx->tpool, i+1 );
