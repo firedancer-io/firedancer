@@ -35,7 +35,7 @@ test_eqvoc_from_chunks( fd_eqvoc_t * eqvoc,
 
   ulong sz        = ( shred1_sz + shred2_sz );
   uchar chunk_cnt = (uchar)( sz / chunk_len );
-  chunk_cnt       = fd_uchar_if( (int)( sz % chunk_len ), chunk_cnt + 1, chunk_cnt );
+  chunk_cnt       = fd_uchar_if( (int)( sz % chunk_len ), (uchar)( chunk_cnt + 1 ), chunk_cnt );
 
   fd_gossip_duplicate_shred_t duplicate_shreds[chunk_cnt];
   for( uchar chunk_idx = 0; chunk_idx < chunk_cnt; chunk_idx++ ) {
