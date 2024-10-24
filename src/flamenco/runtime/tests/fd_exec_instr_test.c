@@ -63,6 +63,7 @@ static FD_TL char _report_prefix[100] = {0};
 
 struct __attribute__((aligned(32UL))) fd_exec_instr_test_runner_private {
   fd_funk_t * funk;
+  fd_spad_t * spad;
 };
 
 ulong
@@ -80,6 +81,7 @@ fd_exec_instr_test_runner_footprint( void ) {
 
 fd_exec_instr_test_runner_t *
 fd_exec_instr_test_runner_new( void * mem,
+                               void * spad_mem,
                                ulong  wksp_tag ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_instr_test_runner_t), sizeof(fd_exec_instr_test_runner_t) );
@@ -96,6 +98,9 @@ fd_exec_instr_test_runner_new( void * mem,
 
   fd_exec_instr_test_runner_t * runner = runner_mem;
   runner->funk = funk;
+
+  /* Create spad */
+  runner->spad = fd_spad_join( fd_spad_new( spad_mem, fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN ) ) );
   return runner;
 }
 
@@ -104,6 +109,7 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   if( FD_UNLIKELY( !runner ) ) return NULL;
   fd_funk_delete( fd_funk_leave( runner->funk ) );
   runner->funk = NULL;
+  runner->spad = NULL;
   return runner;
 }
 
@@ -307,11 +313,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len         = 0;
-
-  ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
-  uchar *     mem          = fd_valloc_malloc( slot_ctx->valloc, FD_SPAD_ALIGN, total_mem_sz );
-  fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
-  txn_ctx->spad            = spad;
+  txn_ctx->spad                    = runner->spad;
 
   /* Set up instruction context */
 
@@ -949,11 +951,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL );
 
   /* Setup the spad for account allocation */
-  ulong       total_mem_sz = fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN );
-  uchar *     mem          = fd_valloc_malloc( slot_ctx->valloc, FD_SPAD_ALIGN, total_mem_sz );
-  fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
-  FD_TEST( spad );
-  task_info->txn_ctx->spad = spad;
+  task_info->txn_ctx->spad = runner->spad;
 
   fd_runtime_pre_execute_check( task_info );
 
@@ -978,20 +976,6 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  // Free any allocated borrowed account data
-  for( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; ++i ) {
-    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[i];
-    void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
-    fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
-    if( belongs_to_wksp ) {
-      fd_wksp_free_laddr( borrowed_account_mem );
-    }
-  }
-
-  if( ctx->txn_ctx ) {
-    fd_valloc_free( slot_ctx->valloc, ctx->txn_ctx->spad );
-  }
 
   // Free alloc
   if( alloc ) {
@@ -1021,11 +1005,6 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
   if( !slot_ctx ) return; // This shouldn't be false either
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  /* Free the spad which holds all of the allocations for the borrowed accs */
-  if( txn_ctx ) {
-    fd_valloc_free( slot_ctx->valloc, txn_ctx->spad );
-  }
 
   // Free alloc
   if( alloc ) {

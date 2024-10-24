@@ -13,6 +13,7 @@
 #include "../fd_executor_err.h"
 #include "../../fd_flamenco.h"
 #include "../../../ballet/shred/fd_shred.h"
+#include "../fd_acc_mgr.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -32,6 +33,10 @@ typedef struct {
 static sol_compat_features_t features;
 static       uchar *     smem;
 static const ulong       smax = 1UL<<30;
+
+static       uchar *     spad_mem;
+static const ulong       spad_mem_max = 128UL * FD_ACC_TOT_SZ_MAX;
+
 static       fd_wksp_t * wksp = NULL;
 
 #define WKSP_TAG 2
@@ -58,6 +63,9 @@ sol_compat_wksp_init( void ) {
   wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 8UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
   assert( wksp );
 
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, spad_mem_max, 3 ); /* 1.28 GB */
+  assert( spad_mem );
+
   smem = malloc( smax );  /* 1 GiB */
   assert( smem );
 
@@ -79,12 +87,14 @@ sol_compat_wksp_init( void ) {
 
 void
 sol_compat_fini( void ) {
+  fd_wksp_free_laddr( spad_mem );
   fd_wksp_delete_anonymous( wksp );
   free( smem );
   free( features.cleaned_up_features );
   free( features.supported_features );
-  wksp = NULL;
-  smem = NULL;
+  wksp     = NULL;
+  smem     = NULL;
+  spad_mem = NULL;
 }
 
 void
@@ -111,8 +121,7 @@ sol_compat_setup_scratch_and_runner( void * fmem ) {
 
   // Setup test runner
   void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_TAG );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, WKSP_TAG );
-
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, spad_mem, WKSP_TAG );
   return runner;
 }
 
