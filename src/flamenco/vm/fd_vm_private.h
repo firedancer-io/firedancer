@@ -535,11 +535,10 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     (void const *)_haddr;                                                                                   \
   }))
 
-#define FD_VM_MEM_HADDR_LD_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                               \
+#define FD_VM_MEM_HADDR_LD_UNCHECKED( vm, vaddr, align, sz, is_multi ) (__extension__({                     \
     fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
+    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, is_multi ); \
     (void const *)_haddr;                                                                                   \
   }))
 
