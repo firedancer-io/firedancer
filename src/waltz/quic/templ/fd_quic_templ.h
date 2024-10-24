@@ -1,5 +1,3 @@
-/* TODO rename to fd_quic_pkt_templ.h */
-
 /* 17.2. Long Header Packets
    Long Header Packet {
      Header Form (1) = 1,
@@ -14,14 +12,6 @@
      Type-Specific Payload (..),
    }
    Figure 13: Long Header Packet Format */
-
-/* common to long and short header */
-FD_TEMPL_DEF_STRUCT_BEGIN(common_hdr)
-  FD_TEMPL_MBR_ELEM_BITS( hdr_form,           uchar, 1 )
-  FD_TEMPL_MBR_ELEM_BITS( fixed_bit,          uchar, 1 )
-  FD_TEMPL_MBR_ELEM_BITS( long_packet_type,   uchar, 2 )
-  FD_TEMPL_MBR_ELEM_BITS( type_specific_bits, uchar, 4 )
-FD_TEMPL_DEF_STRUCT_END(common_hdr)
 
 /* long header except first byte */
 FD_TEMPL_DEF_STRUCT_BEGIN(long_hdr)
