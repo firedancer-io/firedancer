@@ -1111,6 +1111,7 @@ fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
 
 int
 fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
+                                         fd_spad_t *                  spad,
                                          fd_capture_ctx_t *           capture_ctx,
                                          fd_txn_p_t *                 txn,
                                          fd_execute_txn_task_info_t * task_info ) {
@@ -1124,6 +1125,8 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   task_info->exec_res             = -1;
   task_info->txn                  = txn;
   fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
+
+  task_info->txn_ctx->spad = spad;
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
@@ -2020,6 +2023,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
 
 int
 fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          spad,
                               fd_capture_ctx_t *   capture_ctx,
                               fd_txn_p_t *         txns,
                               ulong                txn_cnt ) {
@@ -2033,7 +2037,7 @@ fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      fd_runtime_prepare_execute_finalize_txn( slot_ctx, capture_ctx, &txns[i], &task_infos[i] );
+      fd_runtime_prepare_execute_finalize_txn( slot_ctx, spad, capture_ctx, &txns[i], &task_infos[i] );
     }
 
     ulong curr_cnt = slot_ctx->slot_bank.transaction_count;
