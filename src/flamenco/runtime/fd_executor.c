@@ -100,7 +100,9 @@ fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
   fd_pubkey_t const * pubkey        = prog_acc->pubkey;
   fd_pubkey_t const * owner         = (fd_pubkey_t const *)prog_acc->const_meta->info.owner;
-  fd_pubkey_t const * lookup_pubkey = !memcmp( owner, fd_solana_native_loader_id.key, sizeof( fd_pubkey_t ) ) ? pubkey : owner;
+
+  fd_pubkey_t const * lookup_pubkey = !memcmp( owner, fd_solana_native_loader_id.key,  sizeof(fd_pubkey_t) ) || 
+                                      !memcmp( owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ? pubkey : owner;
   const fd_native_prog_info_t null_function = (const fd_native_prog_info_t) {0};
   return fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
 }
@@ -1108,7 +1110,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
-    fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
+    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
