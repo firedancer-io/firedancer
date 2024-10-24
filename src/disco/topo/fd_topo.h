@@ -21,6 +21,9 @@
 /* Maximum number of objects that a tile can use. */
 #define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
 
+/* Maximum number of additional ip addresses */
+#define FD_NET_MAX_SRC_ADDR 4
+
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
@@ -140,6 +143,10 @@ typedef struct {
       ushort gossip_listen_port;
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
+
+      /* multihoming support */
+      ulong multihome_ip_addrs_cnt;
+      uint  multihome_ip_addrs[FD_NET_MAX_SRC_ADDR];
     } net;
 
     struct {

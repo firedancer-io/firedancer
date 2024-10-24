@@ -478,6 +478,12 @@ fd_topo_initialize( config_t * config ) {
       tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
       tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
 
+      /* multihome support */
+      ulong multi_cnt = tile->net.multihome_ip_addrs_cnt = config->tiles.net.multihome_ip_addrs_cnt;
+      for( ulong j = 0; j < multi_cnt; ++j ) {
+        tile->net.multihome_ip_addrs[j] = config->tiles.net.multihome_ip4_addrs[j];
+      }
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );

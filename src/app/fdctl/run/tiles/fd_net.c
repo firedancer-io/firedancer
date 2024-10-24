@@ -588,6 +588,16 @@ init_link_session( fd_xdp_session_t *      session,
         (uint)bind_id ) ) ) {
       FD_LOG_ERR(( "fd_xdp_listen_udp_port failed" ));
     }
+    /* support for multihomed hosts */
+    for( ulong j = 0; j < tile->net.multihome_ip_addrs_cnt; ++j ) {
+      if( FD_UNLIKELY( fd_xdp_listen_udp_port(
+          session,
+          tile->net.multihome_ip_addrs[j],
+          port,
+          (uint)bind_id ) ) ) {
+        FD_LOG_ERR(( "fd_xdp_listen_udp_port failed" ));
+      }
+    }
   }
 
   /* Install XDP programs to network devices */

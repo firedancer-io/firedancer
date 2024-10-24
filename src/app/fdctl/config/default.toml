@@ -820,6 +820,13 @@ dynamic_port_range = "8900-9000"
         # this really be configurable?
         send_buffer_size = 16384
 
+        # The XDP program will filter packets that aren't destined for
+        # the IPv4 address of the interface bound above, but sometimes a
+        # validator may advertise multiple IP addresses.  In this case
+        # the additional addresses can be specified here, and packets
+        # addressed to them will be accepted.
+        multihome_ip_addrs = []
+
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
     # and state machines.  These tiles implement the QUIC protocol,
