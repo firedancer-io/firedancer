@@ -1,3 +1,4 @@
+#include "fd_pcapng.h"
 #include "fd_pcapng_private.h"
 #include "../fd_util.h"
 
@@ -169,7 +170,11 @@ test_pcapng_dogfood( void ) {
   FD_LOG_HEXDUMP_DEBUG(( "stream", buf, (ulong)pos ));
 
   rewind( pcap );
-  fd_pcapng_iter_t * iter = fd_pcapng_iter_new( fd_alloca( FD_PCAPNG_ITER_ALIGN, fd_pcapng_iter_footprint() ), pcap );
+  fd_pcapng_iter_t iter_mem[1];
+  FD_TEST( alignof(fd_pcapng_iter_t)==fd_pcapng_iter_align() );
+  FD_TEST( alignof(fd_pcapng_iter_t)==FD_PCAPNG_ITER_ALIGN );
+  FD_TEST( sizeof(iter_mem)==fd_pcapng_iter_footprint() );
+  fd_pcapng_iter_t * iter = fd_pcapng_iter_new( iter_mem, pcap );
   FD_TEST( iter );
 
   fd_pcapng_frame_t const * frame;
@@ -210,7 +215,7 @@ test_pcapng_dogfood( void ) {
 
   frame = fd_pcapng_iter_next( iter );
   FD_TEST( !frame );
-  FD_TEST( fd_pcapng_iter_err( iter )==FD_PCAPNG_ITER_EOF );
+  FD_TEST( fd_pcapng_iter_err( iter )==-1 );
 
   /* Write section 1 */
 

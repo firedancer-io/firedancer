@@ -65,19 +65,11 @@ typedef struct fd_pcapng_idb_opts fd_pcapng_idb_opts_t;
 
 #define FD_PCAPNG_TSRESOL_NS ((uchar)0x09)
 
-/* fd_pcap_iter iter frame types */
+/* fd_pcapng_iter iter frame types */
 
 #define FD_PCAPNG_FRAME_SIMPLE   (1U) /* Simple packet type (data only) */
 #define FD_PCAPNG_FRAME_ENHANCED (3U) /* Packet with metadata */
 #define FD_PCAPNG_FRAME_TLSKEYS  (4U) /* TLS keys */
-
-/* fd_pcap_iter error codes */
-
-#define FD_PCAPNG_ITER_OK         0 /* no error */
-#define FD_PCAPNG_ITER_EOF        1 /* end of section or file */
-#define FD_PCAPNG_ITER_ERR_STREAM 2 /* stream error (use ferror for details) */
-#define FD_PCAPNG_ITER_ERR_IO     3 /* stream error (use errno for details) */
-#define FD_PCAPNG_ITER_ERR_PARSE  4 /* parse error */
 
 FD_PROTOTYPES_BEGIN
 
@@ -135,7 +127,8 @@ fd_pcapng_is_pkt( fd_pcapng_frame_t const * frame ) {
   return (ty==FD_PCAPNG_FRAME_SIMPLE) | (ty==FD_PCAPNG_FRAME_ENHANCED);
 }
 
-/* fd_pcapng_iter_err returns the last encountered error code */
+/* fd_pcapng_iter_err returns the last encountered error.  Uses fd_io
+   error codes. */
 
 FD_FN_PURE int
 fd_pcapng_iter_err( fd_pcapng_iter_t const * iter );
