@@ -187,6 +187,7 @@ test_pcapng_dogfood( void ) {
   FD_TEST( frame->data_sz==6UL );
   FD_TEST( frame->orig_sz==6UL );
   FD_TEST( frame->if_idx ==0UL );
+  FD_TEST( iter->iface[ frame->if_idx ].link_type==FD_PCAPNG_LINKTYPE_ETHERNET );
 
   frame = fd_pcapng_iter_next( iter );
   FD_TEST( frame );
