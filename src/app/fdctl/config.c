@@ -532,6 +532,7 @@ fdctl_cfg_from_env( int *      pargc,
   config->is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    /* not currently supporting multihoming on netns */
     if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
@@ -570,6 +571,35 @@ fdctl_cfg_from_env( int *      pargc,
 
     config->tiles.net.ip_addr = iface_ip;
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
+
+    /* support for multihomed hosts */
+    ulong multi_cnt = config->tiles.net.multihome_ip_addrs_cnt;
+    for( ulong j = 0; j < multi_cnt; ++j ) {
+      int success = fd_cstr_to_ip4_addr( config->tiles.net.multihome_ip_addrs[j],
+          &config->tiles.net.multihome_ip4_addrs[j] );
+      if( !success ) {
+        FD_LOG_ERR(( "configuration option [tiles.net.multihome_ip_addrs] "
+                     "specifies malformed IP address `%s`",
+                     config->tiles.net.multihome_ip_addrs[j] ));
+      }
+    }
+
+    /* look for duplicate addresses */
+    /* there's only a few, so do the O(n^2) comparison */
+    for( ulong j = 0; j < multi_cnt; ++j ) {
+      if( config->tiles.net.ip_addr == config->tiles.net.multihome_ip4_addrs[j] ) {
+        FD_LOG_ERR(( "configuration option [tiles.net.multihome_ip_addrs] "
+                     "specifies an address that matches [tiles.net.src_ip_addr]" ));
+      }
+      for( ulong k = j+1; k < multi_cnt; ++k ) {
+        if( config->tiles.net.multihome_ip4_addrs[j] == config->tiles.net.multihome_ip4_addrs[k] ) {
+          FD_LOG_ERR(( "configuration option [tiles.net.multihome_ip_addrs] "
+                       "specifies duplicate ip addresses `%s`",
+                       config->tiles.net.multihome_ip_addrs[j] ));
+        }
+      }
+    }
+
   }
 
   username_to_id( config );
