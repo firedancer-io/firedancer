@@ -226,7 +226,7 @@ fd_pcapng_iter_delete( fd_pcapng_iter_t * iter ) {
   return mem;
 }
 
-fd_pcapng_frame_t const *
+fd_pcapng_frame_t *
 fd_pcapng_iter_next( fd_pcapng_iter_t * iter ) {
 
   static FD_TL fd_pcapng_frame_t pkt;
@@ -280,6 +280,7 @@ fd_pcapng_iter_next( fd_pcapng_iter_t * iter ) {
 
       fd_pcapng_idb_desc_t * iface = &iter->iface[ iter->iface_cnt++ ];
       memset( iface, 0, sizeof(fd_pcapng_idb_desc_t) );
+      iface->link_type = idb.link_type;
 
       /* Read options */
       for( uint j=0; j<FD_PCAPNG_MAX_OPT_CNT; j++ ) {

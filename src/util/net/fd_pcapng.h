@@ -115,7 +115,7 @@ fd_pcapng_iter_delete( fd_pcapng_iter_t * iter );
    are backed by a thread-local memory region that is valid until delete
    or next iter_next. */
 
-fd_pcapng_frame_t const *
+fd_pcapng_frame_t *
 fd_pcapng_iter_next( fd_pcapng_iter_t * iter );
 
 /* fd_pcapng_is_pkt returns 1 if given frame (non-NULL) is a regular
@@ -185,7 +185,8 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
 
 /* FD_PCAPNG_LINKTYPE_*: Link types (currently only Ethernet supported) */
 
-#define FD_PCAPNG_LINKTYPE_ETHERNET (1U)
+#define FD_PCAPNG_LINKTYPE_ETHERNET   (1U) /* IEEE 802.3 Ethernet */
+#define FD_PCAPNG_LINKTYPE_COOKED   (113U) /* Linux "cooked" capture */
 
 ulong
 fd_pcapng_fwrite_idb( uint                         link_type,
