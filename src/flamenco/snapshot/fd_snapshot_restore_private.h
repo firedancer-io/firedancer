@@ -105,6 +105,8 @@ struct fd_snapshot_restore {
 
   fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache;
   void *                                   cb_status_cache_ctx;
+
+  fd_solana_manifest_t * manifest;
 };
 
 /* STATE_{...} are the state IDs that control file processing in the

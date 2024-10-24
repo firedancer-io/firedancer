@@ -28,6 +28,7 @@
 #include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
+#include "../../flamenco/snapshot/fd_snapshot_create.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
@@ -180,6 +181,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   /* Setup trash_hash */
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
+  int first_create = 0;
+  (void)first_create;
 
   for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
@@ -216,6 +219,13 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     ulong   sz  = blk->data_sz;
     fd_blockstore_end_read( blockstore );
 
+    /* TODO:FIXME: This is where we want to do all of the snapshot related testing */
+    //if( ledger_args->slot_ctx->slot_bank.slot == 254462443 ) {
+    if( !first_create ) {
+      fd_snapshot_create_manifest( ledger_args->slot_ctx );
+      first_create = 1;
+    }
+  
     ulong blk_txn_cnt = 0;
     FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
                                           ledger_args->capture_ctx,
@@ -228,6 +238,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                                           ledger_args->spad_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
+
+    FD_LOG_WARNING(("BANK HASH AND PARENT HASH %s %s", FD_BASE58_ENC_32_ALLOCA(&ledger_args->slot_ctx->slot_bank.banks_hash), FD_BASE58_ENC_32_ALLOCA(&ledger_args->slot_ctx->prev_banks_hash) ));
+    FD_LOG_WARNING(("PREV SLOT %lu", ledger_args->slot_ctx->slot_bank.prev_slot));
 
     fd_blockstore_start_read( blockstore );
     fd_hash_t const * expected = fd_blockstore_block_hash_query( blockstore, slot );
@@ -874,6 +887,7 @@ ingest( fd_ledger_args_t * args ) {
 
   init_tpool( args );
 
+
   /* Load in snapshot(s) */
   if( args->snapshot ) {
     fd_snapshot_load( args->snapshot, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
@@ -1008,6 +1022,7 @@ replay( fd_ledger_args_t * args ) {
 
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
+
   ulong rec_cnt = fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) );
   if( !rec_cnt ) {
     /* Load in snapshot(s) */

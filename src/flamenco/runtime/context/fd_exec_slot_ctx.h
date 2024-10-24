@@ -81,6 +81,9 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_txncache_t *             status_cache;
   fd_slot_history_t           slot_history[1];
 
+  ulong                       tick_count;
+  ulong                       tick_height;
+
   /* TODO: This could be implemented as a map-based data structure that would
      allow for faster lookups. In practice this shouldn't matter too much as
      this array is usually empty (e.g. in mainnet). */
@@ -90,6 +93,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                      recording, e.g. txn logs.  Analogue
                                                      of Agave's ExecutionRecordingConfig. */
+
+  fd_solana_manifest_t *      solana_manifest;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

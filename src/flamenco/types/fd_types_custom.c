@@ -1,4 +1,5 @@
 #include "fd_types.h"
+#include "../fd_flamenco_base.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -191,6 +192,7 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
   fd_bincode_uint64_decode_unsafe( &self->lamports, ctx );
   ulong data_len;
   fd_bincode_uint64_decode_unsafe( &data_len, ctx );
+
   if( data_len ) {
     FD_SCRATCH_SCOPE_BEGIN {
       /* Deserialize content */
@@ -223,7 +225,7 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
         self->last_timestamp_ts = vote_ts.timestamp;
         self->last_timestamp_slot = vote_ts.slot;
       } else {
-        FD_LOG_DEBUG(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
+        FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
         self->last_timestamp_ts = 0;
         self->last_timestamp_slot = 0;
         fd_memset( &self->node_pubkey, 0UL, sizeof(fd_pubkey_t) );
@@ -238,6 +240,8 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
   fd_pubkey_decode_unsafe( &self->owner, ctx );
   fd_bincode_uint8_decode_unsafe( &self->executable, ctx );
   fd_bincode_uint64_decode_unsafe( &self->rent_epoch, ctx );
+  //FD_LOG_WARNING(("WHAT IS THE PUBKEY %s", FD_BASE58_ENC_32_ALLOCA(&self->node_pubkey)));
+  
 }
 
 void fd_solana_vote_account_new(fd_solana_vote_account_t * self) {

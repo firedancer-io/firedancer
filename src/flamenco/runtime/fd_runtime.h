@@ -129,7 +129,8 @@ fd_runtime_block_prepare( void const * buf,
                           fd_block_info_t * out_block_info );
 
 ulong
-fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
+fd_runtime_block_collect_txns( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_block_info_t const * block_info,
                                fd_txn_p_t * out_txns );
 
 int

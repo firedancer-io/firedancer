@@ -180,6 +180,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   /* Write account */
   if( !is_dupe ) {
     int write_result = fd_acc_mgr_modify( acc_mgr, funk_txn, key, /* do_create */ 1, hdr->meta.data_len, rec );
+    FD_LOG_NOTICE(("WRITING ACCOUNT accounts/%lu.%lu %lu",restore->accv_slot, restore->accv_id , fd_funk_rec_global_cnt(acc_mgr->funk, fd_funk_wksp( acc_mgr->funk))));
     if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
       return ENOMEM;
@@ -230,6 +231,7 @@ fd_snapshot_accv_index( fd_snapshot_accv_map_t *               map,
 
       /* Insert new AppendVec */
       fd_snapshot_accv_key_t key = { .slot = slot->slot, .id = accv->id };
+      //FD_LOG_WARNING(("INSERTING %lu %lu", slot->slot, accv->id));
       fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_insert( map, key );
       if( FD_UNLIKELY( !rec ) ) {
         FD_LOG_WARNING(( "fd_snapshot_accv_map_insert failed" ));
@@ -256,12 +258,35 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
      heap.  Once the epoch context heap is separated out, we need to
      revisit this. */
 
-  fd_solana_manifest_t manifest[1];
+  fd_solana_manifest_t * manifest = restore->manifest;
+
+  // FILE * file = fopen( "/data/ibhatt/manifest", "rb" );
+  // fseek(file, 0, SEEK_END);
+  // ulong file_sz = (ulong)ftell(file);
+  // fseek( file, 0, SEEK_SET);
+  // FD_LOG_WARNING(("FILE SIZE %lu", file_sz));
+
+
+  // uchar * buf = fd_valloc_malloc( restore->valloc, 8UL, file_sz);
+  // ulong res = fread( buf, 1, file_sz, file);
+  // FD_LOG_WARNING(("RES %lu", res));
+  // FD_TEST( res==file_sz );
+
+  // fd_bincode_decode_ctx_t decode =
+  //     { .data    = buf,
+  //       .dataend = buf + file_sz,
+  //       .valloc  = restore->valloc };
+  // int decode_err = fd_solana_manifest_decode( manifest, &decode );
+
   fd_bincode_decode_ctx_t decode =
       { .data    = restore->buf,
         .dataend = restore->buf + restore->buf_sz,
         .valloc  = restore->valloc };
   int decode_err = fd_solana_manifest_decode( manifest, &decode );
+
+  FD_LOG_WARNING(("BUFFER SIZE %lu", restore->buf_sz));
+  FD_LOG_WARNING(("MANIFEST SIZE %lu", fd_solana_manifest_size( manifest)));
+
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     /* TODO: The types generator does not yet handle OOM correctly.
              OOM failures won't always end up here, but could also
@@ -272,8 +297,10 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 
   /* Move over accounts DB fields */
 
-  fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
-  fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
+  //fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
+  //fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
+  int err = fd_snapshot_accv_index( restore->accv_map, &manifest->accounts_db );
+  FD_TEST( !err );
 
   /* Remember slot number */
 
@@ -282,19 +309,20 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   /* Move over objects and recover state
      This destroys all remaining fields with the slot context valloc. */
 
-  int err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+  err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+  FD_TEST( !err );
 
   /* Read AccountVec map */
 
-  if( FD_LIKELY( !err ) )
-    err = fd_snapshot_accv_index( restore->accv_map, &accounts_db );
+  // // if( FD_LIKELY( !err ) )
+  //   // err = fd_snapshot_accv_index( restore->accv_map, &manifest->accounts_db );
 
-  /* Discard superfluous fields that the callback didn't move */
+  // /* Discard superfluous fields that the callback didn't move */
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = restore->valloc };
-  fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
+  // fd_bincode_destroy_ctx_t FD_FN_UNUSED destroy = { .valloc = restore->valloc };
+  // //fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
 
-  /* Discard buffer to reclaim heap space */
+  // /* Discard buffer to reclaim heap space */
 
   fd_snapshot_restore_discard_buf( restore );
 
@@ -367,6 +395,7 @@ fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
   /* Parse file name */
   ulong id, slot;
   if( FD_UNLIKELY( sscanf( meta->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
+    FD_LOG_WARNING(("FILE NAME PARSE FAILURE"));
     /* Ignore entire file if file name invalid */
     restore->state  = STATE_DONE;
     restore->buf_sz = 0UL;
@@ -388,6 +417,7 @@ fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
     /* Ignore account vec files that are not explicitly mentioned in the
        manifest. */
     FD_LOG_DEBUG(( "Ignoring %s (sz %lu)", meta->name, real_sz ));
+    FD_LOG_WARNING(("NOT MENTIONED IN MANIFEST %lu %lu", slot, id));
     restore->state  = STATE_DONE;
     restore->buf_sz = 0UL;
     return 0;
@@ -498,8 +528,10 @@ fd_snapshot_restore_file( void *                restore_,
   /* Snapshot manifest */
   assert( sizeof("snapshots/status_cache")<FD_TAR_NAME_SZ );
   if( 0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1) &&
-      0!=strcmp ( meta->name, "snapshots/status_cache" ) )
+      0!=strcmp ( meta->name, "snapshots/status_cache" ) ) {
+    FD_LOG_WARNING(("RESTORING MANIFEST TO PREPARE %s", meta->name));
     return fd_snapshot_restore_manifest_prepare( restore, sz );
+  }
 
   else if( 0==strcmp ( meta->name, "snapshots/status_cache" ) )
     return fd_snapshot_restore_status_cache_prepare( restore, sz );

@@ -148,6 +148,7 @@ static int
 get_state( fd_borrowed_account_t const * self,
            fd_valloc_t                   valloc,
            fd_vote_state_versioned_t *   versioned /* out */ ) {
+
   int rc;
 
   fd_bincode_decode_ctx_t decode_ctx;
@@ -2860,6 +2861,7 @@ void
 upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
+    /* Decode the vote account */
     fd_bincode_decode_ctx_t decode = {
       .data    = vote_account->const_data,
       .dataend = vote_account->const_data + vote_account->const_meta->dlen,
@@ -2875,7 +2877,7 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
       return;
     }
 
-    if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
+    if( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
       fd_stakes_t * stakes = &epoch_bank->stakes;
 

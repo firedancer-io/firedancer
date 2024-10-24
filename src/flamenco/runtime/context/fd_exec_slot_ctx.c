@@ -118,7 +118,8 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
        n;
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
-    /* Extract vote timestamp of account */
+
+   /* Extract vote timestamp of account */
 
     fd_vote_block_timestamp_t vote_state_timestamp = {
       .timestamp = n->elem.value.last_timestamp_ts,
@@ -171,6 +172,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   epoch_bank->stakes.epoch = oldbank->stakes.epoch;
 
   /* Copy stakes->vote_accounts */
+  ulong i =0UL;
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
           oldbank->stakes.vote_accounts.vote_accounts_pool,
           oldbank->stakes.vote_accounts.vote_accounts_root );
@@ -191,7 +193,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
         &epoch_bank->stakes.vote_accounts.vote_accounts_root,
         new_node
       );
+      i++;
   }
+  FD_LOG_WARNING(("NUMBER OF VOTE ACCOUNTS %lu", i));
 
   /* Copy stakes->stake_delegations */
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(
@@ -239,17 +243,21 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     );
   }
 
-  fd_stakes_destroy( &oldbank->stakes, &destroy );
+  //fd_stakes_destroy( &oldbank->stakes, &destroy );
 
   /* Index vote accounts */
 
   /* Copy over fields */
+
+  slot_ctx->parent_signature_cnt = oldbank->signature_count;
+  slot_ctx->tick_height = oldbank->tick_height;
 
   if( oldbank->blockhash_queue.last_hash )
     slot_bank->poh = *oldbank->blockhash_queue.last_hash;
   slot_bank->slot = oldbank->slot;
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
+  fd_memcpy(&slot_ctx->prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
   fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   slot_bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
   slot_ctx->prev_lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
@@ -378,7 +386,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
           elem );
     }
 
-    fd_vote_accounts_destroy( &stakes0->stakes.vote_accounts, &destroy );
+    //fd_vote_accounts_destroy( &stakes0->stakes.vote_accounts, &destroy );
 
     /* Move next EpochStakes
        TODO Can we derive this instead of trusting the snapshot? */
@@ -403,7 +411,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     }
 
-    fd_vote_accounts_destroy( &stakes1->stakes.vote_accounts, &destroy );
+    //fd_vote_accounts_destroy( &stakes1->stakes.vote_accounts, &destroy );
   } while(0);
 
   // TODO Backup to database
@@ -424,10 +432,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
 
   fd_exec_slot_ctx_t * res = fd_exec_slot_ctx_recover_( slot_ctx, manifest );
 
-  /* Regardless of result, always destroy manifest */
-  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
-  fd_solana_manifest_destroy( manifest, &destroy );
-  fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
+  // /* Regardless of result, always destroy manifest */
+  // fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
+  // fd_solana_manifest_destroy( manifest, &destroy );
+  // fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
 
   return res;
 }
