@@ -239,7 +239,7 @@ FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message_hash) == 208U
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, is_simple_vote_tx) == 240UL, "messed up size" );
 
 extern int
-fd_ext_bank_sanitized_txn_load_addresess( void const * bank,
+fd_ext_bank_sanitized_txn_load_addresses( void const * bank,
                                           void *       address_table_lookups,
                                           ulong        address_table_lookups_cnt,
                                           void *       out_sidecar );
@@ -341,7 +341,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     sanitized_txn_abi_v0_loaded_addresses_t * loaded_addresses = &v0->loaded_addresses.owned;
     sanitized_txn_abi_v0_message_t * message = &v0->message.owned;
 
-    int result = fd_ext_bank_sanitized_txn_load_addresess( bank, (void*)v0->message.owned.address_table_lookups, txn->addr_table_lookup_cnt, out_sidecar );
+    int result = fd_ext_bank_sanitized_txn_load_addresses( bank, (void*)v0->message.owned.address_table_lookups, txn->addr_table_lookup_cnt, out_sidecar );
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return result;
 
     ulong lut_writable_acct_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT );
