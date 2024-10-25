@@ -19,17 +19,6 @@ int server_done = 0;
 ulong rcvd     = 0;
 ulong tot_rcvd = 0;
 
-/* some randomness stuff */
-
-typedef float rng_t;
-
-rng_t rnd( void ) {
-  static uint seed = 0;
-
-  ulong l = fd_rng_private_expand( seed++ );
-  return (rng_t)l * (rng_t)0x1p-64;
-}
-
 /* fibres for client and server */
 
 fd_fibre_t * client_fibre = NULL;
@@ -47,118 +36,6 @@ struct net_fibre_args {
 };
 typedef struct net_fibre_args net_fibre_args_t;
 
-
-/* man-in-the-middle for testing drops */
-
-struct mitm_ctx {
-  fd_aio_t         local;
-  fd_aio_t const * dst;
-  fd_aio_t const * pcap;
-  rng_t            thresh_drop;
-  rng_t            thresh_reorder;
-  int              server;
-
-  ulong reorder_sz;
-  uchar reorder_buf[2048];
-};
-typedef struct mitm_ctx mitm_ctx_t;
-
-static int
-mitm_tx( void *                    ctx,
-         fd_aio_pkt_info_t const * batch,
-         ulong                     batch_cnt,
-         ulong *                   opt_batch_idx,
-         int                       flush ) {
-  (void)flush;
-  (void)opt_batch_idx;
-
-  mitm_ctx_t * mitm_ctx = (mitm_ctx_t*)ctx;
-
-  /* each time data transfers, the schedule might change
-     so wake the other fibre */
-  if( client_fibre &&  mitm_ctx->server ) fd_fibre_wake( client_fibre );
-  if( server_fibre && !mitm_ctx->server ) fd_fibre_wake( server_fibre );
-
-  /* write to pcap */
-#define PCAP( batch, batch_cnt ) \
-  if( mitm_ctx->pcap ) { \
-    fd_aio_send( mitm_ctx->pcap, (batch), (batch_cnt), NULL, 1 ); \
-  }
-
-  /* go packet by packet */
-  for( ulong j = 0UL; j < batch_cnt; ++j ) {
-    /* generate a random number and compare with threshold, and either pass thru or drop */
-
-    rng_t rnd_num = rnd();
-
-    if( rnd_num < mitm_ctx->thresh_drop ) {
-      /* dropping behaves as-if the send was successful */
-      continue;
-    }
-
-    if( rnd_num < mitm_ctx->thresh_reorder ) {
-      /* reorder */
-
-      /* logic:
-           if we already have a reordered buffer, delay it another packet
-           else store the current packet into the reorder buffer */
-      if( mitm_ctx->reorder_sz > 0UL ) {
-        fd_aio_pkt_info_t lcl_batch[1] = { batch[j] };
-        fd_aio_send( mitm_ctx->dst, lcl_batch, 1UL, NULL, 1 );
-        PCAP(lcl_batch,1UL);
-
-        /* clear buffer */
-        mitm_ctx->reorder_sz = 0UL;
-      } else {
-        fd_memcpy( mitm_ctx->reorder_buf, batch[j].buf, batch[j].buf_sz );
-        mitm_ctx->reorder_sz = batch[j].buf_sz;
-      }
-      continue;
-    }
-
-    /* send new packet */
-    fd_aio_pkt_info_t batch_0[1] = { batch[j] };
-    fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, 1 );
-    PCAP(batch_0,1UL);
-
-    /* we aren't dropping or reordering, but we might have a prior reorder */
-    if( mitm_ctx->reorder_sz > 0UL ) {
-      fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
-      fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, 1 );
-      PCAP(batch_1,1UL);
-
-      /* clear the sent buffer */
-      mitm_ctx->reorder_sz = 0UL;
-    }
-  }
-
-  return FD_AIO_SUCCESS;
-}
-
-static void
-mitm_link( fd_quic_t * quic_a, fd_quic_t * quic_b, mitm_ctx_t * mitm, fd_aio_t const * pcap ) {
-  fd_aio_t const * rx_b = fd_quic_get_aio_net_rx( quic_b );
-
-  /* create a new aio for mitm */
-
-  FD_TEST( fd_aio_join( fd_aio_new( &mitm->local, mitm, mitm_tx ) ) );
-
-  mitm->dst  = rx_b;
-  mitm->pcap = pcap;
-
-  fd_quic_set_aio_net_tx( quic_a, &mitm->local );
-}
-
-static void
-mitm_set_thresh( mitm_ctx_t * mitm_ctx, rng_t thresh_drop, rng_t thresh_reorder ) {
-  mitm_ctx->thresh_drop    = thresh_drop;
-  mitm_ctx->thresh_reorder = thresh_reorder;
-}
-
-static void
-mitm_set_server( mitm_ctx_t * mitm_ctx, int server ) {
-  mitm_ctx->server = server;
-}
 
 
 fd_aio_pcapng_t pcap_client_to_server;
@@ -537,17 +414,20 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_aio_pcapng_join( &pcap_server_to_client, NULL, pcap_file ) );
 
   FD_LOG_NOTICE(( "Attaching AIOs" ));
-  mitm_ctx_t mitm_client_to_server;
-  mitm_ctx_t mitm_server_to_client;
+  fd_quic_netem_t mitm_client_to_server;
+  fd_quic_netem_t mitm_server_to_client;
+  fd_quic_netem_init( &mitm_client_to_server, 0.01f, 0.01f );
+  fd_quic_netem_init( &mitm_server_to_client, 0.01f, 0.01f );
 
-  mitm_link( client_quic, server_quic, &mitm_client_to_server, fd_aio_pcapng_get_aio( &pcap_client_to_server ) );
-  mitm_link( server_quic, client_quic, &mitm_server_to_client, fd_aio_pcapng_get_aio( &pcap_server_to_client ) );
+  /* client_quic -> mitm_client_to_server -> pcap_client_to_server -> server_quic */
+  fd_quic_set_aio_net_tx( client_quic, &mitm_client_to_server.local );
+  mitm_client_to_server.dst = fd_aio_pcapng_get_aio( &pcap_client_to_server );
+  pcap_client_to_server.dst = fd_quic_get_aio_net_rx( server_quic );
 
-  mitm_set_thresh( &mitm_client_to_server, 0.00f, 0.40f );
-  mitm_set_thresh( &mitm_server_to_client, 0.00f, 0.40f );
-
-  mitm_set_server( &mitm_client_to_server, 0 );
-  mitm_set_server( &mitm_server_to_client, 1 );
+  /* server_quic -> mitm_server_to_client -> pcap_server_to_client -> client_quic */
+  fd_quic_set_aio_net_tx( server_quic, &mitm_server_to_client.local );
+  mitm_server_to_client.dst = fd_aio_pcapng_get_aio( &pcap_server_to_client );
+  pcap_server_to_client.dst = fd_quic_get_aio_net_rx( client_quic );
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( client_quic ) );
