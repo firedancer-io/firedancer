@@ -848,7 +848,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L367-L370 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    fd_log_collector_msg_literal( ctx, "Lookup table is already frozen" );
+    fd_log_collector_msg_literal( ctx, "Lookup table is frozen" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
