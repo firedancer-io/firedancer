@@ -99,6 +99,7 @@ fd_gui_new( void *             shmem,
   memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
   memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
   gui->summary.tile_timers_snap_idx = 2UL;
+  for( ulong i=0UL; i<FD_GUI_TILE_TIMER_LEADER_CNT; i++ ) gui->summary.tile_timers_leader_history_slot[ i ] = ULONG_MAX;
 
   gui->epoch.has_epoch[ 0 ] = 0;
   gui->epoch.has_epoch[ 1 ] = 0;
@@ -162,8 +163,9 @@ fd_gui_ws_open( fd_gui_t * gui,
 }
 
 static void
-fd_gui_tile_timers_snap( fd_gui_t *             gui,
-                         fd_gui_tile_timers_t * cur ) {
+fd_gui_tile_timers_snap( fd_gui_t * gui ) {
+  fd_gui_tile_timers_t * cur = gui->summary.tile_timers_snap[ gui->summary.tile_timers_snap_idx ];
+  gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL)%FD_GUI_TILE_TIMER_SNAP_CNT;
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
     if ( FD_UNLIKELY( !tile->metrics ) ) {
@@ -548,8 +550,7 @@ fd_gui_poll( fd_gui_t * gui ) {
   }
 
   if( FD_LIKELY( now>gui->next_sample_10millis ) ) {
-    fd_gui_tile_timers_snap( gui, gui->summary.tile_timers_snap[ gui->summary.tile_timers_snap_idx ]);
-    gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL) % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[ 0 ]));
+    fd_gui_tile_timers_snap( gui );
 
     fd_gui_printf_live_tile_timers( gui );
     fd_http_server_ws_broadcast( gui->http );
@@ -1062,8 +1063,8 @@ fd_gui_handle_slot_start( fd_gui_t * gui,
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
   slot->leader_state = FD_GUI_SLOT_LEADER_STARTED;
 
-  fd_gui_tile_timers_snap( gui, slot->tile_timers_begin );
-  slot->tile_timers_begin_snap_idx = gui->summary.tile_timers_snap_idx;
+  fd_gui_tile_timers_snap( gui );
+  gui->summary.tile_timers_snap_idx_slot_start = (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT;
 }
 
 static void
@@ -1082,8 +1083,17 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   slot->leader_state  = FD_GUI_SLOT_LEADER_ENDED;
   slot->compute_units = _cus_used;
 
-  fd_gui_tile_timers_snap( gui, slot->tile_timers_end );
-  slot->tile_timers_end_snap_idx = gui->summary.tile_timers_snap_idx;
+  /* Downsample tile timers into per-leader-slot storage. */
+  fd_gui_tile_timers_snap( gui );
+  gui->summary.tile_timers_leader_history_slot[ gui->summary.tile_timers_history_idx ] = _slot;
+  ulong end = gui->summary.tile_timers_snap_idx;
+  end = fd_ulong_if( end<gui->summary.tile_timers_snap_idx_slot_start, end+FD_GUI_TILE_TIMER_SNAP_CNT, end );
+  gui->summary.tile_timers_leader_history_slot_sample_cnt[ gui->summary.tile_timers_history_idx ] = end-gui->summary.tile_timers_snap_idx_slot_start;
+  ulong stride = fd_ulong_max( 1UL, (end-gui->summary.tile_timers_snap_idx_slot_start) / FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT );
+  for( ulong sample_snap_idx=gui->summary.tile_timers_snap_idx_slot_start, i=0UL; sample_snap_idx<end; sample_snap_idx+=stride, i++ ) {
+    memcpy( gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ], gui->summary.tile_timers_snap[ sample_snap_idx%FD_GUI_TILE_TIMER_SNAP_CNT ], sizeof(gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ]) );
+  }
+  gui->summary.tile_timers_history_idx = (gui->summary.tile_timers_history_idx+1UL)%FD_GUI_TILE_TIMER_LEADER_CNT;
 
   /* When a slot ends, snap the state of the waterfall and save it into
      that slot, and also reset the reference counters to the end of the

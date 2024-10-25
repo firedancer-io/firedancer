@@ -608,12 +608,10 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
-  ulong timers_cnt = sizeof(gui->summary.tile_timers_snap) / sizeof(gui->summary.tile_timers_snap[ 0 ]);
-
   jsonp_open_envelope( gui, "summary", "live_tile_timers" );
     jsonp_open_array( gui, "value" );
-      fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-1UL))%timers_cnt ];
-      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-2UL))%timers_cnt ];
+      fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT ];
+      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-2UL))%FD_GUI_TILE_TIMER_SNAP_CNT ];
       fd_gui_printf_tile_timers( gui, prev, cur );
     jsonp_close_array( gui );
   jsonp_close_envelope( gui );
@@ -1001,23 +999,9 @@ fd_gui_printf_slot( fd_gui_t * gui,
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
         fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
-        /*jsonp_open_array( gui, "tile_timers" );
-          fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
-
-          ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
-          ulong stride = fd_ulong_max( 1UL, (end-slot->tile_timers_begin_snap_idx) / 40UL );
-
-          for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
-            fd_gui_printf_ts_tile_timers( gui, prev_timer, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
-            prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
-          }
-          fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
-        jsonp_close_array( gui );*/
-
         fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
       } else {
         jsonp_null( gui, "waterfall" );
-        // jsonp_null( gui, "tile_timers" );
         jsonp_null( gui, "tile_primary_metric" );
       }
     jsonp_close_object( gui );
@@ -1088,18 +1072,19 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
         fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
-        jsonp_open_array( gui, "tile_timers" );
-          fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
-
-          ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
-          ulong stride = fd_ulong_max( 1UL, (end-slot->tile_timers_begin_snap_idx) / 40UL );
-
-          for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
-            fd_gui_printf_ts_tile_timers( gui, prev_timer, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
-            prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
-          }
-          fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
-        jsonp_close_array( gui );
+        if( FD_LIKELY( gui->summary.tile_timers_leader_history_slot[ slot->tile_timers_history_idx ]==_slot ) ) {
+          jsonp_open_array( gui, "tile_timers" );
+            fd_gui_tile_timers_t const * prev_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ 0 ];
+            for( ulong i=1UL; i<gui->summary.tile_timers_leader_history_slot_sample_cnt[ slot->tile_timers_history_idx ]; i++ ) {
+              fd_gui_tile_timers_t const * cur_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ i ];
+              fd_gui_printf_ts_tile_timers( gui, prev_timer, cur_timer );
+              prev_timer = cur_timer;
+            }
+          jsonp_close_array( gui );
+        } else {
+          /* Our tile timers were overwritten. */
+          jsonp_null( gui, "tile_timers" );
+        }
 
         fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
       } else {
