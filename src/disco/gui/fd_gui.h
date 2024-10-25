@@ -12,6 +12,9 @@
 #define FD_GUI_SLOTS_CNT (864000UL)
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L) /* 10 second moving average */
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
+#define FD_GUI_TILE_TIMER_SNAP_CNT                 (512UL)
+#define FD_GUI_TILE_TIMER_LEADER_CNT               (4096UL)
+#define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT    (50UL)
 #define FD_GUI_TILE_TIMER_TILE_CNT                 (128UL)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
@@ -171,16 +174,7 @@ struct fd_gui_slot {
   fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
   fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
 
-  /* Index into periodic sample array. Inclusive.
-     Points to first sample after slot start sample. */
-  ulong                  tile_timers_begin_snap_idx;
-  /* Snapshot at slot start. */
-  fd_gui_tile_timers_t   tile_timers_begin[ FD_GUI_TILE_TIMER_TILE_CNT ];
-  /* Index into periodic sample array. Exclusive.
-     Points to one past last sample before slot end sample. */
-  ulong                  tile_timers_end_snap_idx;
-  /* Snapshot at slot end. */
-  fd_gui_tile_timers_t   tile_timers_end[ FD_GUI_TILE_TIMER_TILE_CNT ];
+  ulong tile_timers_history_idx;
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
@@ -258,7 +252,13 @@ struct fd_gui {
     fd_gui_tile_prime_metric_t tile_prime_metric_cur[ 1 ];
 
     ulong                tile_timers_snap_idx;
-    fd_gui_tile_timers_t tile_timers_snap[ 432000UL ][ FD_GUI_TILE_TIMER_TILE_CNT ]; /* TODO: This can only store about 1 hour of samples */
+    ulong                tile_timers_snap_idx_slot_start;
+    /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
+    fd_gui_tile_timers_t tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+    ulong                tile_timers_history_idx;
+    fd_gui_tile_timers_t tile_timers_leader_history[ FD_GUI_TILE_TIMER_LEADER_CNT ][ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+    ulong                tile_timers_leader_history_slot_sample_cnt[ FD_GUI_TILE_TIMER_LEADER_CNT ];
+    ulong                tile_timers_leader_history_slot[ FD_GUI_TILE_TIMER_LEADER_CNT ];
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];

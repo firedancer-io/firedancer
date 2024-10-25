@@ -920,11 +920,18 @@ are skipped on the currently active fork.
 #### `slot.update`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *Live*      | `SlotPublish` | below   |
+| *Live*      | `SlotUpdate`  | below   |
 
 :::details Example
 
 :::
+
+**`SlotUpdate`**
+| Field               | Type                      | Description |
+|---------------------|---------------------------|-------------|
+| publish             | `SlotPublish`             | General information about the slot |
+| waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
+| tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, per-tile-type primary metrics since the end of the prior leader slot |
 
 #### `slot.query`
 | frequency   | type           | example |
@@ -1058,7 +1065,7 @@ are skipped on the currently active fork.
 | publish             | `SlotPublish`             | General information about the slot |
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, per-tile-type primary metrics since the end of the prior leader slot |
-| tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest |
+| tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
