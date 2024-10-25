@@ -4847,6 +4847,10 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       conn->key_phase     = pkt_meta_key_phase; /* switch to new key phase */
       conn->key_phase_upd = 0;                  /* no longer updating */
 
+      /* ensure the key phase change gets ack'ed even if there are no */
+      /* otherwise ack-eliciting packets */
+      conn->ack_gen->is_elicited = 1;
+
       FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
 
       /* TODO still need to add code to initiate key update */
