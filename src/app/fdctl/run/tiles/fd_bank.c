@@ -234,11 +234,11 @@ after_frag( fd_bank_ctx_t *     ctx,
   }
 
   /* Commit must succeed so no failure path.  This function takes
-      ownership of the load_and_execute_output and pre_balance_info heap
-      allocations and will free them before it returns.  They should not
-      be reused.  Once commit is called, the transactions MUST be mixed
-      into the PoH otherwise we will fork and diverge, so the link from
-      here til PoH mixin must be completely reliable with nothing dropped. */
+     ownership of the load_and_execute_output and pre_balance_info heap
+     allocations and will free them before it returns.  They should not
+     be reused.  Once commit is called, the transactions MUST be mixed
+     into the PoH otherwise we will fork and diverge, so the link from
+     here til PoH mixin must be completely reliable with nothing dropped. */
   fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output, pre_balance_info );
   pre_balance_info        = NULL;
   load_and_execute_output = NULL;
@@ -257,9 +257,9 @@ after_frag( fd_bank_ctx_t *     ctx,
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
 
   /* We have a race window with the GUI, where if the slot is ending it
-    will snap these metrics to draw the waterfall, but see them outdated
-    because housekeeping hasn't run.  For now just update them here, but
-    PoH should eventually flush the pipeline before ending the slot. */
+     will snap these metrics to draw the waterfall, but see them outdated
+     because housekeeping hasn't run.  For now just update them here, but
+     PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
   /* We always need to publish, even if there are no successfully executed
