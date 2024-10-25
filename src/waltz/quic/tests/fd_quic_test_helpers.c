@@ -589,3 +589,74 @@ fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock ) {
     break;
   }
 }
+
+
+fd_quic_netem_t *
+fd_quic_netem_init( fd_quic_netem_t * netem,
+                    float             thres_drop,
+                    float             thres_reorder ) {
+  *netem = (fd_quic_netem_t) {
+    .thresh_drop    = thres_drop,
+    .thresh_reorder = thres_reorder,
+  };
+  fd_aio_new( &netem->local, netem, fd_quic_netem_send );
+  return netem;
+}
+
+int
+fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
+                    fd_aio_pkt_info_t const * batch,
+                    ulong                     batch_cnt,
+                    ulong *                   opt_batch_idx,
+                    int                       flush ) {
+  (void)opt_batch_idx; /* FIXME fd_aio compliance */
+
+  fd_quic_netem_t * mitm_ctx = (fd_quic_netem_t *)ctx;
+
+  /* go packet by packet */
+  for( ulong j = 0UL; j < batch_cnt; ++j ) {
+    /* generate a random number and compare with threshold, and either pass thru or drop */
+    static FD_TL uint seed = 0;
+    ulong l = fd_rng_private_expand( seed++ );
+    float rnd_num = (float)l * (float)0x1p-64;
+
+    if( rnd_num < mitm_ctx->thresh_drop ) {
+      /* dropping behaves as-if the send was successful */
+      continue;
+    }
+
+    if( rnd_num < mitm_ctx->thresh_reorder ) {
+      /* reorder */
+
+      /* logic:
+           if we already have a reordered buffer, delay it another packet
+           else store the current packet into the reorder buffer */
+      if( mitm_ctx->reorder_sz > 0UL ) {
+        fd_aio_pkt_info_t lcl_batch[1] = { batch[j] };
+        fd_aio_send( mitm_ctx->dst, lcl_batch, 1UL, NULL, flush );
+
+        /* clear buffer */
+        mitm_ctx->reorder_sz = 0UL;
+      } else {
+        fd_memcpy( mitm_ctx->reorder_buf, batch[j].buf, batch[j].buf_sz );
+        mitm_ctx->reorder_sz = batch[j].buf_sz;
+      }
+      continue;
+    }
+
+    /* send new packet */
+    fd_aio_pkt_info_t batch_0[1] = { batch[j] };
+    fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, flush );
+
+    /* we aren't dropping or reordering, but we might have a prior reorder */
+    if( mitm_ctx->reorder_sz > 0UL ) {
+      fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
+      fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, flush );
+
+      /* clear the sent buffer */
+      mitm_ctx->reorder_sz = 0UL;
+    }
+  }
+
+  return FD_AIO_SUCCESS;
+}
