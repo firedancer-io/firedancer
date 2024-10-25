@@ -56,6 +56,22 @@ void my_handshake_complete( fd_quic_conn_t * conn,
   client_complete = 1;
 }
 
+/* Force client and server servicing to render separately in a flamegraph */
+
+__attribute__((noinline)) int
+service_client( fd_quic_t * quic ) {
+  uchar buf[16] = {0}; FD_COMPILER_UNPREDICTABLE( buf[0] );
+  fd_quic_service( quic );
+  return 0;
+}
+
+__attribute__((noinline)) int
+service_server( fd_quic_t * quic ) {
+  uchar buf[16] = {0}; FD_COMPILER_UNPREDICTABLE( buf[0] );
+  fd_quic_service( quic );
+  return 0;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -68,9 +84,12 @@ main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
-  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+  float        loss     = fd_env_strip_cmdline_float( &argc, &argv, "--loss",      NULL, 0.0f                         );
+  float        reorder  = fd_env_strip_cmdline_float( &argc, &argv, "--reorder",   NULL, 0.0f                         );
+  float        duration = fd_env_strip_cmdline_float( &argc, &argv, "--duration",  NULL, 10.0f                        );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -116,7 +135,19 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
-  fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
+  fd_quic_virtual_pair_init( &vp, /*a*/ client_quic, /*b*/ server_quic );
+
+  fd_quic_netem_t _netem[1];
+  fd_aio_t        netem_aio;
+  if( loss>=FLT_EPSILON || reorder>=FLT_EPSILON ) {
+    FD_LOG_NOTICE(( "Adding client network emulation (loss=%g reorder=%g)", (double)loss, (double)reorder ));
+    fd_quic_netem_t * netem = fd_quic_netem_init( _netem, loss, reorder );
+    /* Inject a netem instance along the path */
+    netem_aio = client_quic->aio_tx;
+    fd_quic_set_aio_net_tx( client_quic, &netem->local );
+    netem->dst = &netem_aio;
+  }
+
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
@@ -143,8 +174,8 @@ main( int     argc,
     }
 
     FD_LOG_INFO(( "running services at %lu", next_wakeup ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    service_client( client_quic );;
+    service_server( server_quic );;
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -164,8 +195,8 @@ main( int     argc,
       break;
     }
 
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    service_client( client_quic );;
+    service_server( server_quic );;
   }
 
   FD_LOG_DEBUG(( "client_conn->state: %d", client_conn->state ));
@@ -185,10 +216,10 @@ main( int     argc,
   long rprt_ts = fd_log_wallclock() + (long)1e9;
 
   long start_ts = fd_log_wallclock();
-  long end_ts   = start_ts + (long)10e9; /* ten seconds */
+  long end_ts   = start_ts + (long)(duration * 1e9f);
   while(1) {
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    service_client( client_quic );;
+    service_server( server_quic );;
 
     client_stream = fd_quic_conn_new_stream( client_conn );
     if( !client_stream ) continue;
@@ -196,9 +227,14 @@ main( int     argc,
 
     long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
-      long dt = t - last_ts;
-      float bps = (float)rx_tot_sz / (float)dt;
-      FD_LOG_NOTICE(( "bw: %f  dt: %f  bytes: %f", (double)bps, (double)dt, (double)rx_tot_sz ));
+      long  dt        = t - last_ts;
+      ulong tot_rx    = client_quic->metrics.net_rx_byte_cnt + server_quic->metrics.net_rx_byte_cnt;
+      float net_rate  = (float)(8UL*tot_rx) / (float)dt;
+      float data_rate = (8 * (float)rx_tot_sz) / (float)dt;
+      FD_LOG_NOTICE(( "data=%f Gbps  net=%f Gbps  bytes=%lu",
+                      (double)data_rate, (double)net_rate, rx_tot_sz ));
+      client_quic->metrics.net_rx_byte_cnt = 0;
+      server_quic->metrics.net_rx_byte_cnt = 0;
 
       rx_tot_sz = 0;
       last_ts   = t;
@@ -229,8 +265,8 @@ main( int     argc,
     }
 
     FD_LOG_INFO(( "running services at %lu", next_wakeup ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    service_client( client_quic );;
+    service_server( server_quic );;
   }
 
   FD_TEST( client_quic->metrics.conn_closed_cnt==1 );
