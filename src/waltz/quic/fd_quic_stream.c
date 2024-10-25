@@ -99,14 +99,11 @@ fd_quic_stream_footprint( ulong tx_buf_sz ) {
   ulong align           = fd_quic_stream_align();
   ulong offs            = 0ul;
 
-  ulong tx_ack_sz       = tx_buf_sz >> 3ul;
   ulong align_stream_sz = fd_ulong_align_up( sizeof( fd_quic_stream_t ), align );
-  ulong align_tx_ack_sz = fd_ulong_align_up( tx_ack_sz, align );
   ulong align_tx_buf_sz = fd_ulong_align_up( tx_buf_sz, align );
 
   offs += align_stream_sz; /* space for stream instance */
   offs += align_tx_buf_sz; /* space for tx_buf */
-  offs += align_tx_ack_sz; /* space for tx_ack */
 
   return offs;
 }
@@ -121,10 +118,8 @@ fd_quic_stream_t *
 fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz ) {
   ulong align = fd_quic_stream_align();
 
-  ulong tx_ack_sz       = tx_buf_sz >> 3ul;
   ulong align_stream_sz = fd_ulong_align_up( sizeof( fd_quic_stream_t ), align );
   ulong align_tx_buf_sz = fd_ulong_align_up( tx_buf_sz, align );
-  ulong align_tx_ack_sz = fd_ulong_align_up( tx_ack_sz, align );
 
   ulong offs = 0;
   ulong base = (ulong)mem;
@@ -139,11 +134,6 @@ fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz ) {
   stream->tx_buf.cap = tx_buf_sz;
 
   offs += align_tx_buf_sz;
-
-  /* allocate memory for the tx ack buffer */
-  stream->tx_ack = (uchar*)( base + offs );
-
-  offs += align_tx_ack_sz;
 
   if( offs != fd_quic_stream_footprint( tx_buf_sz ) ) {
     FD_LOG_ERR(( "fd_quic_stream_new : allocated size of stream does not match footprint" ));

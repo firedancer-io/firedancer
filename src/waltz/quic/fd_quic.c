@@ -923,8 +923,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
   stream->state        = FD_QUIC_STREAM_STATE_RX_FIN;
   stream->stream_flags = 0u;
 
-  memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
-
   /* insert into used streams */
   FD_QUIC_STREAM_LIST_REMOVE( stream );
   FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
@@ -4976,7 +4974,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
           fd_quic_range_t range = pkt_meta->var[j].range;
 
           ulong tx_tail = stream->tx_buf.tail;
-          ulong tx_sent = stream->tx_sent;
 
           /* ignore bytes which were already acked */
           if( range.offset_lo < tx_tail ) range.offset_lo = tx_tail;
@@ -4991,65 +4988,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
           } else {
             /* did they ack the first byte in the range? */
             if( FD_LIKELY( range.offset_lo == tx_tail ) ) {
-
-              /* then simply move the tail up */
               tx_tail = range.offset_hi;
-
-              /* need to clear the acks */
-              ulong   tx_mask  = stream->tx_buf.cap - 1ul;
-              uchar * tx_ack   = stream->tx_ack;
-              for( ulong j = range.offset_lo; j < range.offset_hi; ) {
-                ulong k = j & tx_mask;
-                if( ( k & 7ul ) == 0ul && j + 8ul <= range.offset_hi ) {
-                  /* process 8 bits */
-                  tx_ack[k>>3ul] = 0;
-                  j+=8;
-                } else {
-                  /* process 1 bit */
-                  tx_ack[k>>3ul] &= (uchar)(0xff ^ ( 1ul << ( k & 7ul ) ) );
-                  j++;
-                }
-              }
-            } else {
-              /* set appropriate bits in tx_ack */
-              /* TODO optimize this */
-              ulong   tx_mask  = stream->tx_buf.cap - 1ul;
-              ulong   cnt      = range.offset_hi - range.offset_lo;
-              uchar * tx_ack   = stream->tx_ack;
-              for( ulong j = 0ul; j < cnt; ) {
-                ulong k = ( j + range.offset_lo ) & tx_mask;
-                if( ( k & 7ul ) == 0ul && j + 8ul <= cnt ) {
-                  /* set whole byte */
-                  tx_ack[k>>3ul] = 0xffu;
-
-                  j += 8ul;
-                } else {
-                  /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
-                  tx_ack[k>>3ul] |= (uchar)( 1ul << ( k & 7ul ) );
-                  j++;
-                }
-              }
-
-              /* determine whether tx_tail may be moved up */
-              for( ulong j = tx_tail; j < tx_sent; ) {
-                ulong k = j & tx_mask;
-
-                /* can we skip a whole byte? */
-                if( ( k & 7ul ) == 0ul && j + 8ul <= tx_sent && tx_ack[k>>3ul] == 0xffu ) {
-                  tx_ack[k>>3ul] = 0u;
-                  tx_tail       += 8ul;
-
-                  j += 8ul;
-                } else {
-                  if( tx_ack[k>>3ul] & ( 1u << ( k & 7u ) ) ) {
-                    tx_ack[k>>3ul] = (uchar)( tx_ack[k>>3ul] & ~( 1u << ( k & 7u ) ) );
-                    tx_tail++;
-                    j++;
-                  } else {
-                    break;
-                  }
-                }
-              }
             }
 
             /* For convenience */
@@ -5535,7 +5474,6 @@ fd_quic_frame_handle_stream_frame(
     stream->tx_buf.head = 0; /* first unused byte of tx_buf */
     stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
     stream->tx_sent     = 0; /* first unsent byte of tx_buf */
-    memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
 
     /* peer created a stream, we cannot send on it */
     stream->state        = FD_QUIC_STREAM_STATE_TX_FIN;

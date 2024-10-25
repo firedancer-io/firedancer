@@ -39,7 +39,6 @@ struct fd_quic_stream {
   void *           context;    /* user context for callbacks */
 
   fd_quic_buffer_t tx_buf;     /* transmit buffer */
-  uchar *          tx_ack;     /* ack - 1 bit per byte of tx_buf */
   ulong            tx_sent;    /* stream offset of first unsent byte of tx_buf */
 
   uint stream_flags;   /* flags representing elements that require action */
