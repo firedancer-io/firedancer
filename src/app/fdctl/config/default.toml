@@ -698,10 +698,11 @@ dynamic_port_range = "8900-9000"
     # parallel users.
     bank_tile_count = 2
 
-    # How many shred tiles to run.  Should be set to 2.  This is
+    # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more than 2 shred tiles
-    # given current `mainnet-beta` conditions.
+    # conditions but there is no need to run more than 1 shred tile
+    # given current `mainnet-beta` conditions.  There is however
+    # a need to run 2 shred tiles under current `testnet` conditions.
     #
     # Shred tiles distribute block data to the network when we are
     # leader, and receive and retransmit it to other nodes when we are
@@ -710,9 +711,9 @@ dynamic_port_range = "8900-9000"
     # Shred tile performance heavily dependent on the number of peer
     # nodes in the cluster, as computing where data should go is an
     # expensive function with this list of peers as the input.  In
-    # development and benchmarking, 1 tile is sufficient to hit very
-    # high TPS rates because the cluster size will be very small.
-    shred_tile_count = 2
+    # development and benchmarking, 1 tile is also sufficient to hit
+    # very high TPS rates because the cluster size will be very small.
+    shred_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic

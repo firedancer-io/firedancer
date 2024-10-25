@@ -20,5 +20,11 @@
     full_api = true
     private = true
 
+[layout]
+    # Configure 2 shred tiles to handle the increased computational
+    # overhead of shred destination calculation, which scales with
+    # testnet's expanded validator peer set
+    shred_tile_count = 2
+
 [reporting]
     solana_metrics_config = "host=https://metrics.solana.com:8086,db=tds,u=testnet_write,p=c4fa841aa918bf8274e3e2a44d77568d9861b3ea"
