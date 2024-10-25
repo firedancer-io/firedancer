@@ -8,6 +8,7 @@ $(call add-objs,fd_exec_instr_test fd_vm_test fd_pack_test,fd_flamenco)
 $(call add-objs,fd_exec_sol_compat,fd_flamenco)
 
 $(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+$(call make-unit-test,fixture_runner,sol_compat_fixture_runner,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 $(call make-shared,libfd_exec_sol_compat.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 
 ifdef FD_HAS_FUZZ_STUBS
