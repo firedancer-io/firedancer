@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_fd_quic_conn_h
 
 #include "fd_quic.h"
+#include "fd_quic_ack_tx.h"
 #include "fd_quic_retry.h"
 #include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
@@ -43,30 +44,6 @@ enum {
 };
 
 typedef struct fd_quic_conn       fd_quic_conn_t;
-typedef struct fd_quic_ack        fd_quic_ack_t;
-
-/* we track the range of offsets we acked for handshake and stream data
-   these get freed when a packet containing the relevant acks is acked by the
-     peer
-   we try to send all acks stored each packet
-     we will "over ack"
-     it simplifies the ack logic since freeing one ack implies we can free
-       all preceding acks. ack ids are only increasing
-   enc_level of acks is implied by the list it's in */
-
-struct fd_quic_ack {
-  /* stores data about what was ack'ed */
-  ulong           tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
-  ulong           tx_time;       /* the time the ack was sent, or should be sent */
-  ulong           pkt_rcvd;      /* the time the original packet was received */
-  fd_quic_range_t pkt_number;    /* range of packet numbers being acked */
-  fd_quic_ack_t * next;          /* next ack in linked list - e.g. free list */
-  uchar           enc_level;
-  uchar           pn_space;
-  uchar           flags;
-# define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
-# define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
-};
 
 struct fd_quic_conn {
   ulong              conn_idx;            /* connection index */
@@ -236,21 +213,14 @@ struct fd_quic_conn {
   uint app_reason; /* application reason for closing */
   uint int_reason; /* internal reason */
 
+  fd_quic_ack_gen_t ack_gen[1];
+  ulong             unacked_sz;  /* Number of received stream frame payload bytes pending ACK */
+                                 /* Resets to zero when conn is rescheduled or ACKs are sent */
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
   ulong                   num_pkt_meta;
   fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
-
-  fd_quic_ack_t *      acks;               /* array of acks allocate during init */
-  fd_quic_ack_t *      acks_free;          /* free list of acks */
-
-  /* list of acks to be transmitted at each encryption level */
-  fd_quic_ack_t *      acks_tx[4];
-  fd_quic_ack_t *      acks_tx_end[4];     /* the ends of each list in acks_tx */
-
-  ulong                peer_max_ack_delay; /* limit on the delay we intentionally impose on acks
-                                              in nanoseconds */
 
   /* flow control */
   ulong                tx_max_data;        /* the limit on the number of bytes we are allowed

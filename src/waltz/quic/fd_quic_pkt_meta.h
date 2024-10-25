@@ -1,19 +1,11 @@
 #ifndef HEADER_fd_src_waltz_quic_fd_quic_pkt_meta_h
 #define HEADER_fd_src_waltz_quic_fd_quic_pkt_meta_h
 
-#include "../../util/fd_util.h"
+#include "fd_quic_common.h"
 
 typedef struct fd_quic_pkt_meta      fd_quic_pkt_meta_t;
-typedef struct fd_quic_range         fd_quic_range_t;
 typedef struct fd_quic_pkt_meta_list fd_quic_pkt_meta_list_t;
 typedef struct fd_quic_pkt_meta_pool fd_quic_pkt_meta_pool_t;
-
-struct fd_quic_range {
-  /* offset in [ offset_lo, offset_hi ) is considered inside the range */
-  /* a zero-initialized range will be empty [0,0) */
-  ulong offset_lo;
-  ulong offset_hi;
-};
 
 /* TODO convert to a union with various types of metadata overlaid */
 
@@ -90,7 +82,6 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_HS_DONE             handshake-done frame
        FD_QUIC_PKT_META_FLAGS_MAX_DATA            max_data frame
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
-       FD_QUIC_PKT_META_FLAGS_ACK                 acknowledgement
        FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
        FD_QUIC_PKT_META_FLAGS_KEY_UPDATE          indicates key update was in effect
        FD_QUIC_PKT_META_FLAGS_KEY_PHASE           set only if key_phase was set in the short-header
@@ -103,7 +94,6 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_ACK                (1u<<7u)
 # define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_UPDATE         (1u<<9u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_PHASE          (1u<<10u)
