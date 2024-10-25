@@ -168,7 +168,7 @@ static void
 my_tls_keylog( void *       quic_ctx,
                char const * line ) {
   (void)quic_ctx;
-  FD_LOG_WARNING(( "SECRET: %s", line ));
+  //FD_LOG_WARNING(( "SECRET: %s", line ));
   fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), pcap_server_to_client.pcapng );
 }
 
@@ -200,8 +200,9 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   (void)stream;
   (void)fin;
 
-  FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
-                (ulong)stream->stream_id, data_sz, offset ));
+  //FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
+  //              (ulong)stream->stream_id, data_sz, offset ));
+  (void)offset;
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
   FD_LOG_DEBUG(( "recv ok" ));
@@ -218,6 +219,8 @@ struct my_context {
 };
 typedef struct my_context my_context_t;
 
+static ulong conn_final_cnt;
+
 void
 my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
@@ -225,16 +228,19 @@ my_cb_conn_final( fd_quic_conn_t * conn,
 
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
-    FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
+    //FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
-  }}
+  }
+
+  conn_final_cnt++;
+}
 
 void
 my_connection_new( fd_quic_conn_t * conn,
                    void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "server handshake complete" ));
+  //FD_LOG_NOTICE(( "server handshake complete" ));
 
   server_complete = 1;
 
@@ -246,7 +252,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
                        void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "client handshake complete" ));
+  //FD_LOG_NOTICE(( "client handshake complete" ));
 
   client_complete = 1;
 
@@ -525,11 +531,8 @@ main( int argc, char ** argv ) {
   /* pcap */
   FILE * pcap_file = fopen( "test_quic_drops.pcapng", "wb" );
   FD_TEST( pcap_file );
-  printf( "pcap_file: %p\n", (void*)pcap_file ); fflush( stdout );
 
   FD_TEST( 1UL == fd_aio_pcapng_start( pcap_file ) );
-  fflush( pcap_file );
-
   FD_TEST( fd_aio_pcapng_join( &pcap_client_to_server, NULL, pcap_file ) );
   FD_TEST( fd_aio_pcapng_join( &pcap_server_to_client, NULL, pcap_file ) );
 
@@ -585,7 +588,9 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_aio_pcapng_leave( &pcap_client_to_server ) );
   FD_TEST( fd_aio_pcapng_leave( &pcap_server_to_client ) );
 
-  FD_LOG_NOTICE(( "Cleaning up" ));
+  FD_LOG_NOTICE(( "Received %lu stream frags", tot_rcvd ));
+  FD_LOG_NOTICE(( "Tested %lu connections", conn_final_cnt ));
+
   //fd_quic_virtual_pair_fini( &vp );
   // TODO clean up mitm_ctx and aio
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
