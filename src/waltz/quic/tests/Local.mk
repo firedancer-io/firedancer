@@ -10,11 +10,13 @@ $(call make-unit-test,test_quic_drops,      test_quic_drops,      fd_quic fd_tls
 $(call make-unit-test,test_quic_bw,         test_quic_bw,         fd_quic fd_tls fd_ballet fd_waltz fd_util)
 $(call make-unit-test,test_quic_layout,     test_quic_layout,                                              fd_util)
 $(call make-unit-test,test_quic_conformance,test_quic_conformance,fd_quic fd_tls fd_tango fd_ballet fd_waltz fd_util)
+$(call make-unit-test,test_quic_ack_tx,     test_quic_ack_tx,     fd_quic fd_tls fd_ballet fd_waltz fd_util)
 $(call run-unit-test,test_quic_hs)
 $(call run-unit-test,test_quic_streams)
 $(call run-unit-test,test_quic_conn)
 $(call run-unit-test,test_quic_bw)
 $(call run-unit-test,test_quic_layout)
+$(call run-unit-test,test_quic_ack_tx)
 
 # fd_quic_tls unit tests
 $(call make-unit-test,test_quic_tls_hs,test_quic_tls_hs,fd_quic fd_tls fd_ballet fd_util)

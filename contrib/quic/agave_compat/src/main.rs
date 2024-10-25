@@ -10,7 +10,7 @@ use solana_streamer::nonblocking::quic::DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_M
 use solana_streamer::nonblocking::quic::DEFAULT_MAX_STREAMS_PER_MS;
 use solana_streamer::nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT;
 use solana_streamer::streamer::StakedNodes;
-use std::ffi::{c_char, c_void};
+use std::ffi::{CString, c_char, c_void};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::ptr::null;
@@ -206,9 +206,10 @@ unsafe fn agave_to_fdquic_bench() {
         handshake_cnt: 1,
         conn_id_cnt: 4,
         rx_stream_cnt: 16,
+        stream_id_cnt: 16,
         inflight_pkt_cnt: 1024,
         tx_buf_sz: 0,
-        stream_pool_cnt: 1024,
+        stream_pool_cnt: 8,
     };
     let quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
@@ -231,43 +232,50 @@ unsafe fn agave_to_fdquic_bench() {
         let udpsock = fd_udpsock_join(fd_udpsock_new(udpsock_mem, 2048, 1024, 1024), udp_sock_fd);
         assert!(!udpsock.is_null(), "Failed to create fd_udpsock_t");
 
-        let pcap_file = fopen(
-            "bench_quic.pcapng\x00".as_ptr() as *const c_char,
-            "wb\x00".as_ptr() as *const c_char,
-        );
-        assert!(!pcap_file.is_null());
-        fd_aio_pcapng_start(pcap_file as *mut c_void);
-        fflush(pcap_file);
-
-        static mut PCAP_FILE_GLOB: *mut FILE = std::ptr::null_mut();
-        PCAP_FILE_GLOB = pcap_file;
-
-        let mut aio_pcapng1_mem: fd_aio_pcapng_t = MaybeUninit::zeroed().assume_init();
-        let mut aio_pcapng2_mem: fd_aio_pcapng_t = MaybeUninit::zeroed().assume_init();
-        let aio_pcapng1 = fd_aio_pcapng_join(
-            &mut aio_pcapng1_mem as *mut fd_aio_pcapng_t as *mut c_void,
-            fd_udpsock_get_tx(udpsock),
-            pcap_file as *mut c_void,
-        );
-        let aio_pcapng2 = fd_aio_pcapng_join(
-            &mut aio_pcapng2_mem as *mut fd_aio_pcapng_t as *mut c_void,
-            fd_quic_get_aio_net_rx(quic3),
-            pcap_file as *mut c_void,
-        );
-        assert!(!aio_pcapng1.is_null());
-        assert!(!aio_pcapng2.is_null());
-
-        fd_quic_set_aio_net_tx(quic3, fd_aio_pcapng_get_aio(aio_pcapng1));
-        fd_udpsock_set_rx(udpsock, fd_aio_pcapng_get_aio(aio_pcapng2));
-
-        unsafe extern "C" fn tls_keylog_cb(_ctx: *mut c_void, line: *const c_char) {
-            fd_pcapng_fwrite_tls_key_log(
-                line as *const u8,
-                strlen(line) as u32,
-                PCAP_FILE_GLOB as *mut c_void,
+        let pcap = std::env::var("PCAP").unwrap_or_default();
+        if !pcap.is_empty() {
+            let pcap_path_cstr = CString::new(pcap).unwrap();
+            let pcap_file = fopen(
+                pcap_path_cstr.as_ptr() as *const c_char,
+                "wb\x00".as_ptr() as *const c_char,
             );
+            assert!(!pcap_file.is_null());
+            fd_aio_pcapng_start(pcap_file as *mut c_void);
+            fflush(pcap_file);
+
+            static mut PCAP_FILE_GLOB: *mut FILE = std::ptr::null_mut();
+            PCAP_FILE_GLOB = pcap_file;
+
+            let mut aio_pcapng1_mem: fd_aio_pcapng_t = MaybeUninit::zeroed().assume_init();
+            let mut aio_pcapng2_mem: fd_aio_pcapng_t = MaybeUninit::zeroed().assume_init();
+            let aio_pcapng1 = fd_aio_pcapng_join(
+                &mut aio_pcapng1_mem as *mut fd_aio_pcapng_t as *mut c_void,
+                fd_udpsock_get_tx(udpsock),
+                pcap_file as *mut c_void,
+            );
+            let aio_pcapng2 = fd_aio_pcapng_join(
+                &mut aio_pcapng2_mem as *mut fd_aio_pcapng_t as *mut c_void,
+                fd_quic_get_aio_net_rx(quic3),
+                pcap_file as *mut c_void,
+            );
+            assert!(!aio_pcapng1.is_null());
+            assert!(!aio_pcapng2.is_null());
+
+            fd_quic_set_aio_net_tx(quic3, fd_aio_pcapng_get_aio(aio_pcapng1));
+            fd_udpsock_set_rx(udpsock, fd_aio_pcapng_get_aio(aio_pcapng2));
+
+            unsafe extern "C" fn tls_keylog_cb(_ctx: *mut c_void, line: *const c_char) {
+                fd_pcapng_fwrite_tls_key_log(
+                    line as *const u8,
+                    strlen(line) as u32,
+                    PCAP_FILE_GLOB as *mut c_void,
+                );
+            }
+            (*quic3).cb.tls_keylog = Some(tls_keylog_cb);
+        } else {
+            fd_quic_set_aio_net_tx(quic3, fd_udpsock_get_tx(udpsock));
+            fd_udpsock_set_rx(udpsock, fd_quic_get_aio_net_rx(quic3));
         }
-        (*quic3).cb.tls_keylog = Some(tls_keylog_cb);
 
         assert!(!fd_quic_init(quic3).is_null(), "fd_quic_init failed");
 

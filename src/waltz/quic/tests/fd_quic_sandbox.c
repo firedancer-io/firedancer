@@ -393,4 +393,11 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
   };
 
   fd_quic_sandbox_send_frame( sandbox, conn, &pkt_meta, frame, frame_sz );
+
+  if( !( pkt_meta.ack_flag & ACK_FLAG_CANCEL ) ) {
+    fd_quic_ack_pkt( conn->ack_gen, pkt_meta.pkt_number, pkt_meta.enc_level, sandbox->wallclock );
+    if( pkt_meta.ack_flag & ACK_FLAG_RQD ) {
+      conn->ack_gen->is_elicited |= 1;
+    }
+  }
 }
