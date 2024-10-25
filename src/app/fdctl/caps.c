@@ -9,6 +9,7 @@
 #include <sys/syscall.h>
 #include <linux/capability.h>
 
+__attribute__ ((format (printf, 2, 3)))
 static void
 fd_caps_private_add_error( fd_caps_ctx_t * ctx,
                            char const *    fmt,

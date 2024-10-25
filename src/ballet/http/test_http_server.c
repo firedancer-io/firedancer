@@ -37,7 +37,7 @@ test_oring( void ) {
 
   for( ulong i=1UL; i<32UL; i++ ) {
     for( ulong j=0UL; j<1024UL; j++ ) {
-      for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", 'a'+i );
+      for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
 
       fd_http_server_response_t response;
       if( i>8 ) {

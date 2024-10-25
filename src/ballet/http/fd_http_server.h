@@ -347,7 +347,7 @@ fd_http_server_stage_len( fd_http_server_t * http );
 void
 fd_http_server_printf( fd_http_server_t * http,
                        char const *       fmt,
-                       ... );
+                       ... )  __attribute__((format (printf, 2, 3)));
 
 /* fd_http_server_memcpy appends the data provided to the end of the
    staging area of the outgoing ring buffer.  Assumes http is a current
