@@ -855,6 +855,7 @@ fd_account_to_json( fd_webserver_t * ws,
     }
     encstr = "base64";
     break;
+# if FD_HAS_ZSTD
   case FD_ENC_BASE64_ZSTD: {
     size_t const cBuffSize = ZSTD_compressBound( val_sz );
     void * cBuff = fd_scratch_alloc( 1, cBuffSize );
@@ -865,6 +866,7 @@ fd_account_to_json( fd_webserver_t * ws,
     encstr = "base64+zstd";
     break;
   }
+# endif /* FD_HAS_ZSTD */
   default:
     return "unsupported encoding";
   }
