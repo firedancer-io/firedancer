@@ -128,6 +128,8 @@
    fragment that was received.  If the producer is not respecting flow
    control, these may be corrupt or torn and should not be trusted. */
 
+#if FD_HAS_SSE
+
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
 #include "../../tango/fd_tango.h"
@@ -688,3 +690,5 @@ stem_run( fd_topo_t *      topo,
              fd_alloca( STEM_SCRATCH_ALIGN, stem_scratch_footprint( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
              ctx );
 }
+
+#endif /* FD_HAS_SSE */
