@@ -2726,7 +2726,7 @@ fd_quic_service( fd_quic_t * quic ) {
 
   /* service events */
   fd_quic_conn_t * conn = NULL;
-  while( 1 ) {
+  do {
     fd_quic_rb_event_t * event =
         rb_service_queue_minimum( rb_service_queue,
                                   state->rb_service_queue_root );
@@ -2811,7 +2811,7 @@ fd_quic_service( fd_quic_t * quic ) {
           fd_quic_schedule_conn( conn );
         }
     }
-  }
+  } while(0);
 
   return handled_event;
 }
