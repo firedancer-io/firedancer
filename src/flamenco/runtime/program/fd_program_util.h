@@ -5,14 +5,6 @@
 #include "../fd_executor_err.h"
 #include "../fd_borrowed_account.h"
 
-#define FD_DEBUG_MODE 0
-
-#ifndef FD_DEBUG_MODE
-#define FD_DEBUG( ... ) __VA_ARGS__
-#else
-#define FD_DEBUG( ... )
-#endif
-
 FD_PROTOTYPES_BEGIN
 
 /**********************************************************************/
