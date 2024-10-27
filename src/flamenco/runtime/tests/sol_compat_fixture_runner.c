@@ -17,6 +17,14 @@
 
 static void * sol_compat_handle = NULL;
 
+#define METADATA_TAG 1
+#define CONTEXT_TAG  2
+#define EFFECTS_TAG  3
+
+#define METADATA_SUBMSG_IDX (METADATA_TAG - 1)
+#define CONTEXT_SUBMSG_IDX  (CONTEXT_TAG  - 1)
+#define EFFECTS_SUBMSG_IDX  (EFFECTS_TAG  - 1)
+
 typedef void (*sol_compat_init_fn_t)(int log_lvl);
 typedef void (*sol_compat_fini_fn_t)(void);
 typedef int  (*sol_compat_protobuf_call_v1)(uint8_t *out, uint64_t *out_sz,
@@ -25,7 +33,7 @@ typedef int  (*sol_compat_protobuf_call_v1)(uint8_t *out, uint64_t *out_sz,
 typedef struct {
     char *input_str;     // The input comma-separated string 
     char *current_pos;   // The current position in the string
-    char delimiter;      // Delimiter (comma in this case)
+    char delimiter;      // Delimiter (space in this case)
 } csv_iter_t;
 
 csv_iter_t* filepath_iter = NULL;
@@ -112,7 +120,7 @@ setup( int argc, char ** argv ) {
   }
 
   sol_compat_init_fn( 5 );
-  filepath_iter = csv_iter_init(fixture_paths, ',');
+  filepath_iter = csv_iter_init(fixture_paths, ' ');
 
   return 0;
 }
@@ -128,32 +136,21 @@ teardown( void ) {
   }
 
   csv_iter_free(filepath_iter);
+  fd_halt();
 
   return 0;
 }
 
+/* On success, stream will point to start of field value,
+   For submsg fields, you can pass the stream to make_string_substream */
 int
-extract_metadata( pb_istream_t* fixture_stream, fd_exec_test_fixture_metadata_t* metadata ) {
-  // fd_exec_test_fixture_base_t base = FD_EXEC_TEST_FIXTURE_BASE_DEFAULT;
-  // pb_field_iter_t iter;
-
-  // if( !pb_field_iter_begin( &iter, &fd_exec_test_fixture_base_t_msg, &base ) ){
-  //   FD_LOG_ERR(( "Failed to begin field iteration" ));
-  //   return 1;
-  // }
-
-  // // This should be a NO-OP since metadata is the first field, but just in case
-  // if ( !pb_field_iter_find( &iter, FD_EXEC_TEST_FIXTURE_BASE_METADATA_TAG ) ){
-  //   FD_LOG_ERR(( "Failed to find metadata field" ));
-  //   return 1;
-  // }
-
-  while( fixture_stream->bytes_left ){
-    uint32_t tag;
+advance_stream_to_field( pb_istream_t* stream, uint32_t tag ) {
+  while( stream->bytes_left ){
+    uint32_t t;
     pb_wire_type_t wire_type;
     bool eof;
 
-    if ( !pb_decode_tag( fixture_stream, &wire_type, &tag, &eof ) ){
+    if ( !pb_decode_tag( stream, &wire_type, &t, &eof ) ){
       if ( eof ){
         break;
       } else {
@@ -161,14 +158,24 @@ extract_metadata( pb_istream_t* fixture_stream, fd_exec_test_fixture_metadata_t*
         return 1;
       }
     }
-    if( tag == FD_EXEC_TEST_FIXTURE_BASE_METADATA_TAG ){
-      break;
+    if( t == tag ){
+      return 0;
     }
 
-    if( !pb_skip_field( fixture_stream, wire_type ) ){
+    if( !pb_skip_field( stream, wire_type ) ){
       FD_LOG_ERR(( "Failed to skip field" ));
       return 1;
     }
+  }
+  // Field not found
+  return 1;
+}
+
+int
+extract_metadata( pb_istream_t* fixture_stream, fd_exec_test_fixture_metadata_t* metadata ) {
+  if( advance_stream_to_field( fixture_stream, METADATA_TAG ) ){
+    FD_LOG_ERR(( "Failed to advance stream to metadata tag" ));
+    return 1;
   }
 
   pb_istream_t metadata_stream;
@@ -218,10 +225,30 @@ fixture_desc_from_metadata( fd_exec_test_fixture_metadata_t* metadata, pb_msgdes
   return 0;
 }
 
+int
+compare_effects( pb_istream_t* expected_effects,
+                 pb_istream_t* actual_effects, 
+                 pb_msgdesc_t const* effects_desc ) {
+  /* TODO: use descriptor for more granular diffs */
+  (void)effects_desc;
+
+  if( expected_effects->bytes_left != actual_effects->bytes_left ){
+    FD_LOG_ERR(( "Size mismatch: %lu != %lu", expected_effects->bytes_left, actual_effects->bytes_left ));
+    return 1;
+  }
+
+  if( !fd_memeq( expected_effects->state, actual_effects->state, expected_effects->bytes_left ) ){
+    FD_LOG_ERR(( "Binary cmp failed" ));
+    return 1;
+  }
+
+  return 0;
+}
+
 /* Return 1 on failure */
 int
 exec_fixture( const char *path ) {
-  /* Read file content to memory */
+  /* Read file contents to memory */
   int file = open( path, O_RDONLY );
   struct stat st;
   if( FD_UNLIKELY( 0!=fstat( file, &st ) ) ) {
@@ -231,6 +258,10 @@ exec_fixture( const char *path ) {
 
   ulong file_sz = (ulong)st.st_size;
   uchar * buf = malloc( file_sz );
+  // Create output buffer for effects (128MB)
+  uint64_t out_sz = 1UL << 27;
+  uint8_t *out = malloc( out_sz );
+
   FD_TEST( 0==fd_io_read( file, buf, file_sz, file_sz, &file_sz ) );
   FD_TEST( 0==close( file ) );
 
@@ -247,9 +278,63 @@ exec_fixture( const char *path ) {
     FD_LOG_ERR(( "Failed to get fixture descriptor" ));
     return 1;
   }
+
+  // Extract context to pass to harness entrypoint
+  tmp = pb_istream_from_buffer( buf, file_sz ); // Reset stream
+  if( advance_stream_to_field( &tmp, CONTEXT_TAG ) ){
+    FD_LOG_ERR(( "Failed to advance stream to context tag" ));
+    return 1;
+  }
+
+  pb_istream_t context_stream;
+  if( !pb_make_string_substream( &tmp, &context_stream ) ){
+    FD_LOG_ERR(( "Failed to make string substream" ));
+    return 1;
+  }
+
+  // Call the harness entrypoint
+  sol_compat_protobuf_call_v1 sol_compat_protobuf_call_fn = (sol_compat_protobuf_call_v1)dlsym( sol_compat_handle, metadata->fn_entrypoint );
+  if( sol_compat_protobuf_call_fn == NULL ) {
+    FD_LOG_ERR(( "Failed to find sol_compat_protobuf_call function: %s", dlerror() ));
+    return 1;
+  }
+
+  // Remember entrypoints return 1 on success
+  if( !sol_compat_protobuf_call_fn( out, &out_sz, context_stream.state, context_stream.bytes_left ) ){
+    FD_LOG_ERR(( "Failed to call sol_compat_protobuf_call" ));
+    return 1;
+  }
+
+  pb_close_string_substream( &tmp, &context_stream );
+
+  // Compare effects from output buffer with expected effects (byte-by-byte)
+  // First get the expected effects
+  tmp = pb_istream_from_buffer( buf, file_sz ); // Reset stream
+  if( advance_stream_to_field( &tmp, EFFECTS_TAG ) ){
+    FD_LOG_ERR(( "Failed to advance stream to effects tag" ));
+    return 1;
+  }
+
+  pb_istream_t effects_stream;
+  if( !pb_make_string_substream( &tmp, &effects_stream ) ){
+    FD_LOG_ERR(( "Failed to make string substream" ));
+    return 1;
+  }
+
+  // Make istream from out buffer
+  pb_istream_t out_stream = pb_istream_from_buffer( out, out_sz );
+
+  // Compare effects
+  pb_msgdesc_t const* effects_desc = fixture_desc->submsg_info[EFFECTS_SUBMSG_IDX];
+  if( compare_effects( &effects_stream, &out_stream, effects_desc ) ){
+    FD_LOG_ERR(( "Failed to compare effects" ));
+    return 1;
+  }
   
+  pb_close_string_substream( &tmp, &effects_stream );
   
   free( buf );
+  free( out );
   return 0;
 }
 
@@ -263,10 +348,11 @@ main( int     argc,
 
   char *fixture_path = NULL;
 
+  ulong num_failures = 0;
   while( (fixture_path = csv_iter_next(filepath_iter)) ) {
-    exec_fixture( fixture_path );
+    num_failures += (ulong)exec_fixture( fixture_path );
   }
 
   teardown();
-  return 0;
+  return num_failures ? 1 : 0;
 }
