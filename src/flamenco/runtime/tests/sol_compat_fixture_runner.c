@@ -3,27 +3,15 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "../../nanopb/pb_firedancer.h"
-#include "../../nanopb/pb_common.h"
+
+#include "sol_compat_harness_ctx.h"
 #include "../../nanopb/pb_decode.h"
 #include "generated/metadata.pb.h"
 #include "../../../util/fd_util.h"
-#include "nanopb/pb.h"
-
-#include "generated/vm.pb.h"
-#include "generated/invoke.pb.h"
-#include "generated/txn.pb.h"
-#include "generated/elf.pb.h"
 
 static void * sol_compat_handle = NULL;
 
 #define METADATA_TAG 1
-#define CONTEXT_TAG  2
-#define EFFECTS_TAG  3
-
-#define METADATA_SUBMSG_IDX (METADATA_TAG - 1)
-#define CONTEXT_SUBMSG_IDX  (CONTEXT_TAG  - 1)
-#define EFFECTS_SUBMSG_IDX  (EFFECTS_TAG  - 1)
 
 typedef void (*sol_compat_init_fn_t)(int log_lvl);
 typedef void (*sol_compat_fini_fn_t)(void);
@@ -202,22 +190,22 @@ extract_metadata( pb_istream_t* fixture_stream, fd_exec_test_fixture_metadata_t*
          This function serves the more important purpose of validation, but
          it is quite slow... a hash table would be nice */
 int
-fixture_desc_from_metadata( fd_exec_test_fixture_metadata_t* metadata, pb_msgdesc_t* desc ) {
+harness_ctx_from_metadata( fd_exec_test_fixture_metadata_t* metadata, const sol_compat_harness_ctx_t** h_ctx ) {
   const char *entrypoint = metadata->fn_entrypoint;
   if( strcmp( entrypoint, "sol_compat_instr_execute_v1" ) == 0 ){
-    *desc = fd_exec_test_instr_fixture_t_msg;
+    *h_ctx = &instr_harness_ctx;
   } else if( strcmp( entrypoint, "sol_compat_vm_validate_v1" ) == 0 ){
-    *desc = fd_exec_test_validate_vm_fixture_t_msg;
+    *h_ctx = &vm_validate_harness_ctx;
   } else if( strcmp( entrypoint, "sol_compat_txn_execute_v1" ) == 0 ){
-    *desc = fd_exec_test_txn_fixture_t_msg;
+    *h_ctx = &txn_harness_ctx;
   } else if( strcmp( entrypoint, "sol_compat_elf_loader_v1" ) == 0 ){
-    *desc = fd_exec_test_elf_loader_fixture_t_msg;
+    *h_ctx = &elf_loader_harness_ctx;
   } else if( strcmp( entrypoint, "sol_compat_vm_syscall_execute_v1" ) == 0 ){
-    *desc = fd_exec_test_syscall_fixture_t_msg;
+    *h_ctx = &syscall_harness_ctx;
   } else if( strcmp( entrypoint, "sol_compat_vm_cpi_syscall_v1" ) == 0 ){
-    *desc = fd_exec_test_syscall_fixture_t_msg;
+    *h_ctx = &syscall_harness_ctx;
   } else if( strcmp( entrypoint, "sol_compat_vm_interp_v1" ) == 0 ){
-    *desc = fd_exec_test_syscall_fixture_t_msg;
+    *h_ctx = &syscall_harness_ctx;
   } else {
     FD_LOG_ERR(( "Unknown entrypoint: %s", entrypoint ));
     return 1;
@@ -228,9 +216,9 @@ fixture_desc_from_metadata( fd_exec_test_fixture_metadata_t* metadata, pb_msgdes
 int
 compare_effects( pb_istream_t* expected_effects,
                  pb_istream_t* actual_effects, 
-                 pb_msgdesc_t const* effects_desc ) {
+                 sol_compat_harness_ctx_t const* harness_ctx ) {
   /* TODO: use descriptor for more granular diffs */
-  (void)effects_desc;
+  (void)harness_ctx;
 
   if( expected_effects->bytes_left != actual_effects->bytes_left ){
     FD_LOG_ERR(( "Size mismatch: %lu != %lu", expected_effects->bytes_left, actual_effects->bytes_left ));
@@ -273,15 +261,15 @@ exec_fixture( const char *path ) {
     return 1;
   }
   FD_LOG_INFO(( "Extracted metadata: %s", metadata->fn_entrypoint ));
-  pb_msgdesc_t fixture_desc[1] = {0};
-  if( fixture_desc_from_metadata( metadata, fixture_desc ) ){
+  const sol_compat_harness_ctx_t * harness_ctx = NULL;
+  if( harness_ctx_from_metadata( metadata, &harness_ctx ) ){
     FD_LOG_ERR(( "Failed to get fixture descriptor" ));
     return 1;
   }
 
   // Extract context to pass to harness entrypoint
   tmp = pb_istream_from_buffer( buf, file_sz ); // Reset stream
-  if( advance_stream_to_field( &tmp, CONTEXT_TAG ) ){
+  if( advance_stream_to_field( &tmp, harness_ctx->context_submsg_tag ) ){
     FD_LOG_ERR(( "Failed to advance stream to context tag" ));
     return 1;
   }
@@ -310,7 +298,7 @@ exec_fixture( const char *path ) {
   // Compare effects from output buffer with expected effects (byte-by-byte)
   // First get the expected effects
   tmp = pb_istream_from_buffer( buf, file_sz ); // Reset stream
-  if( advance_stream_to_field( &tmp, EFFECTS_TAG ) ){
+  if( advance_stream_to_field( &tmp, harness_ctx->effects_submsg_tag ) ){
     FD_LOG_ERR(( "Failed to advance stream to effects tag" ));
     return 1;
   }
@@ -325,8 +313,7 @@ exec_fixture( const char *path ) {
   pb_istream_t out_stream = pb_istream_from_buffer( out, out_sz );
 
   // Compare effects
-  pb_msgdesc_t const* effects_desc = fixture_desc->submsg_info[EFFECTS_SUBMSG_IDX];
-  if( compare_effects( &effects_stream, &out_stream, effects_desc ) ){
+  if( compare_effects( &effects_stream, &out_stream, harness_ctx ) ){
     FD_LOG_ERR(( "Failed to compare effects" ));
     return 1;
   }
