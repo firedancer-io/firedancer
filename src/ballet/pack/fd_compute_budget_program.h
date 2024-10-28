@@ -96,19 +96,19 @@ fd_compute_budget_program_parse( uchar const * instr_data,
   switch( *instr_data ) {
     case 0:
       /* Parse a RequestUnitsDeprecated instruction */
-      if( FD_UNLIKELY( data_sz!=9 ) ) return 0;
+      if( FD_UNLIKELY( data_sz<9 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & (FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU | FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE))!=0 ) )
         return 0;
       state->compute_units = FD_LOAD( uint, instr_data+1 );
       state->total_fee     = FD_LOAD( uint, instr_data+5 );
-      if( FD_UNLIKELY( state->compute_units > FD_COMPUTE_BUDGET_MAX_CU_LIMIT ) ) return 0;
+      state->compute_units = fd_uint_min( state->compute_units, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
       state->flags |= (FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU | FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE |
                                                                FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_TOTAL_FEE);
       state->compute_budget_instr_cnt++;
       return 1;
     case 1:
       /* Parse a RequestHeapFrame instruction */
-      if( FD_UNLIKELY( data_sz!=5 ) ) return 0;
+      if( FD_UNLIKELY( data_sz<5 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP)!=0 ) ) return 0;
       state->heap_size = FD_LOAD( uint, instr_data+1 );
       if( (state->heap_size%FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY) ) return 0;
@@ -117,16 +117,16 @@ fd_compute_budget_program_parse( uchar const * instr_data,
       return 1;
     case 2:
       /* Parse a SetComputeUnitLimit instruction */
-      if( FD_UNLIKELY( data_sz!=5 ) ) return 0;
+      if( FD_UNLIKELY( data_sz<5 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU)!=0 ) ) return 0;
       state->compute_units = FD_LOAD( uint, instr_data+1 );
-      if( FD_UNLIKELY( state->compute_units > FD_COMPUTE_BUDGET_MAX_CU_LIMIT ) ) return 0;
+      state->compute_units = fd_uint_min( state->compute_units, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
       state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU;
       state->compute_budget_instr_cnt++;
       return 1;
     case 3:
       /* Parse a SetComputeUnitPrice instruction */
-      if( FD_UNLIKELY( data_sz!=9 ) ) return 0;
+      if( FD_UNLIKELY( data_sz<9 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE)!=0 ) ) return 0;
       state->micro_lamports_per_cu = FD_LOAD( ulong, instr_data+1 );
       state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE;
