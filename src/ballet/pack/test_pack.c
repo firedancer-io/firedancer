@@ -133,23 +133,31 @@ make_transaction( ulong        i,
   t->addr_table_lookup_cnt = 0;
   t->addr_table_adtl_writable_cnt = 0;
   t->addr_table_adtl_cnt = 0;
-  t->instr_cnt = (ushort)(1UL + (ulong)fd_uint_popcnt( compute ));
+  t->instr_cnt = (ushort)(2UL + (ulong)fd_uint_popcnt( compute ));
 
   uchar prog_start = (uchar)(1UL+strlen( writes ));
 
   t->instr[ 0 ].program_id = prog_start;
   t->instr[ 0 ].acct_cnt = 0;
-  t->instr[ 0 ].data_sz = 9;
+  t->instr[ 0 ].data_sz = 5;
   t->instr[ 0 ].acct_off = (ushort)(p - p_base);
   t->instr[ 0 ].data_off = (ushort)(p - p_base);
 
-
   /* Write instruction data */
-  uint rewards = (uint) pow( 5.0, priority );
-  *p = '\0'; fd_memcpy( p+1, &compute, sizeof(uint) ); fd_memcpy( p+5, &rewards, sizeof(uint) );
+  *p = 2; fd_memcpy( p+1, &compute, sizeof(uint) );
+  p += 5UL;
+
+  t->instr[ 1 ].program_id = prog_start;
+  t->instr[ 1 ].acct_cnt = 0;
+  t->instr[ 1 ].data_sz = 9;
+  t->instr[ 1 ].acct_off = (ushort)(p - p_base);
+  t->instr[ 1 ].data_off = (ushort)(p - p_base);
+
+  ulong rewards_per_cu = (ulong) (pow( 5.0, priority )*10000.0 / (double)compute);
+  *p = 3; fd_memcpy( p+1, &rewards_per_cu, sizeof(ulong) );
   p += 9UL;
 
-  ulong j = 1UL;
+  ulong j = 2UL;
   for( uint i = 0U; i<32U; i++ ) {
     if( compute & (1U << i) ) {
       *p = (uchar)i;
@@ -164,7 +172,7 @@ make_transaction( ulong        i,
   }
 
   payload_sz[ i ] = (ulong)(p-p_base);
-  return rewards;
+  return (rewards_per_cu * compute + 999999UL)/1000000UL;
 }
 
 static void
@@ -229,8 +237,10 @@ schedule_validate_microblock( fd_pack_t * pack,
 
     ulong rewards = 0UL;
     uint compute = 0U;
-    if( FD_LIKELY( txn->instr_cnt>1UL ) ) {
-      fd_txn_instr_t ix = txn->instr[0]; /* For these transactions, the compute budget instr is always the 1st */
+    if( FD_LIKELY( txn->instr_cnt>2UL ) ) {
+      fd_txn_instr_t ix = txn->instr[0]; /* For these transactions, the compute budget instr is always the first 2*/
+      FD_TEST( fd_compute_budget_program_parse( txnp->payload + ix.data_off, ix.data_sz, &cbp ) );
+      ix = txn->instr[1];
       FD_TEST( fd_compute_budget_program_parse( txnp->payload + ix.data_off, ix.data_sz, &cbp ) );
       fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, &rewards, &compute );
     } /* else it's a vote */
@@ -274,6 +284,7 @@ schedule_validate_microblock( fd_pack_t * pack,
   outcome->microblock_cnt++;
   if( extra_verify ) FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
+
 
 void test0( void ) {
   FD_LOG_NOTICE(( "TEST 0" ));
@@ -549,8 +560,8 @@ performance_test2( void ) {
 void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
-  make_transaction( i,   800U, 12.0, "ABC", "DEF" );    /* Total cost 2873 */
-  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" ); /* Total cost 2575 */
+  make_transaction( i,   700U, 12.0, "ABC", "DEF" );    /* Total cost 2925 */
+  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" ); /* Total cost 2725 */
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
 
@@ -903,25 +914,25 @@ test_limits( void ) {
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
     /* The limit is based on cost units, and make_transaction takes just
-       compute CUs.  The additional cost units are 1475. */
+       compute CUs.  The additional cost units are 1625. */
     for( ulong j=0UL; j<25UL; j++ ) {
-      make_transaction( 0UL, 478466UL, 11.0, "A", "B" );
+      make_transaction( 0UL, 478310UL, 11.0, "A", "B" );
       insert( 0UL, pack );
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
     }
-    /* Consumed 11,998,525 cost units, so this next one can't fit. */
+    /* Consumed 11,998,375 cost units, so this next one can't fit. */
 
-    make_transaction( 0UL, 478466UL, 11.0, "A", "B" );
+    make_transaction( 0UL, 478310UL, 11.0, "A", "B" );
     insert( 0UL, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
     outcome.results->bank_cu.rebated_cus = outcome.results->pack_cu.requested_execution_cus;
     fd_pack_rebate_cus( pack, outcome.results, 1UL );
-    /* Now consumed CUs is 11,520,059, so it just fits. */
+    /* Now consumed CUs is 11,519,765, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
-    make_transaction( 0UL, 478466U, 11.0, "A", "B" );
+    make_transaction( 0UL, 478310U, 11.0, "A", "B" );
     insert( 0UL, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
