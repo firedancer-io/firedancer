@@ -8,7 +8,7 @@
     [tiles.gossip]
         peer_ports = []
         gossip_listen_port = 8700
-    
+
     [tiles.repair]
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
@@ -18,6 +18,7 @@
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
+        funk_file = ""
         cluster_version =  "1.18.0"
 
     [tiles.pack]

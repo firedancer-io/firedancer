@@ -9,18 +9,21 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "fd_rpc_service.h"
-
-/*
-  Offline sample:
-    build/native/gcc/bin/fd_ledger --cmd ingest --rocksdb /data/asiegel/firedancer/dump/testnet-281688085/rocksdb --index-max 5000000 --end-slot 281688085 --page-cnt 30 --funk-page-cnt 16 --snapshot /data/asiegel/firedancer/dump/testnet-281688085/snapshot-281688080-6NHAVEju9WSsz7LQ3sLS9Yn2Tk9J7QByHRFEQLvXKqHG.tar.zst --checkpt /data/asiegel/test-bstore.wksp --checkpt-funk /data/asiegel/test-funk.wksp --copy-txn-status 1
-    build/native/gcc/bin/fd_rpcserver --offline 1 --port 8123 --restore-funk /data/asiegel/test-funk.wksp --restore-blockstore /data/asiegel/test-bstore.wksp
-*/
+#include "../../funk/fd_funk_filemap.h"
 
 static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
-  char const * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-funk", NULL, "fd1_funk.wksp" );
+  char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
+  if( FD_UNLIKELY( !funk_file ))
+    FD_LOG_ERR(( "--funk-file argument is required" ));
+  args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  if( args->funk == NULL ) {
+    FD_LOG_ERR(( "failed to join a funky" ));
+  }
+
+  const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
   FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
   fd_wksp_t * wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
@@ -28,25 +31,9 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   fd_wksp_tag_query_info_t info;
   ulong tag = 1;
   if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
-    FD_LOG_ERR(( "workspace \"%s\" does not contain a funk", wksp_name ));
-  }
-  void * shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-  args->funk = fd_funk_join( shmem );
-  if( args->funk == NULL ) {
-    FD_LOG_ERR(( "failed to join a funky" ));
-  }
-  fd_wksp_mprotect( wksp, 1 );
-
-  wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
-  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
-  wksp = fd_wksp_attach( wksp_name );
-  if( FD_UNLIKELY( !wksp ) )
-    FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-  tag = 1;
-  if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
     FD_LOG_ERR(( "workspace \"%s\" does not contain a blockstore", wksp_name ));
   }
-  shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
+  void * shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
   args->blockstore = fd_blockstore_join( shmem );
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
