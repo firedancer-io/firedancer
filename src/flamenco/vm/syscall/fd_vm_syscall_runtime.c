@@ -165,7 +165,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT ) );
 
-  fd_sol_sysvar_last_restart_slot_t * out = 
+  fd_sol_sysvar_last_restart_slot_t * out =
     FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
   if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out, vm->instr_ctx->slot_ctx ) == NULL ) ) {
     return FD_VM_ERR_ABORT;
@@ -219,6 +219,8 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
 
     void * dst        = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, FD_VM_ALIGN_RUST_U8, cpy_sz );
 
+    memcpy( dst,         return_data->data,       cpy_sz              );
+
     /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1376-L1381
        These can never happen. */
 
@@ -226,7 +228,6 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
 
     FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, dst_vaddr, cpy_sz, program_id_vaddr, sizeof(fd_pubkey_t) );
 
-    memcpy( dst,         return_data->data,       cpy_sz              );
     memcpy( program_id, &return_data->program_id, sizeof(fd_pubkey_t) );
   }
 
@@ -276,7 +277,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
 
 /* Used to query and convey information about the sibling instruction
    https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L676
-   
+
     */
 struct fd_vm_syscall_processed_sibling_instruction {
   /* Length of the instruction data */
@@ -335,7 +336,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     ulong * ret
 ) {
 
-  /* stop_sibling_instruction_search_at_parent has been activated on mainnet and testnet, so 
+  /* stop_sibling_instruction_search_at_parent has been activated on mainnet and testnet, so
      we treat it has hardcoded (always activated) here. */
 
   fd_vm_t * vm = (fd_vm_t *)_vm;
@@ -344,7 +345,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
      https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1414 */
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  /* 
+  /*
     Get the current instruction stack height.
 
     Top-level instructions in Agave's invocation stack have a depth of 1
@@ -390,10 +391,10 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE );
 
     /* https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1447 */
-    if( ( result_meta_haddr->data_len == trace_entry->instr_info->data_sz ) && 
+    if( ( result_meta_haddr->data_len == trace_entry->instr_info->data_sz ) &&
         ( result_meta_haddr->accounts_len == trace_entry->instr_info->acct_cnt ) ) {
 
-      fd_pubkey_t * result_program_id_haddr = FD_VM_MEM_HADDR_ST( 
+      fd_pubkey_t * result_program_id_haddr = FD_VM_MEM_HADDR_ST(
         vm,
         result_program_id_vaddr,
         FD_VM_ALIGN_RUST_PUBKEY,
