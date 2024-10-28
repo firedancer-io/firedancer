@@ -1083,9 +1083,12 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   slot->leader_state  = FD_GUI_SLOT_LEADER_ENDED;
   slot->compute_units = _cus_used;
 
-  /* Downsample tile timers into per-leader-slot storage. */
   fd_gui_tile_timers_snap( gui );
+  /* Record slot number so we can detect overwrite. */
   gui->summary.tile_timers_leader_history_slot[ gui->summary.tile_timers_history_idx ] = _slot;
+  /* Point into per-leader-slot storage. */
+  slot->tile_timers_history_idx = gui->summary.tile_timers_history_idx;
+  /* Downsample tile timers into per-leader-slot storage. */
   ulong end = gui->summary.tile_timers_snap_idx;
   end = fd_ulong_if( end<gui->summary.tile_timers_snap_idx_slot_start, end+FD_GUI_TILE_TIMER_SNAP_CNT, end );
   gui->summary.tile_timers_leader_history_slot_sample_cnt[ gui->summary.tile_timers_history_idx ] = end-gui->summary.tile_timers_snap_idx_slot_start;
