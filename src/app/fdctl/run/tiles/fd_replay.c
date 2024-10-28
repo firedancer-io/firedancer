@@ -31,6 +31,7 @@
 #include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 #include "../../../../choreo/fd_choreo.h"
 #include "../../../../disco/store/fd_epoch_forks.h"
+#include "../../../../funk/fd_funk_filemap.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -1219,12 +1220,13 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   /* Pass the slot_ctx to snapshot_load or recover_banks */
 
   const char * snapshot = snapshotfile;
-  if( strncmp( snapshot, "wksp:", 5 ) != 0 ) {
+  if( strcmp( snapshot, "funk" ) == 0 || strncmp( snapshot, "wksp:", 5 ) == 0) {
+    /* Funk already has a snapshot loaded */
+    fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
+  } else {
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_SNAPSHOT_BEGIN, 1 );
     fd_snapshot_load( snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_SNAPSHOT_END, 1 );
-  } else {
-    fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
   }
 
   /* Load incremental */
@@ -1492,18 +1494,42 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
   FD_TEST( ctx->blockstore!=NULL );
 
-  ulong funk_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "funk" );
-  FD_TEST( funk_obj_id!=ULONG_MAX );
-  ctx->funk_wksp = topo->workspaces[ topo->objs[ funk_obj_id ].wksp_id ].wksp;
-  if( ctx->funk_wksp == NULL ) {
-    FD_LOG_ERR(( "no funk wksp" ));
-  }
-
   ulong status_cache_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
   FD_TEST( status_cache_obj_id!=ULONG_MAX );
   ctx->status_cache_wksp = topo->workspaces[ topo->objs[ status_cache_obj_id ].wksp_id ].wksp;
   if( ctx->status_cache_wksp==NULL ) {
     FD_LOG_ERR(( "no status cache wksp" ));
+  }
+
+  /**********************************************************************/
+  /* funk                                                               */
+  /**********************************************************************/
+
+  fd_funk_t * funk;
+  const char * snapshot = tile->replay.snapshot;
+  if( strcmp( snapshot, "funk" ) == 0 ) {
+    /* Funk database already exists. The parameters are actually mostly ignored. */
+    funk = fd_funk_open_file(
+      tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
+        tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
+        FD_FUNK_READ_WRITE, NULL );
+  } else if( strncmp( snapshot, "wksp:", 5 ) == 0) {
+    /* Recover funk database from a checkpoint. */
+    funk = fd_funk_recover_checkpoint( tile->replay.funk_file, 1, snapshot+5, NULL );
+  } else {
+    /* Create new funk database */
+    funk = fd_funk_open_file(
+      tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
+        tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
+        FD_FUNK_OVERWRITE, NULL );
+  }
+  if( funk == NULL ) {
+    FD_LOG_ERR(( "no funk loaded" ));
+  }
+  ctx->funk = funk;
+  ctx->funk_wksp = fd_funk_wksp( funk );
+  if( ctx->funk_wksp == NULL ) {
+    FD_LOG_ERR(( "no funk wksp" ));
   }
 
   /**********************************************************************/
@@ -1559,40 +1585,6 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_MAX, SCRATCH_DEPTH );
-
-  /**********************************************************************/
-  /* funk                                                               */
-  /**********************************************************************/
-
-  ctx->snapshot = tile->replay.snapshot;
-  if ( strncmp(ctx->snapshot, "wksp:", 5) == 0 ) {
-    FD_LOG_NOTICE(("starting wksp restore..."));
-    int err = fd_wksp_restore( ctx->funk_wksp, ctx->snapshot+5U, (uint)ctx->funk_seed );
-    FD_LOG_NOTICE(("finished wksp restore..."));
-    if (err) {
-      FD_LOG_ERR(( "failed to restore %s: error %d", ctx->snapshot, err ));
-    }
-    fd_wksp_tag_query_info_t info;
-    ulong tag = 1;
-    if( fd_wksp_tag_query( ctx->funk_wksp, &tag, 1, &info, 1 ) > 0 ) {
-      void * funk_shmem = fd_wksp_laddr_fast( ctx->funk_wksp, info.gaddr_lo );
-      ctx->funk = fd_funk_join( funk_shmem );
-      if( ctx->funk == NULL ) {
-        FD_LOG_ERR(( "failed to join funk in %s", ctx->snapshot ));
-      }
-    } else {
-      FD_LOG_ERR(( "failed to tag query funk in %s", ctx->snapshot ));
-    }
-  } else {
-    void * funk_shmem = fd_topo_obj_laddr( topo, funk_obj_id );
-    if( funk_shmem==NULL ) {
-      FD_LOG_ERR(( "failed to find funk" ));
-    }
-    ctx->funk = fd_funk_join( funk_shmem );
-    if( ctx->funk==NULL ) {
-      FD_LOG_ERR(( "failed to join funk" ));
-    }
-  }
 
   /**********************************************************************/
   /* status cache                                                       */
