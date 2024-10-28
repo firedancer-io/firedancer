@@ -21,11 +21,6 @@
 #define FD_QUIC_DISABLE_CRYPTO 0
 #endif
 
-enum {
-  FD_QUIC_TYPE_INGRESS = 1 << 0,
-  FD_QUIC_TYPE_EGRESS  = 1 << 1,
-};
-
 #define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
 #define FD_QUIC_PKT_NUM_PENDING (~1ul)
 
@@ -185,8 +180,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      fd_quic_conn_id_t const * peer_conn_id,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
-                     int                       server,
-                     uint                      version );
+                     int                       server );
 
 /* fd_quic_conn_free frees up resources related to the connection and
    returns it to the connection free list. */

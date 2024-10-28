@@ -83,7 +83,7 @@ quic_limits( fd_topo_tile_t const * tile ) {
     /* fd_quic will not issue nor use any new connection IDs after
        completing a handshake.  Connection migration is not supported
        either. */
-    .conn_id_cnt      = FD_QUIC_MAX_CONN_ID_PER_CONN,
+    .conn_id_cnt      = FD_QUIC_MIN_CONN_ID_CNT,
     .inflight_pkt_cnt = tile->quic.max_inflight_quic_packets,
     .tx_buf_sz        = 0,
     .rx_stream_cnt    = tile->quic.max_concurrent_streams_per_connection,
