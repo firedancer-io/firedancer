@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
 #include "fd_vm_test.h"
+#include "fd_pack_test.h"
 #include "../../features/fd_features.h"
 #include "../fd_executor_err.h"
 #include "../../fd_flamenco.h"
@@ -855,4 +856,35 @@ int sol_compat_shred_parse_v1( uchar *       out,
     output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
     pb_release( &fd_exec_test_shred_binary_t_msg, input );
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
+}
+
+int
+sol_compat_pack_compute_budget_v1( uchar *       out,
+                                   ulong *       out_sz,
+                                   uchar const * in,
+                                   ulong         in_sz ) {
+  ulong fmem[ 64 ];
+  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+
+  fd_exec_test_pack_compute_budget_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_pack_compute_budget_context_t_msg );
+  if( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
+    return 0;
+  }
+
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_pack_cpb_test_run );
+
+  int ok = 0;
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_pack_compute_budget_effects_t_msg );
+  }
+
+  pb_release( &fd_exec_test_pack_compute_budget_context_t_msg, input );
+  sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+  return ok;
 }
