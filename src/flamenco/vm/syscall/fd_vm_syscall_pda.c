@@ -117,6 +117,13 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   fd_pubkey_t derived[1];
   int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
+  /* Agave does their translation before the calculation, so if the translation fails we should fail
+     the syscall.
+     
+     https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L744-L750 */
+  if ( FD_UNLIKELY( err == FD_VM_ERR_SIGSEGV ) ) {
+    return err;
+  }
   if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
     /* Place 1 in r0 if we failed to derive a PDA
        https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
