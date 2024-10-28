@@ -69,11 +69,6 @@ struct fd_quic_pkt_meta {
                                        enc_level */
   uchar                  pn_space;    /* packet number space (must be consistent
                                        with enc_level)  */
-  uchar                  status;
-# define FD_QUIC_PKT_META_STATUS_UNUSED  ((uchar)0)
-# define FD_QUIC_PKT_META_STATUS_PENDING ((uchar)1)
-# define FD_QUIC_PKT_META_STATUS_SENT    ((uchar)2)
-
   uchar                  var_sz;      /* number of populated entries in var */
 
   /* does/should the referenced packet contain:

@@ -57,16 +57,13 @@ struct fd_quic_conn {
   uint               established : 1;     /* used by clients to determine whether to
                                              switch the destination conn id used */
   uint               transport_params_set : 1;
-
-  uint               version;             /* QUIC version of the connection */
+  uint               called_conn_new : 1; /* whether we need to call conn_final on teardown */
 
   ulong              next_service_time;   /* time service should be called next */
   ulong              sched_service_time;  /* time service is scheduled for, if conn in service_queue */
   int                in_schedule;         /* whether the conn is in the service schedule */
-  uchar              called_conn_new;     /* whether we need to call conn_final on teardown */
 
-  /* we can have multiple connection ids */
-  ulong              our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  ulong              our_conn_id;
 
   /* Save original destination connection id
      This will be used when we receive a retransmitted initial packet
@@ -89,10 +86,8 @@ struct fd_quic_conn {
 
   ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
 
-  ushort             our_conn_id_cnt;     /* number of connection ids */
   ushort             peer_cnt;            /* number of peer endpoints */
 
-  ushort             cur_conn_id_idx;     /* currently used conn id */
   ushort             cur_peer_idx;        /* currently used peer endpoint */
 
   /* initial source connection id */

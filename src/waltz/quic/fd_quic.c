@@ -57,22 +57,6 @@ rb_service_queue_compare( fd_quic_rb_event_t * left,
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
-/* FD_QUIC_OPT_EXTEND_SENT
- * This is a compile time option to specify whether ack ranges are extended even
- * when they have already been sent. This may have performance implications, but
- * needs some experimentation. So it remains an option */
-# define FD_QUIC_OPT_EXTEND_SENT 1
-
-/* FD_QUIC_OPT_SEND_ALL_ACKS
- * This is a compile time option to specify whether acks are sent even when they have
- * already been sent.
- * Ack ranges take up very little space. A missing ack can have severe consequences.
- * So it seems reasonable to send acks even when they have been sent already.
- * Note that this does NOT result in ack only packet being spammed. This only conditions
- * whether acks are included in the current packet, not whether a packet is sent
- * which may only contain acks. */
-# define FD_QUIC_OPT_SEND_ALL_ACKS 0
-
 /* FD_QUIC_PING_ENABLE
  *
  * This compile time option specifies whether the server should use
@@ -503,7 +487,6 @@ fd_quic_init( fd_quic_t * quic ) {
   ulong tls_laddr = (ulong)quic + layout.tls_off;
   state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
   if( FD_UNLIKELY( !state->tls ) ) {
-    metrics->hs_err_alloc_fail_cnt++;
     FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_tls_new failed" ) ) );
     return NULL;
   }
@@ -1394,8 +1377,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           &peer_conn_id,
           dst_ip_addr,
           dst_udp_port,
-          1,            /* server */
-          version );    /* version */
+          1 /* server */ );
 
       if( FD_UNLIKELY( !conn ) ) { /* no free connections */
         /* TODO send failure back to origin? */
@@ -2995,7 +2977,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
   fd_quic_conn_id_t *  peer_conn_id = &peer->conn_id;
 
   /* our current conn_id */
-  ulong conn_id = conn->our_conn_id[conn->cur_conn_id_idx];
+  ulong conn_id = conn->our_conn_id;
 
   switch( enc_level ) {
     case fd_quic_enc_level_initial_id:
@@ -3005,7 +2987,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.initial.reserved_bits    = 0;      /* must be set to zero by rfc9000 17.2 */
       pkt_hdr->quic_pkt.initial.pkt_number_len   = 3;      /* indicates 4-byte packet number TODO vary? */
       pkt_hdr->quic_pkt.initial.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
-      pkt_hdr->quic_pkt.initial.version          = conn->version;
+      pkt_hdr->quic_pkt.initial.version          = 1;
       pkt_hdr->quic_pkt.initial.dst_conn_id_len  = peer_conn_id->sz;
       // .dst_conn_id
       pkt_hdr->quic_pkt.initial.src_conn_id_len  = FD_QUIC_CONN_ID_SZ;
@@ -3038,7 +3020,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.handshake.reserved_bits    = 0;      /* must be set to zero by rfc9000 17.2 */
       pkt_hdr->quic_pkt.handshake.pkt_number_len   = 3;      /* indicates 4-byte packet number TODO vary? */
       pkt_hdr->quic_pkt.handshake.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
-      pkt_hdr->quic_pkt.handshake.version          = conn->version;
+      pkt_hdr->quic_pkt.handshake.version          = 1;
 
       /* destination */
       if( initial ) {
@@ -4125,13 +4107,10 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  /* remove connection ids from conn_map */
+  /* remove connection id from conn_map */
 
-  /* loop over connection ids, and remove each */
-  for( ulong j=0; j<conn->our_conn_id_cnt; ++j ) {
-    fd_quic_conn_map_t * entry = fd_quic_conn_map_query( state->conn_map, conn->our_conn_id[j], NULL );
-    if( FD_LIKELY( entry ) ) fd_quic_conn_map_remove( state->conn_map, entry );
-  }
+  fd_quic_conn_map_t * entry = fd_quic_conn_map_query( state->conn_map, conn->our_conn_id, NULL );
+  if( FD_LIKELY( entry ) ) fd_quic_conn_map_remove( state->conn_map, entry );
 
   /* no need to remove this connection from the events queue
      free is called from two places:
@@ -4241,8 +4220,7 @@ fd_quic_connect( fd_quic_t *  quic,
       &peer_conn_id,
       dst_ip_addr,
       dst_udp_port,
-      0, /* client */
-      1u /* version */ );
+      0 /* client */ );
 
   if( FD_UNLIKELY( !conn ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed" )) );
@@ -4350,8 +4328,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      fd_quic_conn_id_t const * peer_conn_id,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
-                     int                       server,
-                     uint                      version ) {
+                     int                       server ) {
 
   fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );
@@ -4398,9 +4375,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->quic                = quic;
   conn->server              = !!server;
   conn->established         = 0;
-  conn->version             = version;
   conn->called_conn_new     = 0;
-  fd_memset( &conn->our_conn_id[0], 0, sizeof( conn->our_conn_id ) );
+  conn->our_conn_id         = 0;
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,
     .udp_port = fd_ushort_if( server,
@@ -4410,8 +4386,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( &conn->peer[0], 0, sizeof( conn->peer ) );
   conn->local_conn_id       = 0; /* TODO probably set it here, or is it only valid for servers? */
   conn->peer_cnt            = 0;
-  conn->our_conn_id_cnt     = 0; /* set later */
-  conn->cur_conn_id_idx     = 0;
   conn->cur_peer_idx        = 0;
   conn->token_len           = 0;
 
@@ -4477,9 +4451,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->upd_pkt_number       = 0;
 
   /* initialize connection members */
-  ulong our_conn_id_idx = 0;
-  conn->our_conn_id[our_conn_id_idx] = our_conn_id;
-  conn->our_conn_id_cnt++;
+  conn->our_conn_id = our_conn_id;
   /* start with minimum supported max datagram */
   /* peers may allow more */
   conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;

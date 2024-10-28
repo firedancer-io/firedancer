@@ -305,8 +305,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,
-      /* server       */ quic->config.role == FD_QUIC_ROLE_SERVER,
-      /* version      */ 1 );
+      /* server       */ quic->config.role == FD_QUIC_ROLE_SERVER );
   if( FD_UNLIKELY( !conn ) ) {
     FD_LOG_WARNING(( "fd_quic_conn_create failed" ));
     return NULL;
