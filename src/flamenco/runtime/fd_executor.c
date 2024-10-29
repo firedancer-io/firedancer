@@ -247,7 +247,7 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
   // TODO: figure out if it is faster to batch query properly and loop all txns again
   int err;
-  fd_txncache_query_batch( txn_ctx->slot_ctx->status_cache, &curr_query, 1UL, txn_ctx->slot_ctx, status_check_tower, &err );
+  fd_txncache_query_batch( txn_ctx->slot_ctx->status_cache, &curr_query, 1UL, (void *)txn_ctx->slot_ctx, status_check_tower, &err );
   return err;
 }
 
@@ -359,7 +359,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
        TODO: the rent epoch check in the conditional should probably be moved
        to inside fd_runtime_collect_rent_from_account. */
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && acct->const_meta->info.rent_epoch<=epoch ) {
-      fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
+      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
       acct->starting_lamports = acct->meta->info.lamports;
     }
 
@@ -519,8 +519,8 @@ fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
 
 /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L101-L126 */
 static int
-fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t *        slot_ctx,
-                                     fd_borrowed_account_t *     rec ) {
+fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t const * slot_ctx,
+                                     fd_borrowed_account_t *    rec ) {
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L109-L125 */
   if( FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
     if( FD_LIKELY( rec->const_meta->info.rent_epoch!=ULONG_MAX
@@ -620,7 +620,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
      https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
   fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->slot_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_ctx->slot_bank.slot, NULL );
-  fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, fee_payer_rec->meta, fee_payer_rec->pubkey, epoch );
+  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, fee_payer_rec->meta, fee_payer_rec->pubkey, epoch );
   fee_payer_rec->starting_lamports = fee_payer_rec->meta->info.lamports;
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L488 */
@@ -1412,7 +1412,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                       fd_spad_t *                  spad ) {
   fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
   uchar const * txn_payload = (uchar const *) txn_ctx->_txn_raw->raw;
-  fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
+  fd_exec_slot_ctx_t const * slot_ctx = txn_ctx->slot_ctx;
 
   /* We don't want to store builtins in account shared data */
   fd_pubkey_t const loaded_builtins[] = {
@@ -1676,7 +1676,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->blockhash_queue = output_blockhash_queue;
 
   // Iterate over all block hashes in the queue and save them
-  fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
+  fd_block_hash_queue_t const * queue = &slot_ctx->slot_bank.block_hash_queue;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
   for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
     nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
@@ -1895,7 +1895,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   } FD_SCRATCH_SCOPE_END;
 }
 
-int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
+int
+fd_executor_txn_check( fd_exec_slot_ctx_t const * slot_ctx,
+                       fd_exec_txn_ctx_t *        txn ) {
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
 
   ulong starting_lamports_l = 0;

@@ -58,7 +58,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_slot_ctx_t *        slot_ctx;
+  fd_exec_slot_ctx_t const *  slot_ctx;
 
   fd_funk_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
@@ -92,6 +92,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_hash_t             blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
   ulong                 execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
   ulong                 priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
+  ulong                 collected_rent;                              /* Rent collected from accounts in this transaction */
 
   uchar dirty_vote_acc  : 1;                                         /* 1 if this transaction maybe modified a vote account */
   uchar dirty_stake_acc : 1;                                         /* 1 if this transaction maybe modified a stake account */

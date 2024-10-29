@@ -13,7 +13,7 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   ulong magic; /* ==FD_EXEC_INSTR_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_slot_ctx_t *        slot_ctx; /* TODO: needs to be made const to be thread safe. */
+  fd_exec_slot_ctx_t const *  slot_ctx; /* TODO: needs to be made const to be thread safe. */
   fd_exec_txn_ctx_t *         txn_ctx;  /* The transaction context for this instruction */
 
   fd_exec_instr_ctx_t const * parent;

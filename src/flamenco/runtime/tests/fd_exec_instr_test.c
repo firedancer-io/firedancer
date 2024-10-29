@@ -962,7 +962,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
   slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
-
+  slot_ctx->slot_bank.collected_rent           += task_info->txn_ctx->collected_rent;
   return task_info;
 }
 
@@ -972,7 +972,7 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
                                     fd_wksp_t *                   wksp,
                                     fd_alloc_t *                  alloc ) {
   if( !ctx ) return;
-  fd_exec_slot_ctx_t *  slot_ctx  = ctx->slot_ctx;
+  fd_exec_slot_ctx_t *  slot_ctx  = (fd_exec_slot_ctx_t *)ctx->slot_ctx;
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
@@ -1481,7 +1481,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
 
     /* Rent is only collected on successfully loaded transactions */
-    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
+    txn_result->rent                              = txn_ctx->collected_rent;
 
     /* At this point, the transaction has executed */
     if( exec_res ) {

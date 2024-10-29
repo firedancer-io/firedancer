@@ -9,8 +9,8 @@
 #define ACCOUNT_STORAGE_OVERHEAD (128)
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_rent_t *          result,
-                     fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_rent_read( fd_rent_t *                result,
+                     fd_exec_slot_ctx_t const * slot_ctx ) {
 
   fd_rent_t const * ret = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {

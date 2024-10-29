@@ -64,7 +64,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
                                                       int                  update_program_blacklist );
 
 int
-fd_bpf_load_cache_entry( fd_exec_slot_ctx_t *           slot_ctx,
+fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog );
 
@@ -87,7 +87,7 @@ fd_bpf_add_to_program_blacklist( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_pubkey_t const  * program_pubkey );
 
 int
-fd_bpf_is_in_program_blacklist( fd_exec_slot_ctx_t * slot_ctx, 
+fd_bpf_is_in_program_blacklist( fd_exec_slot_ctx_t const * slot_ctx, 
                                 fd_pubkey_t const  * program_pubkey );
 
 FD_PROTOTYPES_END
