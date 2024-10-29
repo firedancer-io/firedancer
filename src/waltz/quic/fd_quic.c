@@ -780,6 +780,12 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  if( id<0x20 ) {
+    ulong norm_id = id;
+    if( norm_id>=0x08 && norm_id<=0x0f ) norm_id = 0x08;
+    quic->metrics.frame_rx_cnt[ norm_id ]++;
+  }
+
 #include "templ/fd_quic_parse_frame.h"
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"

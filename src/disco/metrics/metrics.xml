@@ -224,6 +224,32 @@ metric introduced.
   </histogram>
 </group>
 
+<enum name="QuicFrameType">
+  <int value="1" name="Ping" label="PING frame" />
+  <int value="2" name="Ack" label="ACK frame" />
+  <int value="3" name="AckEcn" label="ACK frame with ECN" />
+  <int value="4" name="ResetStream" label="RESET_STREAM frame" />
+  <int value="5" name="StopSending" label="STOP_SENDING frame" />
+  <int value="6" name="Crypto" label="CRYPTO frame" />
+  <int value="7" name="NewToken" label="NEW_TOKEN frame" />
+  <int value="8" name="Stream" label="STREAM frame" />
+  <int value="16" name="MaxData" label="MAX_DATA frame" />
+  <int value="17" name="MaxStreamData" label="MAX_STREAM_DATA frame" />
+  <int value="18" name="MaxStreamsBidi" label="MAX_STREAMS(bidi) frame" />
+  <int value="19" name="MaxStreamsUni" label="MAX_STREAMS(uni) frame" />
+  <int value="20" name="DataBlocked" label="DATA_BLOCKED frame" />
+  <int value="21" name="StreamDataBlocked" label="STREAM_DATA_BLOCKED frame" />
+  <int value="22" name="StreamsBlockedBidi" label="STREAMS_BLOCKED(bidi) frame" />
+  <int value="23" name="StreamsBlockedUni" label="STREAMS_BLOCKED(uni) frame" />
+  <int value="24" name="NewConnId" label="NEW_CONN_ID frame" />
+  <int value="25" name="RetireConnId" label="RETIRE_CONN_ID frame" />
+  <int value="26" name="PathChallenge" label="PATH_CHALLENGE frame" />
+  <int value="27" name="PathResponse" label="PATH_RESPONSE frame" />
+  <int value="28" name="ConnCloseQuic" label="CONN_CLOSE(transport) frame" />
+  <int value="29" name="ConnCloseApp" label="CONN_CLOSE(app) frame" />
+  <int value="30" name="HandshakeDone" label="HANDSHAKE_DONE frame" />
+</enum>
+
 <group name="Quic" tile="quic">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
@@ -246,6 +272,8 @@ metric introduced.
 
     <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+
+    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
 </group>
 
 <group name="Verify" tile="verify">
