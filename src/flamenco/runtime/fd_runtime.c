@@ -664,12 +664,14 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       rec->meta->info.lamports += fees;
       rec->meta->slot = slot_ctx->slot_bank.slot;
 
-      fd_blockstore_start_write( slot_ctx->blockstore );
-      fd_block_t * blk = slot_ctx->block;
-      blk->rewards.collected_fees = fees;
-      blk->rewards.post_balance = rec->meta->info.lamports;
-      memcpy( blk->rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
-      fd_blockstore_end_write( slot_ctx->blockstore );
+      if( FD_LIKELY( slot_ctx->blockstore ) ) {
+        fd_blockstore_start_write( slot_ctx->blockstore );
+        fd_block_t * blk = slot_ctx->block;
+        blk->rewards.collected_fees = fees;
+        blk->rewards.post_balance = rec->meta->info.lamports;
+        memcpy( blk->rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
+        fd_blockstore_end_write( slot_ctx->blockstore );
+      }
     } while(0);
 
     ulong old = slot_ctx->slot_bank.capitalization;
@@ -1394,7 +1396,7 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
-  if( slot_ctx->slot_bank.slot != 0UL ) {
+  if( slot_ctx->blockstore && slot_ctx->slot_bank.slot != 0UL ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
                                        slot_ctx->slot_bank.slot,
                                        slot_ctx->slot_bank.block_height );
@@ -2453,7 +2455,7 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 static void
@@ -3113,8 +3115,9 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
 /* Genesis                                                                    */
 /*******************************************************************************/
 
-static void
-fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+void
+fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_spad_t *          runtime_spad ) {
   fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_clock_init( slot_ctx );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
@@ -3792,7 +3795,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   return 0;
 }
 
-static int
+int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                 fd_capture_ctx_t *      capture_ctx,
                                 fd_block_info_t const * block_info,
@@ -3801,6 +3804,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                 ulong                   exec_spad_cnt,
                                 fd_spad_t *             runtime_spad ) {
 
+  uchar dump_block = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_block_to_pb;
   if ( capture_ctx != NULL && capture_ctx->capture ) {
     fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
   }
@@ -3810,6 +3814,10 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   int res = fd_runtime_block_execute_prepare( slot_ctx, runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
+  }
+
+  if( dump_block ) {
+    fd_dump_block_to_protobuf( block_info, slot_ctx, capture_ctx, runtime_spad );
   }
 
   ulong        txn_cnt  = block_info->txn_cnt;
@@ -3863,7 +3871,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int
+void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
@@ -3908,8 +3916,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                              runtime_spad );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int
@@ -3954,13 +3960,11 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_funk_end_write( funk );
     }
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
-                                                                            tpool,
-                                                                            exec_spads,
-                                                                            exec_spad_cnt,
-                                                                            runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      break;
-    }
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
+                                                    tpool,
+                                                    exec_spads,
+                                                    exec_spad_cnt,
+                                                    runtime_spad );
 
     /* All runtime allocations here are scoped to the end of a block. */
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
