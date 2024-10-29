@@ -449,7 +449,7 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
    that we modify when processing a new epoch need to be hashed into
    the bank hash.
  */
-int
+void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
@@ -493,7 +493,20 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong                spads_cnt,
                              fd_spad_t *          runtime_spad );
 
+int
+fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
+                                fd_capture_ctx_t *      capture_ctx,
+                                fd_block_info_t const * block_info,
+                                fd_tpool_t *            tpool,
+                                fd_spad_t * *           exec_spads,
+                                ulong                   exec_spad_cnt,
+                                fd_spad_t *             runtime_spad );
+
 /* Genesis ********************************************************************/
+
+void
+fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_spad_t *          runtime_spad );
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
