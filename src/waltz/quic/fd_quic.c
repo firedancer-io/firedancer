@@ -5627,8 +5627,6 @@ fd_quic_frame_handle_max_data_frame(
      are silently ignored */
   context.conn->tx_max_data = new_max_data > tx_max_data ? new_max_data : tx_max_data;
 
-  fd_quic_reschedule_conn( context.conn, 0 );
-
   return 0; /* no additional bytes consumed from buffer */
 }
 
