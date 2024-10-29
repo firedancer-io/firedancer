@@ -97,6 +97,29 @@
 | quic_&#8203;stream_&#8203;active_&#8203;uni_&#8203;server | `gauge` | Number of active streams. (Unidirectional server) |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
+| quic_&#8203;received_&#8203;frames_&#8203;ping | `counter` | Number of QUIC frames received. (PING frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;ack | `counter` | Number of QUIC frames received. (ACK frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;ack_&#8203;ecn | `counter` | Number of QUIC frames received. (ACK frame with ECN) |
+| quic_&#8203;received_&#8203;frames_&#8203;reset_&#8203;stream | `counter` | Number of QUIC frames received. (RESET_STREAM frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;stop_&#8203;sending | `counter` | Number of QUIC frames received. (STOP_SENDING frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;crypto | `counter` | Number of QUIC frames received. (CRYPTO frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;new_&#8203;token | `counter` | Number of QUIC frames received. (NEW_TOKEN frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;stream | `counter` | Number of QUIC frames received. (STREAM frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;max_&#8203;data | `counter` | Number of QUIC frames received. (MAX_DATA frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;max_&#8203;stream_&#8203;data | `counter` | Number of QUIC frames received. (MAX_STREAM_DATA frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;max_&#8203;streams_&#8203;bidi | `counter` | Number of QUIC frames received. (MAX_STREAMS(bidi) frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;max_&#8203;streams_&#8203;uni | `counter` | Number of QUIC frames received. (MAX_STREAMS(uni) frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;data_&#8203;blocked | `counter` | Number of QUIC frames received. (DATA_BLOCKED frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;stream_&#8203;data_&#8203;blocked | `counter` | Number of QUIC frames received. (STREAM_DATA_BLOCKED frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;streams_&#8203;blocked_&#8203;bidi | `counter` | Number of QUIC frames received. (STREAMS_BLOCKED(bidi) frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;streams_&#8203;blocked_&#8203;uni | `counter` | Number of QUIC frames received. (STREAMS_BLOCKED(uni) frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;new_&#8203;conn_&#8203;id | `counter` | Number of QUIC frames received. (NEW_CONN_ID frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;retire_&#8203;conn_&#8203;id | `counter` | Number of QUIC frames received. (RETIRE_CONN_ID frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;path_&#8203;challenge | `counter` | Number of QUIC frames received. (PATH_CHALLENGE frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;path_&#8203;response | `counter` | Number of QUIC frames received. (PATH_RESPONSE frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;conn_&#8203;close_&#8203;quic | `counter` | Number of QUIC frames received. (CONN_CLOSE(transport) frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;conn_&#8203;close_&#8203;app | `counter` | Number of QUIC frames received. (CONN_CLOSE(app) frame) |
+| quic_&#8203;received_&#8203;frames_&#8203;handshake_&#8203;done | `counter` | Number of QUIC frames received. (HANDSHAKE_DONE frame) |
 
 ## Verify Tile
 | Metric | Type | Description |

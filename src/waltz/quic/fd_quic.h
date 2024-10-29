@@ -316,7 +316,7 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* TODO: evaluate performance impact of metrics */
 
 union fd_quic_metrics {
-  ulong  ul[ 30 ];
+  ulong  ul[ 51 ];
   struct {
     /* Network metrics */
     ulong net_rx_pkt_cnt;  /* number of IP packets received */
@@ -325,7 +325,7 @@ union fd_quic_metrics {
     ulong net_tx_byte_cnt; /* total bytes sent */
 
     /* Conn metrics */
-    ulong conn_active_cnt;        /* number of active conns */
+    ulong conn_active_cnt;         /* number of active conns */
     ulong conn_created_cnt;        /* number of conns created */
     ulong conn_closed_cnt;         /* number of conns gracefully closed */
     ulong conn_aborted_cnt;        /* number of conns aborted */
@@ -333,6 +333,9 @@ union fd_quic_metrics {
     ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
     ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+
+    /* Frame metrics */
+    ulong frame_rx_cnt[ 0x20 ];    /* number of frames received, indexed by frame ID */
 
     /* Handshake metrics */
     ulong hs_created_cnt;          /* number of handshake flows created */
