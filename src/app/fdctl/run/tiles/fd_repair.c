@@ -416,8 +416,12 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 
-  fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_continue( ctx->repair );
+}
+
+static inline void
+during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
+  fd_repair_settime( ctx->repair, fd_log_wallclock() );
 }
 
 static long
@@ -680,10 +684,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_BEFORE_FRAG  before_frag
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../../../disco/stem/fd_stem.c"
 
