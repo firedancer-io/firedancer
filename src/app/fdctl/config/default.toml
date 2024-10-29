@@ -820,8 +820,11 @@ dynamic_port_range = "8900-9000"
         # this really be configurable?
         send_buffer_size = 16384
 
-        # Additional addresses this validator needs to be able to
-        # accept
+        # Multihomed hosts
+        # Sometimes a configuration uses multiple routes, and each must
+        # have its own IP address. For this host to accept multiple dest
+        # IPv4 addresses, the additional addresses should be specified
+        # here.
         multihome.src_ip_addr = []
 
     # QUIC tiles are responsible for serving network traffic, including
