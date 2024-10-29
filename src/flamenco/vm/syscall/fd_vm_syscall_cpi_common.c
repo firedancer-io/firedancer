@@ -615,7 +615,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* fd_ulong_sat_mul: signers_seeds_cnt<=16 => no need for sat_mul */
   fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
-    int err = fd_vm_derive_pda( vm, caller_program_id, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
+    int err = fd_vm_derive_pda( vm, caller_program_id, 0UL, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }

@@ -594,8 +594,14 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
    
    Users of this macro should be aware that they should never access the returned value if sz==0.
    
-   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560  */
+   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560 
+   
+   LONG_MAX check: https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580 */
 #define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
+    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
+      return FD_VM_ERR_INVAL;                                                                                   \
+    }                                                                                                           \
     void const * haddr = 0UL;                                                                                   \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
       haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz );                                                       \
@@ -604,6 +610,10 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 }))
 
 #define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
+    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
+      return FD_VM_ERR_INVAL;                                                                                   \
+    }                                                                                                           \
     void * haddr = 0UL;                                                                                         \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
       haddr = FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz );                                                       \
