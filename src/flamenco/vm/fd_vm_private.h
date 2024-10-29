@@ -609,6 +609,21 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     haddr;                                                                                                      \
 }))
 
+
+/* This is the same as the above function but passes in a size of 1 to support
+   loads with no size bounding support. */
+#define FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, vaddr, align ) (__extension__({                              \
+    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
+      return FD_VM_ERR_INVAL;                                                                                   \
+    }                                                                                                           \
+    void const * haddr = 0UL;                                                                                   \
+    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
+      haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, 1UL );                                                      \
+    }                                                                                                           \
+    haddr;                                                                                                      \
+}))
+
 #define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
