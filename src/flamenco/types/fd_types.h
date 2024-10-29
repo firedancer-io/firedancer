@@ -4021,14 +4021,14 @@ typedef struct fd_gossip_node_instance_off fd_gossip_node_instance_off_t;
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_gossip_duplicate_shred {
-  ushort version;
+  ushort duplicate_shred_index;
   fd_pubkey_t from;
   ulong wallclock;
   ulong slot;
-  uint shred_index;
-  uchar shred_variant;
-  uchar chunk_cnt;
-  uchar chunk_idx;
+  uint _unused;
+  uchar _unused_shred_type;
+  uchar num_chunks;
+  uchar chunk_index;
   ulong chunk_len;
   uchar* chunk;
 };
@@ -4037,14 +4037,14 @@ typedef struct fd_gossip_duplicate_shred fd_gossip_duplicate_shred_t;
 #define FD_GOSSIP_DUPLICATE_SHRED_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_duplicate_shred_off {
-  uint version_off;
+  uint duplicate_shred_index_off;
   uint from_off;
   uint wallclock_off;
   uint slot_off;
-  uint shred_index_off;
-  uint shred_variant_off;
-  uint chunk_cnt_off;
-  uint chunk_idx_off;
+  uint _unused_off;
+  uint _unused_shred_type_off;
+  uint num_chunks_off;
+  uint chunk_index_off;
   uint chunk_off;
 };
 typedef struct fd_gossip_duplicate_shred_off fd_gossip_duplicate_shred_off_t;

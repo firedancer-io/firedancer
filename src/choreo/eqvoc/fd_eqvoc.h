@@ -2,7 +2,39 @@
 #define HEADER_fd_src_choreo_eqvoc_fd_eqvoc_h
 
 #include "../../ballet/shred/fd_shred.h"
+#include "../../flamenco/leaders/fd_leaders.h"
 #include "../fd_choreo_base.h"
+
+/* fd_eqvoc presents an API for detecting and sending / receiving
+   "proofs" of equivocation.
+
+   Equivocation is when the shred producer produces two or more versions
+   of a shred for the same (slot, idx). An equivocation proof comprises
+   a sample of two shreds that conflict in a way that imply the shreds'
+   producer equivocated.
+
+   The proof can be both direct and indirect (implied). A direct proof
+   is simpler: the proof is generated when you observe two versions of
+   the same shred, ie. two shreds that have the same slot and shred_idx
+   but a different data payload. Indirect
+
+   The following lists the equivocation cases:
+
+   1. Two shreds with the same slot and idx but different data payloads.
+   2. Two shreds in the same FEC set have different merkle roots.
+   3. Two shreds in the same FEC set with different metadata ie.
+      code_cnt, data_cnt, last_idx.
+   4. Two shreds in the same FEC set that are both data shreds, where
+      one is marked as the last data shred in the slot, but the other
+      shred has a higher data shred index than that.
+   3. Two shreds in different FEC sets and the FEC sets are overlapping
+      ie. the same shred idx appears in both FEC sets.
+
+   Every FEC set must have the same signature for every shred in the
+   set, so a different signature would indicate equivocation.  Note in
+   the case of merkle shreds, the shred signature is signed on the FEC
+   set's merkle root, so every shred in the same FEC set must have the
+   same signature. */
 
 /* FD_EQVOC_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -21,6 +53,26 @@
 /* The chunk_cnt is encoded in a UCHAR_MAX, so you can have at most UCHAR_MAX chunkskj */
 #define FD_EQVOC_CHUNK_MIN ( FD_SHRED_MAX_SZ * 2 / UCHAR_MAX + 1 )
 
+struct fd_eqvoc_chunk {
+  fd_slot_pubkey_t            key;
+  ulong                       next;
+  fd_gossip_duplicate_shred_t duplicate_shred;
+};
+typedef struct fd_eqvoc_chunk fd_eqvoc_chunk_t;
+
+#define POOL_NAME fd_eqvoc_chunk_pool
+#define POOL_T    fd_eqvoc_chunk_t
+#include "../../util/tmpl/fd_pool.c"
+
+/* clang-format off */
+#define MAP_NAME               fd_eqvoc_chunk_map
+#define MAP_ELE_T              fd_eqvoc_chunk_t
+#define MAP_KEY_T              fd_slot_pubkey_t
+#define MAP_KEY_EQ(k0,k1)      (FD_SLOT_PUBKEY_EQ(k0,k1))
+#define MAP_KEY_HASH(key,seed) (FD_SLOT_PUBKEY_HASH(key,seed))
+#include "../../util/tmpl/fd_map_chain.c"
+
+
 struct fd_eqvoc_key {
   ulong slot;
   uint  fec_set_idx;
@@ -38,10 +90,10 @@ static const fd_eqvoc_key_t     fd_eqvoc_key_null = { 0 };
 struct fd_eqvoc_entry {
   fd_eqvoc_key_t   key;
   ulong            next;
-  fd_ed25519_sig_t sig;
   ulong            code_cnt;
   ulong            data_cnt;
   uint             last_idx;
+  fd_ed25519_sig_t sig;
 };
 typedef struct fd_eqvoc_entry fd_eqvoc_entry_t;
 
@@ -56,12 +108,33 @@ typedef struct fd_eqvoc_entry fd_eqvoc_entry_t;
 #define MAP_KEY_EQ(k0,k1)      (FD_EQVOC_KEY_EQ(*k0,*k1))
 #define MAP_KEY_HASH(key,seed) (FD_EQVOC_KEY_HASH(*key)^seed)
 #include "../../util/tmpl/fd_map_chain.c"
+/* clang-format on */
+
+typedef int (*fd_eqvoc_sig_verify_fn)( void * arg, fd_shred_t * shred ); 
 
 struct fd_eqvoc {
+
+  /* primitives */
+
+  ulong min_slot;      /* min slot we're currently indexing. */
+  ulong key_max;       /* max # of FEC sets we can index. */
+  ulong shred_version; /* shred version we expect in all shreds in eqvoc-related msgs. */
+
+  /* owned */
+
   fd_eqvoc_map_t *   map;
   fd_eqvoc_entry_t * pool;
+  fd_sha512_t *      sha512;
+  void *             bmtree_mem;
+
+  /* borrowed  */
+  fd_epoch_leaders_t const * leaders;
+
+  fd_eqvoc_sig_verify_fn sig_verify_fn; 
 };
 typedef struct fd_eqvoc fd_eqvoc_t;
+
+/* clang-format off */
 
 /* fd_eqvoc_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as eqvoc with up to
@@ -78,10 +151,16 @@ fd_eqvoc_footprint( ulong key_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof( fd_eqvoc_t ), sizeof( fd_eqvoc_t ) ),
-      fd_eqvoc_pool_align(), fd_eqvoc_pool_footprint( key_max ) ),
-      fd_eqvoc_map_align(), fd_eqvoc_map_footprint( FD_EQVOC_MAX ) ),
+      alignof(fd_eqvoc_t),      sizeof(fd_eqvoc_t) ),
+      fd_eqvoc_pool_align(),    fd_eqvoc_pool_footprint( key_max ) ),
+      fd_eqvoc_map_align(),     fd_eqvoc_map_footprint( FD_EQVOC_MAX ) ),
+      fd_sha512_align(),        fd_sha512_footprint() ),
+      fd_bmtree_commit_align(), fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) ),
+      fd_eqvoc_map_align(),     fd_eqvoc_map_footprint( FD_EQVOC_MAX ) ),
    fd_eqvoc_align() );
 }
 /* clang-format on */
@@ -119,42 +198,42 @@ fd_eqvoc_leave( fd_eqvoc_t const * eqvoc );
 void *
 fd_eqvoc_delete( void * sheqvoc );
 
-/* fd_eqvoc_insert inserts shred's signature into eqvoc keyed by (slot,
-   fec_set_idx).  Every FEC set must have the same signature for every
-   shred in the set, so a different signature would indicate
-   equivocation. */
+/* fd_eqvoc_insert inserts `shred` into eqvoc, indexing it by (slot,
+   fec_set_idx).  If `shred` is a coding shred, it populates entry's
+   metadata fields. */
 
 void
 fd_eqvoc_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred );
 
-/* fd_eqvoc_test tests for equivocation given a new shred.  Returns 1 if
-   the shreds indicate equivocation, 0 otherwise.  Equivocation is when
-   there are two or more shreds for the same (slot, idx) pair.
+/* fd_eqvoc_query queries for FEC set metadata on (slot, fec_set_idx).
+   At least one coding shred most be inserted to populate code_cnt,
+   data_cnt, and the last data shred in the slot to populate last_idx.
+   Otherwise fields are defaulted to 0, 0, FD_SHRED_IDX_NULL
+   respectively.  Callers should check whether fields are the default
+   values before using them. */
 
-   Equivocation can be detected both directly and indirectly (implied).
-   Direct equivocation is when two shreds directly conflict, ie. they
-   have the same slot and shred_idx but a different data payload.
-   Indirect equivocation includes a few cases:
+FD_FN_CONST static inline fd_eqvoc_entry_t const *
+fd_eqvoc_query( fd_eqvoc_t const * eqvoc, ulong slot, uint fec_set_idx ) {
+  fd_eqvoc_key_t key = { slot, fec_set_idx };
+  return fd_eqvoc_map_ele_query_const( eqvoc->map, &key, NULL, eqvoc->pool );
+}
 
-   1. Two shreds in the same FEC set have a different merkle root
-   2. Two shreds of the same type that have conflicting indices.  There
-      are two subcases:
+/* fd_eqvoc_search searches for whether `shred` implies equivocation by
+   checking for a conflict in the currently indexed FEC sets. Returns
+   the conflicting entry if there is one, NULL otherwise.
 
-      2a. One shred is marked as the last shred in the slot, but the
-          other shred has a higher index.
-      2b. The two shreds are part of different FEC sets that overlap.
+   A FEC set "overlaps" with another if they both contain a data shred
+   at the samed idx.  For example, say we have a FEC set containing data
+   shreds in the idx interval [13, 15] and another containing idxs [15,
+   20].  The first FEC set has fec_set_idx 13 and data_cnt 3. The second
+   FEC set has fec_set_idx 15 and data_cnt 6.  They overlap because they
+   both contain a data shred at idx 15.  Therefore, these two FEC sets
+   imply equivocation.
 
-   A FEC set overlaps with another one if they both contain a data shred
-   at idx.  For example, say we have a FEC set containing data shred the
-   idxs in the interval [13, 15] and another set containing idxs [15,
-   20].  The first FEC set has fec_set_idx 13 and data_cnt 3.  The
-   second FEC set has fec_set_idx 15 and data_cnt 6.  The overlapping
-   data shred idx is 15.
-
-   We can detect this arithmetically by adding the data_cnt to the
-   fec_set_idx that starts earlier.  If the result is greater than
-   fec_set_idx that starts later, we know at least one data shred idx
-   must overlap.  In this example, 13 + 3 > 15, which indicates
+   This overlap can be detected arithmetically by adding the data_cnt to
+   the fec_set_idx that starts earlier.  If the result is greater than
+   the fec_set_idx that starts later, we know at least one data shred
+   idx must overlap.  In this example, 13 + 3 > 15, which indicates
    equivocation.
 
    We can check for this overlap both backwards and forwards.  We know
@@ -163,19 +242,43 @@ fd_eqvoc_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred );
    set.  Similarly, we look forward at most data_cnt idxs to find the
    next FEC set. */
 
+fd_eqvoc_entry_t const *
+fd_eqvoc_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred );
+
+/* fd_eqvoc_test tests whether shred1 and shred2 present a valid
+   equivocation proof.  See the header at the top of the file for an
+   explanation and enumeration of the equivocation cases.
+
+   To prevent false positives, this function checks equivocation proofs
+   contain the following:
+
+   1. shred1 and shred2 are for the same slot
+   2. shred1 and shred2 are the expected shred_version
+   3. shred1 and shred2 contain valid signatures by the current leader
+   4. shred1 and shred2 are the same shred type
+ */
+
 int
-fd_eqvoc_test( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred );
+fd_eqvoc_test( fd_eqvoc_t const * eqvoc, fd_shred_t * shred1, fd_shred_t * shred2 );
 
-/* fd_eqvoc_from_chunks reconstructs shred1 and shred2 from chunks which
-   is an array of DuplicateShred gossip msgs.
+/* fd_eqvoc_from_chunks reconstructs shred1_out and shred2_out from
+   `chunks` which is an array of "duplicate shred" gossip msgs. Shred1
+   and shred2 comprise a "duplicate shred proof", ie. proof of two
+   shreds that conflict and therefore demonstrate the shreds' producer
+   has equivocated.
 
-   Assumes chunks contains at least one valid array member for
-   extracting header information.  Also assumes memory is valid and
+   Assumes `chunks` is non-NULL and contains at least one valid array
+   member chunks[0] to extract header information.  Caller's
+   responsibility to guarantee this.  Also assumes the `chunk` field in
+   `fd_gossip_duplicate_shred_t` is a pointer to valid memory and
    consistent with the metadata presented in the header of the first
-   array member, eg. if the header says 4 chunks then the implementation
-   assumes there are 4 elements in the array.  Does additional
-   sanity-check validation eg. checking chunk_len <= FD_EQVOC_CHUNK_MAX.
-   */
+   array member, eg. if the header says there are 4 chunks then this
+   implementation assumes this is true.  These assumptions should be
+   already upheld by caller if using deserializers in `fd_types.h`.
+   Behavior is undefined otherwise.
+
+   Does additional sanity-check validation eg. checking chunk_len <=
+   FD_EQVOC_CHUNK_MAX. */
 
 void
 fd_eqvoc_from_chunks( fd_eqvoc_t const *            eqvoc,
@@ -184,22 +287,23 @@ fd_eqvoc_from_chunks( fd_eqvoc_t const *            eqvoc,
                       fd_shred_t *                  shred2_out );
 
 /* fd_eqvoc_to_chunks constructs an array of DuplicateShred gossip msgs
-   ("chunks") from shred1 and shred2.
+   (`chunks_out`) from shred1 and shred2.
 
    Shred1 and shred2 are concatenated (this concatenation is virtual in
-   the implementation) and then spliced into chunks of length chunk_len.
-   These chunks are included as the msg body in each DuplicateShred msg,
+   the implementation) and then spliced into chunks of `chunk_len` size.
+   These chunks are embedded in the body of each DuplicateShred msg,
    along with a common header across all msgs.
 
-   Caller passes in duplicate_shreds, which is an array that MUST
-   contain ceil(shred1_payload_sz + shred2_payload_sz / chunk_len)
-   elements.  Each duplicate_shred MUST have a buffer of at least
-   chunk_len size available in its chunk pointer field.  Behavior is
-   undefined otherwise.
+   Caller supplies `chunks_out`, which is an array that MUST contain
+   `ceil(shred1_payload_sz + shred2_payload_sz / chunk_len)` elements.
+   Each chunk in `chunks_out` MUST have a buffer of at least `chunk_len`
+   size available in its `chunk` pointer field.  Behavior is undefined
+   otherwise.
 
-   IMPORTANT SAFETY TIP!  The lifetime of chunks must be at least as
-   long as the lifetime of the array of duplicate_shreds.  Caller is
-   responsible for preserving this memory safety guarantee. */
+   IMPORTANT SAFETY TIP!  The lifetime of each chunk in `chunks_out`
+   must be at least as long as the lifetime of the array of
+   duplicate_shreds.  Caller is responsible for ensuring this memory
+   safety guarantee. */
 
 void
 fd_eqvoc_to_chunks( fd_eqvoc_t const *            eqvoc,

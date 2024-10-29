@@ -7,7 +7,6 @@
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 
-#define INCLUSION_PROOF_LAYERS 10UL
 #define SHRED_CNT_NOT_SET      (UINT_MAX/2U)
 
 typedef union {
@@ -168,7 +167,7 @@ fd_fec_resolver_footprint( ulong depth,
   int lg_curr_map_cnt = fd_ulong_find_msb( depth      + 1UL ) + 2; /* See fd_tcache.h for the logic */
   int lg_done_map_cnt = fd_ulong_find_msb( done_depth + 1UL ) + 2; /*  ... behind the + 2. */
 
-  ulong footprint_per_bmtree = fd_bmtree_commit_footprint( INCLUSION_PROOF_LAYERS );
+  ulong footprint_per_bmtree = fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT );
 
   ulong layout = FD_LAYOUT_INIT;
   layout = FD_LAYOUT_APPEND( layout, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                      );
@@ -202,7 +201,7 @@ fd_fec_resolver_new( void                    * shmem,
   int lg_curr_map_cnt = fd_ulong_find_msb( depth      + 1UL ) + 2;
   int lg_done_map_cnt = fd_ulong_find_msb( done_depth + 1UL ) + 2;
 
-  ulong footprint_per_bmtree = fd_bmtree_commit_footprint( INCLUSION_PROOF_LAYERS );
+  ulong footprint_per_bmtree = fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   void * self        = FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                       );
@@ -386,7 +385,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                       - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
                                       - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
   ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type );
-  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )+0x59UL-0x40UL;
+  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )+FD_SHRED_CODE_HEADER_SZ-FD_ED25519_SIG_SZ;
   ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
 
   fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
@@ -406,7 +405,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, DATA_SHREDS_MAX+PARITY_SHREDS_MAX). */
 
-  if( FD_UNLIKELY( tree_depth>INCLUSION_PROOF_LAYERS-1UL             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( tree_depth>FD_SHRED_MERKLE_LAYER_CNT-1UL             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( fd_bmtree_depth( shred_idx+1UL ) > tree_depth+1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   if( FD_UNLIKELY( !ctx ) ) {
@@ -440,7 +439,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
        signature to prevent a DOS attack just by sending lots of invalid
        shreds. */
     fd_bmtree_commit_t * tree;
-    tree = fd_bmtree_commit_init( bmtree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, INCLUSION_PROOF_LAYERS );
+    tree = fd_bmtree_commit_init( bmtree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
 
     fd_bmtree_node_t _root[1];
     fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );

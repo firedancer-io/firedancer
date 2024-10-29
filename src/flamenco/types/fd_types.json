@@ -1927,14 +1927,14 @@
       "name": "gossip_duplicate_shred",
       "type": "struct",
       "fields": [
-        { "name": "version", "type": "ushort" },
+        { "name": "duplicate_shred_index", "type": "ushort" },
         { "name": "from", "type": "pubkey" },
         { "name": "wallclock", "type": "ulong" },
         { "name": "slot", "type": "ulong" },
-        { "name": "shred_index", "type": "uint" },
-        { "name": "shred_variant", "type": "uchar" },
-        { "name": "chunk_cnt", "type": "uchar" },
-        { "name": "chunk_idx", "type": "uchar" },
+        { "name": "_unused", "type": "uint" },
+        { "name": "_unused_shred_type", "type": "uchar" },
+        { "name": "num_chunks", "type": "uchar" },
+        { "name": "chunk_index", "type": "uchar" },
         { "name": "chunk", "type": "vector", "element": "uchar" }
       ]
     },
