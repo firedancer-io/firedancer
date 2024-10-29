@@ -161,6 +161,8 @@ main( int     argc,
     FD_TEST( quic->metrics.net_tx_pkt_cnt <= frame_cnt );
   }
 
+  fd_quic_svc_validate( quic );
+
   fd_wksp_free_laddr( conn_list );
   fd_wksp_free_laddr( fd_quic_sandbox_delete( fd_quic_sandbox_leave( sandbox ) ) );
   fd_rng_delete( fd_rng_leave( rng ) );

@@ -46,7 +46,7 @@ enum {
 typedef struct fd_quic_conn       fd_quic_conn_t;
 
 struct fd_quic_conn {
-  ulong              conn_idx;            /* connection index */
+  uint               conn_idx;            /* connection index */
                                           /* connections are sized at runtime */
                                           /* storing the index avoids a division */
 
@@ -58,10 +58,16 @@ struct fd_quic_conn {
                                              switch the destination conn id used */
   uint               transport_params_set : 1;
   uint               called_conn_new : 1; /* whether we need to call conn_final on teardown */
+  uint               visited : 1;         /* scratch bit, no strict definition */
 
-  ulong              next_service_time;   /* time service should be called next */
-  ulong              sched_service_time;  /* time service is scheduled for, if conn in service_queue */
-  int                in_schedule;         /* whether the conn is in the service schedule */
+  /* Service queue dlist membership.  All active conns (state not INVALID)
+     are in a service queue, FD_QUIC_SVC_TYPE_WAIT by default.
+     Free conns (svc_type==UINT_MAX) are members of a singly linked list
+     (only src_next set) */
+  uint               svc_type;  /* FD_QUIC_SVC_{...} or UINT_MAX */
+  uint               svc_prev;
+  uint               svc_next;
+  ulong              svc_time;  /* service may be delayed until this timestamp */
 
   ulong              our_conn_id;
 
@@ -211,7 +217,6 @@ struct fd_quic_conn {
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
-  ulong                   num_pkt_meta;
   fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
 
   /* flow control */
@@ -266,8 +271,6 @@ struct fd_quic_conn {
      send attempt at the next fd_quic_conn_tx call. */
   ulong rx_limit_pktnum;
 
-  /* next connection in the free list, or in service list */
-  fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
 };

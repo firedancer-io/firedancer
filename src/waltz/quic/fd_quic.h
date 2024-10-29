@@ -138,25 +138,19 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
   int role;
 
-  /* service_interval: time interval in ns for background services
-     (sending ACKs).  Caller should introduce additional jitter in
-     event loop. */
-  /* TODO are there any other duties than ACKs? */
-  ulong service_interval;
-# define FD_QUIC_DEFAULT_SERVICE_INTERVAL (ulong)(50e6) /* 50ms */
-
-  /* ping_interval: inactivity time in ns before sending a
-     ping request to peer. */
-  /* TODO unused for now */
-  ulong ping_interval;
+   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  int retry;
 
   /* idle_timeout: Upper bound on conn idle timeout (ns).
      Also sent to peer via max_idle_timeout transport param.
      If the peer specifies a lower idle timeout, that is used instead. */
   ulong idle_timeout;
+# define FD_QUIC_DEFAULT_IDLE_TIMEOUT (ulong)(1e9) /* 1s */
 
-   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
-  int retry;
+  /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
+     fd_quic to coalesce packet ACKs. */
+  ulong ack_delay;
+# define FD_QUIC_DEFAULT_ACK_DELAY (ulong)(50e6) /* 50ms */
 
   /* ack_threshold: immediately send an ACK when the number of
      unacknowledged stream bytes exceeds this value. */
@@ -529,17 +523,26 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 
 /* fd_quic_get_next_wakeup returns the next requested service time.
    The returned timestamp is relative to a value previously returned by
-   fd_quic_now_t. */
+   fd_quic_now_t.  This is only intended for unit tests. */
 
 FD_QUIC_API ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
-/* fd_quic_service services QUIC conns and housekeeps fd_quic_t internal
-   state.  The user should call service regularly.  Returns 1 if the
-   service call did any work, or 0 otherwise. */
+/* fd_quic_service services the next QUIC connection, including stream
+   transmit ops, ACK transmit, loss timeout, and idle timeout.   The
+   user should call service at high frequency.  Returns 1 if the service
+   call did any work, or 0 otherwise. */
 
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
+
+/* fd_quic_svc_validate checks for violations of service queue and free
+   list invariants, such as cycles in linked lists.  Prints to warning/
+   error log and exits the process if checks fail.  Intended for use in
+   tests. */
+
+void
+fd_quic_svc_validate( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/
 

@@ -142,7 +142,6 @@ fd_quic_conn_new( void *                   mem,
 
   /* store pointer to storage and size */
   conn->pkt_meta_mem = pkt_meta;
-  conn->num_pkt_meta = pkt_meta_cnt;
 
   return conn;
 }

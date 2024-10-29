@@ -294,6 +294,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.quic.max_concurrent_handshakes             );
   CFG_POP      ( uint,   tiles.quic.max_inflight_quic_packets             );
   CFG_POP      ( uint,   tiles.quic.idle_timeout_millis                   );
+  CFG_POP      ( uint,   tiles.quic.ack_delay_millis                      );
   CFG_POP      ( bool,   tiles.quic.retry                                 );
 
   CFG_POP      ( uint,   tiles.verify.receive_buffer_size                 );

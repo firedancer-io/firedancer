@@ -291,8 +291,6 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
 void
 populate_quic_config( fd_quic_config_t * config ) {
   config->role = FD_QUIC_ROLE_CLIENT;
-  config->service_interval = (ulong)1e6;
-  config->ping_interval = (ulong)1e6;
   config->retry = 0;
   config->initial_rx_max_stream_data = 0; /* we don't expect the server to initiate streams */
 

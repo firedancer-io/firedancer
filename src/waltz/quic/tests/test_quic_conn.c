@@ -328,27 +328,17 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  fd_quic_config_t * client_config = &client_quic->config;
-  client_config->idle_timeout = 5e6;
-  client_config->service_interval = 1e6;
-
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_receive   = my_stream_receive_cb;
   client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
-
   client_quic->cb.now     = test_clock;
   client_quic->cb.now_ctx = NULL;
-
-  fd_quic_config_t * server_config = &server_quic->config;
-  server_config->idle_timeout = 5e6;
-  server_config->service_interval = 1e6;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
-
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
 
@@ -377,11 +367,6 @@ main( int argc, char ** argv ) {
   while( k < 4000 && !done ) {
     my_stream_meta_t * meta = NULL;
     now += 50000;
-
-    ulong client_wakeup = fd_quic_get_next_wakeup( client_quic );
-    ulong server_wakeup = fd_quic_get_next_wakeup( server_quic );
-    ulong earliest_wakeup = fd_ulong_min( client_wakeup, server_wakeup );
-    if( earliest_wakeup > now && earliest_wakeup != (ulong)(-1) ) now = earliest_wakeup;
 
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -483,15 +468,6 @@ main( int argc, char ** argv ) {
 
   /* give server connection a chance to close */
   for( int j = 0; j < 1000; ++j ) {
-    ulong next_wakeup = fd_quic_get_next_wakeup( server_quic );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "server has no schedule "));
-      break;
-    }
-
-    now = next_wakeup;
-
     fd_quic_service( server_quic );
   }
 

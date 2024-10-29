@@ -135,8 +135,9 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
-  config->idle_timeout     = (ulong)200e6; /* 200ms */
-  config->service_interval = (ulong) 10e6; /*  10ms */
+  config->idle_timeout     = FD_QUIC_DEFAULT_IDLE_TIMEOUT;
+  config->ack_delay        = FD_QUIC_DEFAULT_ACK_DELAY;
+  config->ack_threshold    = FD_QUIC_DEFAULT_ACK_THRESHOLD;
   config->initial_rx_max_stream_data = FD_TXN_MTU;
   strcpy( config->sni, "local" );
 

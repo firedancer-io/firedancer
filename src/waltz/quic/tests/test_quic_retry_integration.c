@@ -132,18 +132,7 @@ main( int argc, char ** argv ) {
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "client and server have no schedule" ));
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
-    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
+    FD_LOG_INFO(( "running services" ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
@@ -181,18 +170,7 @@ main( int argc, char ** argv ) {
   char buf[512] = "Hello world!\x00-   ";
 
   for( unsigned j = 0; j < 16; ++j ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "client and server have no schedule" ));
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
-    FD_LOG_INFO(( "running services at %lu", (ulong)next_wakeup ));
+    FD_LOG_INFO(( "running services" ));
 
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -218,20 +196,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Waiting for ACKs" ));
 
   for( uint j=0; j<10U; ++j ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      /* indicates no schedule, which is correct after connection
-         instances have been reclaimed */
-      FD_LOG_INFO(( "Finished cleaning up connections" ));
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
-    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
+    FD_LOG_INFO(( "running services" ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
   }
