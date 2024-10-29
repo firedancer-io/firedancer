@@ -172,8 +172,7 @@ void json_values_new(struct json_values* values) {
 
 // Destroy a json_values
 void json_values_delete(struct json_values* values) {
-  if (values->buf != values->buf_init)
-    free(values->buf);
+  (void)values;
 }
 
 // Add a parsed value to a json_values
@@ -192,10 +191,8 @@ void json_add_value(struct json_values* values, struct json_path* path, const vo
     do {
       values->buf_alloc <<= 1;
     } while (new_buf_sz > values->buf_alloc);
-    char* newbuf = (char*)malloc(values->buf_alloc);
+    char* newbuf = (char*)fd_scratch_alloc(1, values->buf_alloc);
     fd_memcpy(newbuf, values->buf, values->buf_sz);
-    if (values->buf != values->buf_init)
-      free(values->buf);
     values->buf = newbuf;
   }
 

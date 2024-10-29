@@ -17,9 +17,9 @@ struct fd_webserver {
 };
 typedef struct fd_webserver fd_webserver_t;
 
-int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_webserver_t * ws, void * cb_arg);
+int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_valloc_t valloc, fd_webserver_t * ws, void * cb_arg);
 
-int fd_webserver_stop(fd_webserver_t * ws);
+int fd_webserver_stop(fd_valloc_t valloc, fd_webserver_t * ws);
 
 void fd_webserver_poll(fd_webserver_t * ws);
 
