@@ -181,11 +181,13 @@ request( fd_http_server_request_t const * request ) {
       fwrite("\n", 1, 1, stdout);
       fflush(stdout);
 #endif
-      json_lex_state_t lex;
-      json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len);
-      json_parse_root(ws, &lex);
-      json_lex_state_delete(&lex);
-      fd_web_reply_flush( ws );
+      FD_SCRATCH_SCOPE_BEGIN {
+        json_lex_state_t lex;
+        json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len);
+        json_parse_root(ws, &lex);
+        json_lex_state_delete(&lex);
+        fd_web_reply_flush( ws );
+      } FD_SCRATCH_SCOPE_END;
     }
 
     fd_http_server_response_t response = {
@@ -282,7 +284,7 @@ void fd_web_ws_send( fd_webserver_t * ws, ulong conn_id ) {
   fd_http_server_ws_send( ws->server, conn_id );
 }
 
-int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_webserver_t * ws, void * cb_arg ) {
+int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_valloc_t valloc, fd_webserver_t * ws, void * cb_arg ) {
   memset(ws, 0, sizeof(fd_webserver_t));
 
   ws->cb_arg = cb_arg;
@@ -296,7 +298,7 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_webser
     .ws_message = ws_message,
   };
 
-  void* server_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  void* server_mem = fd_valloc_malloc( valloc, fd_http_server_align(), fd_http_server_footprint( params ) );
   ws->server = fd_http_server_join( fd_http_server_new( server_mem, params, callbacks, ws ) );
 
   FD_TEST( fd_http_server_listen( ws->server, portno ) != NULL );
@@ -304,8 +306,8 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_webser
   return 0;
 }
 
-int fd_webserver_stop(fd_webserver_t * ws) {
-  free( fd_http_server_delete( fd_http_server_leave( ws->server ) ) );
+int fd_webserver_stop(fd_valloc_t valloc, fd_webserver_t * ws) {
+  fd_valloc_free( valloc, fd_http_server_delete( fd_http_server_leave( ws->server ) ) );
   return 0;
 }
 

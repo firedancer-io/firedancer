@@ -21,8 +21,7 @@ void json_lex_state_new(struct json_lex_state* state,
 }
 
 void json_lex_state_delete(struct json_lex_state* state) {
-  if (state->last_str != state->last_str_firstbuf)
-    free(state->last_str);
+  (void)state;
 }
 
 // Parse a numeric constant
@@ -385,11 +384,9 @@ static char* json_lex_append_prepare(json_lex_state_t* lex, ulong sz) {
       lex->last_str_alloc <<= 1;
     } while (new_sz + 1 > lex->last_str_alloc);
     char* oldstr = lex->last_str;
-    lex->last_str = (char*)malloc(lex->last_str_alloc);
+    lex->last_str = (char*)fd_scratch_alloc(1, lex->last_str_alloc);
     // Copy the old content to the new space
     fd_memcpy(lex->last_str, oldstr, lex->last_str_sz);
-    if (oldstr != lex->last_str_firstbuf)
-      free(oldstr);
   }
   // Stick on a null terminator
   char* res = lex->last_str + lex->last_str_sz;
@@ -432,12 +429,10 @@ void json_lex_sprintf(json_lex_state_t* lex, const char* format, ...) {
   if (r >= 0) {
     if ((ulong)r >= lex->last_str_alloc) {
       /* Try again with more space */
-      if (lex->last_str != lex->last_str_firstbuf)
-        free(lex->last_str);
       do {
         lex->last_str_alloc <<= 1;
       } while ((ulong)r + 1U > lex->last_str_alloc);
-      lex->last_str = (char*)malloc(lex->last_str_alloc);
+      lex->last_str = (char*)fd_scratch_alloc(1, lex->last_str_alloc);
       va_list ap;
       va_start(ap, format);
       r = vsnprintf(lex->last_str, lex->last_str_alloc, format, ap);
