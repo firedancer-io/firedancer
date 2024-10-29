@@ -380,8 +380,11 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   } else {
 
-    /* Lookup host address chunks.  Try to do a standard memcpy if the regions
-       do not cross memory regions. */
+    /* Lookup host address chunks. Try to do a standard memcpy if the regions
+       do not cross memory regions. This syscall doesn't have the same nuance
+       as what is described in memcmp, because the VM will abort as soon as
+       out of bounds memory tries to get written to. Therefore, we don't need
+       to fault early. */
     ulong   dst_region              = dst_vaddr >> 32;
     ulong   dst_offset              = dst_vaddr & 0xffffffffUL;
     ulong   dst_region_idx          = 0UL;
@@ -518,11 +521,54 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     *_ret = 0;
     return FD_VM_SUCCESS;
   } else {
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
+    /* In the case that direct mapping is enabled, the behavior for memcmps
+       differ significantly from the non-dm case. The key difference is that
+       invalid loads will instantly lead to errors in the non-dm case. However,
+       when direct mapping is enabled, we will first try to memcmp the largest
+       size valid chunk first, and will exit successfully if a difference is
+       found without aborting from the VM. A chunk is defined as the largest
+       valid vaddr range in both memory regions that doesn't span multiple
+       regions.
+       
+       Example:
+       fd_vm_syscall_sol_memcmp( vm, m0_addr : 0x4000, m1_vaddr : 0x2000, 0x200, ... );
+       m0's region: m0_addr 0x4000 -> 0x4000 + 0x50  (region sz 0x50)
+       m1's region: m1_addr 0x2000 -> 0x2000 + 0x100 (region sz 0x100)
+       sz: 0x200
 
-    int    out  = 0;
-    /* Lookup host address chunks.  Try to do a standard memcpy if the regions
-       do not cross memory regions. */
+       Case 1: 0x4000 -> 0x4050 does     have the same bytes as 0x2000 -> 0x2050
+       Case 2: 0x4000 -> 0x4050 does NOT have the same bytes as 0x2000 -> 0x2050
+
+       Pre-DM:
+       This will fail out before any bytes are compared because the memory
+       translation is done first.
+
+       Post-DM:
+       For case 1, the memcmp will return an error and the VM will exit because
+       the memcmp will eventually try to access 0x4051 which is invalid. First
+       0x50 bytes are compared, but the next chunk will lead to an invalid
+       access.
+
+       For case 2, the memcmp will first translate the first 0x50 bytes and will
+       see that the bytes are not the same. This will lead to the syscall 
+       exiting out successfully without detecting the access violation.
+
+      https://github.com/anza-xyz/agave/blob/v2.0.10/programs/bpf_loader/src/syscalls/mem_ops.rs#L213
+       */
+
+    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
+    int     out = 0;
+
+    /* Lookup host address chunks. Try to do a standard memcpy if the regions
+       do not cross memory regions. The translation logic is different if the
+       the virtual address region is the input region vs. not. See the comment 
+       in fd_bpf_loader_serialization for more details on how the input
+       region is different from other regions. The input data region will try 
+       to lookup the number of remaining bytes in the specific data region. If 
+       the memory access is not in the input data region, assume the bytes in 
+       the current region are bound by the size of the remaining bytes in the 
+       region. */
+
     ulong   m0_region              = m0_vaddr >> 32;
     ulong   m0_offset              = m0_vaddr & 0xffffffffUL;
     ulong   m0_region_idx          = 0UL;
@@ -532,13 +578,13 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       m0_region_idx          = fd_vm_get_input_mem_region_idx( vm, m0_offset );
       m0_haddr               = (uchar*)(vm->input_mem_regions[ m0_region_idx ].haddr + m0_offset - vm->input_mem_regions[ m0_region_idx ].vaddr_offset);
       m0_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ m0_region_idx ].region_sz,
-                                                                   ((ulong)m0_haddr - vm->input_mem_regions[ m0_region_idx ].haddr) ) );
-      if( FD_UNLIKELY( m0_region_idx+1UL==vm->input_mem_regions_cnt && m0_bytes_in_cur_region<sz ) ) {
-        *_ret = 1;
-        return FD_VM_ERR_ABORT;
-      }
+                                                                        ((ulong)m0_haddr - vm->input_mem_regions[ m0_region_idx ].haddr) ) );
     } else {
-      m0_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+      /* We can safely load a slice of 1 byte here because we know that we will
+         not ever read more than the number of bytes that are left in the
+         region. */
+      m0_bytes_in_cur_region = fd_ulong_min( sz, vm->region_ld_sz[ m0_region ] - m0_offset );
+      m0_haddr               = (uchar *)FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8 );
     }
 
     ulong   m1_region              = m1_vaddr >> 32;
@@ -550,13 +596,10 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       m1_region_idx          = fd_vm_get_input_mem_region_idx( vm, m1_offset );
       m1_haddr               = (uchar*)(vm->input_mem_regions[ m1_region_idx ].haddr + m1_offset - vm->input_mem_regions[ m1_region_idx ].vaddr_offset);
       m1_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ m1_region_idx ].region_sz,
-                                                                   ((ulong)m1_haddr - vm->input_mem_regions[ m1_region_idx ].haddr) ) );
-      if( FD_UNLIKELY( m1_region_idx+1UL==vm->input_mem_regions_cnt && m1_bytes_in_cur_region<sz ) ) {
-        *_ret = 1;
-        return FD_VM_ERR_ABORT;
-      }
+                                                                        ((ulong)m1_haddr - vm->input_mem_regions[ m1_region_idx ].haddr) ) );
     } else {
-      m1_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+      m1_bytes_in_cur_region = fd_ulong_min( sz, vm->region_ld_sz[ m1_region ] - m1_offset );
+      m1_haddr               = (uchar *)FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8 );
     }
 
     /* Case where the operation spans multiple regions. Copy over the bytes
@@ -566,18 +609,20 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     ulong m1_idx = 0UL;
     for( ulong i=0UL; i<sz; i++ ) {
       if( FD_UNLIKELY( !m0_bytes_in_cur_region ) ) {
-        /* Go to next one */
-        if( FD_UNLIKELY( ++m0_region_idx>=vm->input_mem_regions_cnt ) ) {
+        /* If the memory is not in the input region or it is the last input
+           memory region, that means that if we don't exit now we will have
+           an access violation. */
+        if( FD_UNLIKELY( m0_region!=4UL || ++m0_region_idx>=vm->input_mem_regions_cnt ) ) {
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
+        /* Otherwise, query the next input region. */
         m0_haddr = (uchar*)vm->input_mem_regions[ m0_region_idx ].haddr;
         m0_idx = 0UL;
         m0_bytes_in_cur_region = vm->input_mem_regions[ m0_region_idx ].region_sz;
       }
       if( FD_UNLIKELY( !m1_bytes_in_cur_region ) ) {
-        /* Go to next one */
-        if( FD_UNLIKELY( ++m1_region_idx>=vm->input_mem_regions_cnt ) ) {
+        if( FD_UNLIKELY( m1_region!=4UL || ++m1_region_idx>=vm->input_mem_regions_cnt ) ) {
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
@@ -626,7 +671,10 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     fd_memset( dst, b, sz );
   } else {
     /* Syscall manages the pointer accesses directly and will report in the 
-       case of bad memory accesses. */
+       case of bad memory accesses. This syscall doesn't have the same nuance
+       as what is described in memcmp, because the VM will abort as soon as
+       out of bounds memory tries to get written to. Therefore, we don't need
+       to fault early. */
     ulong sz_left              = sz;
     ulong dst_offset           = dst_vaddr & 0xffffffffUL;
     ulong region_idx           = fd_vm_get_input_mem_region_idx( vm, dst_offset );
@@ -686,8 +734,11 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
       memmove( dst, src, sz );
     }
   } else {
-    /* Lookup host address chunks.  Try to do a standard memcpy if the regions
-       do not cross memory regions. */
+    /* Lookup host address chunks. Try to do a standard memcpy if the regions
+       do not cross memory regions. This syscall doesn't have the same nuance
+       as what is described in memcmp, because the VM will abort as soon as
+       out of bounds memory tries to get written to. Therefore, we don't need
+       to fault early. */
     ulong   dst_region              = dst_vaddr >> 32;
     ulong   dst_offset              = dst_vaddr & 0xffffffffUL;
     ulong   dst_region_idx          = 0UL;
