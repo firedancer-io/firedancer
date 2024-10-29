@@ -113,7 +113,7 @@ fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
 }
 
 void
-fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, 
+fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
                              fd_exec_epoch_ctx_t * prev,
                              fd_spad_t *           runtime_spad );
 

@@ -51,18 +51,88 @@ typedef struct fd_exec_test_acct_state {
     fd_exec_test_seed_address_t seed_addr;
 } fd_exec_test_acct_state_t;
 
+typedef struct fd_exec_test_vote_account {
+    /* Account state of the vote account */
+    bool has_vote_account;
+    fd_exec_test_acct_state_t vote_account;
+    /* How much stake has been delegated to this account */
+    uint64_t stake;
+} fd_exec_test_vote_account_t;
+
+typedef struct fd_exec_test_stake_account {
+    /* Pubkey of the stake account */
+    pb_byte_t stake_account_pubkey[32];
+    /* The voter pubkey whom this stake account delegated to */
+    pb_byte_t voter_pubkey[32];
+    /* Other fields */
+    uint64_t stake;
+    uint64_t activation_epoch;
+    uint64_t deactivation_epoch;
+    double warmup_cooldown_rate;
+} fd_exec_test_stake_account_t;
+
+/* Epoch bank inflation parameters */
+typedef struct fd_exec_test_inflation {
+    double initial;
+    double terminal;
+    double taper;
+    double foundation;
+    double foundation_term;
+} fd_exec_test_inflation_t;
+
 /* EpochContext includes context scoped to an epoch.
  On "real" ledgers, it is created during the epoch boundary. */
 typedef struct fd_exec_test_epoch_context {
+    /* Active feature set */
     bool has_features;
     fd_exec_test_feature_set_t features;
+    /* Hashes per tick */
+    uint64_t hashes_per_tick;
+    /* Ticks per slot */
+    uint64_t ticks_per_slot;
+    /* Slots per year */
+    double slots_per_year;
+    /* Inflation */
+    bool has_inflation;
+    fd_exec_test_inflation_t inflation;
+    /* Genesis creation time */
+    uint64_t genesis_creation_time;
+    /* New stake accounts for this running epoch */
+    pb_size_t new_stake_accounts_count;
+    pb_bytes_array_t **new_stake_accounts;
+    /* Epoch stakes for epoch T */
+    pb_size_t stake_accounts_count;
+    struct fd_exec_test_stake_account *stake_accounts;
+    /* New vote accounts for this running epoch */
+    pb_size_t new_vote_accounts_count;
+    pb_bytes_array_t **new_vote_accounts;
+    /* Epoch vote accounts for epochs [T-2, T] */
+    pb_size_t vote_accounts_t_count;
+    struct fd_exec_test_vote_account *vote_accounts_t;
+    pb_size_t vote_accounts_t_1_count;
+    struct fd_exec_test_vote_account *vote_accounts_t_1;
+    pb_size_t vote_accounts_t_2_count;
+    struct fd_exec_test_vote_account *vote_accounts_t_2;
 } fd_exec_test_epoch_context_t;
 
 /* SlotContext includes context scoped to a block.
  On "real" ledgers, it is created during the slot boundary. */
 typedef struct fd_exec_test_slot_context {
-    /* Slot number */
+    /* Current slot number */
     uint64_t slot;
+    uint64_t block_height;
+    /* POH hash */
+    pb_byte_t poh[32];
+    /* Parent bank hash */
+    pb_byte_t parent_bank_hash[32];
+    /* Parent LT hash */
+    pb_byte_t parent_lt_hash[2048];
+    /* The last executed slot */
+    uint64_t prev_slot;
+    /* Last slot lamports per signature */
+    uint64_t prev_lps;
+    /* Previous epoch's capitalization */
+    uint64_t prev_epoch_capitalization;
 } fd_exec_test_slot_context_t;
 
 
@@ -74,13 +144,19 @@ extern "C" {
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT   {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0}
+#define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_DEFAULT  {{0}, {0}, 0, 0, 0, 0}
+#define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0}
+#define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
+#define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_ZERO     {{0}, {0}, 0, 0, 0, 0}
+#define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -94,8 +170,39 @@ extern "C" {
 #define FD_EXEC_TEST_ACCT_STATE_RENT_EPOCH_TAG   5
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
 #define FD_EXEC_TEST_ACCT_STATE_SEED_ADDR_TAG    7
+#define FD_EXEC_TEST_VOTE_ACCOUNT_VOTE_ACCOUNT_TAG 1
+#define FD_EXEC_TEST_VOTE_ACCOUNT_STAKE_TAG      2
+#define FD_EXEC_TEST_STAKE_ACCOUNT_STAKE_ACCOUNT_PUBKEY_TAG 1
+#define FD_EXEC_TEST_STAKE_ACCOUNT_VOTER_PUBKEY_TAG 2
+#define FD_EXEC_TEST_STAKE_ACCOUNT_STAKE_TAG     3
+#define FD_EXEC_TEST_STAKE_ACCOUNT_ACTIVATION_EPOCH_TAG 4
+#define FD_EXEC_TEST_STAKE_ACCOUNT_DEACTIVATION_EPOCH_TAG 5
+#define FD_EXEC_TEST_STAKE_ACCOUNT_WARMUP_COOLDOWN_RATE_TAG 6
+#define FD_EXEC_TEST_INFLATION_INITIAL_TAG       1
+#define FD_EXEC_TEST_INFLATION_TERMINAL_TAG      2
+#define FD_EXEC_TEST_INFLATION_TAPER_TAG         3
+#define FD_EXEC_TEST_INFLATION_FOUNDATION_TAG    4
+#define FD_EXEC_TEST_INFLATION_FOUNDATION_TERM_TAG 5
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FEATURES_TAG  1
+#define FD_EXEC_TEST_EPOCH_CONTEXT_HASHES_PER_TICK_TAG 2
+#define FD_EXEC_TEST_EPOCH_CONTEXT_TICKS_PER_SLOT_TAG 3
+#define FD_EXEC_TEST_EPOCH_CONTEXT_SLOTS_PER_YEAR_TAG 4
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INFLATION_TAG 5
+#define FD_EXEC_TEST_EPOCH_CONTEXT_GENESIS_CREATION_TIME_TAG 6
+#define FD_EXEC_TEST_EPOCH_CONTEXT_NEW_STAKE_ACCOUNTS_TAG 7
+#define FD_EXEC_TEST_EPOCH_CONTEXT_STAKE_ACCOUNTS_TAG 8
+#define FD_EXEC_TEST_EPOCH_CONTEXT_NEW_VOTE_ACCOUNTS_TAG 9
+#define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_TAG 10
+#define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_1_TAG 11
+#define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_2_TAG 12
 #define FD_EXEC_TEST_SLOT_CONTEXT_SLOT_TAG       1
+#define FD_EXEC_TEST_SLOT_CONTEXT_BLOCK_HEIGHT_TAG 2
+#define FD_EXEC_TEST_SLOT_CONTEXT_POH_TAG        3
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_BANK_HASH_TAG 4
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_LT_HASH_TAG 5
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  6
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   7
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_EPOCH_CAPITALIZATION_TAG 8
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDLIST(X, a) \
@@ -122,20 +229,72 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7)
 #define FD_EXEC_TEST_ACCT_STATE_DEFAULT NULL
 #define fd_exec_test_acct_state_t_seed_addr_MSGTYPE fd_exec_test_seed_address_t
 
+#define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  vote_account,      1) \
+X(a, STATIC,   SINGULAR, UINT64,   stake,             2)
+#define FD_EXEC_TEST_VOTE_ACCOUNT_CALLBACK NULL
+#define FD_EXEC_TEST_VOTE_ACCOUNT_DEFAULT NULL
+#define fd_exec_test_vote_account_t_vote_account_MSGTYPE fd_exec_test_acct_state_t
+
+#define FD_EXEC_TEST_STAKE_ACCOUNT_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, stake_account_pubkey,   1) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, voter_pubkey,      2) \
+X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
+X(a, STATIC,   SINGULAR, UINT64,   activation_epoch,   4) \
+X(a, STATIC,   SINGULAR, UINT64,   deactivation_epoch,   5) \
+X(a, STATIC,   SINGULAR, DOUBLE,   warmup_cooldown_rate,   6)
+#define FD_EXEC_TEST_STAKE_ACCOUNT_CALLBACK NULL
+#define FD_EXEC_TEST_STAKE_ACCOUNT_DEFAULT NULL
+
+#define FD_EXEC_TEST_INFLATION_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, DOUBLE,   initial,           1) \
+X(a, STATIC,   SINGULAR, DOUBLE,   terminal,          2) \
+X(a, STATIC,   SINGULAR, DOUBLE,   taper,             3) \
+X(a, STATIC,   SINGULAR, DOUBLE,   foundation,        4) \
+X(a, STATIC,   SINGULAR, DOUBLE,   foundation_term,   5)
+#define FD_EXEC_TEST_INFLATION_CALLBACK NULL
+#define FD_EXEC_TEST_INFLATION_DEFAULT NULL
+
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1)
+X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1) \
+X(a, STATIC,   SINGULAR, UINT64,   hashes_per_tick,   2) \
+X(a, STATIC,   SINGULAR, UINT64,   ticks_per_slot,    3) \
+X(a, STATIC,   SINGULAR, DOUBLE,   slots_per_year,    4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  inflation,         5) \
+X(a, STATIC,   SINGULAR, UINT64,   genesis_creation_time,   6) \
+X(a, POINTER,  REPEATED, BYTES,    new_stake_accounts,   7) \
+X(a, POINTER,  REPEATED, MESSAGE,  stake_accounts,    8) \
+X(a, POINTER,  REPEATED, BYTES,    new_vote_accounts,   9) \
+X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t,  10) \
+X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_1,  11) \
+X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_2,  12)
 #define FD_EXEC_TEST_EPOCH_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_EPOCH_CONTEXT_DEFAULT NULL
 #define fd_exec_test_epoch_context_t_features_MSGTYPE fd_exec_test_feature_set_t
+#define fd_exec_test_epoch_context_t_inflation_MSGTYPE fd_exec_test_inflation_t
+#define fd_exec_test_epoch_context_t_stake_accounts_MSGTYPE fd_exec_test_stake_account_t
+#define fd_exec_test_epoch_context_t_vote_accounts_t_MSGTYPE fd_exec_test_vote_account_t
+#define fd_exec_test_epoch_context_t_vote_accounts_t_1_MSGTYPE fd_exec_test_vote_account_t
+#define fd_exec_test_epoch_context_t_vote_accounts_t_2_MSGTYPE fd_exec_test_vote_account_t
 
 #define FD_EXEC_TEST_SLOT_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED64,  slot,              1)
+X(a, STATIC,   SINGULAR, FIXED64,  slot,              1) \
+X(a, STATIC,   SINGULAR, FIXED64,  block_height,      2) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, poh,               3) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,   4) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lt_hash,    5) \
+X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         6) \
+X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          7) \
+X(a, STATIC,   SINGULAR, UINT64,   prev_epoch_capitalization,   8)
 #define FD_EXEC_TEST_SLOT_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_SLOT_CONTEXT_DEFAULT NULL
 
 extern const pb_msgdesc_t fd_exec_test_feature_set_t_msg;
 extern const pb_msgdesc_t fd_exec_test_seed_address_t_msg;
 extern const pb_msgdesc_t fd_exec_test_acct_state_t_msg;
+extern const pb_msgdesc_t fd_exec_test_vote_account_t_msg;
+extern const pb_msgdesc_t fd_exec_test_stake_account_t_msg;
+extern const pb_msgdesc_t fd_exec_test_inflation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_epoch_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 
@@ -143,6 +302,9 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define FD_EXEC_TEST_FEATURE_SET_FIELDS &fd_exec_test_feature_set_t_msg
 #define FD_EXEC_TEST_SEED_ADDRESS_FIELDS &fd_exec_test_seed_address_t_msg
 #define FD_EXEC_TEST_ACCT_STATE_FIELDS &fd_exec_test_acct_state_t_msg
+#define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDS &fd_exec_test_vote_account_t_msg
+#define FD_EXEC_TEST_STAKE_ACCOUNT_FIELDS &fd_exec_test_stake_account_t_msg
+#define FD_EXEC_TEST_INFLATION_FIELDS &fd_exec_test_inflation_t_msg
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDS &fd_exec_test_epoch_context_t_msg
 #define FD_EXEC_TEST_SLOT_CONTEXT_FIELDS &fd_exec_test_slot_context_t_msg
 
@@ -150,24 +312,36 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 /* fd_exec_test_FeatureSet_size depends on runtime parameters */
 /* fd_exec_test_SeedAddress_size depends on runtime parameters */
 /* fd_exec_test_AcctState_size depends on runtime parameters */
+/* fd_exec_test_VoteAccount_size depends on runtime parameters */
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           9
+#define FD_EXEC_TEST_INFLATION_SIZE              45
+#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2168
+#define FD_EXEC_TEST_STAKE_ACCOUNT_SIZE          110
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_FeatureSet fd_exec_test_FeatureSet
 #define org_solana_sealevel_v1_SeedAddress fd_exec_test_SeedAddress
 #define org_solana_sealevel_v1_AcctState fd_exec_test_AcctState
+#define org_solana_sealevel_v1_VoteAccount fd_exec_test_VoteAccount
+#define org_solana_sealevel_v1_StakeAccount fd_exec_test_StakeAccount
+#define org_solana_sealevel_v1_Inflation fd_exec_test_Inflation
 #define org_solana_sealevel_v1_EpochContext fd_exec_test_EpochContext
 #define org_solana_sealevel_v1_SlotContext fd_exec_test_SlotContext
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_DEFAULT FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SEED_ADDRESS_INIT_DEFAULT FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_DEFAULT FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_STAKE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_STAKE_ACCOUNT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_DEFAULT FD_EXEC_TEST_INFLATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_ZERO FD_EXEC_TEST_FEATURE_SET_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SEED_ADDRESS_INIT_ZERO FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_ZERO FD_EXEC_TEST_ACCT_STATE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_STAKE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_STAKE_ACCOUNT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_ZERO FD_EXEC_TEST_INFLATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_ZERO FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_ZERO FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO
 

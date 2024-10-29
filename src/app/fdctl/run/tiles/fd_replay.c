@@ -1310,13 +1310,11 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx,
-                                                                                                 ctx->tpool,
-                                                                                                 ctx->exec_spads,
-                                                                                                 ctx->exec_spad_cnt,
-                                                                                                 ctx->runtime_spad ) ) ) {
-    FD_LOG_ERR(( "couldn't process new epoch" ));
-  }
+  fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx,
+                                                  ctx->tpool,
+                                                  ctx->exec_spads,
+                                                  ctx->exec_spad_cnt,
+                                                  ctx->runtime_spad );
 
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
@@ -1327,9 +1325,10 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
      an epoch). We pop a frame when rewards are done being distributed. */
   fd_spad_push( ctx->runtime_spad );
 
-  int res = fd_runtime_block_execute_prepare( &fork->slot_ctx, ctx->runtime_spad );
+  fd_runtime_block_execute_prepare( &fork->slot_ctx );
+  int res = fd_runtime_sysvar_cache_update( &fork->slot_ctx, ctx->runtime_spad );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    FD_LOG_ERR(( "block prep execute failed" ));
+    FD_LOG_ERR(( "block sysvar cache update failed" ));
   }
 
   /* Read slot history into slot ctx */
@@ -2304,7 +2303,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
       fd_sha256_hash( ctx->slot_ctx->slot_bank.poh.uc, 32UL, ctx->slot_ctx->slot_bank.poh.uc );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
+    fd_runtime_block_execute_prepare( ctx->slot_ctx );
+    FD_TEST( fd_runtime_sysvar_cache_update( ctx->slot_ctx, ctx->runtime_spad )==0 );
     fd_block_info_t info = {.signature_cnt = 0 };
     FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx,
                                                       NULL,
