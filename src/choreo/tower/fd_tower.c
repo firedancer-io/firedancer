@@ -787,7 +787,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
         int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
         if( FD_UNLIKELY( !finalized ) ) {
           double pct = (double)node->rooted_stake / (double)ghost->total_stake;
-          if( FD_UNLIKELY( pct > FD_SMR_PCT ) ) {
+          if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
             ulong smr = block_map_entry->slot;
             FD_LOG_NOTICE(( "finalizing %lu", block_map_entry->slot ));
             fd_block_map_t * ancestor = block_map_entry;
