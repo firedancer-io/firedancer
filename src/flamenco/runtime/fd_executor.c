@@ -269,21 +269,26 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275 */
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/verify_precompiles.rs#L11-L34 */
 int
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort                 instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
   fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+  int                    err       = 0;
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t  const * instr      = &txn_ctx->txn_descriptor->instr[i];
     fd_acct_addr_t  const * program_id = tx_accs + instr->program_id;
     if( !memcmp( program_id, &fd_solana_ed25519_sig_verify_program_id, sizeof(fd_pubkey_t) ) ) {
-      if( FD_UNLIKELY( fd_precompile_ed25519_verify( txn_ctx, instr ) ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX;
+      err = fd_precompile_ed25519_verify( txn_ctx, instr );
+      if( FD_UNLIKELY( err ) ) {
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
+        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
     } else if( !memcmp( program_id, &fd_solana_keccak_secp_256k_program_id, sizeof(fd_pubkey_t) )) {
-      if( FD_UNLIKELY( fd_precompile_secp256k1_verify( txn_ctx, instr ) ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX;
+      err = fd_precompile_secp256k1_verify( txn_ctx, instr );
+      if( FD_UNLIKELY( err ) ) {
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
+        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
     }
   }

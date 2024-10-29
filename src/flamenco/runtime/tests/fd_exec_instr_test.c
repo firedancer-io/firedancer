@@ -1468,6 +1468,16 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       if( exec_res == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
         txn_result->instruction_error = (uint32_t) -task_info->txn_ctx->exec_err;
         txn_result->instruction_error_index = (uint32_t) task_info->txn_ctx->instr_err_idx;
+
+        /* 
+        TODO: precompile error codes are not conformant, so we're ignoring custom error codes for them for now. This should be revisited in the future. 
+        For now, only precompiles throw custom error codes, so we can ignore all custom error codes thrown in the sanitization phase. If this changes,
+        this logic will have to be revisited.
+
+        if( task_info->txn_ctx->exec_err == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+          txn_result->custom_error = txn_ctx->custom_err;
+        } 
+        */
       }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
       _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
