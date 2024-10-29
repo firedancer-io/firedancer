@@ -141,6 +141,7 @@ test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
   FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+1UL );
   FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            1UL );
   FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+1UL );
+  FD_TEST( sandbox->quic->metrics.frame_rx_cnt[6]     == window_cnt+1UL );
   FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt     );
 
   /* Send data on a closed stream.  Frame should be ignored */
