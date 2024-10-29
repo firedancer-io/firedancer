@@ -219,8 +219,6 @@ after_frag( fd_store_tile_ctx_t * ctx,
   (void)tsorig;
   (void)stem;
 
-  ctx->store->now = fd_log_wallclock();
-
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     return;
@@ -314,7 +312,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         // FD_LOG_WARNING(("CONTINUE: %lu", root));
         fd_store_set_root( ctx->store, root );
       }
-      ctx->store->now = fd_log_wallclock();
       break;
     }
     case FD_STORE_SLOT_PREPARE_NEED_PARENT_EXEC: {
@@ -472,8 +469,6 @@ after_credit( fd_store_tile_ctx_t * ctx,
   fd_mcache_seq_update( ctx->replay_out_sync, ctx->replay_out_seq );
   fd_mcache_seq_update( ctx->repair_req_out_sync, ctx->repair_req_out_seq );
 
-  ctx->store->now = fd_log_wallclock();
-
   if( FD_UNLIKELY( ctx->sim &&
                    ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
     FD_LOG_ERR( ( "Sim is complete." ) );
@@ -496,6 +491,11 @@ after_credit( fd_store_tile_ctx_t * ctx,
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
   }
+}
+
+static inline void
+during_housekeeping( fd_store_tile_ctx_t * ctx ) {
+  ctx->store->now = fd_log_wallclock();
 }
 
 static void
@@ -741,9 +741,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_store_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_store_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../../../disco/stem/fd_stem.c"
 
