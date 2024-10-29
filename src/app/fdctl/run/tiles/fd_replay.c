@@ -1295,9 +1295,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx ) ) ) {
-    FD_LOG_ERR(( "couldn't process new epoch" ));
-  }
+  fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx );
 
   fd_blockstore_start_read( ctx->blockstore );
   fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, curr_slot );

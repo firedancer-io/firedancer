@@ -11,6 +11,7 @@
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"
 #include "generated/vm.pb.h"
+#include "generated/block.pb.h"
 #include "../../../funk/fd_funk.h"
 #include "../../vm/fd_vm.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
@@ -102,6 +103,22 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
                       void **                       output_,
                       void *                        output_buf,
                       ulong                         output_bufsz );
+
+/* 
+   Executes several transactions within a single slot. A few things to know when using this harness...
+   - Any sysvars provided will override any initial values set from `fd_runtime_init_program`
+   - This does not test sigverify
+   - Epoch boundaries are NOT tested
+   - Tested Firedancer code is `fd_runtime_block_execute_tpool`
+   - Associated entrypoint tested in Agave is `confirm_slot_entries` (except sigverify is removed and verify_ticks is included) 
+   - (idk about this yet) Recent blockhashes sysvar account must NOT be provided in the input account states. Instead, the sysvar is populated through the input blockhash queue.
+*/
+ulong
+fd_exec_block_test_run( fd_exec_instr_test_runner_t * runner,
+                        void const *                  input_,
+                        void **                       output_,
+                        void *                        output_buf,
+                        ulong                         output_bufsz );
 
 /* Loads an ELF binary (in input->elf.data()). 
    output_buf points to a memory region of output_bufsz bytes where the

@@ -33,6 +33,9 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
 
   /* Transaction Capture */
   int                      dump_txn_to_pb;
+
+  /* Block Capture */
+  int                      dump_block_to_pb;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )

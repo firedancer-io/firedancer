@@ -1,5 +1,5 @@
-$(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/vm.pb.h,generated/shred.pb.h generated/metadata.pb.h generated/pack.pb.h)
-$(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/vm.pb generated/shred.pb generated/metadata.pb generated/pack.pb,fd_flamenco)
+$(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/block.pb.h,generated/vm.pb.h,generated/shred.pb.h generated/metadata.pb.h generated/pack.pb.h)
+$(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/shred.pb generated/metadata.pb generated/pack.pb,fd_flamenco)
 
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
