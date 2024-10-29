@@ -48,8 +48,8 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
 
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
-                      fd_exec_slot_ctx_t *    slot_ctx  ) {
+fd_sysvar_clock_read( fd_sol_sysvar_clock_t *    result,
+                      fd_exec_slot_ctx_t const * slot_ctx  ) {
   fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( slot_ctx->sysvar_cache );
   if( NULL != ret ) {
     fd_memcpy(result, ret, sizeof(fd_sol_sysvar_clock_t));

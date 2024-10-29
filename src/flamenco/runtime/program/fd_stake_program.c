@@ -183,7 +183,7 @@ set_state( fd_exec_instr_ctx_t const * ctx,
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/lib.rs#L29
 static inline ulong
-get_minimum_delegation( fd_exec_slot_ctx_t * slot_ctx /* feature set */ ) {
+get_minimum_delegation( fd_exec_slot_ctx_t const * slot_ctx /* feature set */ ) {
   return fd_ulong_if( FD_FEATURE_ACTIVE( slot_ctx, stake_raise_minimum_delegation_to_1_sol ),
                       MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL,
                       1 );
@@ -215,7 +215,7 @@ typedef struct validated_delegated_info validated_delegated_info_t;
 static int
 validate_delegated_amount( fd_borrowed_account_t *      account,
                            fd_stake_meta_t const *      meta,
-                           fd_exec_slot_ctx_t *         slot_ctx,
+                           fd_exec_slot_ctx_t const *   slot_ctx,
                            validated_delegated_info_t * out,
                            uint *                       custom_err ) {
   ulong stake_amount = fd_ulong_sat_sub( account->const_meta->info.lamports, meta->rent_exempt_reserve );

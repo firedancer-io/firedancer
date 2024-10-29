@@ -1086,6 +1086,14 @@ fd_txn_prep_and_exec_task( void  *tpool,
     FD_COMPILER_MFENCE();
   }
 
+  curr = slot_ctx->slot_bank.collected_rent;
+  FD_COMPILER_MFENCE();
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_rent, curr, curr + task_info->txn_ctx->collected_rent ) != curr ) ) {
+    FD_SPIN_PAUSE();
+    curr = slot_ctx->slot_bank.collected_rent;
+    FD_COMPILER_MFENCE();
+  }
+
   // fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
 }
@@ -1167,6 +1175,14 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_priority_fees, curr, curr + task_info->txn_ctx->priority_fee ) != curr ) ) {
     FD_SPIN_PAUSE();
     curr = slot_ctx->slot_bank.collected_priority_fees;
+    FD_COMPILER_MFENCE();
+  }
+
+  curr = slot_ctx->slot_bank.collected_rent;
+  FD_COMPILER_MFENCE();
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_rent, curr, curr + task_info->txn_ctx->collected_rent ) != curr ) ) {
+    FD_SPIN_PAUSE();
+    curr = slot_ctx->slot_bank.collected_rent;
     FD_COMPILER_MFENCE();
   }
 
@@ -3191,7 +3207,9 @@ fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
 #define FD_RENT_EXEMPT (-1L)
 
 static long
-fd_runtime_get_rent_due( fd_exec_slot_ctx_t * slot_ctx, fd_account_meta_t * acc, ulong epoch ) {
+fd_runtime_get_rent_due( fd_exec_slot_ctx_t const * slot_ctx,
+                         fd_account_meta_t *        acc,
+                         ulong                      epoch ) {
 
   fd_epoch_bank_t     * epoch_bank     = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t * schedule       = &epoch_bank->rent_epoch_schedule;
@@ -3237,11 +3255,13 @@ fd_runtime_get_rent_due( fd_exec_slot_ctx_t * slot_ctx, fd_account_meta_t * acc,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L117-149 */
-void
-fd_runtime_collect_from_existing_account( fd_exec_slot_ctx_t * slot_ctx,
-                                          fd_account_meta_t  * acc,
-                                          fd_pubkey_t const  * pubkey,
-                                          ulong                epoch ) {
+/* Collect rent from an account. Returns the amount of rent collected. */
+ulong
+fd_runtime_collect_from_existing_account( fd_exec_slot_ctx_t const * slot_ctx,
+                                          fd_account_meta_t *        acc,
+                                          fd_pubkey_t const *        pubkey,
+                                          ulong                      epoch ) {
+  ulong collected_rent = 0UL;
   #define NO_RENT_COLLECTION_NOW (-1)
   #define EXEMPT                 (-2)
   #define COLLECT_RENT           (-3)
@@ -3287,17 +3307,18 @@ fd_runtime_collect_from_existing_account( fd_exec_slot_ctx_t * slot_ctx,
     case COLLECT_RENT:
       if( FD_UNLIKELY( (ulong)rent_due>=acc->info.lamports ) ) {
         /* Reclaim account */
-        slot_ctx->slot_bank.collected_rent += (ulong)acc->info.lamports;
+        collected_rent += (ulong)acc->info.lamports;
         acc->info.lamports                  = 0UL;
         acc->dlen                           = 0UL;
         fd_memset( acc->info.owner, 0, sizeof(acc->info.owner) );
       } else {
-        slot_ctx->slot_bank.collected_rent += (ulong)rent_due;
+        collected_rent += (ulong)rent_due;
         acc->info.lamports                 -= (ulong)rent_due;
         acc->info.rent_epoch                = epoch+1UL;
       }
   }
 
+  return collected_rent;
 
   #undef NO_RENT_COLLECTION_NOW
   #undef EXEMPT
@@ -3308,24 +3329,23 @@ fd_runtime_collect_from_existing_account( fd_exec_slot_ctx_t * slot_ctx,
    Although the Solana runtime prevents the creation of new accounts
    that are subject to rent, some older accounts are still undergo the
    rent collection process.  Updates the account's 'rent_epoch' if
-   needed. Returns 1 if the account was changed, and 0 if it is
-   unchanged. */
+   needed. Returns the amount of rent collected. */
 /* https://github.com/anza-xyz/agave/blob/v2.0.10/svm/src/account_loader.rs#L71-96 */
-int
-fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t *  slot_ctx,
-                                      fd_account_meta_t  *  acc,
-                                      fd_pubkey_t const  *  key,
-                                      ulong                 epoch ) {
+ulong
+fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
+                                      fd_account_meta_t *        acc,
+                                      fd_pubkey_t const *        key,
+                                      ulong                      epoch ) {
 
   if( !FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
-    fd_runtime_collect_from_existing_account( slot_ctx, acc, key, epoch );
+    return fd_runtime_collect_from_existing_account( slot_ctx, acc, key, epoch );
   } else {
     if( FD_UNLIKELY( acc->info.rent_epoch!=FD_RENT_EXEMPT_RENT_EPOCH &&
                      fd_runtime_get_rent_due( slot_ctx, acc, epoch )==FD_RENT_EXEMPT ) ) {
       acc->info.rent_epoch = ULONG_MAX;
     }
   }
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return 0UL;
 }
 
 static void
@@ -3377,7 +3397,7 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
     }
 
     /* Actually invoke rent collection */
-    fd_runtime_collect_rent_from_account( slot_ctx, rec->meta, key, epoch );
+    slot_ctx->slot_bank.collected_rent += fd_runtime_collect_rent_from_account( slot_ctx, rec->meta, key, epoch );
   }
 }
 

@@ -50,8 +50,8 @@ write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
-                               fd_exec_slot_ctx_t  * slot_ctx ) {
+fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *      result,
+                               fd_exec_slot_ctx_t const * slot_ctx ) {
   fd_epoch_schedule_t const * ret = fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_epoch_schedule_t));

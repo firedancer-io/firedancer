@@ -496,10 +496,10 @@ It determines if the given program_id is authorized to execute a CPI call.
 FIXME: return type
  */
 static inline ulong
-fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
-                          fd_exec_slot_ctx_t * slot_ctx,
-                          uchar const *        instruction_data,
-                          ulong                instruction_data_len ) {
+fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_id,
+                                            fd_exec_slot_ctx_t const * slot_ctx,
+                                            uchar const *              instruction_data,
+                                            ulong                      instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
   return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key)
             || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key)

@@ -230,11 +230,11 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_block_info_t const * block_info,
                                          fd_tpool_t * tpool );
 
-int
-fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t * slot_ctx,
-                                      fd_account_meta_t  * acc,
-                                      fd_pubkey_t const  * key,
-                                      ulong                epoch );
+ulong
+fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
+                                      fd_account_meta_t  *       acc,
+                                      fd_pubkey_t const  *       key,
+                                      ulong                      epoch );
 
 void
 fd_runtime_execute_txn( fd_execute_txn_task_info_t * task_info );

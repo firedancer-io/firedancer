@@ -19,8 +19,8 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
 }
 
 fd_sysvar_fees_t *
-fd_sysvar_fees_read( fd_sysvar_fees_t * result,
-                     fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_fees_read( fd_sysvar_fees_t *         result,
+                     fd_exec_slot_ctx_t const * slot_ctx ) {
   fd_sysvar_fees_t const * ret = fd_sysvar_cache_fees( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sysvar_fees_t));
