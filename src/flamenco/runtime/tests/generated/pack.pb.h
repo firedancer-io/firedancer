@@ -6,6 +6,7 @@
 
 #include "../../../nanopb/pb_firedancer.h"
 #include "metadata.pb.h"
+#include "context.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -15,6 +16,8 @@
 typedef struct fd_exec_test_pack_compute_budget_context {
     pb_size_t instr_datas_count;
     pb_bytes_array_t **instr_datas;
+    bool has_features;
+    fd_exec_test_feature_set_t features;
 } fd_exec_test_pack_compute_budget_context_t;
 
 typedef struct fd_exec_test_pack_compute_budget_effects {
@@ -41,15 +44,16 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INIT_DEFAULT {0, NULL}
+#define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INIT_DEFAULT {0, NULL, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_INIT_DEFAULT}
-#define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INIT_ZERO {0, NULL}
+#define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INIT_ZERO {0, NULL, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_INSTR_DATAS_TAG 1
+#define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_FEATURES_TAG 2
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_COMPUTE_UNIT_LIMIT_TAG 1
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_REWARDS_TAG 2
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_HEAP_SZ_TAG 3
@@ -61,9 +65,11 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, BYTES,    instr_datas,       1)
+X(a, POINTER,  REPEATED, BYTES,    instr_datas,       1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  features,          2)
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_CONTEXT_DEFAULT NULL
+#define fd_exec_test_pack_compute_budget_context_t_features_MSGTYPE fd_exec_test_feature_set_t
 
 #define FD_EXEC_TEST_PACK_COMPUTE_BUDGET_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT64,   compute_unit_limit,   1) \
