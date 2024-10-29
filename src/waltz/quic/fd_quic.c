@@ -1217,22 +1217,14 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* Initial packets have explicitly encoded conn ID lengths. */
-
-  if( FD_UNLIKELY( ( initial->src_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) |
-                   ( initial->dst_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "Bogus conn ID length" )) );
-    return FD_QUIC_PARSE_FAIL;
-  }
-
   /* Do we have a conn object for this dest conn ID?
      If not, allocate one. */
 
   if( FD_UNLIKELY( !conn ) ) {
     if( quic->config.role==FD_QUIC_ROLE_SERVER ) {
-      /* According to RFC 9000 Section 14.1, INITIAL packets less than the
-         a certain length must be discarded, and the connection may be
-         closed.  (Mitigates UDP amplification) */
+      /* According to RFC 9000 Section 14.1, INITIAL packets less than a certain length
+         must be discarded, and the connection may be closed.  (Mitigates UDP
+         amplification) */
 
       if( pkt->datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN ) {
         /* can't trust the included values, so can't reply */
@@ -1591,11 +1583,6 @@ fd_quic_handle_v1_handshake(
   fd_quic_handshake_t handshake[1];
   ulong rc = fd_quic_decode_handshake( handshake, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
-
-  if( FD_UNLIKELY( ( handshake->src_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) |
-                   ( handshake->dst_conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
 
   /* check bounds on handshake */
 
