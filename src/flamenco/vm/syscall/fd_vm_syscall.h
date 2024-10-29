@@ -784,6 +784,7 @@ FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
 int
 fd_vm_derive_pda( fd_vm_t *           vm,
                   fd_pubkey_t const * program_id,
+                  ulong               program_id_vaddr,
                   ulong               seeds_vaddr,
                   ulong               seeds_cnt,
                   uchar *             bump_seed,

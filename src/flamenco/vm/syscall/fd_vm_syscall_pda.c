@@ -11,7 +11,10 @@
 
 /* fd_compute_pda derives a PDA given:
    - the vm
-   - program_id pubkey in host address space
+   - the program id, which should be provided through either program_id or program_id_vaddr
+      - This allows the user to pass in a program ID in either host address space or virtual address space.
+      - If both are passed in, the host address space pubkey will be used.
+   - the program_id pubkey in virtual address space. if the host address space pubkey is not given then the virtual address will be translated.
    - the seeds array vaddr
    - the seeds array count
    - an optional bump seed
@@ -24,6 +27,7 @@ The derivation can also fail because of an out-of-bounds memory access, or an in
 int
 fd_vm_derive_pda( fd_vm_t *           vm,
                   fd_pubkey_t const * program_id,
+                  ulong               program_id_vaddr,
                   ulong               seeds_vaddr,
                   ulong               seeds_cnt,
                   uchar *             bump_seed,
@@ -60,7 +64,13 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     fd_sha256_append( vm->sha, bump_seed, 1UL );
   }
 
-  fd_sha256_append( vm->sha, program_id, sizeof(fd_pubkey_t) );
+  if ( program_id != NULL ) {
+    fd_sha256_append( vm->sha, program_id, FD_PUBKEY_FOOTPRINT );
+  } else {
+    fd_pubkey_t const * program_id_translated = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
+    fd_sha256_append( vm->sha, program_id_translated, FD_PUBKEY_FOOTPRINT );
+  }
+  
   fd_sha256_append( vm->sha, "ProgramDerivedAddress", 21UL ); /* TODO: use marker constant */
 
   fd_sha256_fini( vm->sha, out );
@@ -111,12 +121,8 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L723
-     TODO: program_id is mapped *after* seeds. */
-  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
-
   fd_pubkey_t derived[1];
-  int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
+  int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
   /* Agave does their translation before the calculation, so if the translation fails we should fail
      the syscall.
      
@@ -169,16 +175,12 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
      two blocks (1 data, 0 or 1 padding). PROBABLY NEED TO ADD CHECKPT / RESTORE
      CALLS TO SHA TO SUPPORT THIS)*/
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L723
-     TODO: program_id is mapped *after* seeds. */
-  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
-
   uchar bump_seed[1];
   for ( ulong i=0UL; i<255UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
     fd_pubkey_t derived[1];
-    int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
+    int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
     if ( FD_LIKELY( err == FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
       fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t) );
