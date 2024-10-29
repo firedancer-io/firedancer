@@ -135,7 +135,6 @@ struct fd_quic_pkt {
   uint               enc_level;   /* encryption level */
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
-  uint ping;
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
 };

@@ -4542,18 +4542,12 @@ fd_quic_frame_handle_ping_frame(
     void *                 vp_context,
     fd_quic_ping_frame_t * data,
     uchar const *          p,
-    ulong                 p_sz ) {
+    ulong                  p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
-  (void)vp_context;
-
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
-  context.pkt->ping = 1;
-
   return 0;
 }
 
