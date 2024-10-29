@@ -4,34 +4,40 @@
 /* fd_dump_pb.h provides APIs for dumping instructions, transactions, and slots
    into a digestable and replayable Protobuf message. This is useful for debugging
    ledger test mismatches, collecting seed corpora, and gathering real data to test
-   new harnesses. 
-   
-   The following arguments can be added when replaying ledger transactions: 
+   new harnesses.
+
+   The following arguments can be added when replaying ledger transactions:
       COMMON:
         --dump-proto-output-dir <output_dir>
             * Defines the output directory to dump Protobuf messages to
         --dump-proto-start-slot <slot_number>
             * Defines the starting slot to dump Protobuf messages from
-      
+
       HARNESS-SPECIFIC FILTERS:
+        Instructions:
+            --dump-instr-to-pb <0/1>
+                * If enabled, instructions will be dumped to the specified output directory
+                * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
+                * Each file represents a single instruction as a serialized InstrContext Protobuf message
+            --dump-proto-sig-filter <base_58_enc_sig>
+                * If enabled, only instructions with the specified signature will be dumped
+
         Transactions:
             --dump-txn-to-pb <0/1>
                 * If enabled, transactions will be dumped to the specified output directory
-                * File name format is "txn-<base58_enc_sig>.bin" 
+                * File name format is "txn-<base58_enc_sig>.bin"
                 * Each file represents a single transaction as a serialized TxnContext Protobuf message
             --dump-proto-sig-filter <base_58_enc_sig>
                 * If enabled, only transactions with the specified signature will be dumped
 
-        Instructions:
-            --dump-instr-to-pb <0/1>
-                * If enabled, instructions will be dumped to the specified output directory 
-                * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
-                * Each file represents a single instruction as a serialized InstrContext Protobuf message
-            --dump-proto-sig-filter <base_58_enc_sig>
-                * If enabled, only instructions with the specified signature will be dumped 
+        Blocks
+            --dump-block-to-pb <0/1>
+                * If enabled, blocks will be dumped to the specified output directory
+                * File name format is "block-<slot_number>.bin"
+                * Each file represents a single block as a serialized BlockContext Protobuf message
 
         CPI: Currently not directly invokable with a CLI argument. See details below.
-                
+
     Other notes:
         solana-conformance (https://github.com/firedancer-io/solana-conformance)
             * Allows decoding / executing / debugging of above Protobuf messages in an isolated environment
@@ -47,14 +53,19 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
+#include "../fd_hashes.h"
 #include "../../vm/fd_vm.h"
 #include "../../../util/log/fd_log.h"
+#include "../program/fd_address_lookup_table_program.h"
+#include "../program/fd_bpf_loader_program.h"
 
 #include "../../nanopb/pb_encode.h"
+#include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"
 #include "generated/vm.pb.h"
+#include "generated/block.pb.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -68,6 +79,32 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
+
+/* Block dumping is a little bit special because the scope of the block fuzzer handles both block + new
+   epoch processing. Therefore, we have to dump a decent amount of state before an epoch boundary may be
+   crossed, and then dump the individual transactions within the block once the block has been fetched
+   from the blockstore. Therefore, dumping is split up into two functions. `fd_dump_block_to_protobuf`
+   will create an initial BlockContext type that saves some fields from the slot and epoch context, as well as any current
+   builtins and sysvar accounts.
+
+   `fd_dump_block_to_protobuf_tx_only` takes an existing block context message and a runtime block and and dumps
+   the transactions within the block to be replayed.
+
+   CAVEATS: Currently, due to how spad frames are handled in the runtime, there is an edge case where block dumping will
+   fail / segfault when dumping the last block of a partitioned epoch rewards distribution run. This will be fixed once the
+   lifetime of the partitions can exist beyond the rewards distribution period so that we don't have to push and pop
+   spad frames in disjoint sections of the runtime. */
+void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
+                                fd_capture_ctx_t const *       capture_ctx,
+                                fd_spad_t *                    spad,
+                                fd_exec_test_block_context_t * block_context_msg /* output */ );
+
+void
+fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
+                                   fd_exec_slot_ctx_t const *      slot_ctx,
+                                   fd_capture_ctx_t const *        capture_ctx,
+                                   fd_spad_t *                     spad,
+                                   fd_exec_test_block_context_t *  block_context_msg );
 
 /* Captures the state of the VM (including the instruction context).
    Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
