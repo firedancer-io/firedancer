@@ -28,30 +28,22 @@
 
 #define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
 
-/* events for time based processing */
-struct fd_quic_event {
-  ulong            timeout;
+/* FD_QUIC_SVC_{...} specify connection timer types. */
 
-  fd_quic_conn_t * conn; /* connection or NULL */
-  /* possibly "type", etc., for other kinds of service */
+#define FD_QUIC_SVC_INSTANT (0U)  /* as soon as possible */
+#define FD_QUIC_SVC_ACK_TX  (1U)  /* within local max_ack_delay (ACK TX coalesce) */
+#define FD_QUIC_SVC_WAIT    (2U)  /* within min(idle_timeout, peer max_ack_delay) */
+#define FD_QUIC_SVC_CNT     (3U)  /* number of FD_QUIC_SVC_{...} levels */
+
+/* fd_quic_svc_queue_t is a simple doubly linked list. */
+
+struct fd_quic_svc_queue {
+  /* FIXME track count */ // uint cnt;
+  uint head;
+  uint tail;
 };
-typedef struct fd_quic_event fd_quic_event_t;
 
-struct fd_quic_rb_event {
-    // key is time of event and the connection id
-    // this makes the key uniq, suitable for the red black tree
-    ulong timeout;
-    ulong conn_idx;
-
-    fd_quic_conn_t * conn;
-
-    // required by redblack interface
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int   redblack_color;
-};
-typedef struct fd_quic_rb_event fd_quic_rb_event_t;
+typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
 
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
@@ -81,15 +73,12 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Various internal state */
 
-  fd_quic_conn_t *        conns;          /* free list of unused connections */
-  ulong                   free_conns;     /* count of free connections */
+  uint                    free_conn_list; /* free list of unused connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
-  fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
-  fd_quic_rb_event_t *    rb_service_queue; /* priority queue of connections */
-  fd_quic_rb_event_t *    rb_service_queue_root;
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
-
   fd_rng_t                _rng[1];        /* random number generator */
+  fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
+  ulong                   svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -165,10 +154,20 @@ fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
                       ulong            now );
 
-/* reschedule a connection */
+/* fd_quic_svc_schedule installs a connection timer.  svc_type is in
+   [0,FD_QUIC_SVC_CNT) and specifies the timer delay.  Lower timers
+   override higher ones. */
+
 void
-fd_quic_reschedule_conn( fd_quic_conn_t * conn,
-                         ulong            timeout );
+fd_quic_svc_schedule( fd_quic_state_t * state,
+                      fd_quic_conn_t *  conn,
+                      uint              svc_type );
+
+static inline void
+fd_quic_svc_schedule1( fd_quic_conn_t * conn,
+                       uint             svc_type ) {
+  fd_quic_svc_schedule( fd_quic_get_state( conn->quic ), conn, svc_type );
+}
 
 /* Memory management **************************************************/
 
@@ -372,6 +371,18 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          uint              pkt_type,
                          uchar const *     frame_ptr,
                          ulong             frame_sz );
+
+/* fd_quic_lazy_ack_pkt enqueues future acknowledgement for the given
+   packet.  The ACK will be sent out at a fd_quic_service call.  The
+   delay is determined by the fd_quic_config_t ack_threshold and
+   ack_delay settings.   Respects pkt->ack_flag (ACK_FLAG_RQD schedules
+   an ACK instantly, ACK_FLAG_CANCEL suppresses the ACK by making this
+   function behave like a no-op)  */
+
+void
+fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
+                      fd_quic_conn_t *      conn,
+                      fd_quic_pkt_t const * pkt );
 
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause

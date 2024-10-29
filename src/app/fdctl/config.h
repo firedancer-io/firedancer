@@ -215,6 +215,7 @@ typedef struct {
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint idle_timeout_millis;
+      uint ack_delay_millis;
       int  retry;
 
     } quic;

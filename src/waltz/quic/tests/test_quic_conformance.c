@@ -353,6 +353,23 @@ test_quic_stream_agave_2_0_3( fd_quic_sandbox_t * sandbox,
   FD_LOG_INFO(( "test_quic_stream_agave_2_0_3 end" ));
 }
 
+/* RFC 9000 Section 19.2. PING Frames */
+
+static __attribute__((noinline)) void
+test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
+                      fd_rng_t *          rng ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->ack_gen->is_elicited = 0;
+  FD_TEST( conn->svc_type == FD_QUIC_SVC_WAIT );
+
+  uchar buf[1] = {0x01};
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sizeof(buf) );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->svc_type == FD_QUIC_SVC_ACK_TX );
+}
+
 /* Test FIN arriving out of place */
 
 int
@@ -410,6 +427,7 @@ main( int     argc,
   test_quic_stream_skip                  ( sandbox, rng );
   test_quic_stream_skip_long             ( sandbox, rng );
   test_quic_stream_agave_2_0_3           ( sandbox, rng );
+  test_quic_ping_frame                   ( sandbox, rng );
 
   /* Wind down */
 

@@ -313,7 +313,6 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   conn->state       = FD_QUIC_CONN_STATE_ACTIVE;
   conn->established = 1;
-  conn->in_schedule = 1;
 
   /* Mock a completed handshake */
   conn->handshake_complete = 1;
@@ -393,10 +392,6 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
 
   fd_quic_sandbox_send_frame( sandbox, conn, &pkt_meta, frame, frame_sz );
 
-  if( !( pkt_meta.ack_flag & ACK_FLAG_CANCEL ) ) {
-    fd_quic_ack_pkt( conn->ack_gen, pkt_meta.pkt_number, pkt_meta.enc_level, sandbox->wallclock );
-    if( pkt_meta.ack_flag & ACK_FLAG_RQD ) {
-      conn->ack_gen->is_elicited |= 1;
-    }
-  }
+  fd_quic_lazy_ack_pkt( sandbox->quic, conn, &pkt_meta );
+
 }

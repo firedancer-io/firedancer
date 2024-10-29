@@ -445,10 +445,6 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  fd_quic_config_t * client_config = &client_quic->config;
-  client_config->idle_timeout = 5e9;
-  client_config->service_interval = 1e6;
-
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_receive   = my_stream_receive_cb;
   client_quic->cb.stream_notify    = my_stream_notify_cb;
@@ -458,10 +454,6 @@ main( int argc, char ** argv ) {
   client_quic->cb.now_ctx = NULL;
 
   client_quic->config.initial_rx_max_stream_data = 1<<15;
-
-  fd_quic_config_t * server_config = &server_quic->config;
-  server_config->idle_timeout = 5e9;
-  server_config->service_interval = 1e6;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;
