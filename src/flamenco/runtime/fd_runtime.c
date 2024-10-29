@@ -3657,15 +3657,15 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
         FD_BORROWED_ACCOUNT_DECL(rec);
 
-        int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
+        int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, rec );
         if( FD_UNLIKELY(err) ) {
-          FD_LOG_WARNING(( "cannot modify pubkey %s. fd_acc_mgr_modify failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
+          FD_LOG_WARNING(( "cannot view pubkey %s. fd_acc_mgr_view failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
           leftover_lamports += rent_to_be_paid;
           continue;
         }
 
         if (validate_fee_collector_account) {
-          if (memcmp(rec->meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->meta->info.owner)) != 0) {
+          if (memcmp(rec->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->const_meta->info.owner)) != 0) {
             FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", FD_BASE58_ENC_32_ALLOCA( &pubkey ) ));
             leftover_lamports += rent_to_be_paid;
             continue;
@@ -3683,6 +3683,12 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
           }
         }
 
+        err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
+        if( FD_UNLIKELY(err) ) {
+          FD_LOG_WARNING(( "cannot modify pubkey %s. fd_acc_mgr_modify failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
+          leftover_lamports += rent_to_be_paid;
+          continue;
+        }
         rec->meta->info.lamports += rent_to_be_paid;
       }
     } // end of iteration over validator_stakes
