@@ -730,6 +730,41 @@ struct fd_quic_frame_context {
   fd_quic_pkt_t *  pkt;
 };
 
+static schar const fd_quic_frame_metric_id[ 0x20 ] = {
+  [0x00]=-1, /* invalid */
+  [0x01]= 0, /* PING */
+  [0x02]= 1, /* ACK */
+  [0x03]= 1, /* ACK (with ECN) */
+  [0x04]= 2, /* RESET_STREAM */
+  [0x05]= 3, /* STOP_SENDING */
+  [0x06]= 4, /* CRYPTO */
+  [0x07]= 5, /* NEW_TOKEN */
+  [0x08]= 6, /* STREAM */
+  [0x09]= 6,
+  [0x0a]= 6,
+  [0x0b]= 6,
+  [0x0c]= 6,
+  [0x0d]= 6,
+  [0x0e]= 6,
+  [0x0f]= 6,
+  [0x10]= 7, /* MAX_DATA */
+  [0x11]= 8, /* MAX_STREAM_DATA */
+  [0x12]= 9, /* MAX_STREAMS */
+  [0x13]= 9,
+  [0x14]=10, /* DATA_BLOCKED */
+  [0x15]=11, /* STREAM_DATA_BLOCKED */
+  [0x16]=12, /* STREAMS_BLOCKED */
+  [0x17]=12,
+  [0x18]=13, /* NEW_CONNECTION_ID */
+  [0x19]=14, /* RETIRE_CONNECTION_ID */
+  [0x1a]=15, /* PATH_CHALLENGE */
+  [0x1b]=16, /* PATH_RESPONSE */
+  [0x1c]=17, /* CONNECTION_CLOSE (transport) */
+  [0x1d]=18, /* CONNECTION_CLOSE (app) */
+  [0x1e]=19, /* HANDSHAKE_DONE */
+  [0x1f]=-1, /* invalid */
+};
+
 /* handle single v1 frames */
 /* returns bytes consumed */
 ulong
@@ -763,10 +798,11 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
-  if( id<0x20 ) {
-    ulong norm_id = id;
-    if( norm_id>=0x08 && norm_id<=0x0f ) norm_id = 0x08;
-    quic->metrics.frame_rx_cnt[ norm_id ]++;
+  if( FD_LIKELY( id<sizeof(fd_quic_frame_metric_id) ) ) {
+    int norm_id = fd_quic_frame_metric_id[ id ];
+    if( FD_LIKELY( norm_id>=0 ) ) {
+      quic->metrics.frame_rx_cnt[ norm_id ]++;
+    }
   }
 
 #include "templ/fd_quic_parse_frame.h"
