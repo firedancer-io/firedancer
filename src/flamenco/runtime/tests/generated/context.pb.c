@@ -15,10 +15,27 @@ PB_BIND(FD_EXEC_TEST_SEED_ADDRESS, fd_exec_test_seed_address_t, AUTO)
 PB_BIND(FD_EXEC_TEST_ACCT_STATE, fd_exec_test_acct_state_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_VOTE_ACCOUNT, fd_exec_test_vote_account_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_STAKE_ACCOUNT, fd_exec_test_stake_account_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_INFLATION, fd_exec_test_inflation_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_EPOCH_CONTEXT, fd_exec_test_epoch_context_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_SLOT_CONTEXT, fd_exec_test_slot_context_t, AUTO)
+PB_BIND(FD_EXEC_TEST_SLOT_CONTEXT, fd_exec_test_slot_context_t, 2)
 
 
+
+#ifndef PB_CONVERT_DOUBLE_FLOAT
+/* On some platforms (such as AVR), double is really float.
+ * To be able to encode/decode double on these platforms, you need.
+ * to define PB_CONVERT_DOUBLE_FLOAT in pb.h or compiler command line.
+ */
+PB_STATIC_ASSERT(sizeof(double) == 8, DOUBLE_MUST_BE_8_BYTES)
+#endif
 

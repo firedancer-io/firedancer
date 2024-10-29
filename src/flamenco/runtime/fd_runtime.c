@@ -1306,7 +1306,7 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
-  if( slot_ctx->slot_bank.slot != 0UL ) {
+  if( slot_ctx->blockstore && slot_ctx->slot_bank.slot != 0UL ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
                                        slot_ctx->slot_bank.slot,
                                        slot_ctx->slot_bank.block_height );
@@ -2408,7 +2408,7 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 static void
@@ -3073,7 +3073,8 @@ fd_runtime_block_collect_txns( fd_runtime_block_info_t const * block_info,
 /*******************************************************************************/
 
 static void
-fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_spad_t *          runtime_spad ) {
   fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_clock_init( slot_ctx );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
@@ -3759,7 +3760,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   return 0;
 }
 
-static int
+int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                 fd_capture_ctx_t *      capture_ctx,
                                 fd_runtime_block_info_t const * block_info,
@@ -3818,7 +3819,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   long block_finalize_time = -fd_log_wallclock();
   res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool, runtime_spad );
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }
 
@@ -3836,7 +3837,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int
+void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
@@ -3881,8 +3882,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                              runtime_spad );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int
@@ -3920,13 +3919,21 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
     fd_funk_end_write( funk );
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
-                                                                            tpool,
-                                                                            exec_spads,
-                                                                            exec_spad_cnt,
-                                                                            runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      break;
+    /* Capturing block-agnostic state in preparation for the epoch boundary */
+    uchar dump_block = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_block_to_pb;
+    fd_exec_test_block_context_t * block_ctx = NULL;
+    if( FD_UNLIKELY( dump_block ) ) {
+      /* TODO: This probably should get allocated from a separate spad for the capture ctx */
+      block_ctx = fd_spad_alloc( runtime_spad, alignof(fd_exec_test_block_context_t), sizeof(fd_exec_test_block_context_t) );
+      fd_memset( block_ctx, 0, sizeof(fd_exec_test_block_context_t) );
+      fd_dump_block_to_protobuf( slot_ctx, capture_ctx, runtime_spad, block_ctx );
     }
+
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
+                                                    tpool,
+                                                    exec_spads,
+                                                    exec_spad_cnt,
+                                                    runtime_spad );
 
     /* All runtime allocations here are scoped to the end of a block. */
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -3943,6 +3950,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
+
+    /* Dump the remainder of the block after preparation, POH verification, etc */
+    if( dump_block ) {
+      fd_dump_block_to_protobuf_tx_only( &block_info, slot_ctx, capture_ctx, runtime_spad, block_ctx );
+    }
+
     if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx, capture_ctx, &block_info, tpool, exec_spads, exec_spad_cnt, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
