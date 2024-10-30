@@ -741,6 +741,15 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
+Name: @radix-ui/react-popover
+Version: 1.1.1
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
 Name: @radix-ui/react-progress
 Version: 1.1.0
 License: MIT
