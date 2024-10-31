@@ -41,6 +41,7 @@
 
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xdp.h"
+#include "../../../../waltz/xdp/fd_xdp1.h"
 #include "../../../../waltz/xdp/fd_xsk_aio_private.h"
 #include "../../../../waltz/xdp/fd_xsk_private.h"
 #include "../../../../util/net/fd_ip4.h"
@@ -70,23 +71,10 @@ typedef struct {
 } fd_net_out_ctx_t;
 
 typedef struct {
-  fd_xsk_t * xsk;
-  void *     xsk_aio;
-  int        xsk_map_fd;
-  int        xdp_prog_link_fd;
-
-  fd_xsk_t * lo_xsk;
-  void *     lo_xsk_aio;
-  int        lo_xdp_prog_link_fd;
-
-  fd_ip_t *  ip;
-} fd_net_init_ctx_t;
-
-typedef struct {
-  fd_net_init_ctx_t init;
-
-  ulong xsk_aio_cnt;
+  ulong          xsk_cnt;
+  fd_xsk_t *     xsk[ 2 ];
   fd_xsk_aio_t * xsk_aio[ 2 ];
+  int            prog_link_fds[ 2 ];
 
   ulong round_robin_cnt;
   ulong round_robin_id;
@@ -122,27 +110,6 @@ typedef struct {
   } metrics;
 } fd_net_ctx_t;
 
-fd_net_init_ctx_t *
-fd_net_init_ctx_init( fd_net_init_ctx_t * ctx ) {
-  *ctx = (fd_net_init_ctx_t){
-    .xdp_prog_link_fd    = -1,
-    .lo_xdp_prog_link_fd = -1,
-    .xsk_map_fd          = -1
-  };
-  return ctx;
-}
-
-/* Known port types
-   These are IDs set by the XDP redirect program */
-
-#define FDCTL_NET_BIND_TPU_USER_UDP  (0)
-#define FDCTL_NET_BIND_TPU_USER_QUIC (1)
-#define FDCTL_NET_BIND_SHRED         (2)
-#define FDCTL_NET_BIND_GOSSIP        (3)
-#define FDCTL_NET_BIND_REPAIR_IN     (4)
-#define FDCTL_NET_BIND_REPAIR_SERVE  (5)
-#define FDCTL_NET_BIND_MAX           (6)
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 4096UL;
@@ -153,20 +120,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   /* TODO reproducing this conditional memory layout twice is susceptible to bugs. Use more robust object discovery */
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t),      sizeof(fd_net_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_aio_align(),             fd_aio_footprint() );
-  if( tile->kind_id == 0 ) {
-    l = FD_LAYOUT_APPEND( l, alignof(fd_xdp_session_t),      sizeof(fd_xdp_session_t)      );
-    l = FD_LAYOUT_APPEND( l, alignof(fd_xdp_link_session_t), sizeof(fd_xdp_link_session_t) );
-    l = FD_LAYOUT_APPEND( l, alignof(fd_xdp_link_session_t), sizeof(fd_xdp_link_session_t) );
-  }
-  l = FD_LAYOUT_APPEND( l, fd_xsk_align(),     fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
-  l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_aio_align(),        fd_aio_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_xsk_align(),        fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
+  l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(),    fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   if( FD_UNLIKELY( strcmp( tile->net.interface, "lo" ) && tile->kind_id == 0 ) ) {
-    l = FD_LAYOUT_APPEND( l, fd_xsk_align(),     fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
-    l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
+    l = FD_LAYOUT_APPEND( l, fd_xsk_align(),      fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
+    l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(),  fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   }
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 0U, 0U ) );
+  l = FD_LAYOUT_APPEND( l, fd_ip_align(),         fd_ip_footprint( 0U, 0U ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -191,7 +153,7 @@ net_rx_aio_send( void *                    _ctx,
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
-  for( ulong i=0; i<batch_cnt; i++ ) {
+  for( ulong i=0UL; i<batch_cnt; i++ ) {
     uchar const * packet = batch[i].buf;
     uchar const * packet_end = packet + batch[i].buf_sz;
 
@@ -303,7 +265,7 @@ before_credit( fd_net_ctx_t *      ctx,
                int *               charge_busy ) {
   (void)stem;
 
-  for( ulong i=0; i<ctx->xsk_aio_cnt; i++ ) {
+  for( ulong i=0UL; i<ctx->xsk_cnt; i++ ) {
     if( FD_LIKELY( fd_xsk_aio_service( ctx->xsk_aio[i] ) ) ) {
       *charge_busy = 1;
     }
@@ -329,7 +291,7 @@ static inline void
 poll_xdp_statistics( fd_net_ctx_t * ctx ) {
   struct xdp_statistics_v1 stats;
   uint optlen = (uint)sizeof(stats);
-  if( FD_UNLIKELY( -1==getsockopt( ctx->init.xsk->xsk_fd, SOL_XDP, XDP_STATISTICS, &stats, &optlen ) ) )
+  if( FD_UNLIKELY( -1==getsockopt( ctx->xsk[ 0 ]->xsk_fd, SOL_XDP, XDP_STATISTICS, &stats, &optlen ) ) )
     FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
 
   if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v1) ) ) {
@@ -555,92 +517,6 @@ after_frag( fd_net_ctx_t *      ctx,
       +-> BPF_MAP object <-- BPF_MAP file descriptor (udp_dsts) */
 
 static void
-init_link_session( fd_xdp_session_t *      session,
-                   fd_xdp_link_session_t * link_session,
-                   fd_xdp_link_session_t * lo_session,
-                   fd_topo_tile_t const *  tile,
-                   uint                    if_idx,
-                   uint                    lo_idx,
-                   fd_net_init_ctx_t *     init_ctx,
-                   int *                   lo_xsk_map_fd ) { 
-    
-  /* Set up port redirection map */
-
-  if( FD_UNLIKELY( !fd_xdp_session_init( session ) ) ) {
-    FD_LOG_ERR(( "fd_xdp_session_init failed" ));
-  }
-  
-  ushort udp_port_candidates[ FDCTL_NET_BIND_MAX ] = { 
-    [ FDCTL_NET_BIND_TPU_USER_UDP  ] = (ushort)tile->net.legacy_transaction_listen_port,
-    [ FDCTL_NET_BIND_TPU_USER_QUIC ] = (ushort)tile->net.quic_transaction_listen_port,
-    [ FDCTL_NET_BIND_SHRED         ] = (ushort)tile->net.shred_listen_port,
-    [ FDCTL_NET_BIND_GOSSIP        ] = (ushort)tile->net.gossip_listen_port,
-    [ FDCTL_NET_BIND_REPAIR_IN     ] = (ushort)tile->net.repair_intake_listen_port,
-    [ FDCTL_NET_BIND_REPAIR_SERVE  ] = (ushort)tile->net.repair_serve_listen_port,
-  };
-  for( ulong bind_id=0UL; bind_id<FDCTL_NET_BIND_MAX; bind_id++ ) {
-    ushort port = (ushort)udp_port_candidates[bind_id];
-    if( FD_UNLIKELY( !port ) ) continue;  /* port 0 implies drop */
-    if( FD_UNLIKELY( fd_xdp_listen_udp_port(
-        session,
-        tile->net.src_ip_addr,
-        port,
-        (uint)bind_id ) ) ) {
-      FD_LOG_ERR(( "fd_xdp_listen_udp_port failed" ));
-    }
-    /* support for multihomed hosts */
-    for( ulong j = 0; j < tile->net.multihome_ip_addrs_cnt; ++j ) {
-      if( FD_UNLIKELY( fd_xdp_listen_udp_port(
-          session,
-          tile->net.multihome_ip_addrs[j],
-          port,
-          (uint)bind_id ) ) ) {
-        FD_LOG_ERR(( "fd_xdp_listen_udp_port failed" ));
-      }
-    }
-  }
-
-  /* Install XDP programs to network devices */
-
-  uint xdp_mode = 0;
-  if(      FD_LIKELY( !strcmp( tile->net.xdp_mode, "skb" ) ) ) xdp_mode = XDP_FLAGS_SKB_MODE;
-  else if( FD_LIKELY( !strcmp( tile->net.xdp_mode, "drv" ) ) ) xdp_mode = XDP_FLAGS_DRV_MODE;
-  else if( FD_LIKELY( !strcmp( tile->net.xdp_mode, "hw"  ) ) ) xdp_mode = XDP_FLAGS_HW_MODE;
-  else FD_LOG_ERR(( "unknown XDP mode `%.4s`", tile->net.xdp_mode ));
-
-  if( FD_UNLIKELY( !fd_xdp_link_session_init( link_session, session, if_idx, xdp_mode ) ) ) {
-    FD_LOG_ERR(( "fd_xdp_link_session_init failed" ));
-  }
-  FD_TEST( 0==close( link_session->prog_fd ) );
-
-  init_ctx->xdp_prog_link_fd = link_session->prog_link_fd;
-  init_ctx->xsk_map_fd       = link_session->xsk_map_fd;
-
-  if( 0!=strcmp( tile->net.interface, "lo" ) ) {
-    if( FD_UNLIKELY( !fd_xdp_link_session_init( lo_session, session, lo_idx, XDP_FLAGS_SKB_MODE ) ) ) {
-      FD_LOG_ERR(( "fd_xdp_link_session_init failed" ));
-    }
-    FD_TEST( 0==close( lo_session->prog_fd ) );
-    
-    init_ctx->lo_xdp_prog_link_fd = lo_session->prog_link_fd;
-    *lo_xsk_map_fd                = lo_session->xsk_map_fd;
-  }
-  
-  FD_TEST( 0==close( session->udp_dsts_map_fd ) );
-  
-}
-
-typedef union {
-  struct {
-    int pid;
-    int xskmap_fd;
-  };
-  ulong ul;
-} fd_net0_tile_args_t;
-
-FD_STATIC_ASSERT( sizeof(fd_net0_tile_args_t)==sizeof(ulong), align );
-
-static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -650,63 +526,14 @@ privileged_init( fd_topo_t *      topo,
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
                        FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(),        fd_aio_footprint()   );
 
-  fd_net_init_ctx_t * init_ctx = fd_net_init_ctx_init( &ctx->init );
-
   uint if_idx = if_nametoindex( tile->net.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->net.interface ));
 
-  uint lo_idx = if_nametoindex( "lo" );
-  if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
-
-  ulong            p_net0_pid_id = fd_pod_query_ulong( topo->props, "net0_pid", ULONG_MAX ); FD_TEST( p_net0_pid_id!=ULONG_MAX );
-  ulong volatile * p_net0_line   = fd_fseq_app_laddr( fd_fseq_join( fd_topo_obj_laddr( topo, p_net0_pid_id ) ) );
-
-  int lo_xsk_map_fd = -1;
-
-  if( tile->kind_id == 0 ) {
-
-    /* We are net tile 0.  Do link-wide initialization */
-
-    fd_xdp_session_t *      session      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_xdp_session_t),      sizeof(fd_xdp_session_t)      );
-    fd_xdp_link_session_t * link_session = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_xdp_link_session_t), sizeof(fd_xdp_link_session_t) );
-    fd_xdp_link_session_t * lo_session   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_xdp_link_session_t), sizeof(fd_xdp_link_session_t) );
-
-    init_link_session( session, link_session, lo_session, tile,
-                       if_idx, lo_idx,
-                       init_ctx, &lo_xsk_map_fd );
-
-    /* Notify other net tiles how to find it */
-
-    fd_net0_tile_args_t net0_args = { .pid = getpid(), .xskmap_fd = link_session->xsk_map_fd };
-    FD_COMPILER_MFENCE();
-    *p_net0_line = net0_args.ul;
-    FD_COMPILER_MFENCE();
-
-  } else {
-
-    /* Wait for net tile 0 to do link-wide initialization (in other branch). */
-
-    /* Find PID of net tile 0 */
-    FD_COMPILER_MFENCE();
-    fd_net0_tile_args_t net0_args = {0};
-    do {
-      net0_args.ul = *p_net0_line;
-      FD_SPIN_PAUSE();
-    } while( !net0_args.ul );
-    FD_COMPILER_MFENCE();
-
-    /* "Steal" XSKMAP file descriptor from net tile 0 into our tile */
-
-    char xskmap_path[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( xskmap_path, PATH_MAX, NULL, "/proc/%d/fd/%d", net0_args.pid, net0_args.xskmap_fd ) );
-    init_ctx->xsk_map_fd = open( xskmap_path, O_RDONLY );
-    if( FD_UNLIKELY( init_ctx->xsk_map_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDONLY) failed", xskmap_path ));
-
-  }
-
   /* Create and install XSKs */
 
-  fd_xsk_t * xsk =
+  int xsk_map_fd = 123462;
+  ctx->prog_link_fds[ 0 ] = 123463;
+  ctx->xsk[ 0 ] =
       fd_xsk_join(
       fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
                   FD_NET_MTU,
@@ -714,32 +541,48 @@ privileged_init( fd_topo_t *      topo,
                   tile->net.xdp_rx_queue_size,
                   tile->net.xdp_tx_queue_size,
                   tile->net.xdp_tx_queue_size ) );
-  if( FD_UNLIKELY( !xsk ) ) FD_LOG_ERR(( "fd_xsk_new failed" ));
-  
+  if( FD_UNLIKELY( !ctx->xsk[ 0 ] ) )                                                    FD_LOG_ERR(( "fd_xsk_new failed" ));  
   uint flags = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY;
-  if( FD_UNLIKELY( !fd_xsk_init( xsk, if_idx, (uint)tile->kind_id, flags ) ) )
-    FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
+  if( FD_UNLIKELY( !fd_xsk_init( ctx->xsk[ 0 ], if_idx, (uint)tile->kind_id, flags ) ) ) FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
+  if( FD_UNLIKELY( !fd_xsk_activate( ctx->xsk[ 0 ], xsk_map_fd ) ) )                     FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
 
-  if( FD_UNLIKELY( !fd_xsk_activate( xsk, init_ctx->xsk_map_fd ) ) )
-    FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
-  init_ctx->xsk = xsk;
-  if( tile->kind_id != 0 ) {
-    FD_TEST( 0==close( init_ctx->xsk_map_fd ) );
-    init_ctx->xsk_map_fd = -1;
+  if( FD_UNLIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
+    /* Kind of gross.. in single threaded mode we don't want to close the xsk_map_fd
+       since it's shared with other net tiles.  Just check for that by seeing if we
+       are the only thread in the process. */
+    if( FD_UNLIKELY( -1==close( xsk_map_fd ) ) )                                         FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
   }
 
-  init_ctx->xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
-                                      tile->net.xdp_tx_queue_size,
-                                      tile->net.xdp_aio_depth );
-  if( FD_UNLIKELY( !init_ctx->xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
+  ctx->xsk_aio[ 0 ] = fd_xsk_aio_join( fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
+                                                       tile->net.xdp_tx_queue_size,
+                                                       tile->net.xdp_aio_depth ), ctx->xsk[ 0 ] );
+  if( FD_UNLIKELY( !ctx->xsk_aio[ 0 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
 
   /* Networking tile at index 0 also binds to loopback (only queue 0 available on lo) */
 
-  init_ctx->lo_xsk     = NULL;
-  init_ctx->lo_xsk_aio = NULL;
-  if( FD_UNLIKELY( 0!=strcmp( tile->net.interface, "lo" ) && !tile->kind_id ) ) {
+  if( FD_UNLIKELY( strcmp( tile->net.interface, "lo" ) && !tile->kind_id ) ) {
+    ctx->xsk_cnt = 2;
 
-    fd_xsk_t * lo_xsk =
+    ushort udp_port_candidates[] = { 
+      (ushort)tile->net.legacy_transaction_listen_port,
+      (ushort)tile->net.quic_transaction_listen_port,
+      (ushort)tile->net.shred_listen_port,
+      (ushort)tile->net.gossip_listen_port,
+      (ushort)tile->net.repair_intake_listen_port,
+      (ushort)tile->net.repair_serve_listen_port,
+    };
+
+    uint lo_idx = if_nametoindex( "lo" );
+    if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
+
+    fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
+                                          tile->net.src_ip_addr,
+                                          sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+                                          udp_port_candidates,
+                                          "skb" );
+
+    ctx->prog_link_fds[ 1 ] = lo_fds.prog_link_fd;
+    ctx->xsk[ 1 ] =
         fd_xsk_join( 
         fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
                     FD_NET_MTU,
@@ -747,23 +590,18 @@ privileged_init( fd_topo_t *      topo,
                     tile->net.xdp_rx_queue_size,
                     tile->net.xdp_tx_queue_size,
                     tile->net.xdp_tx_queue_size ) );
-    if( FD_UNLIKELY( !lo_xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
-    if( FD_UNLIKELY( !fd_xsk_init( lo_xsk, lo_idx, (uint)tile->kind_id, 0 /* flags */ ) ) )
-      FD_LOG_ERR(( "failed to bind lo_xsk" ));
-    if( FD_UNLIKELY( !fd_xsk_activate( lo_xsk, lo_xsk_map_fd ) ) )
-      FD_LOG_ERR(( "failed to activate lo_xsk" ));
-    init_ctx->lo_xsk = lo_xsk;
-    FD_TEST( 0==close( lo_xsk_map_fd ) );
+    if( FD_UNLIKELY( !ctx->xsk[ 1 ] ) )                                                            FD_LOG_ERR(( "fd_xsk_join failed" ));
+    if( FD_UNLIKELY( !fd_xsk_init( ctx->xsk[ 1 ], lo_idx, (uint)tile->kind_id, 0 /* flags */ ) ) ) FD_LOG_ERR(( "failed to bind lo_xsk" ));
+    if( FD_UNLIKELY( !fd_xsk_activate( ctx->xsk[ 1 ], lo_fds.xsk_map_fd ) ) )                          FD_LOG_ERR(( "failed to activate lo_xsk" ));
+    if( FD_UNLIKELY( -1==close( lo_fds.xsk_map_fd ) ) )                                                FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
 
-    init_ctx->lo_xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
-                                           tile->net.xdp_tx_queue_size,
-                                           tile->net.xdp_aio_depth );
-    if( FD_UNLIKELY( !init_ctx->lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
+    ctx->xsk_aio[ 1 ] = fd_xsk_aio_join( fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
+                                                         tile->net.xdp_tx_queue_size,
+                                                         tile->net.xdp_aio_depth ), ctx->xsk[ 1 ] );
+    if( FD_UNLIKELY( !ctx->xsk_aio[ 1 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
   }
 
-  /* init fd_ip */
-  init_ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ),
-                                        0UL, 0UL ) );
+  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ), 0UL, 0UL ) );
 }
 
 static void
@@ -780,17 +618,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
 
-  ctx->xsk_aio_cnt = 1;
-  ctx->xsk_aio[ 0 ] = fd_xsk_aio_join( ctx->init.xsk_aio, ctx->init.xsk );
-  if( FD_UNLIKELY( !ctx->xsk_aio[ 0 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
   fd_xsk_aio_set_rx( ctx->xsk_aio[ 0 ], net_rx_aio );
-  ctx->tx = fd_xsk_aio_get_tx( ctx->init.xsk_aio );
-  if( FD_UNLIKELY( ctx->init.lo_xsk ) ) {
-    ctx->xsk_aio[ 1 ] = fd_xsk_aio_join( ctx->init.lo_xsk_aio, ctx->init.lo_xsk );
-    if( FD_UNLIKELY( !ctx->xsk_aio[ 1 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
+  ctx->tx = fd_xsk_aio_get_tx( ctx->xsk_aio[ 0 ] );
+
+  if( FD_UNLIKELY( ctx->xsk_cnt>1UL ) ) {
     fd_xsk_aio_set_rx( ctx->xsk_aio[ 1 ], net_rx_aio );
-    ctx->lo_tx = fd_xsk_aio_get_tx( ctx->init.lo_xsk_aio );
-    ctx->xsk_aio_cnt = 2;
+    ctx->lo_tx = fd_xsk_aio_get_tx( ctx->xsk_aio[ 1 ] );
   }
 
   ctx->src_ip_addr = tile->net.src_ip_addr;
@@ -798,15 +631,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->metrics.tx_dropped_cnt = 0UL;
 
-  ctx->shred_listen_port = tile->net.shred_listen_port;
-  ctx->quic_transaction_listen_port = tile->net.quic_transaction_listen_port;
+  ctx->shred_listen_port              = tile->net.shred_listen_port;
+  ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
-  ctx->gossip_listen_port = tile->net.gossip_listen_port;
-  ctx->repair_intake_listen_port = tile->net.repair_intake_listen_port;
-  ctx->repair_serve_listen_port = tile->net.repair_serve_listen_port;
+  ctx->gossip_listen_port             = tile->net.gossip_listen_port;
+  ctx->repair_intake_listen_port      = tile->net.repair_intake_listen_port;
+  ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
-      are within in the data region of the workspace. */
+     are within in the data region of the workspace. */
+
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "net tile in link cnt is zero" ));
   if( FD_UNLIKELY( tile->in_cnt>MAX_NET_INS ) ) FD_LOG_ERR(( "net tile in link cnt %lu exceeds MAX_NET_INS %lu", tile->in_cnt, MAX_NET_INS ));
   FD_TEST( tile->in_cnt<=32 );
@@ -881,8 +715,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   }
 
-  ctx->ip = ctx->init.ip;
-
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -899,10 +731,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 
   /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
      two "allow" FD arguments to the net policy, so we just make them both the same. */
-  int allow_fd2 = ctx->init.lo_xsk ? ctx->init.lo_xsk->xsk_fd : ctx->init.xsk->xsk_fd;
-  FD_TEST( ctx->init.xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
-  int netlink_fd = fd_ip_netlink_get( ctx->init.ip )->fd;
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->init.xsk->xsk_fd, (uint)allow_fd2, (uint)netlink_fd );
+  int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ]->xsk_fd : ctx->xsk[ 0 ]->xsk_fd;
+  FD_TEST( ctx->xsk[ 0 ]->xsk_fd >= 0 && allow_fd2 >= 0 );
+  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
+  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ]->xsk_fd, (uint)allow_fd2, (uint)netlink_fd );
   return sock_filter_policy_net_instr_cnt;
 }
 
@@ -922,18 +754,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->init.ip )->fd;
+  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->ip )->fd;
 
-  out_fds[ out_cnt++ ] = ctx->init.xsk->xsk_fd;
-  if( ctx->init.xdp_prog_link_fd >= 0 )
-    out_fds[ out_cnt++ ] = ctx->init.xdp_prog_link_fd;
-  if( ctx->init.xsk_map_fd >= 0 )
-    out_fds[ out_cnt++ ] = ctx->init.xsk_map_fd;
-
-  if( ctx->init.lo_xdp_prog_link_fd >= 0 )
-    out_fds[ out_cnt++ ] = ctx->init.lo_xdp_prog_link_fd;
-  if( ctx->init.lo_xsk )
-    out_fds[ out_cnt++ ] = ctx->init.lo_xsk->xsk_fd;
+                                      out_fds[ out_cnt++ ] = ctx->xsk[ 0 ]->xsk_fd;
+                                      out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
+  if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ]->xsk_fd;
+  if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
   return out_cnt;
 }
 

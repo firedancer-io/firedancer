@@ -163,6 +163,9 @@ run_firedancer_threaded( config_t * config ) {
      tiles maps it in as read-only, later tiles will reuse the same cached shmem
      join (the key is only on shmem name, when it should be (name, mode)). */
 
+  fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
+  (void)fds;
+
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 

@@ -2,6 +2,7 @@
 #include "fd_topo.h"
 
 #include "../metrics/fd_metrics.h"
+#include "../../waltz/xdp/fd_xdp1.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
@@ -15,6 +16,7 @@
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <net/if.h>
 
 static void
 initialize_logging( char const * tile_name,
@@ -187,6 +189,40 @@ fd_topo_tile_stack_join( char const * app_name,
     FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return stack;
+}
+
+fd_xdp_fds_t
+fd_topo_install_xdp( fd_topo_t * topo ) {
+  ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
+  FD_TEST( net0_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
+
+  ushort udp_port_candidates[] = { 
+    (ushort)net0_tile->net.legacy_transaction_listen_port,
+    (ushort)net0_tile->net.quic_transaction_listen_port,
+    (ushort)net0_tile->net.shred_listen_port,
+    (ushort)net0_tile->net.gossip_listen_port,
+    (ushort)net0_tile->net.repair_intake_listen_port,
+    (ushort)net0_tile->net.repair_serve_listen_port,
+  };
+
+  uint if_idx = if_nametoindex( net0_tile->net.interface );
+  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->net.interface ));
+
+  fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
+                                         net0_tile->net.src_ip_addr,
+                                         sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+                                         udp_port_candidates,
+                                         net0_tile->net.xdp_mode );
+  if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, 123462 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( xdp_fds.prog_link_fd, 123463 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  xdp_fds.xsk_map_fd = 123462;
+  xdp_fds.prog_link_fd = 123463;
+
+  return xdp_fds;
 }
 
 static inline void

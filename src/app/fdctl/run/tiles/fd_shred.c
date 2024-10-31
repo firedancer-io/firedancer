@@ -82,12 +82,11 @@
 
 #define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
 
-
-#define NET_IN_IDX      0
-#define POH_IN_IDX      1
-#define STAKE_IN_IDX    2
-#define CONTACT_IN_IDX  3
-#define SIGN_IN_IDX     4
+#define IN_KIND_CONTACT (0UL)
+#define IN_KIND_STAKE   (1UL)
+#define IN_KIND_POH     (2UL)
+#define IN_KIND_NET     (3UL)
+#define IN_KIND_SIGN    (4UL)
 
 #define STORE_OUT_IDX   0
 #define NET_OUT_IDX     1
@@ -103,6 +102,12 @@ FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
 
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
+
+typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+} fd_shred_in_ctx_t;
 
 typedef struct {
   fd_shredder_t      * shredder;
@@ -153,21 +158,9 @@ typedef struct {
   ulong shred_buffer_sz;
   uchar shred_buffer[ FD_NET_MTU ];
 
-  fd_wksp_t * net_in_mem;
-  ulong       net_in_chunk0;
-  ulong       net_in_wmark;
 
-  fd_wksp_t * stake_in_mem;
-  ulong       stake_in_chunk0;
-  ulong       stake_in_wmark;
-
-  fd_wksp_t * contact_in_mem;
-  ulong       contact_in_chunk0;
-  ulong       contact_in_wmark;
-
-  fd_wksp_t * poh_in_mem;
-  ulong       poh_in_chunk0;
-  ulong       poh_in_wmark;
+  fd_shred_in_ctx_t in[ 32 ];
+  int               in_kind[ 32 ];
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;
@@ -274,58 +267,55 @@ finalize_new_cluster_contact_info( fd_shred_ctx_t * ctx ) {
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
-static int
-before_frag( void * ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig ) {
+static inline int
+before_frag( fd_shred_ctx_t * ctx,
+             ulong            in_idx,
+             ulong            seq,
+             ulong            sig ) {
   (void)ctx;
   (void)seq;
 
-  if( FD_LIKELY( in_idx==NET_IN_IDX ) )      return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
-  else if( FD_LIKELY( in_idx==POH_IN_IDX ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
+  else if( FD_LIKELY( ctx->in_kind[ in_idx]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
 
   return 0;
 }
 
 static void
 during_frag( fd_shred_ctx_t * ctx,
-             ulong           in_idx,
-             ulong           seq,
-             ulong           sig,
-             ulong           chunk,
-             ulong           sz ) {
+             ulong            in_idx,
+             ulong            seq,
+             ulong            sig,
+             ulong            chunk,
+             ulong            sz ) {
   (void)seq;
 
   ctx->skip_frag = 0;
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
-  if( FD_UNLIKELY( in_idx==SIGN_IN_IDX ) ) {
-    FD_LOG_CRIT(( "signing tile send out of band fragment" ));
-  }
 
-  if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->contact_in_chunk0 || chunk>ctx->contact_in_wmark ) )
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-            ctx->contact_in_chunk0, ctx->contact_in_wmark ));
+                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->contact_in_mem, chunk );
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     handle_new_cluster_contact_info( ctx, dcache_entry );
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-            ctx->stake_in_chunk0, ctx->stake_in_wmark ));
+                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk );
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     /* This is a frag from the PoH tile.  We'll copy it to our pending
        microblock batch and shred it if necessary (last in block or
        above watermark).  We just go ahead and shred it here, even
@@ -336,11 +326,11 @@ during_frag( fd_shred_ctx_t * ctx,
        producing a block that never lands on chain. */
     fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->poh_in_mem, chunk );
-    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark ) || sz>FD_POH_SHRED_MTU ||
-        sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) )
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
+        sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-            ctx->poh_in_chunk0, ctx->poh_in_wmark ));
+            ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
     uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
@@ -423,16 +413,16 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->pending_batch.txn_cnt        = 0UL;
       ctx->batch_cnt++;
     }
-  } else { /* the common case, from the netmux tile */
-    /* The FEC resolver API does not present a prepare/commit model. If we
-       get overrun between when the FEC resolver verifies the signature
-       and when it stores the local copy, we could end up storing and
-       retransmitting garbage.  Instead we copy it locally, sadly, and
-       only give it to the FEC resolver when we know it won't be overrun
-       anymore. */
-    if( FD_UNLIKELY( chunk<ctx->net_in_chunk0 || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+    /* The common case, from the net tile.  The FEC resolver API does
+       not present a prepare/commit model. If we get overrun between
+       when the FEC resolver verifies the signature and when it stores
+       the local copy, we could end up storing and retransmitting
+       garbage.  Instead we copy it locally, sadly, and only give it to
+       the FEC resolver when we know it won't be overrun anymore. */
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
@@ -509,17 +499,17 @@ after_frag( fd_shred_ctx_t *    ctx,
   (void)sz;
   (void)tsorig;
 
-  if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     finalize_new_cluster_contact_info( ctx );
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     return;
   }
 
-  if( FD_UNLIKELY( (in_idx==POH_IN_IDX) & (ctx->send_fec_set_idx==ULONG_MAX) ) ) {
+  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_POH) & (ctx->send_fec_set_idx==ULONG_MAX) ) ) {
     /* Entry from PoH that didn't trigger a new FEC set to be made */
     return;
   }
@@ -527,7 +517,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   const ulong fanout = 200UL;
   fd_shred_dest_idx_t _dests[ 200*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
-  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
@@ -604,7 +594,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong sz3 = sizeof(fd_shred34_t) - (34UL - s34[ 3 ].shred_cnt)*FD_SHRED_MAX_SZ;
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
-  ulong new_sig = in_idx!=NET_IN_IDX; /* sig==0 means the store tile will do extra checks */
+  ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
@@ -630,7 +620,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong out_stride;
   ulong max_dest_cnt[1];
   fd_shred_dest_idx_t * dests;
-  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     out_stride = k;
     dests = fd_shred_dest_compute_children( sdest, new_shreds, k, _dests, k, fanout, fanout, max_dest_cnt );
   } else {
@@ -669,15 +659,6 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  if( FD_UNLIKELY( tile->in_cnt!=5UL ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
-                   strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
-                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"  )    ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "crds_shred" )    ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].name, "sign_shred" ) ) )
-    FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
   if( FD_UNLIKELY( tile->out_cnt!=3UL ||
                    (strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_store" ) &&
@@ -773,7 +754,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_INFO(( "Using shred version %hu", (ushort)expected_shred_version ));
 
   /* populate ctx */
-  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_shred", 0UL );
+  FD_TEST( sign_in_idx!=ULONG_MAX );
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
   NONNULL( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                             sign_out->mcache,
@@ -802,28 +785,21 @@ unprivileged_init( fd_topo_t *      topo,
   fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
   fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
 
-  fd_topo_link_t * netmux_shred_link = &topo->links[ tile->in_link_id[ NET_IN_IDX     ] ];
-  fd_topo_link_t * poh_shred_link    = &topo->links[ tile->in_link_id[ POH_IN_IDX     ] ];
-  fd_topo_link_t * stake_in_link     = &topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ];
-  fd_topo_link_t * contact_in_link   = &topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ];
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-  /* The networking in mcache contains frags from several dcaches, so
-     use the entire wksp data region as the chunk bounds. */
-  ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_shred_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->net_in_chunk0 = fd_disco_compact_chunk0( ctx->net_in_mem );
-  ctx->net_in_wmark  = fd_disco_compact_wmark ( ctx->net_in_mem, netmux_shred_link->mtu );
+    if( FD_LIKELY(      !strcmp( link->name, "net_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
-  ctx->poh_in_mem    = topo->workspaces[ topo->objs[ poh_shred_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->poh_in_chunk0 = fd_dcache_compact_chunk0( ctx->poh_in_mem, poh_shred_link->dcache );
-  ctx->poh_in_wmark  = fd_dcache_compact_wmark ( ctx->poh_in_mem, poh_shred_link->dcache, poh_shred_link->mtu );
-
-  ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
-  ctx->stake_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
-
-  ctx->contact_in_mem    = topo->workspaces[ topo->objs[ contact_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->contact_in_chunk0 = fd_dcache_compact_chunk0( ctx->contact_in_mem, contact_in_link->dcache );
-  ctx->contact_in_wmark  = fd_dcache_compact_wmark ( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
+    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+  }
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
 

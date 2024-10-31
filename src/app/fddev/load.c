@@ -131,6 +131,9 @@ load_cmd_fn( args_t *         args,
 
   run_firedancer_init( config, 1 );
 
+  fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
+  (void)fds;
+
   // Do we need a sandbox?
 
   fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run, NULL );
