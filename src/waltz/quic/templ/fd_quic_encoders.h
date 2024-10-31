@@ -32,9 +32,11 @@
    frame is not const, as it may be mutated, for example to store offsets
    to particular bytes in the encoded data */
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                \
-  ulong fd_quic_encode_##NAME( uchar *              buf,               \
-                               ulong                sz,                \
-                               fd_quic_##NAME##_t * frame ) {          \
+  static inline                                                        \
+  ulong                                                                \
+  fd_quic_encode_##NAME( uchar *              buf,                     \
+                         ulong                sz,                      \
+                         fd_quic_##NAME##_t * frame ) {                \
     (void)frame;                                                       \
     uchar *  orig_buf = buf;                                           \
     uchar *  buf_end  = buf + sz;                                      \

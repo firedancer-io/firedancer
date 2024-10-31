@@ -7,6 +7,7 @@
 #include "fd_quic.h"
 #include "../../ballet/hex/fd_hex.h"
 #include "../../waltz/quic/fd_quic_proto.h"
+#include "../../waltz/quic/fd_quic_proto.c"
 #include "../../waltz/quic/templ/fd_quic_parse_util.h"
 #include "../../util/net/fd_pcap.h"
 #include "../../util/net/fd_pcapng.h"

@@ -7,6 +7,7 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_proto.h"
+#include "fd_quic_proto.c"
 #include "fd_quic_retry.h"
 
 #include "templ/fd_quic_frame_handler_decl.h"
@@ -3016,6 +3017,11 @@ typedef struct fd_quic_pkt_hdr fd_quic_pkt_hdr_t;
 /* encode packet header into buffer */
 ulong
 fd_quic_pkt_hdr_encode( uchar * cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level ) {
+  /* optimize for the common case */
+  if( FD_LIKELY( enc_level == fd_quic_enc_level_appdata_id ) ) {
+    return fd_quic_encode_one_rtt( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.one_rtt );
+  }
+
   switch( enc_level ) {
     case fd_quic_enc_level_initial_id:;
       return fd_quic_encode_initial( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.initial );
@@ -5334,6 +5340,10 @@ fd_quic_frame_handle_stream_frame(
 
   /* ack-eliciting */
   pkt->ack_flag |= ACK_FLAG_RQD;
+
+  /* This eliminates a warning without appearing to affect the optimization */
+  if( !data->length_opt ) __asm__( "#NOP" : "=rm" (data->length) );
+  if( !data->offset_opt ) __asm__( "#NOP" : "=rm" (data->offset) );
 
   /* offset field is optional, implied 0 */
   ulong offset      = fd_ulong_if( data->offset_opt, data->offset, 0UL );

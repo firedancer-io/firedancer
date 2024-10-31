@@ -3,6 +3,7 @@
 
 #include "fd_quic_sandbox.h"
 #include "../fd_quic_proto.h"
+#include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
 
 /* RFC 9000 Section 4.1. Data Flow Control

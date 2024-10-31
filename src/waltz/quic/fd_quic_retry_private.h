@@ -1,5 +1,7 @@
 #include "fd_quic_retry.h"
+
 #include "fd_quic_proto.h"
+#include "fd_quic_proto.c"
 
 /* FD_QUIC_RETRY_MAX_PSEUDO_SZ is the max encoded size of a Retry pseudo
    header. */
