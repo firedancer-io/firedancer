@@ -888,13 +888,7 @@ dynamic_port_range = "8900-9000"
         # peer needs to be acknowledged before we can discard it, as we
         # may need to retransmit.  This setting configures how many such
         # packets we can have in-flight to the peer and unacknowledged.
-        #
-        # If the expected round trip latency to peers is high,
-        # transaction throughput could be constrained by this option
-        # rather than the underlying link bandwidth.  If you have a lot
-        # of memory available and are constrained by this, it can make
-        # sense to increase.
-        max_inflight_quic_packets = 1000
+        max_inflight_quic_packets = 64
 
         # QUIC has a concept of an idle connection, one where neither
         # the client nor the server has sent any packet to the other for
