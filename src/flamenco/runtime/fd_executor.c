@@ -1666,17 +1666,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     sanitized_transaction->signatures[i] = signature;
   }
 
-  /* Transaction Context -> max_age */
-  ulong max_age = slot_ctx->slot_bank.block_hash_queue.max_age;
-  txn_context_msg->max_age = max_age;
-
   /* Transaction Context -> blockhash_queue
      NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
      entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
      huge issue, but something to keep in mind. */
   pb_bytes_array_t ** output_blockhash_queue = fd_scratch_alloc(
                                                       alignof(pb_bytes_array_t *),
-                                                      PB_BYTES_ARRAY_T_ALLOCSIZE((max_age + 1) * sizeof(pb_bytes_array_t *)) );
+                                                      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue_count = 0;
   txn_context_msg->blockhash_queue = output_blockhash_queue;
 
@@ -1697,13 +1693,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     pb_bytes_array_t * output_blockhash = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
     output_blockhash->size = sizeof(fd_hash_t);
     memcpy( output_blockhash->bytes, &blockhash, sizeof(fd_hash_t) );
-    output_blockhash_queue[max_age - queue_index] = output_blockhash;
+    output_blockhash_queue[FD_BLOCKHASH_QUEUE_MAX_ENTRIES - queue_index] = output_blockhash;
     txn_context_msg->blockhash_queue_count++;
   }
 
   // Shift blockhash queue elements if num elements < 301
-  if( txn_context_msg->blockhash_queue_count < max_age + 1 ) {
-    ulong index_offset = max_age + 1 - txn_context_msg->blockhash_queue_count;
+  if( txn_context_msg->blockhash_queue_count < FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1 ) {
+    ulong index_offset = FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1 - txn_context_msg->blockhash_queue_count;
     for( ulong i = 0; i < txn_context_msg->blockhash_queue_count; i++ ) {
       output_blockhash_queue[i] = output_blockhash_queue[i + index_offset];
     }
