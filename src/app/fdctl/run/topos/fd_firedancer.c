@@ -420,14 +420,6 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "eqvoc",    0UL,          "metric_in", "shred_net",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
-  /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */
-  fd_topo_obj_t * net0_pid_obj = fd_topob_obj( topo, "fseq", "net" );
-  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-    fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
-    fd_topob_tile_uses( topo, net_tile, net0_pid_obj, !i?FD_SHMEM_JOIN_MODE_READ_WRITE:FD_SHMEM_JOIN_MODE_READ_ONLY );
-  }
-  FD_TEST( fd_pod_insertf_ulong( topo->props, net0_pid_obj->id, "net0_pid" ) );
-
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 

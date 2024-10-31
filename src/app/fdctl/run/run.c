@@ -7,6 +7,7 @@
 
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_pod_format.h"
+#include "../../../waltz/xdp/fd_xdp1.h"
 #include "../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
 #include "../../../funk/fd_funk.h"
@@ -269,9 +270,19 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
+  fd_xdp_fds_t xdp_fds = fd_topo_install_xdp( &config->topo );
+
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
+
+    if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else {
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
 
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -288,6 +299,8 @@ main_pid_namespace( void * _args ) {
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;

@@ -4,6 +4,7 @@
 #include "../stem/fd_stem.h"
 #include "../quic/fd_tpu.h"
 #include "../../tango/fd_tango.h"
+#include "../../waltz/xdp/fd_xdp1.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -623,6 +624,12 @@ void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
                          ulong        tile_kind_id );
+
+/* Install the XDP program needed by the net tiles into the local device
+   and return the xsk_map_fd. */
+
+fd_xdp_fds_t
+fd_topo_install_xdp( fd_topo_t * topo );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
