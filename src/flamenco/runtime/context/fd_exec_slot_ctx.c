@@ -515,9 +515,6 @@ fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
   ctx.valloc = slot_ctx->valloc;
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 
-  /* only the slot hashes needs freeing in sysvar cache */
-  fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &ctx );
-
   /* leader points to a caller-allocated leader schedule */
   fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
 }
