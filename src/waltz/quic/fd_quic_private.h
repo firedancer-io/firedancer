@@ -15,8 +15,7 @@
 #include "../../util/net/fd_udp.h"
 
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
-   encryption.  Only intended for testing.
-   FIXME not fully implemented (#256) */
+   encryption.  Only intended for testing. */
 #ifndef FD_QUIC_DISABLE_CRYPTO
 #define FD_QUIC_DISABLE_CRYPTO 0
 #endif

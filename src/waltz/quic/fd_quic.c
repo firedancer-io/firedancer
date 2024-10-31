@@ -1473,6 +1473,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong   pkt_number_sz    = (ulong)ULONG_MAX;
   ulong   tot_sz           = (ulong)ULONG_MAX;
 
+# if !FD_QUIC_DISABLE_CRYPTO
     /* this decrypts the header */
     int server = conn->server;
 
@@ -1489,6 +1490,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+# endif /* !FD_QUIC_DISABLE_CRYPTO */
 
     /* TODO should we avoid looking at the packet number here
        since the packet integrity is checked in fd_quic_crypto_decrypt? */
@@ -1510,6 +1512,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
 
+# if !FD_QUIC_DISABLE_CRYPTO
     /* NOTE from rfc9002 s3
        It is permitted for some packet numbers to never be used, leaving intentional gaps. */
     /* this decrypts the header and payload */
@@ -1522,6 +1525,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+# endif /* FD_QUIC_DISABLE_CRYPTO */
 
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     return FD_QUIC_PARSE_FAIL;
@@ -1639,6 +1643,7 @@ fd_quic_handle_v1_handshake(
   ulong    pkt_number_sz    = (ulong)-1;
   ulong    tot_sz           = (ulong)-1;
 
+# if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   int server = conn->server;
 
@@ -1649,6 +1654,7 @@ fd_quic_handle_v1_handshake(
     quic->metrics.conn_err_tls_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
+# endif /* !FD_QUIC_DISABLE_CRYPTO */
 
   /* number of bytes in the packet header */
   pkt_number_sz = ( (uint)cur_ptr[0] & 0x03u ) + 1u;
@@ -1669,6 +1675,7 @@ fd_quic_handle_v1_handshake(
   /* NOTE from rfc9002 s3
     It is permitted for some packet numbers to never be used, leaving intentional gaps. */
 
+# if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header and payload */
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt( cur_ptr, tot_sz,
@@ -1680,6 +1687,7 @@ fd_quic_handle_v1_handshake(
     quic->metrics.conn_err_tls_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
+# endif /* FD_QUIC_DISABLE_CRYPTO */
 
   /* check body size large enough for required elements */
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
@@ -1853,6 +1861,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   ulong pkt_number       = ULONG_MAX;
   ulong pkt_number_sz    = ULONG_MAX;
 
+# if !FD_QUIC_DISABLE_CRYPTO
     /* this decrypts the header */
     int server = conn->server;
 
@@ -1864,6 +1873,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+# endif /* !FD_QUIC_DISABLE_CRYPTO */
 
     /* get first byte for future use */
     uint first = (uint)cur_ptr[0];
@@ -1913,6 +1923,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
       conn->key_phase_upd = 1;
     }
 
+# if !FD_QUIC_DISABLE_CRYPTO
     fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[enc_level][!server]
                                                      : &conn->new_keys[!server];
 
@@ -1927,6 +1938,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
       quic->metrics.conn_err_tls_fail_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
+# endif /* !FD_QUIC_DISABLE_CRYPTO */
 
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
     conn->peer_enc_level = (uchar)enc_level;
@@ -3871,6 +3883,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     conn->tx_ptr += quic_pkt_sz + 16;
     conn->tx_sz  -= quic_pkt_sz + 16;
 
+    (void)key_phase_flags;
     (void)act_hdr_sz;
 #else
     ulong   quic_pkt_sz    = (ulong)( payload_ptr - cur_ptr );
