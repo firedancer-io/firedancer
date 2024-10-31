@@ -8,6 +8,7 @@
 
 #include "fd_quic_sandbox.h"
 #include "../fd_quic_proto.h"
+#include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
 #include "../../../tango/fd_tango.h"
 

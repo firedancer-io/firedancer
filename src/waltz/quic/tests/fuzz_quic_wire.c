@@ -20,6 +20,7 @@
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 #include "../fd_quic_proto.h"
+#include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
 
 #include <assert.h>

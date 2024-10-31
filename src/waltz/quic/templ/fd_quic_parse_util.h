@@ -1,3 +1,6 @@
+#ifndef FD_QUIC_WALTZ_QUIC_TEMPL_FD_QUIC_PARSE_UTIL_H
+#define FD_QUIC_WALTZ_QUIC_TEMPL_FD_QUIC_PARSE_UTIL_H
+
 #include <stddef.h>
 
 #include "../fd_quic_common.h"
@@ -128,3 +131,5 @@ fd_quic_pktnum_decode( uchar const * buf,
   }
   return FD_LOAD( uint, scratch );
 }
+
+#endif

@@ -2,6 +2,7 @@
 #include "../fd_quic_conn_id.h"
 #include "../fd_quic_enum.h"
 #include "../fd_quic_proto.h"
+#include "../fd_quic_proto.c"
 #include "fd_quic_transport_params.h"
 
 static int

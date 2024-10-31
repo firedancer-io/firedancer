@@ -66,6 +66,7 @@
 // remaining bits are all data bits
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
   do {                                                                 \
+    out->NAME = 0;                                                     \
     if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
     uint msb2 = buf[cur_byte] >> 6u;                                   \
     uint vsz  = 1U<<msb2;                                              \
@@ -132,9 +133,6 @@
       cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);      \
     }
 
-#if 0
-#define FD_TEMPL_MBR_OPT(STRUCT,NAME,MASK,TEMPL)
-#else
 #define FD_TEMPL_MBR_OPT(TYPE_NAME,NAME,MASK,...)   \
     do {                                            \
       _Bool cond = out->TYPE_NAME & (MASK);         \
@@ -143,7 +141,6 @@
         __VA_ARGS__                                 \
       }                                             \
     } while(0);
-#endif
 
 
 // at end, return the number of bytes consumed

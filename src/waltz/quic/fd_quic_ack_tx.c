@@ -1,6 +1,9 @@
 #include "fd_quic_ack_tx.h"
 #include "fd_quic_private.h"
 
+#include "fd_quic_proto.h"
+#include "fd_quic_proto.c"
+
 static inline int
 fd_quic_range_can_extend( fd_quic_range_t const * range,
                           ulong                   idx ) {

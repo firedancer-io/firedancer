@@ -13,12 +13,9 @@
 #include "fd_quic_types.h"
 #include "fd_quic_common.h"
 
-#include "templ/fd_quic_parse_util.h"
+#include "fd_quic_proto.h"
 
-#include "templ/fd_quic_defs.h"
-#include "templ/fd_quic_templ.h"
-#include "templ/fd_quic_frames_templ.h"
-#include "templ/fd_quic_undefs.h"
+#include "templ/fd_quic_parse_util.h"
 
 #include "templ/fd_quic_parsers.h"
 #include "templ/fd_quic_templ.h"
