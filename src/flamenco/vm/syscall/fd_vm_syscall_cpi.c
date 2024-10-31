@@ -403,6 +403,12 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
                                    ulong acct_info_cnt,
                                    fd_exec_slot_ctx_t const * slot_ctx ) {
 
+  /* If the amount of signers does not fit into a signed integer, Agave will throw InvalidLength
+     https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580 */
+  if ( FD_UNLIKELY( signers_seeds_cnt > INT_MAX ) ) {
+    return FD_VM_ERR_SYSCALL_INVALID_LENGTH;
+  }
+
   /* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     // TODO: return SyscallError::TooManySigners
