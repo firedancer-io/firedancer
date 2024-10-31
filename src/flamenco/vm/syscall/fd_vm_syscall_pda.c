@@ -127,14 +127,16 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
      the syscall.
      
      https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L744-L750 */
-  if ( FD_UNLIKELY( err == FD_VM_ERR_SIGSEGV ) ) {
-    return err;
-  }
   if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
-    /* Place 1 in r0 if we failed to derive a PDA
-       https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
-    *_ret = 1UL;
-    return FD_VM_SUCCESS;
+
+    /* Place 1 in r0 and successfully exit if we failed to derive a PDA
+      https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
+    if ( FD_LIKELY( err == FD_VM_ERR_INVALID_PDA ) ) {
+      *_ret = 1UL;
+      return FD_VM_SUCCESS;
+    }
+
+    return err;
   }
 
   fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, FD_PUBKEY_FOOTPRINT );
