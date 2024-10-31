@@ -121,7 +121,16 @@ fd_txn_parse_core( uchar const             * payload,
   ushort instr_cnt = (ushort)0;
   READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
 
+#ifdef FD_OFFLINE_REPLAY
+  /* For offline replay, we allow up to 128 instructions per
+     transaction. Note that this is simply a bump in the limit that is
+     completely local to this check. We are not concomitantly bumping
+     the size of fd_txn_t. So we risk potential buffer overflow in
+     fd_txn_t, but again only in offline replay. */
+  CHECK( (ulong)instr_cnt<=128UL                );
+#else
   CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
+#endif
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
   /* If it has >0 instructions, it must have at least one other account
      address (the program id) that can't be the fee payer */
