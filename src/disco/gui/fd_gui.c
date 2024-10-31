@@ -98,7 +98,8 @@ fd_gui_new( void *             shmem,
 
   memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
   memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
-  gui->summary.tile_timers_snap_idx = 2UL;
+  gui->summary.tile_timers_snap_idx    = 2UL;
+  gui->summary.tile_timers_history_idx = 0UL;
   for( ulong i=0UL; i<FD_GUI_TILE_TIMER_LEADER_CNT; i++ ) gui->summary.tile_timers_leader_history_slot[ i ] = ULONG_MAX;
 
   gui->epoch.has_epoch[ 0 ] = 0;
