@@ -7,7 +7,6 @@
 #include "../../../util/wksp/fd_wksp.h"
 
 #include "../sysvar/fd_sysvar_cache.h"
-#include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
 
@@ -59,7 +58,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_valloc_t                 valloc;
 
   fd_slot_bank_t              slot_bank;
-  fd_sysvar_cache_old_t       sysvar_cache_old; // TODO make const
   // TODO this leader pointer could become invalid if forks cross epoch boundaries
   fd_pubkey_t const *         leader; /* Current leader */
   ulong                       total_compute_units_requested;

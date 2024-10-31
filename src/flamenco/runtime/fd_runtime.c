@@ -2331,13 +2331,6 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
     return result;
   }
 
-  fd_bincode_destroy_ctx_t destroy_sysvar_ctx = {
-    .valloc = slot_ctx->valloc,
-  };
-
-  // Clean up sysvar cache
-  fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &destroy_sysvar_ctx );
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -2382,12 +2375,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
-  fd_bincode_destroy_ctx_t destroy_sysvar_ctx = {
-    .valloc = slot_ctx->valloc,
-  };
-
-  // Clean up sysvar cache
-  fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &destroy_sysvar_ctx );
   slot_ctx->total_compute_units_requested = 0;
   for ( fd_account_compute_table_iter_t iter = fd_account_compute_table_iter_init( slot_ctx->account_compute_table );
         !fd_account_compute_table_iter_done( slot_ctx->account_compute_table, iter );
@@ -3675,7 +3662,7 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
         if( prevent_rent_fix | validate_fee_collector_account) {
           // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
 
-          ulong minbal = fd_rent_exempt_minimum_balance( slot_ctx->sysvar_cache_old.rent, rec->const_meta->dlen );
+          ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), rec->const_meta->dlen );
           if( rec->const_meta->info.lamports + rent_to_be_paid < minbal ) {
             FD_LOG_WARNING(("cannot pay a rent paying account (%s)", FD_BASE58_ENC_32_ALLOCA( &pubkey ) ));
             leftover_lamports += rent_to_be_paid;
@@ -3774,7 +3761,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
           break;
         }
 
-        uchar not_exempt = fd_rent_exempt_minimum_balance( slot_ctx->sysvar_cache_old.rent, rec->meta->dlen ) > rec->meta->info.lamports;
+        uchar not_exempt = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), rec->meta->dlen ) > rec->meta->info.lamports;
         if( not_exempt ) {
           FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to non-rent-exempt account", fees ));
           slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
@@ -4215,27 +4202,8 @@ void fd_process_new_epoch(
 int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(!slot_ctx->acc_mgr)) return -1;
   // if (FD_UNLIKELY(!slot_ctx->funk_txn)) return -1;
-  /* TODO check valloc */
 
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
-
-  fd_slot_hashes_new( slot_ctx->sysvar_cache_old.slot_hashes );
-  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_ctx->sysvar_cache_old.slot_hashes, slot_ctx ) ) ) {
-    FD_LOG_WARNING(("reading sysvars failed"));
-    return -1;
-  }
-
-  fd_rent_new( slot_ctx->sysvar_cache_old.rent );
-  if( FD_UNLIKELY( !fd_sysvar_rent_read( slot_ctx->sysvar_cache_old.rent, slot_ctx ) ) ) {
-    FD_LOG_WARNING(("reading sysvars failed"));
-    return -1;
-  }
-
-  fd_sol_sysvar_clock_new( slot_ctx->sysvar_cache_old.clock );
-  if( FD_UNLIKELY( !fd_sysvar_clock_read( slot_ctx->sysvar_cache_old.clock, slot_ctx ) ) ) {
-    FD_LOG_WARNING(("reading sysvars failed"));
-    return -1;
-  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
