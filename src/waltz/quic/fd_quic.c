@@ -2657,6 +2657,8 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   ulong           rcv_offset = crypto->offset;
   ulong           rcv_sz     = crypto->length;
 
+  if( FD_UNLIKELY( rcv_sz > p_sz ) ) return FD_QUIC_PARSE_FAIL;
+
   if( !conn->tls_hs ) {
     /* Handshake already completed. Ignore frame */
     /* TODO consider aborting conn if too many unsoliticted crypto frames arrive */
@@ -2672,7 +2674,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
     if( rcv_offset < exp_offset ) skip = exp_offset - rcv_offset;
 
     rcv_sz -= skip;
-    uchar const * crypto_data = crypto->crypto_data + skip;
+    uchar const * crypto_data = p + skip;
 
     int provide_rc = fd_quic_tls_provide_data( conn->tls_hs,
                                                context.pkt->enc_level,
@@ -2715,7 +2717,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   (void)context; (void)p; (void)p_sz;
 
   /* no "additional" bytes - all already accounted for */
-  return FD_QUIC_SUCCESS;
+  return rcv_sz;
 }
 
 static int
@@ -3109,26 +3111,30 @@ fd_quic_gen_handshake_frames( fd_quic_conn_t *     conn,
     uchar const * cur_data    = hs_data->data    + hs_offset;
     ulong         cur_data_sz = hs_data->data_sz - hs_offset;
 
-    /* build crypto frame */
-    fd_quic_crypto_frame_t crypto = {
-      .offset      = offset,
-      .length      = cur_data_sz,
-      .crypto_data = cur_data
-    };
-    ulong frame_sz = fd_quic_encode_crypto_frame(
-        payload_ptr, (ulong)( payload_end - payload_ptr ), &crypto );
-    if( FD_UNLIKELY( frame_sz==FD_QUIC_ENCODE_FAIL ) ) break;
-    payload_ptr += frame_sz;
+    /* 9 bytes header + cur_data_sz */
+    if( payload_ptr + 9UL + cur_data_sz > payload_end ) break;
+    /* FIXME reduce cur_data_sz if it doesn't fit in frame
+       Practically don't need to, because fd_tls generates a small amount of data */
+
+    payload_ptr[0] = 0x06; /* CRYPTO frame */
+    uint offset_varint = 0x80U | ( fd_uint_bswap( (uint)offset      & 0x3fffffffU ) );
+    uint length_varint = 0x80U | ( fd_uint_bswap( (uint)cur_data_sz & 0x3fffffffU ) );
+    FD_STORE( uint, payload_ptr+1, offset_varint );
+    FD_STORE( uint, payload_ptr+5, length_varint );
+    payload_ptr += 9;
+
+    fd_memcpy( payload_ptr, cur_data, cur_data_sz );
+    payload_ptr += cur_data_sz;
 
     /* update pkt_meta values */
     offset_hi += cur_data_sz;
 
     /* move to next hs_data */
     offset     += cur_data_sz;
-    conn
+    conn->hs_sent_bytes[enc_level] += cur_data_sz;
 
     /* TODO load more hs_data into a crypto frame, if available
-       currently tricky, because encode_crypto_frame copies payload */->hs_sent_bytes[enc_level] += cur_data_sz;
+       currently tricky, because encode_crypto_frame copies payload */
   }
 
   /* update packet meta */
