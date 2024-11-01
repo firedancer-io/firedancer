@@ -1499,7 +1499,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
-    pkt_number = fd_quic_parse_bits( cur_ptr + pn_offset, 0, 8u * pkt_number_sz );
+    pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
     FD_DEBUG( FD_LOG_DEBUG(( "initial pkt_number: %lu", (ulong)pkt_number )) );
 
     /* packet number space */
@@ -1660,7 +1660,7 @@ fd_quic_handle_v1_handshake(
   tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
-  pkt_number = fd_quic_parse_bits( cur_ptr + pn_offset, 0, 8u * pkt_number_sz );
+  pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
 
   /* packet number space */
   uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1880,7 +1880,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     pkt_number_sz = ( first & 0x03u ) + 1u;
 
     /* now we have decrypted packet number */
-    pkt_number = fd_quic_parse_bits( cur_ptr + pn_offset, 0, 8u * pkt_number_sz );
+    pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -3031,7 +3031,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.initial.fixed_bit        = 1;
       pkt_hdr->quic_pkt.initial.long_packet_type = 0;      /* TODO should be set by encoder */
       pkt_hdr->quic_pkt.initial.reserved_bits    = 0;      /* must be set to zero by rfc9000 17.2 */
-      pkt_hdr->quic_pkt.initial.pkt_number_len   = 3;      /* indicates 4-byte packet number TODO vary? */
+      pkt_hdr->quic_pkt.initial.pkt_number_len   = 3;      /* indicates 4-byte packet number */
       pkt_hdr->quic_pkt.initial.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
       pkt_hdr->quic_pkt.initial.version          = 1;
       pkt_hdr->quic_pkt.initial.dst_conn_id_len  = peer_conn_id->sz;
@@ -3064,7 +3064,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       pkt_hdr->quic_pkt.handshake.fixed_bit        = 1;
       pkt_hdr->quic_pkt.handshake.long_packet_type = 2;
       pkt_hdr->quic_pkt.handshake.reserved_bits    = 0;      /* must be set to zero by rfc9000 17.2 */
-      pkt_hdr->quic_pkt.handshake.pkt_number_len   = 3;      /* indicates 4-byte packet number TODO vary? */
+      pkt_hdr->quic_pkt.handshake.pkt_number_len   = 3;      /* indicates 4-byte packet number */
       pkt_hdr->quic_pkt.handshake.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
       pkt_hdr->quic_pkt.handshake.version          = 1;
 
@@ -3101,7 +3101,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
                                                                /* randomized for disabled spin bit */
       pkt_hdr->quic_pkt.one_rtt.reserved0        = 0;          /* must be set to zero by rfc9000 17.2 */
       pkt_hdr->quic_pkt.one_rtt.key_phase        = key_phase;  /* flipped on key change */
-      pkt_hdr->quic_pkt.one_rtt.pkt_number_len   = 3;          /* indicates 4-byte packet number TODO vary? */
+      pkt_hdr->quic_pkt.one_rtt.pkt_number_len   = 3;          /* indicates 4-byte packet number */
       pkt_hdr->quic_pkt.one_rtt.pkt_num_bits     = 4 * 8;      /* actual number of bits to encode */
 
       /* destination */
@@ -3214,7 +3214,7 @@ fd_quic_gen_close_frame( fd_quic_conn_t *     conn,
   }
 
   if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
-    FD_LOG_WARNING(( "fd_quic_encode_crypto_frame failed, but space should have been available" ));
+    FD_LOG_WARNING(( "fd_quic_encode_conn_close_frame failed, but space should have been available" ));
     return 0UL;
   }
 

@@ -38,14 +38,11 @@
     (void)frame;                                                       \
     uchar *  orig_buf = buf;                                           \
     uchar *  buf_end  = buf + sz;                                      \
-    ulong    cur_bit  = 0;          (void)cur_bit;                     \
     ulong    tmp_len  = 0;          (void)tmp_len;                     \
     uchar *  type_ptr = NULL;       (void)type_ptr;
 
-/* encodes TYPE into output, sets cur_bit to 0 */
+/* encodes TYPE into output */
 #define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)                      \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
     if( buf >= buf_end ) return FD_QUIC_PARSE_FAIL;                    \
     buf[0] = ID_LO;                                                    \
     type_ptr = buf++;
@@ -58,34 +55,20 @@
     }
 
 
-/* encodes aligned bytes into output, sets cur_bit to 0 */
+/* encodes aligned bytes into output */
 #define FD_TEMPL_MBR_ELEM(NAME,TYPE)                                   \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
     if( FD_UNLIKELY( buf+sizeof(fd_quic_##TYPE) > buf_end ) )          \
       return FD_QUIC_PARSE_FAIL;                                       \
     buf += FD_TEMPL_ENCODE(TYPE,frame->NAME,buf);
 
 
-/* encodes a packet number
-   simply bits
+/* encodes a packet number.  Assumes pkt_number_len == 3 (4 bytes)
    keeps the pointer to the start of the packet number field */
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
-    if( (long)( frame->NAME##_bits + cur_bit )                         \
-        > (long)( ( buf_end - buf ) * 8 ) ) {                          \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
+    if( FD_UNLIKELY( buf+4 > buf_end ) ) return FD_QUIC_ENCODE_FAIL;   \
     frame->NAME##_pnoff = (unsigned)( buf - orig_buf );                \
-    if( fd_quic_encode_bits( buf, cur_bit,                             \
-          frame->NAME & ( ( 1UL << frame->NAME##_bits ) - 1UL ),       \
-          frame->NAME##_bits ) ) {                                     \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    cur_bit += frame->NAME##_bits;                                     \
-    buf += cur_bit >> 3;                                               \
-    cur_bit &= 7;
+    FD_STORE( uint, buf, (uint)frame->NAME );                          \
+    buf += 4;
 
 
 /* encodes a VARINT
@@ -95,8 +78,6 @@
    checks for capacity before writing */
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
     do {                                                               \
-      buf += (cur_bit != 0);                                           \
-      cur_bit = 0;                                                     \
       tmp_len = FD_QUIC_ENCODE_VARINT_LEN(frame->NAME);                \
       if( tmp_len > ((ulong)(buf_end - buf) ) ) return FD_QUIC_PARSE_FAIL; \
       ulong tmp_sz = (ulong)( buf_end - buf );                         \
@@ -105,26 +86,27 @@
 
 
 // encodes unaligned bits into buf
+#define FD_TEMPL_MBR_BITS_BEGIN()                                      \
+  do {                                                                 \
+    uint bits = 0U;                                                    \
+    if( FD_UNLIKELY( buf >= buf_end ) ) return FD_QUIC_ENCODE_FAIL;    \
+
 #define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                         \
-    if( BITS + cur_bit > (ulong)( ( buf_end - buf ) * 8 ) ) {          \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    if( fd_quic_encode_bits( buf, cur_bit, frame->NAME, BITS ) ) {     \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    cur_bit += BITS;                                                   \
-    buf += cur_bit >> 3;                                               \
-    cur_bit &= 7;
+    bits <<= BITS;                                                     \
+    bits |= frame->NAME;
 
 #define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE)               \
     frame->NAME = CODE;                                                \
     FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
 
+#define FD_TEMPL_MBR_BITS_END()                                        \
+    buf[0] = (uchar)bits;                                              \
+    buf++;                                                             \
+  } while(0);
+
 
 // VAR currently assumed to be aligned bytes
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
     tmp_len = frame->LEN_NAME;                                         \
     if( FD_UNLIKELY( tmp_len*8 < BITS_MIN || tmp_len*8 > BITS_MAX ) ) {\
       FD_LOG_DEBUG(( "buffer overflow encoding variable length field." \
@@ -148,8 +130,6 @@
 
 // VAR currently assumed to be aligned bytes
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
     tmp_len = frame->LEN_NAME;                                         \
     if( FD_UNLIKELY( tmp_len*8 < BITS_MIN || tmp_len*8 > BITS_MAX ) ) {\
       FD_LOG_DEBUG(( "buffer overflow encoding variable length field." \
@@ -175,8 +155,6 @@
    caller has responsibility of ensuring the size of the array is not
    too large for the space in a packet */
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)         \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
     tmp_len = frame->NAME##_len;                                       \
     if( tmp_len * sizeof( fd_quic_##TYPE ) > BYTES_MAX ) {             \
       return FD_QUIC_ENCODE_FAIL;                                      \
@@ -188,8 +166,6 @@
 /* FIXED is an array of elements, each of the same size,
    with length constant */
 #define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                       \
-    buf += (cur_bit != 0);                                             \
-    cur_bit = 0;                                                       \
     if( FD_UNLIKELY( BYTES > buf_end-buf ||                            \
                      BYTES % sizeof(fd_quic_##TYPE) ) )                \
       return FD_QUIC_PARSE_FAIL;                                       \
@@ -214,7 +190,6 @@
 
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                  \
-    buf += (cur_bit != 0);                                             \
     return (ulong)( buf-orig_buf );                                    \
   }
 

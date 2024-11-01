@@ -84,64 +84,6 @@
       return FD_QUIC_ENCODE_FAIL;                                         \
   } while(0);
 
-
-#if !defined(CBMC)
-#if 0
-inline
-ulong
-fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
-  if( bits == 0 ) return 0;
-  if( bits > 64 ) return 0;
-
-  if( cur_bit == 0 && bits >= 8 ) {
-    return ( (ulong)buf[0] << (bits-8) ) + fd_quic_parse_bits( buf + 1, cur_bit, bits - 8 );
-  }
-
-  if( cur_bit == 0 ) {
-    // must be less than 8 bits
-    return ( buf[0] >> ( 8 - bits ) ) & ( ( 1 << bits ) - 1 );
-  }
-
-  // align remainder
-  if( bits <= 8 - cur_bit ) {
-    return ( (ulong)buf[0] >> ( 8 - cur_bit - bits ) ) & ( ( 1 << bits ) - 1 );
-  }
-
-  return ( ( (ulong)buf[0] & ( ( 1 << ( 8 - cur_bit ) ) - 1 ) ) << ( bits - ( 8 - cur_bit ) ) )
-         + fd_quic_parse_bits( buf + 1, 0, ( bits - ( 8 - cur_bit ) ) );
-}
-#elif 1
-
-inline
-ulong
-fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
-  /* written to assist compiler in optimizing
-     when written naively, the compiler emits branches and calls
-       whereas this way almost all the code is elided
-     the parameters are largely known at compile time
-     single return statement and no local vars helps tail recursion optimization
-     and inlining */
-  return (
-           ( bits == 0u ) ? 0u  // essentially "if( bits == 0 ) return 0; ..."
-           :
-           ( bits > 64u ) ? 0u
-           :
-           ( cur_bit == 0u && bits >= 8u ) ?
-             ( ( (ulong)buf[0u] << (bits-8u) ) + fd_quic_parse_bits( buf + 1u, cur_bit, bits - 8u ) )
-           :
-           ( cur_bit == 0u ) ?
-             ( ( (ulong)buf[0u] >> ( 8u - bits ) ) & ( ( 1u << bits ) - 1u ) )
-
-           :
-           ( bits <= 8u - cur_bit ) ?
-             ( ( (ulong)buf[0u] >> ( 8u - cur_bit - bits ) ) & ( ( 1u << bits ) - 1u ) )
-
-           :
-           ( ( ( (ulong)buf[0u] & ( ( 1u << ( 8u - cur_bit ) ) - 1u ) ) << ( bits - ( 8u - cur_bit ) ) )
-                  + fd_quic_parse_bits( buf + 1u, 0u, ( bits - ( 8u - cur_bit ) ) ) )
-        );
-}
-
 /* fd_quic_extract_hdr_form extract the 'Header Form' bit, the first bit of a QUIC v1 packet.
    Returns 1 if the packet is a long header packet, 0 if the packet is a short header packet.
    Does not require decryption of the packet header. */
@@ -158,47 +100,27 @@ fd_quic_extract_long_packet_type( uchar hdr ) {
   return (hdr>>4)&3;
 }
 
-/* encode contiguous unaligned bits across bytes
-   caller responsible for ensuring enough space for operation
-   returns 0 for success */
-inline
-int
-fd_quic_encode_bits( uchar * buf, ulong cur_bit, ulong val, ulong bits ) {
-  /* TODO optimize this */
-
-  if( bits == 0u || bits > 64u ) return 1;
-
-  for( ulong j = 0; j < bits; ++j ) {
-    ulong k = cur_bit + j;
-    ulong bit_offs  = k & 7u;
-    ulong byte_offs = k >> 3u;
-
-    /* at each new byte, clear it */
-    uchar cur_byte = bit_offs == 0 ? 0 : buf[byte_offs];
-
-    /* val bit 0 corresponds to bit offset bits-1 */
-    /* j == 0 is the leftmost bit, which is val bit (bits-1) */
-    /* j == 1 is the leftmost bit, which is val bit (bits-2) */
-    /* so we want to shift val right by ( bits-1-j ) */
-
-    buf[byte_offs] = (uchar)((uchar)cur_byte | (uchar) ( ( (val >> (bits-1u-j)) & 1u ) << ( 7u - bit_offs ) ));
+__attribute__((used)) static ulong
+fd_quic_varint_decode( uchar const * buf,
+                       uint          msb2 ) {
+  switch( msb2 ) {
+  case 3:
+    return __builtin_bswap64( FD_LOAD( ulong,  buf ) ) & 0x3fffffffffffffff;
+  case 2:
+    return __builtin_bswap32( FD_LOAD( uint,   buf ) ) &         0x3fffffff;
+  case 1:
+    return __builtin_bswap16( FD_LOAD( ushort, buf ) ) &             0x3fff;
+  case 0:
+    return buf[0] & 0x3f;
+  default:
+    __builtin_unreachable();
   }
-
-  return 0;
 }
-#endif
 
-#else /* defined(CBMC) */
-
-extern ulong
-fd_quic_parse_bits( uchar const * buf,
-                    ulong         cur_bit,
-                    ulong         bits );
-
-extern int
-fd_quic_encode_bits( uchar * buf,
-                     ulong   cur_bit,
-                     ulong   val,
-                     ulong   bits );
-
-#endif /* defined(CBMC) */
+static inline ulong
+fd_quic_pktnum_decode( uchar const * buf,
+                       ulong         sz ) {
+  ulong pkt_number = 0UL;
+  fd_memcpy( &pkt_number, buf, sz );
+  return pkt_number;
+}

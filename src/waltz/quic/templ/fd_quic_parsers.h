@@ -35,10 +35,7 @@
                                ulong                            sz ) { \
     (void)out; (void)buf; (void)sz;                                    \
     ulong cur_byte = 0;                                                \
-    ulong cur_bit = 0; (void)cur_bit;                                  \
     ulong tmp_len = 0; (void)tmp_len;                                  \
-    uint varint_sizes[4] = { 6, 14, 30, 62 }; (void)varint_sizes;      \
-    uint varint_bits; (void)varint_bits;
     // TODO check min size here
 
 // consumes single aligned byte in input
@@ -47,10 +44,8 @@
     cur_byte++;
 
 
-// consumes aligned bytes in input, sets cur_bit to 0
+// consumes aligned bytes in input
 #define FD_TEMPL_MBR_ELEM(NAME,TYPE)                                   \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit = 0;                                                       \
     if( FD_UNLIKELY( cur_byte + sizeof(fd_quic_##TYPE) > sz ) )        \
       return FD_QUIC_PARSE_FAIL;                                       \
     cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME,buf+cur_byte);
@@ -61,8 +56,6 @@
 // header protection
 // stores the offset for packet processing
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit = 0;                                                       \
     if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
     out->NAME##_pnoff = (unsigned)cur_byte;
 
@@ -72,33 +65,36 @@
 // most significant two bits represent the width of the int
 // remaining bits are all data bits
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit = 0;                                                       \
+  do {                                                                 \
     if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
-    varint_bits = varint_sizes[ buf[cur_byte] >> 6u ];                 \
-    cur_bit += 2;                                                      \
-    FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,varint_bits);
+    uint msb2 = buf[cur_byte] >> 6u;                                   \
+    uint vsz  = 1U<<msb2;                                              \
+    if( FD_UNLIKELY( cur_byte+vsz > sz ) ) return FD_QUIC_PARSE_FAIL;  \
+    out->NAME = (fd_quic_##TYPE)fd_quic_varint_decode( buf+cur_byte, msb2 ); \
+    cur_byte += vsz;                                                   \
+  } while(0);
 
 
 // consumes unaligned bits in input
-#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                                          \
-    if( FD_UNLIKELY( BITS + cur_bit > ( ( sz - cur_byte ) * 8 ) ) ) {                   \
-      return FD_QUIC_PARSE_FAIL;                                                        \
-    }                                                                                   \
-    out->NAME = (fd_quic_##TYPE)fd_quic_parse_bits( (buf + cur_byte), cur_bit, BITS );  \
-    cur_bit  += BITS;                                                                   \
-    cur_byte += cur_bit >> 3;                                                           \
-    cur_bit  &= 7;
+#define FD_TEMPL_MBR_BITS_BEGIN()                                      \
+  do {                                                                 \
+    if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
+    uint bits = buf[ cur_byte ];                                       \
+
+#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                         \
+    bits = fd_uchar_rotate_left( (uchar)bits, BITS );                  \
+    out->NAME = (fd_quic_##TYPE)( bits & ((1UL<<BITS)-1) );
 
 #define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE) \
           FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
 
+#define FD_TEMPL_MBR_BITS_END()                                        \
+    cur_byte++;                                                        \
+  } while(0);
 
 // VAR currently assumed to be aligned bytes
 // BITS_MIN and BITS_MAX are always divisible by 8
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit = 0;                                                       \
     tmp_len = out->LEN_NAME;                                           \
     if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
                      ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
@@ -116,8 +112,6 @@
 // VAR currently assumed to be aligned bytes
 // BITS_MIN and BITS_MAX are always divisible by 8
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit = 0;                                                       \
     tmp_len = out->LEN_NAME;                                           \
     if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
                      ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
@@ -133,8 +127,6 @@
 /* ARRAY is an array of elements, each of the same size,
    with length implied by the packet size */
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)         \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit = 0;                                                       \
     tmp_len = sz - cur_byte;                                           \
     if( FD_UNLIKELY( tmp_len > BYTES_MAX ) )                           \
       tmp_len = BYTES_MAX;                                             \
@@ -149,8 +141,6 @@
 /* FIXED is an array of elements, each of the same size,
    with length constant */
 #define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                       \
-    cur_byte += (cur_bit != 0);                                        \
-    cur_bit   = 0;                                                     \
     if( FD_UNLIKELY( cur_byte+BYTES>sz ) ) return FD_QUIC_PARSE_FAIL;  \
     tmp_len = BYTES / sizeof(fd_quic_##TYPE);                          \
     if( FD_UNLIKELY( tmp_len * sizeof( fd_quic_##TYPE ) >              \
@@ -175,7 +165,6 @@
 
 // at end, return the number of bytes consumed
 #define FD_TEMPL_DEF_STRUCT_END(NAME) \
-    cur_byte += (cur_bit != 0);       \
     return cur_byte;                  \
   }
 
