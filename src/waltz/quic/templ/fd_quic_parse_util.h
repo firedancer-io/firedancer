@@ -120,7 +120,12 @@ fd_quic_varint_decode( uchar const * buf,
 static inline ulong
 fd_quic_pktnum_decode( uchar const * buf,
                        ulong         sz ) {
-  ulong pkt_number = 0UL;
-  fd_memcpy( &pkt_number, buf, sz );
-  return pkt_number;
+  uchar scratch[4] = {0};
+  switch( sz ) {
+  case 4: scratch[3] = buf[3]; __attribute__((fallthrough));
+  case 3: scratch[2] = buf[2]; __attribute__((fallthrough));
+  case 2: scratch[1] = buf[1]; __attribute__((fallthrough));
+  case 1: scratch[0] = buf[0];
+  }
+  return FD_LOAD( uint, scratch );
 }
