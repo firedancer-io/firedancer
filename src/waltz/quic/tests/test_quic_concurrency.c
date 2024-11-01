@@ -27,11 +27,13 @@ main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                          );
-  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
-  ulong        conn_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--conn-cnt", NULL, 100000UL                     );
-  float        duration  = fd_env_strip_cmdline_float( &argc, &argv, "--duration", NULL, 3.0f                         );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                          );
+  ulong        numa_idx   = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
+  ulong        conn_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--conn-cnt", NULL, 100000UL                     );
+  float        duration   = fd_env_strip_cmdline_float( &argc, &argv, "--duration", NULL, 3.0f                         );
+  ulong        conn_burst = fd_env_strip_cmdline_ulong( &argc, &argv, "--burst",    NULL, 16UL                         );
+  if( !conn_burst ) conn_burst = 1UL;
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -51,8 +53,8 @@ main( int     argc,
     .conn_cnt         = conn_cnt,
     .handshake_cnt    =        1,
     .conn_id_cnt      =        4,
-    .rx_stream_cnt    =        8,
-    .inflight_pkt_cnt =        8,
+    .rx_stream_cnt    =        2,
+    .inflight_pkt_cnt =        4,
     .tx_buf_sz        =        0
   };
   quic_limits.stream_pool_cnt = quic_limits.conn_cnt * quic_limits.rx_stream_cnt;
@@ -73,7 +75,7 @@ main( int     argc,
   FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER ) );
   fd_quic_t * const quic = sandbox->quic;
   quic->cb.now = quic_now;
-  quic->config.idle_timeout = (ulong)10e9;
+  quic->config.idle_timeout = (ulong)100000e9;
   fd_quic_state_t * state = fd_quic_get_state( quic );
   state->now = fd_quic_now( quic );
 
@@ -86,14 +88,13 @@ main( int     argc,
     fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
     conn->rx_sup_stream_id = (1UL<<62)-1;
     conn->last_activity    = state->now;
-    conn->idle_timeout     = (ulong)10e9;
-    fd_quic_reschedule_conn( conn, 0 );
+    conn->idle_timeout     = (ulong)100000e9;
     conn_list[ j ] = conn;
   }
 
   /* Test loop */
 
-  FD_LOG_NOTICE(( "Test start (--conn-cnt %lu --duration %g s)", conn_cnt, (double)duration ));
+  FD_LOG_NOTICE(( "Test start (--conn-cnt %lu --duration %g s --conn-burst %lu)", conn_cnt, (double)duration, conn_burst ));
 
   long test_finish = fd_log_wallclock() + (long)( (double)duration * 1e9 );
 
@@ -108,6 +109,8 @@ main( int     argc,
   long  last_stat = fd_log_wallclock();
 
   ulong frame_cnt = 0UL;
+  ulong burst_idx = 0UL;
+  ulong conn_idx  = LONG_MAX;
   for(;;) {
 
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
@@ -126,8 +129,12 @@ main( int     argc,
 
     fd_quic_service( quic );
 
-    ulong            conn_idx = fd_rng_ulong_roll( rng, conn_cnt );
-    fd_quic_conn_t * conn     = conn_list[ conn_idx ];
+    if( burst_idx==0UL ) {
+      conn_idx  = fd_rng_ulong_roll( rng, conn_cnt );
+      burst_idx = conn_burst;
+    }
+    burst_idx--;
+    fd_quic_conn_t * conn = conn_list[ conn_idx ];
 
     fd_quic_stream_frame_t stream_frame =
       { .stream_id  = conn->rx_hi_stream_id,
@@ -148,6 +155,11 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Injected %lu stream frames", frame_cnt ));
   FD_LOG_NOTICE(( "Sent %lu packets", quic->metrics.net_tx_pkt_cnt ));
+
+  if( frame_cnt > 10000UL ) {
+    /* Fail test if the server sent back an excessive amount of ACKs */
+    FD_TEST( quic->metrics.net_tx_pkt_cnt <= frame_cnt );
+  }
 
   fd_wksp_free_laddr( conn_list );
   fd_wksp_free_laddr( fd_quic_sandbox_delete( fd_quic_sandbox_leave( sandbox ) ) );
