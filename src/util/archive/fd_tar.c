@@ -161,6 +161,10 @@ fd_tar_read( void *        const reader_,
 FD_FN_PURE ulong
 fd_tar_meta_get_size( fd_tar_meta_t const * meta ) {
   char const * buf = meta->size;
+  if( ((uchar)buf[0]) & 0x80U ) {
+    /* OLDGNU tar files may use a binary size encoding */
+    return fd_ulong_bswap( FD_LOAD( ulong, buf+4 ) );
+  }
 
   ulong ret = 0UL;
   for( char const * p=buf; p<buf+12; p++ ) {
