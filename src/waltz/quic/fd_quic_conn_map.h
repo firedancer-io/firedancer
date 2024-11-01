@@ -3,9 +3,8 @@
 
 #include "../../util/fd_util_base.h"
 
-struct fd_quic_conn_map {
+struct __attribute__((aligned(16))) fd_quic_conn_map {
   ulong conn_id;
-  uint  seq; /* sequence number used to manage new and retired connection ids */
   fd_quic_conn_t *  conn;
 };
 typedef struct fd_quic_conn_map fd_quic_conn_map_t;
