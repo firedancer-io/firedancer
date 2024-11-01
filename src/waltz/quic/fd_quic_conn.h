@@ -82,13 +82,10 @@ struct fd_quic_conn {
 
   /* Peer network endpoints – have multiple connection ids and ip:port */
   /* TODO: footprint allows specifying conn_id_cnt but hardcoded limit used here */
-  fd_quic_endpoint_t  peer[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
+  fd_quic_net_endpoint_t peer[1];
+  fd_quic_conn_id_t      peer_cids[1]; /* FIXME support new/retire conn ID */
 
   ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
-
-  ushort             peer_cnt;            /* number of peer endpoints */
-
-  ushort             cur_peer_idx;        /* currently used peer endpoint */
 
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
