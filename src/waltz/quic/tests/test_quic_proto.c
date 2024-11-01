@@ -200,11 +200,13 @@ test_varint_parse( void ) {
 
 #define BITFIELD_TEST()                                \
   FD_TEMPL_DEF_STRUCT_BEGIN(bitfield_test)             \
+    FD_TEMPL_MBR_BITS_BEGIN()                          \
     FD_TEMPL_MBR_ELEM_BITS     ( b7, uchar,  1       ) \
     FD_TEMPL_MBR_ELEM_BITS     ( b6, uchar,  1       ) \
     FD_TEMPL_MBR_ELEM_BITS     ( b4, uchar,  2       ) \
     FD_TEMPL_MBR_ELEM_BITS     ( b2, uchar,  2       ) \
     FD_TEMPL_MBR_ELEM_BITS_TYPE( b0, uchar,  2, 0x01 ) \
+    FD_TEMPL_MBR_BITS_END()                            \
   FD_TEMPL_DEF_STRUCT_END(bitfield_test)
 
 #include "../templ/fd_quic_defs.h"

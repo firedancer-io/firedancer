@@ -16,6 +16,14 @@
 #  define FD_TEMPL_MBR_ELEM_PKTNUM(...)
 #endif
 
+#ifndef FD_TEMPL_MBR_BITS_BEGIN
+#  define FD_TEMPL_MBR_BITS_BEGIN(...)
+#endif
+
+#ifndef FD_TEMPL_MBR_BITS_END
+#  define FD_TEMPL_MBR_BITS_END(...)
+#endif
+
 #ifndef FD_TEMPL_MBR_ELEM_BITS
 #  define FD_TEMPL_MBR_ELEM_BITS(...)
 #endif

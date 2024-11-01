@@ -311,7 +311,7 @@ quic_pcap_iter_deliver_initial(
   }
 
   uint  pkt_number_sz = ( (uint)data[0] & 0x03u ) + 1u;
-  ulong pkt_number    = fd_quic_parse_bits( data+pnoff, 0, 8u * pkt_number_sz );
+  ulong pkt_number    = fd_quic_pktnum_decode( data+pnoff, pkt_number_sz );
 
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt( data, tot_sz, pnoff, pkt_number, keys )

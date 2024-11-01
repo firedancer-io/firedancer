@@ -274,9 +274,7 @@ decrypt_packet( uchar * const data,
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
   uint  pkt_number_sz = ( (uint)data[0] & 0x03U ) + 1U;
-  ulong pkt_number =
-    fd_quic_parse_bits( data + pkt_num_pnoff,
-                        0, 8U * pkt_number_sz );
+  ulong pkt_number = fd_quic_pktnum_decode( data+pkt_num_pnoff, pkt_number_sz );
 
   decrypt_res =
     fd_quic_crypto_decrypt( data,           size,
