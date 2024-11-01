@@ -537,7 +537,6 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       max_ack_delay_ms         );
   /*                         */tp->disable_active_migration_present =   1;
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          FD_QUIC_MAX_CONN_ID_PER_CONN );
 
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
@@ -1536,8 +1535,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* switch to the source connection id for future replies */
 
     /* replace peer 0 connection id */
-               conn->peer[0].conn_id.sz =     initial->src_conn_id_len;
-    fd_memcpy( conn->peer[0].conn_id.conn_id, initial->src_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
+               conn->peer_cids[0].sz =     initial->src_conn_id_len;
+    fd_memcpy( conn->peer_cids[0].conn_id, initial->src_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
 
     /* don't repeat this procedure */
     conn->established = 1;
@@ -1763,7 +1762,7 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  fd_quic_conn_id_t const * orig_dst_conn_id = &conn->peer[0].conn_id;
+  fd_quic_conn_id_t const * orig_dst_conn_id = &conn->peer_cids[0];
   uchar const *             retry_token      = NULL;
   ulong                     retry_token_sz   = 0UL;
 
@@ -1779,8 +1778,7 @@ fd_quic_handle_v1_retry(
   }
 
   /* Update the peer using the retry src conn id */
-  fd_quic_endpoint_t * peer = &conn->peer[conn->cur_peer_idx];
-  peer->conn_id = conn->retry_src_conn_id;
+  conn->peer_cids[0] = conn->retry_src_conn_id;
 
   /* Re-send the ClientHello */
   conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
@@ -2979,22 +2977,23 @@ fd_quic_tx_buffered_raw(
   return FD_QUIC_SUCCESS; /* success */
 }
 
-uint fd_quic_tx_buffered( fd_quic_t *      quic,
-                          fd_quic_conn_t * conn,
-                          int              flush )
-{
-  fd_quic_endpoint_t *peer = &conn->peer[conn->cur_peer_idx];
+uint
+fd_quic_tx_buffered( fd_quic_t *      quic,
+                     fd_quic_conn_t * conn,
+                     int              flush ) {
+  fd_quic_net_endpoint_t const * endpoint = conn->peer;
+  uchar const default_mac[6] = {0};
   return fd_quic_tx_buffered_raw(
       quic,
       &conn->tx_ptr,
       conn->tx_buf,
       sizeof(conn->tx_buf),
       &conn->tx_sz,
-      peer->mac_addr,
+      default_mac,
       &conn->ipv4_id,
-      peer->net.ip_addr,
+      endpoint->ip_addr,
       conn->host.udp_port,
-      peer->net.udp_port,
+      endpoint->udp_port,
       flush );
 }
 
@@ -3021,8 +3020,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
   pkt_hdr->enc_level = enc_level;
 
   /* current peer endpoint */
-  fd_quic_endpoint_t * peer         = &conn->peer[conn->cur_peer_idx];
-  fd_quic_conn_id_t *  peer_conn_id = &peer->conn_id;
+  fd_quic_conn_id_t const * peer_conn_id = &conn->peer_cids[0];
 
   /* our current conn_id */
   ulong conn_id = conn->our_conn_id;
@@ -4434,8 +4432,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   };
   fd_memset( &conn->peer[0], 0, sizeof( conn->peer ) );
   conn->local_conn_id       = 0; /* TODO probably set it here, or is it only valid for servers? */
-  conn->peer_cnt            = 0;
-  conn->cur_peer_idx        = 0;
   conn->token_len           = 0;
 
   /* start with smallest value we allow, then allow peer to increase */
@@ -4509,12 +4505,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->initial_source_conn_id = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
 
   /* peer connection id */
-  ulong peer_idx = 0;
-  conn->peer[ peer_idx ].conn_id      = *peer_conn_id;
-  conn->peer[ peer_idx ].net.ip_addr  = dst_ip_addr;
-  conn->peer[ peer_idx ].net.udp_port = dst_udp_port;
-  memset( &conn->peer[ peer_idx ].mac_addr, 0, 6 );
-  conn->peer_cnt                      = 1;
+  conn->peer_cids[0]     = *peer_conn_id;
+  conn->peer[0].ip_addr  = dst_ip_addr;
+  conn->peer[0].udp_port = dst_udp_port;
 
   fd_quic_ack_gen_init( conn->ack_gen );
   conn->unacked_sz = 0UL;
@@ -5815,40 +5808,11 @@ fd_quic_frame_handle_new_conn_id_frame(
 
   /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
-
-  fd_quic_conn_id_t peer_conn_id = {0};
-  fd_memcpy( peer_conn_id.conn_id, data->conn_id, data->conn_id_len );
-  peer_conn_id.sz = data->conn_id_len;
-
-  fd_quic_conn_t * conn = context.conn;
-
-  ulong peer_cnt = conn->peer_cnt;
-
-  ulong max_peer_cnt = FD_QUIC_MAX_CONN_ID_PER_CONN;
-  if( peer_cnt >= max_peer_cnt ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
-    return FD_QUIC_PARSE_FAIL;
-  }
-
-  fd_quic_endpoint_t * peer = &conn->peer[peer_cnt];
-
-  /* copy current endpoint net values */
-  /* TODO get from current packet? */
-  *peer = conn->peer[conn->cur_peer_idx];
-
-  /* replace connection id */
-  peer->conn_id = peer_conn_id;
-
-  /* insert into map */
-
-  /* TODO implied retire to be implemented */
   FD_DEBUG( FD_LOG_WARNING(( "NEW_CONNECTION_ID  conn_idx: %lu   retire_prior_to %lu", conn->conn_idx, data->retire_prior_to )); )
 
-  /* update conn */
-  //conn->cur_peer_idx = (ushort)peer_cnt;
-  conn->peer_cnt     = (ushort)( peer_cnt+1 );
+  /* FIXME implement */
 
-  return 0;
+  return FD_QUIC_SUCCESS;
 }
 
 static ulong
@@ -5868,7 +5832,7 @@ fd_quic_frame_handle_retire_conn_id_frame(
   /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
 
-  /* TODO add support */
+  /* FIXME implement */
 
   return 0;
 }

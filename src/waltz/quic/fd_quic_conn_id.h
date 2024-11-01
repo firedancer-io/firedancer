@@ -8,11 +8,6 @@
 /* TODO move this into more reasonable place */
 #define FD_QUIC_MAX_CONN_ID_SZ 20
 
-/* max number of connection ids per connection */
-/* NOTE QUINN seems to ignore our active_connection_id_limit transport parameter */
-/*      So setting this to 16 */
-#define FD_QUIC_MAX_CONN_ID_PER_CONN 16
-
 /* Firedancer connection ids will sized thus */
 #define FD_QUIC_CONN_ID_SZ 8
 
@@ -90,16 +85,6 @@ struct fd_quic_net_endpoint {
   ushort udp_port;
 };
 typedef struct fd_quic_net_endpoint fd_quic_net_endpoint_t;
-
-/* fd_quic_endpoint_t identifies a QUIC endpoint, including UDP/IP
-   endpoint and QUIC conn ID. */
-
-struct fd_quic_endpoint {
-  fd_quic_conn_id_t      conn_id;
-  fd_quic_net_endpoint_t net;
-  uchar                  mac_addr[6];
-};
-typedef struct fd_quic_endpoint fd_quic_endpoint_t;
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_conn_id_h */
 
