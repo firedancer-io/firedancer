@@ -94,9 +94,8 @@ FD_TEMPL_DEF_STRUCT_END(stop_sending_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(crypto_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x06,0x06 )
-  FD_TEMPL_MBR_ELEM_VARINT ( offset,      ulong           )
-  FD_TEMPL_MBR_ELEM_VARINT ( length,      ulong           )
-  FD_TEMPL_MBR_ELEM_VAR_RAW( crypto_data, 0,12000, length )
+  FD_TEMPL_MBR_ELEM_VARINT ( offset, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT ( length, ulong )
 FD_TEMPL_DEF_STRUCT_END(crypto_frame)
 
 

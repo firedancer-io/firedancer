@@ -330,13 +330,15 @@ quic_pcap_iter_deliver_initial(
   fd_quic_crypto_frame_t crypto[1];
   rc = fd_quic_decode_crypto_frame( crypto, data, data_sz );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return;
+  data    += rc;
+  data_sz -= rc;
+  ulong left = fd_ulong_min( crypto->length, data_sz );
 
   /* Expect first TLS message to be a ClientHello */
 
-  if( FD_UNLIKELY( crypto->length > data_sz ) ) return;
-  if( FD_UNLIKELY( crypto->length < 6+32    ) ) return;
-  if( crypto->crypto_data[0] != 0x01 ) return; /* ClientHello */
-  uchar const * client_random = crypto->crypto_data + 6;
+  if( FD_UNLIKELY( left < 6+32 ) ) return;
+  if( data[0] != 0x01 ) return; /* ClientHello */
+  uchar const * client_random = data + 6;
   FD_LOG_HEXDUMP_WARNING(( "ClientRandom", client_random, 32 ));
 
 }
