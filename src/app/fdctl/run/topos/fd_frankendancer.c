@@ -434,11 +434,15 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
+      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
+        FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "cswtch" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
+      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
+        FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
       tile->gui.listen_port = config->tiles.gui.gui_listen_port;
       tile->gui.is_voting = strcmp( config->consensus.vote_account_path, "" );
       strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );

@@ -141,7 +141,7 @@ main( int     argc,
                                                         callbacks,
                                                         &state ) );
 
-  FD_TEST( fd_http_server_listen( state.http, 4321U ) );
+  FD_TEST( fd_http_server_listen( state.http, 0, 4321U ) );
   FD_LOG_NOTICE(( "try running\npython3 test_http_server.py" ));
 
   install_signal_handler();

@@ -204,6 +204,7 @@ typedef struct {
     } sign;
 
     struct {
+      uint   listen_addr;
       ushort listen_port;
 
       int    is_voting;
@@ -213,6 +214,7 @@ typedef struct {
     } gui;
 
     struct {
+      uint   prometheus_listen_addr;
       ushort prometheus_listen_port;
     } metric;
 
