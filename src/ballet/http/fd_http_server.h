@@ -285,6 +285,7 @@ fd_http_server_fd( fd_http_server_t * http );
 
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
+                       uint               address,
                        ushort             port );
 
 /* Close an active connection.  The connection ID must be an open

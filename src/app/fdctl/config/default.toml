@@ -1016,6 +1016,12 @@ dynamic_port_range = "8900-9000"
     # of the tiles and serves them via. a Prometheus compatible HTTP
     # endpoint.
     [tiles.metric]
+        # The address to listen on.  By default metrics are only
+        # accessible from the local machine.  If you wish to expose them
+        # to the network, you can change the listen address although it
+        # is not recommended for security reasons.
+        prometheus_listen_address = "127.0.0.1"
+
         # The port to listen on for HTTP request for Prometheus metrics.
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
@@ -1023,15 +1029,23 @@ dynamic_port_range = "8900-9000"
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]
-        # If the GUI is enabled.  If the GUI is enabled, by default it
-        # will not show names or icons for validators unless the
-        # program-id index is also enabled in this TOML file by setting
+        # If the GUI is enabled.
+        # 
+        # Names and icons of peer validators will not be displayed in
+        # the GUI unless the program-id index is enabled, which can be
+        # done by setting
         #
         # [ledger]
         #   account_indexes = ["program-id"]
         #
-        # In this same file.
-        enabled = true
+        # In your configuration above.
+        enabled = false
+
+        # The address to listen on.  By default, if enabled, the GUI
+        # will only be accessible from the local machine.  If you wish
+        # to expose it to the network, you can change the listen address
+        # although this is not recommended for security reasons.
+        gui_listen_address = "127.0.0.1"
 
         # The port to listen on.
         gui_listen_port = 80

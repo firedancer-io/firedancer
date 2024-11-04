@@ -267,6 +267,7 @@ fd_http_server_fd( fd_http_server_t * http ) {
 
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
+                       uint               address,
                        ushort             port ) {
   int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
@@ -278,7 +279,7 @@ fd_http_server_listen( fd_http_server_t * http,
   struct sockaddr_in addr = {
     .sin_family      = AF_INET,
     .sin_port        = fd_ushort_bswap( port ),
-    .sin_addr.s_addr = INADDR_ANY,
+    .sin_addr.s_addr = address,
   };
 
   if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));

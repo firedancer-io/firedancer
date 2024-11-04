@@ -240,11 +240,13 @@ typedef struct {
     } shred;
 
     struct {
+      char   prometheus_listen_address[ 16 ];
       ushort prometheus_listen_port;
     } metric;
 
     struct {
       int    enabled;
+      char   gui_listen_address[ 16 ];
       ushort gui_listen_port;
     } gui;
 

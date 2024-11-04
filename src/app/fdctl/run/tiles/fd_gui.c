@@ -258,7 +258,7 @@ privileged_init( fd_topo_t *      topo,
     .ws_message = gui_ws_message,
   };
   ctx->gui_server = fd_http_server_join( fd_http_server_new( _gui, GUI_PARAMS, gui_callbacks, ctx ) );
-  fd_http_server_listen( ctx->gui_server, tile->gui.listen_port );
+  fd_http_server_listen( ctx->gui_server, tile->gui.listen_addr, tile->gui.listen_port );
 
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -293,7 +293,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  FD_LOG_WARNING(( "GUI server listening at http://0.0.0.0:%u", tile->gui.listen_port ));
+  FD_LOG_WARNING(( "GUI server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port ));
 }
 
 static ulong

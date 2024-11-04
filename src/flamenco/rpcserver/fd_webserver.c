@@ -301,7 +301,7 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_valloc
   void* server_mem = fd_valloc_malloc( valloc, fd_http_server_align(), fd_http_server_footprint( params ) );
   ws->server = fd_http_server_join( fd_http_server_new( server_mem, params, callbacks, ws ) );
 
-  FD_TEST( fd_http_server_listen( ws->server, portno ) != NULL );
+  FD_TEST( fd_http_server_listen( ws->server, 0, portno ) != NULL );
 
   return 0;
 }

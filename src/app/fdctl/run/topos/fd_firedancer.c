@@ -575,6 +575,8 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
+      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
+        FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "thread" ) ) ) {

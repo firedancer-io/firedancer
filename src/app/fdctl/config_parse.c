@@ -308,9 +308,11 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
 
+  CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
 
   CFG_POP      ( bool,   tiles.gui.enabled                                );
+  CFG_POP      ( cstr,   tiles.gui.gui_listen_address                     );
   CFG_POP      ( ushort, tiles.gui.gui_listen_port                        );
 
   CFG_POP      ( bool,   development.sandbox                              );
