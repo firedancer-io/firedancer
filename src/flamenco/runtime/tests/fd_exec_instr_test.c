@@ -368,8 +368,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       uchar * data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong   dlen = borrowed_accts[j].const_meta->dlen;
       fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
-      borrowed_accts[j].const_meta = borrowed_accts[j].meta = (fd_account_meta_t*)data;
-      borrowed_accts[j].const_data = borrowed_accts[j].data = data + sizeof(fd_account_meta_t);
+      borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
+      borrowed_accts[j].const_data = data + sizeof(fd_account_meta_t);
     }
   }
 
