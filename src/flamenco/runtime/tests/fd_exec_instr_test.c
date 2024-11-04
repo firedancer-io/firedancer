@@ -416,10 +416,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
   }
 
-  /* Add accounts to bpf program cache. The program blacklist is intentionally
-     not being updated here because of the fact that  */
+  /* Add accounts to bpf program cache */
   fd_funk_start_write( acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, 1 );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
   fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
@@ -664,11 +663,9 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
-  /* Add accounts to bpf program cache. The program blacklist is intentionally
-     not being populated here because any inputs that would trigger the blacklist
-     are ignored in the fuzzers/harnesses. */
+  /* Add accounts to bpf program cache */
   fd_funk_start_write( runner->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, 1 );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
