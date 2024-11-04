@@ -2307,7 +2307,7 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, 0 );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
   if( result != 0 ) {
     FD_LOG_WARNING(("update bpf program cache failed"));
     return result;
@@ -2346,7 +2346,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, 0 );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
   if( result != 0 ) {
     FD_LOG_WARNING(("update bpf program cache failed"));
     fd_funk_end_write( slot_ctx->acc_mgr->funk );

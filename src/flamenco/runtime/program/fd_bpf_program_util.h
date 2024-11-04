@@ -48,47 +48,22 @@ fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const *     prog,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
-                                                int                  update_program_blacklist );
+                                                fd_funk_txn_t *      funk_txn );
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_funk_txn_t *      funk_txn,
-                                                 fd_pubkey_t const *  pubkey,
-                                                 int                  update_program_blacklist );
+                                                 fd_pubkey_t const *  pubkey );
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                       fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool,
-                                                      int                  update_program_blacklist );
+                                                      fd_tpool_t *         tpool );
 
 int
 fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog );
-
-/* There are a few programs that exist in certain Solana clusters, notably
-   in devnet and testnet that were deployed before stricter bytecode/executable
-   checks were added. If these programs are added to a transaction list, the
-   transaction should throw a sanitization error. Agave manages this by
-   verifying and reloading programs on demand if it gets evicted from its
-   loaded program cache. To avoid loading and verifying every program
-   for each transaction, the blacklist of programs is calculated on startup.
-   This list does not need to be updated because new programs that violate
-   verification/loading checks can't be deployed. As a note, this function
-   should ONLY be invoked on programs that are:
-   1. Owned by a loader program
-   2. Are able to be loaded
-   3. Are able to be verified
-   For reference: see transaction_processor::replenish_program_cache(). */
-void
-fd_bpf_add_to_program_blacklist( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_pubkey_t const  * program_pubkey );
-
-int
-fd_bpf_is_in_program_blacklist( fd_exec_slot_ctx_t const * slot_ctx, 
-                                fd_pubkey_t const  * program_pubkey );
 
 FD_PROTOTYPES_END
 

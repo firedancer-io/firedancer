@@ -104,8 +104,7 @@ fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_borrowed_account_t *
 
 int
 fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
-                                       fd_borrowed_account_t * program_acc,
-                                       int                     update_program_blacklist ) {
+                                       fd_borrowed_account_t * program_acc ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
     fd_pubkey_t * program_pubkey = program_acc->pubkey;
@@ -118,15 +117,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     ulong             program_data_len = 0UL;
 
     /* For v3 loaders, deserialize the program account and lookup the
-       programdata account. Deserialize the programdata account. As a note,
-       programs that have invalid programdata accounts are intentionally not
-       added to the program blacklist. Likewise, for all loaders, if the
-       program account can't be deserialized then it is also intentionally not
-       added to the program blacklist. */
-
-    if( !fd_account_is_executable( program_acc->const_meta ) ) {
-      return -1;
-    }
+       programdata account. Deserialize the programdata account. */
 
     int res;
     if( !memcmp( program_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -142,9 +133,6 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     fd_sbpf_elf_info_t elf_info = {0};
     if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0 ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
-      if( update_program_blacklist ) {
-        fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
-      }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
@@ -162,9 +150,6 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_scratch_alloc( prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
-      if( update_program_blacklist ) {
-        fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
-      }
       return -1;
     }
 
@@ -177,67 +162,55 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
 
     fd_vm_syscall_register_slot( syscalls, slot_ctx, 0 );
 
-    /* Load program. If program loading fails add it to the blacklist. */
+    /* Load program. */
 
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
       fd_funk_rec_remove( funk, rec, 0 );
-
-      /* Update program blacklist */
-      if( update_program_blacklist ) {
-        fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
-      }
       return -1;
     }
 
-    /* Only validate the program for the purposes of updating the program
-       blacklist. */
+    /* Validate the program. */
 
-    if( update_program_blacklist ) {
+    fd_vm_t _vm[ 1UL ];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    if( FD_UNLIKELY( !vm ) ) {
+      FD_LOG_ERR(( "fd_vm_new() or fd_vm_join() failed" ));
+    }
+    fd_exec_instr_ctx_t dummy_instr_ctx = {0};
+    dummy_instr_ctx.slot_ctx = slot_ctx;
+    vm = fd_vm_init( vm,
+                      &dummy_instr_ctx,
+                      0UL,
+                      0UL,
+                      prog->rodata,
+                      prog->rodata_sz,
+                      prog->text,
+                      prog->text_cnt,
+                      prog->text_off,
+                      prog->text_sz,
+                      prog->entry_pc,
+                      prog->calldests,
+                      NULL,
+                      NULL,
+                      NULL,
+                      NULL,
+                      0U,
+                      NULL,
+                      0,
+                      FD_FEATURE_ACTIVE( slot_ctx, bpf_account_data_direct_mapping ) );
 
-      fd_vm_t _vm[ 1UL ];
-      fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
-      if( FD_UNLIKELY( !vm ) ) {
-        FD_LOG_ERR(( "fd_vm_new() or fd_vm_join() failed" ));
-      }
-      fd_exec_instr_ctx_t dummy_instr_ctx = {0};
-      dummy_instr_ctx.slot_ctx = slot_ctx;
-      vm = fd_vm_init( vm,
-                       &dummy_instr_ctx,
-                       0UL,
-                       0UL,
-                       prog->rodata,
-                       prog->rodata_sz,
-                       prog->text,
-                       prog->text_cnt,
-                       prog->text_off,
-                       prog->text_sz,
-                       prog->entry_pc,
-                       prog->calldests,
-                       NULL,
-                       NULL,
-                       NULL,
-                       NULL,
-                       0U,
-                       NULL,
-                       0,
-                       FD_FEATURE_ACTIVE( slot_ctx, bpf_account_data_direct_mapping ) );
+    if( FD_UNLIKELY( !vm ) ) {
+      FD_LOG_ERR(( "fd_vm_init() failed" ));
+    }
 
-      if( FD_UNLIKELY( !vm ) ) {
-        FD_LOG_ERR(( "fd_vm_init() failed" ));
-      }
-
-      int res = fd_vm_validate( vm );
-      if( FD_UNLIKELY( res ) ) {
-        /* Remove pending funk record */
-        FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-        fd_funk_rec_remove( funk, rec, 0 );
-
-        /* Add program to blacklist */
-        fd_bpf_add_to_program_blacklist( slot_ctx, program_pubkey );
-        return -1;
-      }
+    res = fd_vm_validate( vm );
+    if( FD_UNLIKELY( res ) ) {
+      /* Remove pending funk record */
+      FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
+      fd_funk_rec_remove( funk, rec, 0 );
+      return -1;
     }
 
     fd_memcpy( validated_prog->calldests_shmem, prog->calldests_shmem, fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
@@ -291,8 +264,7 @@ fd_bpf_scan_task( void * tpool,
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                       fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool,
-                                                      int                  update_program_blacklist ) {
+                                                      fd_tpool_t *         tpool ) {
   long elapsed_ns = -fd_log_wallclock();
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cached_cnt = 0;
@@ -335,7 +307,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
         }
 
         fd_pubkey_t const * pubkey = fd_type_pun_const( recs[i]->pair.key[0].uc );
-        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, pubkey, update_program_blacklist );
+        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, pubkey );
         if( res==0 ) {
           cached_cnt++;
         }
@@ -360,8 +332,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
-                                                int                  update_program_blacklist ) {
+                                                fd_funk_txn_t *      funk_txn ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cnt = 0;
 
@@ -388,8 +359,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
     int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx,
                                                                funk_txn,
-                                                               program_pubkey,
-                                                               update_program_blacklist );
+                                                               program_pubkey );
 
     if( res==0 ) {
       cnt++;
@@ -410,8 +380,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_funk_txn_t *      funk_txn,
-                                                 fd_pubkey_t const *  pubkey,
-                                                 int                  update_program_blacklist ) {
+                                                 fd_pubkey_t const *  pubkey ) {
   FD_BORROWED_ACCOUNT_DECL( exec_rec );
   if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
     return -1;
@@ -424,7 +393,7 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, update_program_blacklist ) != 0 ) {
+  if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec ) != 0 ) {
     return -1;
   }
 
@@ -451,27 +420,5 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
 
   *valid_prog = (fd_sbpf_validated_program_t *)data;
 
-  return 0;
-}
-
-void
-fd_bpf_add_to_program_blacklist( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_pubkey_t const  * program_pubkey ) {
-  if( FD_UNLIKELY( slot_ctx->program_blacklist_cnt>=sizeof(slot_ctx->program_blacklist)/sizeof(fd_pubkey_t) ) ) {
-    FD_LOG_ERR(("The program blacklist is full and needs to be resized" ));
-  }
-
-  fd_memcpy( &slot_ctx->program_blacklist[ slot_ctx->program_blacklist_cnt++ ], program_pubkey, sizeof(fd_pubkey_t) );
-}
-
-int
-fd_bpf_is_in_program_blacklist( fd_exec_slot_ctx_t const * slot_ctx,
-                                fd_pubkey_t const *        program_pubkey ) {
-
-  for( uint i=0U; i<slot_ctx->program_blacklist_cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( &slot_ctx->program_blacklist[i], program_pubkey, sizeof(fd_pubkey_t) ) ) ) {
-      return 1;
-    }
-  }
   return 0;
 }

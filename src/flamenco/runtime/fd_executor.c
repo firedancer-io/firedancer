@@ -439,12 +439,12 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
          are iterated over in Agave's replenish_program_cache() function to be loaded
          into the program cache. From my inspection, it seems that if we reach this
          far in the code path, then this account should be in the program cache iff
-         the owners match one of the four loaders OR the program is in the blacklist. */
+         the owners match one of the four loaders. */
       if( FD_UNLIKELY( ( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,               sizeof(fd_pubkey_t) )   &&
                          memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,                          sizeof(fd_pubkey_t) )   &&
                          memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key,              sizeof(fd_pubkey_t) ) ) ||
-                         ( loader_v4_active && memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ||
-                         fd_bpf_is_in_program_blacklist( txn_ctx->slot_ctx, program_account->pubkey ) ) ) {
+                       ( loader_v4_active                                                                                                                       &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,                       sizeof(fd_pubkey_t) ) ) ) ) {
         return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
       }
 

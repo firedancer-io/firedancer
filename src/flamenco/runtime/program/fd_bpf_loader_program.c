@@ -1825,12 +1825,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
-    /* Make sure the program is not in the blacklist */
-    if( FD_UNLIKELY( fd_bpf_is_in_program_blacklist( ctx->slot_ctx, &ctx->instr->program_id_pubkey ) ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not cached" );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
-
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L551-L563 */
     /* The Agave client stores a loaded program type state in its implementation
       of the loaded program cache. It checks to see if an account is able to be
@@ -1916,10 +1910,27 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
     }
 
-    /* This should NEVER fail. */
+    /* Sadly, we have to tie the cache in with consensus. We tried our best to avoid this,
+       but Agave's program loading logic is too complex to solely rely on checks without
+       significant redundancy. 
+       
+       For example, devnet and testnet have older programs that were deployed before stricter ELF / VM validation
+       checks were put in place, causing these older programs to fail newer validation checks and
+       be unexecutable. `fd_bpf_scan_and_create_bpf_program_cache_entry()` will populate our BPF program
+       cache correctly, but now, we have no way of checking if this validation passed or not here without
+       querying our program cache, otherwise we would have to copy-paste our validation checks here.
+       
+       Any failures here would indicate an attempt to interact with a deployed programs that either failed
+       to load or failed bytecode verification. This applies for v1, v2, and v3 programs. This could
+       also theoretically cause some currently-deployed programs to fail in the future if ELF / VM checks
+       are eventually made stricter. 
+       
+       TLDR: A program is present in the BPF cache iff it is already deployed AND passes current SBPF and VM checks. 
+       Only then it is considered valid to interact with. */
     fd_sbpf_validated_program_t * prog = NULL;
     if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->slot_ctx, &ctx->instr->program_id_pubkey, &prog )!=0 ) ) {
-      FD_LOG_ERR(( "Failed to load program from bpf cache." ));
+      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     return execute( ctx, prog, is_deprecated );
