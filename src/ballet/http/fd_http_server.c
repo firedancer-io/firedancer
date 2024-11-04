@@ -130,6 +130,11 @@ fd_http_server_new( void *                     shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( params.max_ws_connection_cnt && params.max_ws_recv_frame_len<params.max_request_len ) ) {
+    FD_LOG_WARNING(( "max_ws_recv_frame_len<max_request_len" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_http_server_t * http = FD_SCRATCH_ALLOC_APPEND( l,  FD_HTTP_SERVER_ALIGN,                         sizeof(fd_http_server_t)                                                             );
   void * conn_pool        = FD_SCRATCH_ALLOC_APPEND( l,  conn_pool_align(),                            conn_pool_footprint( params.max_connection_cnt )                                     );
@@ -439,6 +444,8 @@ read_conn_http( fd_http_server_t * http,
     return;
   }
 
+  FD_TEST( result>0 && (ulong)result<=conn->request_bytes_read );
+
   uchar method_enum = UCHAR_MAX;
   if( FD_LIKELY( method_len==3UL && !strncmp( method, "GET", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_GET;
   else if( FD_LIKELY( method_len==4UL && !strncmp( method, "POST", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_POST;
@@ -693,6 +700,7 @@ again:
     if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
+      FD_TEST( payload_len<=125UL );
       memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed, payload_len );
     }
     if( FD_UNLIKELY( conn->recv_bytes_read-frame_len ) ) {
@@ -891,6 +899,11 @@ write_conn_http( fd_http_server_t * http,
     switch( conn->state ) {
       case FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER:
         if( FD_UNLIKELY( conn->response.upgrade_websocket ) ) {
+          if( FD_UNLIKELY( !conn->upgrade_websocket ) ) {
+            close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE );
+            return;
+          }
+
           int fd = http->pollfds[ conn_idx ].fd;
           http->pollfds[ conn_idx ].fd = -1;
 
@@ -920,9 +933,12 @@ write_conn_http( fd_http_server_t * http,
           http->ws_conns[ ws_conn_id ].recv_bytes_parsed        = 0UL;
           http->ws_conns[ ws_conn_id ].recv_bytes_read          = 0UL;
           http->ws_conns[ ws_conn_id ].send_frame_bytes_written = 0UL;
+
+          FD_TEST( conn->request_bytes_read>=conn->request_bytes_len );
           if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_len>0UL ) ) {
             /* Client might have already started sending data prior to
                response, so make sure to move it to the recv buffer. */
+            FD_TEST( conn->request_bytes_read-conn->request_bytes_len<=http->max_ws_recv_frame_len );
             fd_memcpy( http->ws_conns[ ws_conn_id ].recv_bytes, conn->request_bytes+conn->request_bytes_len, conn->request_bytes_read-conn->request_bytes_len );
             http->ws_conns[ ws_conn_id ].recv_bytes_read = conn->request_bytes_read-conn->request_bytes_len;
           }
