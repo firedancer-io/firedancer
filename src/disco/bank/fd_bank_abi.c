@@ -282,7 +282,7 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
                                            fd_acct_addr_t * out_lut_accts ) {
   ulong writable_idx = 0UL;
   ulong readable_idx = 0UL;
-  for( ulong i=0UL; i<txn->addr_table_adtl_cnt; i++ ) {
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
     fd_txn_acct_addr_lut_t const * lut = &fd_txn_get_address_tables_const( txn )[ i ];
     uchar const * addr = payload + lut->addr_off;
 
