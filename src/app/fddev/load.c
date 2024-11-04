@@ -71,10 +71,10 @@ load_cmd_fn( args_t *         args,
 
   /* set defaults */
   if( FD_UNLIKELY( !args->load.tpu_ip ) )
-    args->load.tpu_ip      = config->tiles.net.ip_addr;
+    args->load.tpu_ip      = config->tiles.netrx.ip_addr;
 
   if( FD_UNLIKELY( !args->load.rpc_ip ) )
-    args->load.rpc_ip      = config->tiles.net.ip_addr;
+    args->load.rpc_ip      = config->tiles.netrx.ip_addr;
 
   if( FD_UNLIKELY( !args->load.tpu_port ) ) {
     args->load.tpu_port    = fd_ushort_if( args->load.no_quic,

@@ -140,7 +140,7 @@ typedef struct {
       ushort gossip_listen_port;
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
-    } net;
+    } netrx;
 
     struct {
       ulong  depth;

@@ -8,17 +8,19 @@
 
 void
 fd_topo_initialize( config_t * config ) {
-  ulong net_tile_cnt    = config->layout.net_tile_count;
+  ulong netrx_tile_cnt  = config->layout.netrx_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
+  ulong nettx_tile_cnt  = config->layout.nettx_tile_count;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
   /*             topo, name */
-  fd_topob_wksp( topo, "net_quic"     );
-  fd_topob_wksp( topo, "net_shred"    );
+  fd_topob_wksp( topo, "netrx_quic"   );
+  fd_topob_wksp( topo, "netrx_shred"  );
+  fd_topob_wksp( topo, "quic_nettx"   );
   fd_topob_wksp( topo, "quic_verify"  );
   fd_topob_wksp( topo, "verify_dedup" );
   fd_topob_wksp( topo, "dedup_pack"   );
@@ -27,6 +29,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "bank_busy"    );
   fd_topob_wksp( topo, "poh_shred"    );
   fd_topob_wksp( topo, "gossip_dedup" );
+  fd_topob_wksp( topo, "shred_nettx"  );
   fd_topob_wksp( topo, "shred_store"  );
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "metric_in"    );
@@ -36,7 +39,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "shred_sign"   );
   fd_topob_wksp( topo, "sign_shred"   );
 
-  fd_topob_wksp( topo, "net"          );
+  fd_topob_wksp( topo, "netrx"        );
+  fd_topob_wksp( topo, "nettx"        );
   fd_topob_wksp( topo, "quic"         );
   fd_topob_wksp( topo, "verify"       );
   fd_topob_wksp( topo, "dedup"        );
@@ -52,10 +56,10 @@ fd_topo_initialize( config_t * config ) {
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                    burst */
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_quic",     "net_quic",     0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_shred",    "net_shred",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  FOR(netrx_tile_cnt)  fd_topob_link( topo, "netrx_quic",   "netrx_quic",   0,        config->tiles.netrx.send_buffer_size,     FD_NET_MTU,             1UL );
+  FOR(netrx_tile_cnt)  fd_topob_link( topo, "netrx_shred",  "netrx_shred",  0,        config->tiles.netrx.send_buffer_size,     FD_NET_MTU,             1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_nettx",   "quic_nettx",   0,        config->tiles.netrx.send_buffer_size,     FD_NET_MTU,             1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_nettx",  "shred_nettx",  0,        config->tiles.netrx.send_buffer_size,     FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /* gossip_dedup could be FD_TPU_MTU, since txns are not parsed, but better to just share one size for all the ins of dedup */
@@ -106,7 +110,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave */
-  FOR(net_tile_cnt)    fd_topob_tile( topo, "net",     "net",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  FOR(netrx_tile_cnt)  fd_topob_tile( topo, "netrx",   "netrx",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
@@ -114,6 +118,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
   FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  FOR(nettx_tile_cnt)  fd_topob_tile( topo, "nettx",   "nettx",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
@@ -158,17 +163,17 @@ fd_topo_initialize( config_t * config ) {
   }
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
-  FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "net",     i,            "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "net",     i,            "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_quic",     i                                                  );
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
+  FOR(nettx_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
+                       fd_topob_tile_in(  topo, "nettx",   i,            "metric_in", "quic_nettx",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(nettx_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
+                       fd_topob_tile_in(  topo, "nettx",   i,            "metric_in", "shred_nettx",  j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(netrx_tile_cnt)  fd_topob_tile_out( topo, "netrx",   i,                         "netrx_quic",   i                                                  );
+  FOR(netrx_tile_cnt)  fd_topob_tile_out( topo, "netrx",   i,                         "netrx_shred",  i                                                  );
 
-  FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "quic",    i,            "metric_in", "net_quic",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(quic_tile_cnt) for( ulong j=0UL; j<netrx_tile_cnt; j++ )
+                       fd_topob_tile_in(  topo, "quic",    i,            "metric_in", "netrx_quic",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt)   fd_topob_tile_out( topo, "quic",    i,                         "quic_verify",  i                                                  );
-  FOR(quic_tile_cnt)   fd_topob_tile_out( topo, "quic",    i,                         "quic_net",     i                                                  );
+  FOR(quic_tile_cnt)   fd_topob_tile_out( topo, "quic",    i,                         "quic_nettx",   i                                                  );
   /* All verify tiles read from all QUIC tiles, packets are round robin. */
   FOR(verify_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",  j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
@@ -199,13 +204,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "poh_shred",    0UL                                                );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );
-  FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "net_shred",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(shred_tile_cnt) for( ulong j=0UL; j<netrx_tile_cnt; j++ )
+                       fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "netrx_shred",  j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "poh_shred",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "crds_shred",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_store",  i                                                  );
-  FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_net",    i                                                  );
+  FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_nettx",  i                                                  );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "store",  0UL,           "metric_in", "shred_store",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* Sign links don't need to be reliable because they are synchronous,
@@ -335,34 +340,36 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
   /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */
-  fd_topo_obj_t * net0_pid_obj = fd_topob_obj( topo, "fseq", "net" );
-  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-    fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
-    fd_topob_tile_uses( topo, net_tile, net0_pid_obj, !i?FD_SHMEM_JOIN_MODE_READ_WRITE:FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_obj_t * netrx0_pid_obj = fd_topob_obj( topo, "fseq", "netrx" );
+  for( ulong i=0UL; i<netrx_tile_cnt; i++ ) {
+    fd_topo_tile_t * netrx_tile = &topo->tiles[ fd_topo_find_tile( topo, "netrx", i ) ];
+    fd_topob_tile_uses( topo, netrx_tile, netrx0_pid_obj, !i?FD_SHMEM_JOIN_MODE_READ_WRITE:FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
-  FD_TEST( fd_pod_insertf_ulong( topo->props, net0_pid_obj->id, "net0_pid" ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netrx0_pid_obj->id, "netrx0_pid" ) );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) ) ) {
-      strncpy( tile->net.interface,    config->tiles.net.interface, sizeof(tile->net.interface) );
-      memcpy(  tile->net.src_mac_addr, config->tiles.net.mac_addr,  6UL );
+    if( FD_UNLIKELY( !strcmp( tile->name, "netrx" ) ) ) {
+      strncpy( tile->netrx.interface,    config->tiles.netrx.interface, sizeof(tile->netrx.interface) );
+      memcpy(  tile->netrx.src_mac_addr, config->tiles.netrx.mac_addr,  6UL );
 
-      tile->net.xdp_aio_depth     = config->tiles.net.xdp_aio_depth;
-      tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
-      tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
-      tile->net.src_ip_addr       = config->tiles.net.ip_addr;
-      tile->net.zero_copy         = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
-      fd_memset( tile->net.xdp_mode, 0, 4 );
-      fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+      tile->netrx.xdp_aio_depth     = config->tiles.netrx.xdp_aio_depth;
+      tile->netrx.xdp_rx_queue_size = config->tiles.netrx.xdp_rx_queue_size;
+      tile->netrx.xdp_tx_queue_size = config->tiles.netrx.xdp_tx_queue_size;
+      tile->netrx.src_ip_addr       = config->tiles.netrx.ip_addr;
+      tile->netrx.zero_copy         = !!strcmp( config->tiles.netrx.xdp_mode, "skb" ); /* disable zc for skb */
+      fd_memset( tile->netrx.xdp_mode, 0, 4 );
+      fd_memcpy( tile->netrx.xdp_mode, config->tiles.netrx.xdp_mode, strnlen( config->tiles.netrx.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
-      tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
-      tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
-      tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
+      tile->netrx.shred_listen_port              = config->tiles.shred.shred_listen_port;
+      tile->netrx.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
+      tile->netrx.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "nettx" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
-      fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
+      fd_memcpy( tile->quic.src_mac_addr, config->tiles.netrx.mac_addr, 6 );
       strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
 
       tile->quic.depth                          = topo->links[ tile->out_link_id[ 0 ] ].depth;
@@ -370,7 +377,7 @@ fd_topo_initialize( config_t * config ) {
       tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
       tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
       tile->quic.max_inflight_quic_packets      = config->tiles.quic.max_inflight_quic_packets;
-      tile->quic.ip_addr                        = config->tiles.net.ip_addr;
+      tile->quic.ip_addr                        = config->tiles.netrx.ip_addr;
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
@@ -399,11 +406,11 @@ fd_topo_initialize( config_t * config ) {
       tile->poh.bank_cnt = config->layout.bank_tile_count;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-      fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
+      fd_memcpy( tile->shred.src_mac_addr, config->tiles.netrx.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
       tile->shred.depth                         = topo->links[ tile->out_link_id[ 0 ] ].depth;
-      tile->shred.ip_addr                       = config->tiles.net.ip_addr;
+      tile->shred.ip_addr                       = config->tiles.netrx.ip_addr;
       tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
