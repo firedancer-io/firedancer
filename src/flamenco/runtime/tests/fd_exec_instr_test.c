@@ -721,7 +721,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Provide default stake history if not provided */
   if( !slot_ctx->sysvar_cache->has_stake_history ) {
+    // Provide a 0-set default entry
+    fd_stake_history_entry_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
+    fd_sysvar_stake_history_update( slot_ctx, &entry );
   }
 
   /* Provide default last restart slot sysvar if not provided */
