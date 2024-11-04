@@ -563,7 +563,7 @@ during_frag( fd_pack_ctx_t * ctx,
     return;
   }
   case IN_KIND_RESOLV: {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_DCACHE_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     long now = fd_tickcount();
@@ -604,7 +604,7 @@ during_frag( fd_pack_ctx_t * ctx,
     uchar    const * payload   = dcache_entry;
     fd_txn_t const * txn       = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
     ulong txn_footprint        = fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt );
-    fd_acct_addr_t const * alt = (fd_acct_addr_t const *)( (uchar const *)txn + fd_ulong_align_up( txn_footprint, 32UL ) );
+    fd_acct_addr_t const * alt = (fd_acct_addr_t const *)( (uchar const *)dcache_entry + fd_ulong_align_up( fd_ulong_align_up( payload_sz, 2UL ) + txn_footprint, 32UL ) );
     fd_memcpy( ctx->cur_spot->txnp->payload, payload, payload_sz                     );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,     txn_footprint                  );
     fd_memcpy( ctx->cur_spot->alt_accts,     alt,     32UL*txn->addr_table_adtl_cnt  );
