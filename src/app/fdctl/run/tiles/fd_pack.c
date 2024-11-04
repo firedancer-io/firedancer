@@ -82,7 +82,7 @@ FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
    buffer size to be quite large. */
 
 #define DEQUE_NAME extra_txn_deq
-#define DEQUE_T    fd_txn_p_t
+#define DEQUE_T    fd_txn_e_t
 #define DEQUE_MAX  (128UL*1024UL)
 #include "../../../../util/tmpl/fd_deque.c"
 
@@ -95,7 +95,7 @@ typedef struct {
 
 typedef struct {
   fd_pack_t *  pack;
-  fd_txn_p_t * cur_spot;
+  fd_txn_e_t * cur_spot;
 
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
@@ -157,7 +157,7 @@ typedef struct {
   /* In addition to the available transactions that pack knows about, we
      also store a larger ring buffer for handling cases when pack is
      full.  This is an fd_deque. */
-  fd_txn_p_t * extra_txn_deq;
+  fd_txn_e_t * extra_txn_deq;
   int          insert_to_extra; /* whether the last insert was into pack or the extra deq */
 
   fd_pack_in_ctx_t in[ 32 ];
@@ -281,16 +281,17 @@ before_credit( fd_pack_ctx_t *     ctx,
    full.  Returns the result of fd_pack_insert_txn_fini. */
 static inline int
 insert_from_extra( fd_pack_ctx_t * ctx ) {
-  fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
-  fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
-  fd_txn_t   const * insert_txn = TXN(insert);
-  fd_memcpy( spot->payload, insert->payload, insert->payload_sz                                                           );
-  fd_memcpy( TXN(spot),     insert_txn,      fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
-  spot->payload_sz = insert->payload_sz;
+  fd_txn_e_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
+  fd_txn_e_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
+  fd_txn_t   const * insert_txn = TXN(insert->txnp);
+  fd_memcpy( spot->txnp->payload, insert->txnp->payload, insert->txnp->payload_sz                                                     );
+  fd_memcpy( TXN(spot->txnp),     insert_txn,            fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
+  fd_memcpy( spot->alt_accts,     insert->alt_accts,     insert_txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t)                       );
+  spot->txnp->payload_sz = insert->txnp->payload_sz;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
   /* Unpack the time stashed in the CUs field */
-  long receive_time = insert->received_ticks;
+  long receive_time = insert->txnp->received_ticks;
 
   long insert_duration = -fd_tickcount();
   int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)receive_time+TIME_OFFSET );
@@ -581,27 +582,33 @@ during_frag( fd_pack_ctx_t * ctx,
       /* We want to store the current time in cur_spot so that we can
          track its expiration better.  We just stash it in the CU
          fields, since those aren't important right now. */
-      ctx->cur_spot->received_ticks = now;
-      ctx->insert_to_extra          = 1;
+      ctx->cur_spot->txnp->received_ticks = now;
+      ctx->insert_to_extra                = 1;
       FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
     }
 
     ulong payload_sz;
-    /* We get transactions from the dedup tile.
+    /* We get transactions from the resolv tile.
       The transactions should have been parsed and verified. */
     FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
     /* Assume that the dcache entry is:
           Payload ....... (payload_sz bytes)
           0 or 1 byte of padding (since alignof(fd_txn) is 2)
           fd_txn ....... (size computed by fd_txn_footprint)
+          Optionally:
+              0 to 30 bytes of padding
+              expanded alt (32*txn->addr_table_adtl_cnt) bytes
           payload_sz  (2B)
-      mline->sz includes all three fields and the padding */
+      mline->sz includes all three or four fields and the padding */
     payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-    uchar    const * payload = dcache_entry;
-    fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-    fd_memcpy( ctx->cur_spot->payload, payload, payload_sz                                                     );
-    fd_memcpy( TXN(ctx->cur_spot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-    ctx->cur_spot->payload_sz = payload_sz;
+    uchar    const * payload   = dcache_entry;
+    fd_txn_t const * txn       = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
+    ulong txn_footprint        = fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt );
+    fd_acct_addr_t const * alt = (fd_acct_addr_t const *)( (uchar const *)txn + fd_ulong_align_up( txn_footprint, 32UL ) );
+    fd_memcpy( ctx->cur_spot->txnp->payload, payload, payload_sz                     );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,     txn_footprint                  );
+    fd_memcpy( ctx->cur_spot->alt_accts,     alt,     32UL*txn->addr_table_adtl_cnt  );
+    ctx->cur_spot->txnp->payload_sz = payload_sz;
 
   #if DETAILED_LOGGING
     FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,

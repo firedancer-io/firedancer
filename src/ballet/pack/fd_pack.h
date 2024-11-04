@@ -285,9 +285,9 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-F
    returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
    codes explained above.
  */
-fd_txn_p_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                     );
-int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn, ulong expires_at );
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn                   );
+fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                     );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at );
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                   );
 
 
 /* fd_pack_schedule_next_microblock schedules transactions to form a

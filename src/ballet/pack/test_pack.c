@@ -16,7 +16,7 @@ uchar txn_scratch[ MAX_TEST_TXNS ][ FD_TXN_MAX_SZ ];
 uchar payload_scratch[ MAX_TEST_TXNS ][ DUMMY_PAYLOAD_MAX_SZ ];
 ulong payload_sz[ MAX_TEST_TXNS ];
 
-#define PACK_SCRATCH_SZ (300UL*1024UL*1024UL)
+#define PACK_SCRATCH_SZ (400UL*1024UL*1024UL)
 uchar pack_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 uchar pack_verify_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 
@@ -193,11 +193,11 @@ make_vote_transaction( ulong i ) {
 static int
 insert( ulong i,
         fd_pack_t * pack ) {
-  fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+  fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
   fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
-  slot->payload_sz = payload_sz[ i ];
-  fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ] );
-  fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+  slot->txnp->payload_sz  = payload_sz[ i ];
+  fd_memcpy( slot->txnp->payload, payload_scratch[ i ], payload_sz[ i ] );
+  fd_memcpy( TXN(slot->txnp),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
   return fd_pack_insert_txn_fini( pack, slot, i );
 }
@@ -531,11 +531,11 @@ performance_test2( void ) {
     elapsed -= fd_log_wallclock();
     for( ulong j=0UL; j<INNER_ROUNDS; j++ ) {
       for( ulong i=0UL; i<1024UL; i++ ) {
-        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
         fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
-        slot->payload_sz        = payload_sz[ i ];
-        fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ]                                                );
-        fd_memcpy( TXN(slot),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        slot->txnp->payload_sz  = payload_sz[ i ];
+        fd_memcpy( slot->txnp->payload, payload_scratch[ i ], payload_sz[ i ]                                                );
+        fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
@@ -607,11 +607,11 @@ void performance_test( int extra_bench ) {
       if( FD_LIKELY( iter>=WARMUP ) ) preinsert -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz; j++ ) {
         memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
-        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
         fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
-        slot->payload_sz        = payload_sz[ j&1 ];
-        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
-        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        slot->txnp->payload_sz  = payload_sz[ j&1 ];
+        fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
         fd_pack_insert_txn_cancel( pack, slot );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) preinsert += fd_log_wallclock( );
@@ -619,11 +619,11 @@ void performance_test( int extra_bench ) {
       if( FD_LIKELY( iter>=WARMUP ) ) insert    -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz; j++ ) {
         memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
-        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
         fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
-        slot->payload_sz        = payload_sz[ j&1 ];
-        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
-        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        slot->txnp->payload_sz  = payload_sz[ j&1 ];
+        fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
@@ -664,11 +664,11 @@ void performance_test( int extra_bench ) {
       /* Fill the heap back up */
       for( ulong j=0UL; j<heap_sz; j++ ) {
         memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
-        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
         fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
-        slot->payload_sz        = payload_sz[ j&1 ];
-        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
-        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        slot->txnp->payload_sz  = payload_sz[ j&1 ];
+        fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
@@ -691,11 +691,11 @@ void performance_test( int extra_bench ) {
       /* Fill the heap back up */
       for( ulong j=0UL; j<heap_sz; j++ ) {
         memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
-        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
         fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
-        slot->payload_sz        = payload_sz[ j&1 ];
-        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
-        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        slot->txnp->payload_sz  = payload_sz[ j&1 ];
+        fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
@@ -764,11 +764,11 @@ void performance_end_block( void ) {
           payload_scratch[ 0UL ][ 0x01+k ] = (uchar)((i+iter*writers_cnt)>>(8*k));
           payload_scratch[ 0UL ][ 0x45+k ] = (uchar)((i+iter*writers_cnt)>>(8*k));
         }
-        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
         fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 0UL ];
-        slot->payload_sz        = payload_sz[ 0UL ];
-        fd_memcpy( slot->payload, payload_scratch[ 0UL ], payload_sz[ 0UL ]                                              );
-        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        slot->txnp->payload_sz  = payload_sz[ 0UL ];
+        fd_memcpy( slot->txnp->payload, payload_scratch[ 0UL ], payload_sz[ 0UL ]                                              );
+        fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
@@ -797,11 +797,11 @@ void heap_overflow_test( void ) {
   /* Insert a bunch of low-paying transactions */
   for( ulong j=0UL; j<1024UL; j++ ) {
     make_transaction( j, 800U, 4.0, "ABC", "DEF" );
-    fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+    fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j ];
-    slot->payload_sz        = payload_sz[ j ];
-    fd_memcpy( slot->payload, payload_scratch[ j ], payload_sz[ j ]                                                );
-    fd_memcpy( TXN(slot),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    slot->txnp->payload_sz  = payload_sz[ j ];
+    fd_memcpy( slot->txnp->payload, payload_scratch[ j ], payload_sz[ j ]                                                );
+    fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
     fd_pack_insert_txn_fini( pack, slot, 0UL );
   }
@@ -812,11 +812,11 @@ void heap_overflow_test( void ) {
   ulong r_hi = make_transaction( 1UL, 500U, 10.0, "GHJ", "KLMNOP" );
   for( ulong j=0UL; j<1024UL; j++ ) {
     payload_scratch[1][ 1+(j%8) ]++;
-    fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+    fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 1UL ];
-    slot->payload_sz        = payload_sz[ 1UL ];
-    fd_memcpy( slot->payload, payload_scratch[ 1UL ], payload_sz[ 1UL ]                                              );
-    fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    slot->txnp->payload_sz  = payload_sz[ 1UL ];
+    fd_memcpy( slot->txnp->payload, payload_scratch[ 1UL ], payload_sz[ 1UL ]                                              );
+    fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
     fd_pack_insert_txn_fini( pack, slot, 0UL );
   }

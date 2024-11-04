@@ -143,7 +143,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
     fd_acct_addr_t * lut_accts = (fd_acct_addr_t*)(dcache_entry+txn_t_sz);
     ushort * next_payload_sz = (ushort*)(dcache_entry+txn_t_sz+txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t));
     int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txn, payload, lut_accts );
-    ctx->metrics[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT-result-1L) ]++;
+    /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
+    ctx->metrics[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT+result-1L) ]++;
 
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return;
 

@@ -20,7 +20,10 @@ struct fd_pack_private_ord_txn {
   /* It's important that there be no padding here (asserted below)
      because the code casts back and forth from pointers to this element
      to pointers to the whole struct. */
-  fd_txn_p_t   txn[1];
+  union {
+    fd_txn_p_t   txn[1];  /* txn is an alias for txn_e->txnp */
+    fd_txn_e_t   txn_e[1];
+  };
 
   /* Since this struct can be in one of several trees, it's helpful to
      store which tree.  This should be one of the FD_ORD_TXN_ROOT_*
@@ -73,6 +76,7 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn          )==0UL, fd_pack_ord_
 FD_STATIC_ASSERT( offsetof( fd_txn_p_t,             payload )==0UL, fd_pack_ord_txn_t );
 #else
 FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn->payload )==0UL, fd_pack_ord_txn_t );
+FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn_e->txnp  )==0UL, fd_pack_ord_txn_t );
 #endif
 
 #define FD_ORD_TXN_ROOT_FREE            0
@@ -637,15 +641,15 @@ fd_pack_join( void * mem ) {
 
 
 static int
-fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
+fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
                                       fd_pack_ord_txn_t * out ) {
-  fd_txn_t * txn = TXN(txnp);
+  fd_txn_t * txn = TXN(txne->txnp);
   ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt; /* Easily in [5000, 635000] */
 
   ulong execution_cus;
   ulong adtl_rewards;
   ulong precompile_sigs;
-  ulong cost = fd_pack_compute_cost( txn, txnp->payload, &txnp->flags, &execution_cus, &adtl_rewards, &precompile_sigs );
+  ulong cost = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &execution_cus, &adtl_rewards, &precompile_sigs );
 
   if( FD_UNLIKELY( !cost ) ) return 0;
 
@@ -664,7 +668,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   out->txn->pack_cu.requested_execution_cus = (uint)execution_cus;
   out->txn->pack_cu.non_execution_cus       = (uint)(cost - execution_cus);
 
-  out->root = (txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
+  out->root = (txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "TXN estimated compute %lu+-%f. Rewards: %lu + %lu", compute_expected, (double)compute_variance, sig_rewards, adtl_rewards ));
@@ -691,43 +695,54 @@ fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
 
 
 
-fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return trp_pool_ele_acquire( pack->pool )->txn; }
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
+fd_txn_e_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return trp_pool_ele_acquire( pack->pool )->txn_e; }
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
 #define REJECT( reason ) do {                                       \
                            trp_pool_ele_release( pack->pool, ord ); \
                            return FD_PACK_INSERT_REJECT_ ## reason; \
                          } while( 0 )
 
+#define ACCT_ITER_TO_PTR( iter ) (__extension__( {                                          \
+      ulong __idx = fd_txn_acct_iter_idx( iter );                                           \
+      fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
+      }))
+
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
-                         fd_txn_p_t * txnp,
+                         fd_txn_e_t * txne,
                          ulong        expires_at ) {
 
-  fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txnp;
+  fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
 
-  fd_txn_t * txn   = TXN(txnp);
-  uchar * payload  = txnp->payload;
+  fd_txn_t * txn   = TXN(txne->txnp);
+  uchar * payload  = txne->txnp->payload;
 
-  fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, payload );
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  /* alt_adj is the pointer to the ALT expansion, adjusted so that if
+     account address n is the first that comes from the ALT, it can be
+     accessed with adj_lut[n]. */
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
+  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
 
-  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) REJECT( ESTIMATION_FAIL );
+  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txne, ord ) ) ) REJECT( ESTIMATION_FAIL );
 
   ord->expires_at = expires_at;
   int is_vote = ord->root==FD_ORD_TXN_ROOT_PENDING_VOTE;
 
   int writes_to_sysvar = 0;
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    writes_to_sysvar |= fd_pack_unwritable_contains( accts+fd_txn_acct_iter_idx( iter ) );
+    writes_to_sysvar |= fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) );
   }
 
   int bundle_blacklist = 0;
   if( FD_UNLIKELY( pack->use_bundles ) ) {
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_IMM );
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-      bundle_blacklist |= fd_pack_tip_prog_check_blacklist( accts+fd_txn_acct_iter_idx( iter ) );
+      bundle_blacklist |= fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) );
     }
   }
 
@@ -736,23 +751,21 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE     );
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards    ) ) ) REJECT( UNAFFORDABLE     );
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block    ) ) REJECT( TOO_LARGE        );
+  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block       ) ) REJECT( TOO_LARGE        );
   /*           ... that load too many accounts (ignoring 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK) */
-  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL  ) ) REJECT( ACCOUNT_CNT      );
+  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL     ) ) REJECT( ACCOUNT_CNT      );
   /*           ... that duplicate an account address */
-  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, NULL, 0UL ) ) ) REJECT( DUPLICATE_ACCT   );
+  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, alt, alt_cnt ) ) ) REJECT( DUPLICATE_ACCT   );
   /*           ... that try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR    );
+  if( FD_UNLIKELY( writes_to_sysvar                                        ) ) REJECT( WRITES_SYSVAR    );
   /*           ... that we already know about */
-  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) REJECT( DUPLICATE        );
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL         ) ) ) REJECT( DUPLICATE        );
   /*           ... that have already expired */
-  if( FD_UNLIKELY( expires_at<pack->expire_before                       ) ) REJECT( EXPIRED          );
-  /*           ... that additional accounts from an ALT */
-  if( FD_UNLIKELY( txn->addr_table_adtl_cnt>0UL                         ) ) REJECT( ADDR_LUT         );
+  if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
   /*           ... that use an account that violates bundle rules */
-  if( FD_UNLIKELY( bundle_blacklist & 1                                 ) ) REJECT( BUNDLE_BLACKLIST );
+  if( FD_UNLIKELY( bundle_blacklist & 1                                    ) ) REJECT( BUNDLE_BLACKLIST );
 
 
   int replaces = 0;
@@ -812,9 +825,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   FD_PACK_BITSET_CLEAR( ord->rw_bitset );
   FD_PACK_BITSET_CLEAR( ord->w_bitset  );
 
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+    fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct, NULL );
     if( FD_UNLIKELY( q==NULL ) ) {
       q = bitset_map_insert( pack->acct_to_bitset, acct );
@@ -835,10 +848,10 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     FD_PACK_BITSET_SETN( ord->w_bitset , q->bit );
   }
 
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-    fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+    fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
     if( FD_UNLIKELY( fd_pack_unwritable_contains( &acct ) ) ) continue;
 
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct, NULL );
@@ -868,8 +881,8 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   expq_insert( pack->expiration_q, temp );
 
   fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
-  smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est );
-  smallest->bytes = fd_ulong_min( smallest->bytes, txnp->payload_sz );
+  smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est       );
+  smallest->bytes = fd_ulong_min( smallest->bytes, txne->txnp->payload_sz );
 
   if( FD_LIKELY( is_vote ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
@@ -1007,22 +1020,23 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     }
 
     fd_txn_t const * txn = TXN(cur->txn);
-    fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+    fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+    fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
     /* Check conflicts between this transaction's writable accounts and
        current readers */
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-      ulong i=fd_txn_acct_iter_idx( iter );
+      fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
 
-      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
+      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct, NULL );
       if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > max_write_cost_per_acct ) ) {
         /* Can't be scheduled until the next block */
         conflicts = ULONG_MAX;
         break;
       }
 
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use, acct[i], NULL );
+      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use, acct, NULL );
       if( FD_UNLIKELY( use ) ) conflicts |= use->in_use_by; /* break? */
     }
 
@@ -1038,13 +1052,13 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     /* Check conflicts between this transaction's readonly accounts and
        current writers */
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-      ulong i=fd_txn_acct_iter_idx( iter );
-      if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
+      fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+      if( fd_pack_unwritable_contains( acct ) ) continue; /* No need to track sysvars because they can't be writable */
 
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct[i], NULL );
+      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  *acct, NULL );
       if( use ) conflicts |= (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ? use->in_use_by : 0UL;
     }
 
@@ -1105,9 +1119,9 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     }
     out++;
 
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-      fd_acct_addr_t acct_addr = acct[fd_txn_acct_iter_idx( iter )];
+      fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
 
       fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct_addr, NULL );
       if( !in_wcost_table ) {
@@ -1131,10 +1145,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-      fd_acct_addr_t acct_addr = acct[fd_txn_acct_iter_idx( iter )];
+      fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
 
       if( fd_pack_unwritable_contains( &acct_addr ) ) continue; /* No need to track sysvars because they can't be writable */
 
@@ -1375,13 +1389,17 @@ fd_pack_rebate_cus( fd_pack_t        * pack,
     data_bytes_consumed    -= fd_ulong_if( !in_block,                                  txn->payload_sz, 0UL );
     cumulative_rebated_cus += rebated_cus;
 
-    fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+    fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+    /* TODO: For now, we don't have a way to rebate writer costs for ALT
+       accounts.  We've thrown away the ALT expansion at this point.
+       The rebate system is going to be rewritten soon for performance,
+       so it's okay. */
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
       ulong i=fd_txn_acct_iter_idx( iter );
 
-      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
+      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, accts[i], NULL );
       if( FD_UNLIKELY( !in_wcost_table ) ) FD_LOG_ERR(( "Rebate to unknown written account" ));
       in_wcost_table->total_cost -= rebated_cus;
       /* Important: Even if this is 0, don't delete it from the table so
@@ -1520,8 +1538,8 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 
 int
 fd_pack_delete_transaction( fd_pack_t              * pack,
-                            fd_ed25519_sig_t const * txn ) {
-  fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, txn, NULL );
+                            fd_ed25519_sig_t const * sig0 ) {
+  fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
 
   if( !in_tbl )
     return 0;
@@ -1538,23 +1556,22 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
     case FD_ORD_TXN_ROOT_PENDING_VOTE:     root = pack->pending_votes;                                               break;
   }
 
-  fd_txn_t * _txn = TXN( containing->txn );
-  fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( _txn, containing->txn->payload );
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+  fd_txn_t * txn = TXN( containing->txn );
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, containing->txn->payload );
+  fd_acct_addr_t const * alt_adj = containing->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    ulong i=fd_txn_acct_iter_idx( iter );
 
-    release_result_t ret = release_bit_reference( pack, accts+i );
+    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
     FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
     FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
   }
 
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    ulong i=fd_txn_acct_iter_idx( iter );
-    if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
+    if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
 
-    release_result_t ret = release_bit_reference( pack, accts+i );
+    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
     FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
     FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
   }
@@ -1647,7 +1664,8 @@ fd_pack_verify( fd_pack_t * pack,
       txn_cnt++;
       fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
       fd_txn_t const * txn = TXN(cur->txn);
-      fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+      fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+      fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
       fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
 
@@ -1663,9 +1681,9 @@ fd_pack_verify( fd_pack_t * pack,
 
       FD_PACK_BITSET_DECLARE( complement );
       FD_PACK_BITSET_COPY( complement, full );
-      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
           iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-        fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+        fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
 
         fd_pack_bitset_acct_mapping_t * q = bitset_map_query( bitset_copy, acct, NULL );
         VERIFY_TEST( q, "account in transaction missing from bitset mapping" );
@@ -1683,10 +1701,10 @@ fd_pack_verify( fd_pack_t * pack,
       }
       VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY( complement, complement, cur->w_bitset,  cur->w_bitset ), "extra in w bitset" );
 
-      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
           iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-        fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+        fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
         if( FD_UNLIKELY( fd_pack_unwritable_contains( &acct ) ) ) continue;
         fd_pack_bitset_acct_mapping_t * q = bitset_map_query( bitset_copy, acct, NULL );
         VERIFY_TEST( q, "account in transaction missing from bitset mapping" );
