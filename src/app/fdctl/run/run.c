@@ -350,7 +350,7 @@ main_pid_namespace( void * _args ) {
      a group.  The parent process will also die if this process dies,
      due to getting SIGHUP on the pipe. */
   while( 1 ) {
-    if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==ppoll( fds, 1+child_cnt, NULL, NULL ) ) ) FD_LOG_ERR(( "ppoll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     for( ulong i=0UL; i<1UL+child_cnt; i++ ) {
       if( FD_UNLIKELY( fds[ i ].revents ) ) {
@@ -727,7 +727,7 @@ run_firedancer_init( config_t * const config,
         write end to the child.  If any of the children die, the pipe
         will be closed, and pidns will get a HUP on the read end.
 
-        Then pidns can call poll() on both the write end of the main
+        Then pidns can call ppoll() on both the write end of the main
         pipe and the read end of all the child pipes.  If any of them
         raises SIGHUP, then pidns knows that the parent or a child has
         died, and it can terminate itself, which due to (a) and (b)

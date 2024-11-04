@@ -65,5 +65,5 @@ close: (not (or (eq (arg 0) 2)
 
 # server: serving pages over HTTP requires polling connections
 #
-# arg 2 is the timeout.
-poll: (eq (arg 2) 0)
+# arg 3 is the signal mask.
+ppoll: (eq (arg 3) 0)

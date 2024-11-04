@@ -1136,9 +1136,24 @@ write_conn( fd_http_server_t * http,
   else                                        write_conn_ws(   http, conn_idx );
 }
 
+/* fd_sys_poll wraps the poll() syscall.  On Linux, always uses ppoll()
+   as the poll() syscall is not available on some architectures.
+   The timeout is hardcoded to zero (return immediately). */
+
+static int
+fd_sys_poll( struct pollfd * fds,
+             nfds_t          nfds ) {
+# if defined(__linux__)
+  struct timespec const ts = { 0, 0 };
+  return ppoll( fds, nfds, &ts, NULL );
+# else
+  return poll( fds, nfds, 0 );
+# endif
+}
+
 int
 fd_http_server_poll( fd_http_server_t * http ) {
-  int nfds = poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL, 0 );
+  int nfds = fd_sys_poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL );
   if( FD_UNLIKELY( 0==nfds ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));

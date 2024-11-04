@@ -13,7 +13,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
-#include <poll.h>
 #include <stdio.h>
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
