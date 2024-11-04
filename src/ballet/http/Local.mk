@@ -21,4 +21,5 @@ $(call make-unit-test,test_live_http_server,test_live_http_server,fd_ballet fd_u
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_picohttpparser,fuzz_picohttpparser,fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_httpserver,fuzz_httpserver,fd_ballet fd_util)
 endif
