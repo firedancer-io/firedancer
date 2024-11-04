@@ -120,3 +120,5 @@ json_payload=$(cat <<EOF
 EOF
 )
 curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_WEBHOOK_URL
+
+sleep 300
