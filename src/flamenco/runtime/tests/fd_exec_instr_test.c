@@ -1373,7 +1373,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     /* Copy over account content */
 
     memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
-    out_acct->lamports     = acc->meta->info.lamports;
+    out_acct->lamports     = acc->const_meta->info.lamports;
     out_acct->data =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
@@ -1384,9 +1384,9 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
     fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
-    out_acct->executable     = acc->meta->info.executable;
-    out_acct->rent_epoch     = acc->meta->info.rent_epoch;
-    memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
+    out_acct->executable     = acc->const_meta->info.executable;
+    out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;
+    memcpy( out_acct->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;
   }
@@ -1530,7 +1530,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture borrowed accounts */
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
       fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
-      if( !acc->const_meta ) continue;
+      if( !acc->meta ) continue;
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
       assert( modified_idx < modified_acct_cnt );
