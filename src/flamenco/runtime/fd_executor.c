@@ -320,9 +320,9 @@ accumulate_and_check_loaded_account_data_size( ulong   acc_size,
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  ulong requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-  ulong accumulated_account_size = 0UL;
-  uchar loader_v4_active = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_program_runtime_v2_and_loader_v4);
+  ulong                 requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
+  ulong                 accumulated_account_size            = 0UL;
+  fd_rawtxn_b_t const * txn_raw                             = txn_ctx->_txn_raw;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L217-L296 */
   /* In the agave client, this loop is responsible for loading in all of the
@@ -422,10 +422,8 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       }
 
       /* If it is not an instruction account */
-      fd_rawtxn_b_t *        txn_raw   = txn_ctx->_txn_raw;
-      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-
       for( ushort j=0; j<instr_cnt; j++ ) {
+        fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[j];
         uchar const * instr_acc_idxs = fd_txn_get_instr_accts( txn_instr, txn_raw->raw );
         for( ushort k=0; k<txn_instr->acct_cnt; k++ ) {
           if( instr_acc_idxs[k]==instr->program_id ) {
@@ -437,14 +435,19 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       /* If it is not in the loaded program cache. Only accounts in the transaction 
          account keys that are owned by one of the four loaders (bpf v1, v2, v3, v4) 
          are iterated over in Agave's replenish_program_cache() function to be loaded
-         into the program cache. From my inspection, it seems that if we reach this
-         far in the code path, then this account should be in the program cache iff
-         the owners match one of the four loaders. */
-      if( FD_UNLIKELY( ( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,               sizeof(fd_pubkey_t) )   &&
-                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,                          sizeof(fd_pubkey_t) )   &&
-                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key,              sizeof(fd_pubkey_t) ) ) ||
-                       ( loader_v4_active                                                                                                                       &&
-                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,                       sizeof(fd_pubkey_t) ) ) ) ) {
+         into the program cache. If we reach this far in the code path, then this 
+         account should be in the program cache iff the owners match one of the four loaders
+         since `filter_executable_program_accounts()` filters out all other accounts here:
+         https://github.com/anza-xyz/agave/blob/v2.1/svm/src/transaction_processor.rs#L530-L560
+         
+         Note that although the v4 loader is not yet activated, Agave still checks that the 
+         owner matches one of the four bpf loaders provided in the hyperlink below 
+         within `filter_executable_program_accounts()`:
+         https://github.com/anza-xyz/agave/blob/v2.1/sdk/account/src/lib.rs#L800-L806 */
+      if( FD_UNLIKELY( ( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) )   &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) )   &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) &&
+                         memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) ) {
         return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
       }
 
