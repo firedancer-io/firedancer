@@ -75,7 +75,7 @@ fd_pcapng_iter_strerror( int    error,
   static FD_TL char err_cstr_buf[ 1024UL ];
   char * err_cstr = fd_cstr_init( err_cstr_buf );
   if( error==EPROTO ) {
-    return fd_cstr_printf( err_cstr, sizeof(err_cstr_buf), NULL, "parse error at %#lx", ftell(file) );
+    return fd_cstr_printf( err_cstr, sizeof(err_cstr_buf), NULL, "parse error at %#lx", (ulong)ftell(file) );
   } else if( error==-1 && !feof( file ) ) {
     return "end of section";
   } else {
@@ -93,7 +93,7 @@ fd_pcapng_peek_block( FILE *                  stream,
   if( FD_UNLIKELY( pos<0L ) )
     return ferror( stream );
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)pos, 4U ) ) ) {
-    FD_LOG_DEBUG(( "pcapng: misaligned stream at %#lx", pos ));
+    FD_LOG_DEBUG(( "pcapng: misaligned stream at %#lx", (ulong)pos ));
     return EPROTO;
   }
 
@@ -108,7 +108,7 @@ fd_pcapng_peek_block( FILE *                  stream,
   if( FD_UNLIKELY( (hdr.block_sz <   12U) /* header and footer are mandatory */
                  | (hdr.block_sz >32768U) /* way too large */
                  | (!fd_ulong_is_aligned( hdr.block_sz, 4U )) ) ) {
-    FD_LOG_DEBUG(( "pcapng: block with invalid size %#x at %#lx", hdr.block_sz, pos ));
+    FD_LOG_DEBUG(( "pcapng: block with invalid size %#x at %#lx", hdr.block_sz, (ulong)pos ));
     return EPROTO;
   }
 
@@ -127,7 +127,7 @@ fd_pcapng_peek_block( FILE *                  stream,
 
   /* Check that header and footer match */
   if( FD_UNLIKELY( hdr.block_sz != block_sz ) ) {
-    FD_LOG_DEBUG(( "pcapng: block size in header and footer don't match at %#lx", pos ));
+    FD_LOG_DEBUG(( "pcapng: block size in header and footer don't match at %#lx", (ulong)pos ));
     return EPROTO;
   }
 

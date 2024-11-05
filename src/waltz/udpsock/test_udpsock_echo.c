@@ -50,7 +50,7 @@ main( int     argc,
 
   /* Create new UDP socket and listen */
 
-  FD_LOG_NOTICE(( "Listening at 0.0.0.0:%d", port ));
+  FD_LOG_NOTICE(( "Listening at 0.0.0.0:%u", port ));
 
   int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
   if( FD_UNLIKELY( sock_fd<0 ) ) {

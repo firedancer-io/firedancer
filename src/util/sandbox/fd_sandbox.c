@@ -424,7 +424,7 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt ) {
 
   for( ulong i=0UL; i<sizeof(rlimits)/sizeof(rlimits[ 0 ]); i++ ) {
     struct rlimit limit = { .rlim_cur=rlimits[ i ].limit, .rlim_max=rlimits[ i ].limit };
-    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%d) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
+    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%u) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -675,7 +675,7 @@ fd_sandbox_enter( uint                 desired_uid,
                   int const *          allowed_file_descriptor,
                   ulong                seccomp_filter_cnt,
                   struct sock_filter * seccomp_filter ) {
-  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %u", USHORT_MAX ));
+  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %d", USHORT_MAX ));
 
   fd_sandbox_private_enter_no_seccomp( desired_uid,
                                        desired_gid,

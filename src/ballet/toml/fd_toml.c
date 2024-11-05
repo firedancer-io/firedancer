@@ -1626,7 +1626,7 @@ fd_toml_parse_std_table( fd_toml_parser_t * parser ) {
   //  parser->error = FD_TOML_ERR_DUP;
   //  return 0;
   //}
-  FD_LOG_DEBUG(( "Added table %.*s", parser->key_len, parser->key ));
+  FD_LOG_DEBUG(( "Added table %.*s", (int)parser->key_len, parser->key ));
 
   fd_toml_parse_ws( parser );
   EXPECT_CHAR( ']' );
@@ -1673,7 +1673,7 @@ fd_toml_parse_array_table( fd_toml_parser_t * parser ) {
   fd_cstr_fini( key_c );
   parser->key_len = (uint)( key_c - parser->key );
 
-  FD_LOG_DEBUG(( "Added array table %.*s", parser->key_len, parser->key ));
+  FD_LOG_DEBUG(( "Added array table %.*s", (int)parser->key_len, parser->key ));
 
   /* Continue parsing */
 

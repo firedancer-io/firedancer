@@ -535,14 +535,14 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
 
     if (!valid || cur_slot != slot) {
-      FD_LOG_WARNING(("missing shreds for slot %ld", slot));
+      FD_LOG_WARNING(("missing shreds for slot %lu", slot));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
     }
 
     if (index != i) {
-      FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
+      FD_LOG_WARNING(("missing shred %lu at index %lu for slot %lu", i, index, slot));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
@@ -552,7 +552,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     // Data was first copied from disk into memory to make it available to this API
     const unsigned char *data = (const unsigned char *) rocksdb_iter_value(iter, &dlen);
     if (data == NULL) {
-      FD_LOG_WARNING(("failed to read shred %ld/%ld", slot, i));
+      FD_LOG_WARNING(("failed to read shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
@@ -562,14 +562,14 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     // actual data without a memory copy
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
     if (shred == NULL) {
-      FD_LOG_WARNING(("failed to parse shred %ld/%ld", slot, i));
+      FD_LOG_WARNING(("failed to parse shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
     }
     int rc = fd_buf_shred_insert( blockstore, shred );
     if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
-      FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
+      FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
@@ -789,13 +789,13 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
     }
 
     if ( !valid || cur_slot != slot ) {
-      FD_LOG_WARNING(( "missing shreds for slot %ld", slot ));
+      FD_LOG_WARNING(( "missing shreds for slot %lu", slot ));
       rocksdb_iter_destroy( iter );
       return -1;
     }
 
     if ( index != i ) {
-      FD_LOG_WARNING(( "missing shred %ld at index %ld for slot %ld", i, index, slot ));
+      FD_LOG_WARNING(( "missing shred %lu at index %lu for slot %lu", i, index, slot ));
       rocksdb_iter_destroy( iter );
       return -1;
     }
@@ -804,14 +804,14 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
     // Data was first copied from disk into memory to make it available to this API
     const unsigned char *data = (const unsigned char *) rocksdb_iter_value( iter, &dlen );
     if ( data == NULL ) {
-      FD_LOG_WARNING(( "failed to read shred %ld/%ld", slot, i ));
+      FD_LOG_WARNING(( "failed to read shred %lu/%lu", slot, i ));
       rocksdb_iter_destroy( iter );
       return -1;
     }
 
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
     if ( shred == NULL ) {
-      FD_LOG_WARNING(( "failed to parse shred %ld/%ld", slot, i ));
+      FD_LOG_WARNING(( "failed to parse shred %lu/%lu", slot, i ));
       rocksdb_iter_destroy( iter );
       return -1;
     }

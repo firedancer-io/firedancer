@@ -74,7 +74,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   int manifest_fd = open( manifest_path_buf, O_CREAT|O_WRONLY, (mode_t)0666 );
   if( FD_UNLIKELY( manifest_fd == -1 ) ) {
     FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03o) failed (%i-%s)",
-                     manifest_path_buf, 0666, errno, fd_io_strerror( errno ) ));
+                     manifest_path_buf, (uint)0666, errno, fd_io_strerror( errno ) ));
     return;
   }
   uchar manifest_buf[ WBUF_FOOTPRINT ] __attribute__((aligned(BUF_ALIGN)));
@@ -100,7 +100,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   int bank_hash_fd = open( bank_hash_path_buf, O_CREAT|O_WRONLY, (mode_t)0666 );
   if( FD_UNLIKELY( bank_hash_fd == -1 ) ) {
     FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03o) failed (%i-%s)",
-                     bank_hash_path_buf, 0666, errno, fd_io_strerror( errno ) ));
+                     bank_hash_path_buf, (uint)0666, errno, fd_io_strerror( errno ) ));
     FD_LOG_ERR(( "can't create and open bank hash file" ));
   }
   uchar bank_hash_buf[ WBUF_FOOTPRINT ] __attribute__((aligned(BUF_ALIGN)));
@@ -141,7 +141,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     int fd = open( tmp_path_buf, O_CREAT|O_WRONLY, (mode_t)0666 );
     if( FD_UNLIKELY( fd == -1 ) ) {
       FD_LOG_ERR(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03o) failed (%i-%s)",
-                   tmp_path_buf, 0666, errno, fd_io_strerror( errno ) ));
+                   tmp_path_buf, (uint)0666, errno, fd_io_strerror( errno ) ));
     }
     fd_io_buffered_ostream_t ostream[ 1 ];
     fd_io_buffered_ostream_init( ostream, fd, wbuf, WBUF_FOOTPRINT );
@@ -771,7 +771,7 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
                           FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT;
     long offset = lseek( *manifest_fd, (long)middle_offset, SEEK_SET );
     if ( FD_UNLIKELY( offset == -1 ) ) {
-      FD_LOG_ERR(( "unable to lseek to manifest entry offset=%ld", middle_offset ));
+      FD_LOG_ERR(( "unable to lseek to manifest entry offset=%lu", middle_offset ));
     }
 
     err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT,
@@ -804,7 +804,7 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
                           FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT;
     long offset = lseek( *manifest_fd, (long)middle_offset, SEEK_SET );
     if ( FD_UNLIKELY( offset == -1 ) ) {
-      FD_LOG_ERR(( "unable to lseek to manifest entry offset=%ld", middle_offset ));
+      FD_LOG_ERR(( "unable to lseek to manifest entry offset=%lu", middle_offset ));
     }
 
     err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT,

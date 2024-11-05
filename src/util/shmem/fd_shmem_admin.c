@@ -241,7 +241,7 @@ fd_shmem_create_multi_flags( char const *  name,
 
   fd = open( fd_shmem_private_path( name, page_sz, path ), open_flags, (mode_t)mode );
   if( FD_UNLIKELY( fd==-1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",%#x,0%03lo) failed (%i-%s)", path, open_flags, mode, errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "open(\"%s\",%#x,0%03lo) failed (%i-%s)", path, (uint)open_flags, mode, errno, fd_io_strerror( errno ) ));
     ERROR( restore );
   }
 
@@ -550,12 +550,12 @@ fd_shmem_acquire_multi( ulong         page_sz,
   mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, -1, (off_t)0);
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) failed (%i-%s)",
-                     sz>>10, flags, errno, fd_io_strerror( errno ) ));
+                     sz>>10, (uint)flags, errno, fd_io_strerror( errno ) ));
     ERROR( restore );
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
-    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) misaligned", sz>>10, flags ));
+    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) misaligned", sz>>10, (uint)flags ));
     errno = EFAULT; /* ENOMEM is arguable */
     ERROR( unmap );
   }
@@ -600,7 +600,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
     int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
-                       sub_idx, sub_sz>>10, flags, warn, fd_io_strerror( warn ) ));
+                       sub_idx, sub_sz>>10, (uint)flags, warn, fd_io_strerror( warn ) ));
 
     sub_mem += sub_sz;
   }

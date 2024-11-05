@@ -330,7 +330,7 @@ fd_nl_load_route_table( fd_nl_t *             nl,
   }
 
   if( sent != (long)send_sz ) {
-    FD_LOG_WARNING(( "netlink send returned unexpected size: %lu expected: %lu", sent, send_sz ));
+    FD_LOG_WARNING(( "netlink send returned unexpected size: %ld expected: %lu", sent, send_sz ));
     return -1;
   }
 
@@ -578,7 +578,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
   }
 
   if( sent != (long)send_sz ) {
-    FD_LOG_WARNING(( "netlink send returned unexpected size: %lu expected: %lu", sent, send_sz ));
+    FD_LOG_WARNING(( "netlink send returned unexpected size: %ld expected: %lu", sent, send_sz ));
     return FD_IP_ERROR;
   }
 
@@ -889,7 +889,7 @@ fd_nl_update_arp_table( fd_nl_t *           nl,
   }
 
   if( sent != (long)send_sz ) {
-    FD_LOG_WARNING(( "netlink send returned unexpected size: %lu expected: %lu", sent, send_sz ));
+    FD_LOG_WARNING(( "netlink send returned unexpected size: %ld expected: %lu", sent, send_sz ));
     return FD_IP_ERROR;
   }
 

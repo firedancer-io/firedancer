@@ -88,7 +88,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   ulong payload_mask = fd_keyguard_payload_match( data, sz, sign_type );
   int   match_cnt    = fd_ulong_popcnt( payload_mask );
   if( FD_UNLIKELY( payload_mask==0UL ) ) {
-    FD_LOG_WARNING(( "unrecognized payload type (role=%#x)", role ));
+    FD_LOG_WARNING(( "unrecognized payload type (role=%#x)", (uint)role ));
   }
 
   int is_ambiguous = match_cnt != 1;
@@ -102,7 +102,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
             FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
 
   if( FD_UNLIKELY( is_ambiguous && !is_gossip_repair ) ) {
-    FD_LOG_WARNING(( "ambiguous payload type (role=%#x mask=%#lx)", role, payload_mask ));
+    FD_LOG_WARNING(( "ambiguous payload type (role=%#x mask=%#lx)", (uint)role, payload_mask ));
   }
 
   /* Authorize each role */
@@ -167,7 +167,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     return 1;
 
   default:
-    FD_LOG_WARNING(( "unsupported role=%#x", role ));
+    FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));
     return 0;
   }
 }

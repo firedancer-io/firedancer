@@ -129,7 +129,7 @@ int
 main1( int     argc,
        char ** _argv );
 
-void
+void FD_FN_SENSITIVE
 generate_keypair( char const *     keyfile,
                   config_t * const config,
                   int              use_grnd_random );

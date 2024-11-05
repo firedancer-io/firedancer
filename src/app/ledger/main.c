@@ -188,7 +188,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
     ledger_args->slot_ctx->slot_bank.slot      = slot;
 
-    FD_LOG_DEBUG(( "reading slot %ld", slot ));
+    FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
     if( ledger_args->capture_ctx && ledger_args->capture_ctx->pruned_funk != NULL ) {
       fd_funk_start_write( ledger_args->capture_ctx->pruned_funk );
@@ -210,7 +210,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_blockstore_start_read( blockstore );
     fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
-      FD_LOG_WARNING( ( "failed to read slot %ld", slot ) );
+      FD_LOG_WARNING( ( "failed to read slot %lu", slot ) );
       fd_blockstore_end_read( blockstore );
       continue;
     }

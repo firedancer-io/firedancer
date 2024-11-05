@@ -71,7 +71,7 @@ fd_rpc_json_walk( void *       _self,
   (void)type_name;
 
   if( level>=STACK_HEIGHT-1 ) {
-    FD_LOG_WARNING(( "level %d exceeds max %u", level, STACK_HEIGHT));
+    FD_LOG_WARNING(( "level %u exceeds max %u", level, STACK_HEIGHT));
     return;
   }
 
@@ -218,7 +218,7 @@ fd_rpc_json_walk( void *       _self,
     break;
 
   default:
-    FD_LOG_CRIT(( "unknown type %#x", type ));
+    FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
     break;
   }
 

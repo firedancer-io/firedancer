@@ -346,26 +346,26 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
 
   /* TxnResult -> status */
   if( expected->status != actual->status ) {
-    FD_LOG_WARNING(( "Status mismatch: expected=%d actual=%d", expected->status, actual->status ));
+    FD_LOG_WARNING(( "Status mismatch: expected=%u actual=%u", expected->status, actual->status ));
     return 0;
   }
 
   /* TxnResult -> instruction_error */
   if( expected->instruction_error != actual->instruction_error ) {
-    FD_LOG_WARNING(( "Instruction error mismatch: expected=%d actual=%d", expected->instruction_error, actual->instruction_error ));
+    FD_LOG_WARNING(( "Instruction error mismatch: expected=%u actual=%u", expected->instruction_error, actual->instruction_error ));
     return 0;
   }
 
   if( expected->instruction_error ) {
     /* TxnResult -> instruction_error_index */
     if( expected->instruction_error_index != actual->instruction_error_index ) {
-      FD_LOG_WARNING(( "Instruction error index mismatch: expected=%d actual=%d", expected->instruction_error_index, actual->instruction_error_index ));
+      FD_LOG_WARNING(( "Instruction error index mismatch: expected=%u actual=%u", expected->instruction_error_index, actual->instruction_error_index ));
       return 0;
     }
 
     /* TxnResult -> custom_error */
     if( expected->instruction_error == (ulong) -FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && expected->custom_error != actual->custom_error ) {
-      FD_LOG_WARNING(( "Custom error mismatch: expected=%d actual=%d", expected->custom_error, actual->custom_error ));
+      FD_LOG_WARNING(( "Custom error mismatch: expected=%u actual=%u", expected->custom_error, actual->custom_error ));
       return 0;
     }
   }

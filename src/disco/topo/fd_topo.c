@@ -434,7 +434,7 @@ fd_topo_print_log( int         stdout,
     for( ulong j=0UL; j<tile->in_cnt; j++ ) {
       if( FD_LIKELY( j != 0 ) ) PRINTIN( ", " );
       if( FD_LIKELY( tile->in_link_reliable[ j ] ) ) PRINTIN( "%2lu", tile->in_link_id[ j ] );
-      else PRINTIN( "%2ld", -tile->in_link_id[ j ] );
+      else PRINTIN( "%2ld", (long)-tile->in_link_id[ j ] );
     }
 
     char out[ 256 ] = {0};

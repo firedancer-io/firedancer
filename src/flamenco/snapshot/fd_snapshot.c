@@ -199,7 +199,7 @@ fd_snapshot_load( const char *         snapshotfile,
       else
         FD_LOG_NOTICE(("incremental accounts_hash %s verified successfully", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ) ));
     } else {
-      FD_LOG_ERR(( "invalid snapshot type %u", snapshot_type ));
+      FD_LOG_ERR(( "invalid snapshot type %d", snapshot_type ));
     }
   }
 

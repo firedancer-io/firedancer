@@ -192,15 +192,15 @@ main( int     argc,
       } \
     } while(0)
 
-    TEST(add,0,UINT_MAX);
-    TEST(add,UINT_MAX,10);
-    TEST(add,UINT_MAX - 10,UINT_MAX - 10);
-    TEST(sub,0,UINT_MAX);
-    TEST(add,UINT_MAX,10);
-    TEST(sub,UINT_MAX - 10,UINT_MAX - 10);
-    TEST(mul,0,UINT_MAX);
-    TEST(mul,UINT_MAX,10);
-    TEST(mul,UINT_MAX - 10,UINT_MAX - 10);
+    TEST(add,0u,UINT_MAX);
+    TEST(add,UINT_MAX,10u);
+    TEST(add,UINT_MAX - 10u,UINT_MAX - 10u);
+    TEST(sub,0u,UINT_MAX);
+    TEST(add,UINT_MAX,10u);
+    TEST(sub,UINT_MAX - 10u,UINT_MAX - 10u);
+    TEST(mul,0u,UINT_MAX);
+    TEST(mul,UINT_MAX,10u);
+    TEST(mul,UINT_MAX - 10u,UINT_MAX - 10u);
 
 #   undef TEST
 

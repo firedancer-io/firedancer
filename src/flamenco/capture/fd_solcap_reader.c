@@ -57,7 +57,7 @@ fd_solcap_chunk_iter_next( fd_solcap_chunk_iter_t * iter ) {
   if( FD_UNLIKELY( ( !fd_solcap_is_chunk_magic( iter->chunk.magic )   )
                  | ( iter->chunk.total_sz < sizeof(fd_solcap_chunk_t) ) ) ) {
     FD_LOG_WARNING(( "invalid chunk (offset=%#lx magic=0x%016lx total_sz=%lu)",
-                     chunk_gaddr, iter->chunk.magic, iter->chunk.total_sz ));
+                     (ulong)chunk_gaddr, iter->chunk.magic, iter->chunk.total_sz ));
     iter->err = EPROTO;
     return -1L;
   }

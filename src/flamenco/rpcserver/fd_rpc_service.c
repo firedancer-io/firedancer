@@ -1957,7 +1957,7 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
   arg_sz = 0;
   arg = json_get_value(values, PATH3, 2, &arg_sz);
   if (arg != NULL) {
-    snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "%lu", *(long*)arg);
+    snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "%lu", *(ulong*)arg); /* TODO check signedness of arg */
   } else {
     static const uint PATH4[2] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ID,
@@ -2386,7 +2386,7 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
   arg_sz = 0;
   arg = json_get_value(values, PATH3, 2, &arg_sz);
   if (arg != NULL) {
-    snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "%lu", *(long*)arg);
+    snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "%lu", *(ulong*)arg); /* TODO: check signedness of arg */
   } else {
     static const uint PATH4[2] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ID,

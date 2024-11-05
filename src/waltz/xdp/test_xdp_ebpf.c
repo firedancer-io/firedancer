@@ -86,7 +86,7 @@ fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
     for( fd_udp_dst_kv_t *kv=test->udp_dsts_kv; kv->k; kv++ ) {
       if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &kv->k, &kv->v, 0UL ) ) ) {
         FD_LOG_ERR(( "fd_bpf_map_update_elem(%d,%#lx,%#x,0) failed (%i-%s)",
-                     udp_dsts_fd, kv->k, kv->v, errno, fd_io_strerror( errno ) ));
+                     udp_dsts_fd, kv->k, (uint)kv->v, errno, fd_io_strerror( errno ) ));
       }
     }
   } else {

@@ -1165,7 +1165,7 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
   else if( ( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR    ) &
            ( expected->custom_err != ctx->txn_ctx->custom_err ) ) {
     check->has_diff = 1;
-    REPORTV( NOTICE, " expected custom error %d, got %d",
+    REPORTV( NOTICE, " expected custom error %u, got %u",
              expected->custom_err, ctx->txn_ctx->custom_err );
     return;
   }

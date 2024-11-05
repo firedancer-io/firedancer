@@ -77,7 +77,7 @@ main( int argc, char ** argv ) {
   /* Check root */
   ulong expected_root = 0;
   ulong actual_root = fd_tower_publish( tower );
-  FD_LOG_NOTICE(( "actual root %ld; expected root %ld", actual_root, expected_root ));
+  FD_LOG_NOTICE(( "actual root %lu; expected root %lu", actual_root, expected_root ));
   FD_TEST( actual_root == expected_root );
 
   /* Check all existing votes moved up by one, with one additional confirmation */
@@ -85,7 +85,7 @@ main( int argc, char ** argv ) {
   {
     fd_tower_vote_t expected_vote = { .slot = i+1, .conf = 31-i };
     fd_tower_vote_t *actual_vote = fd_tower_votes_peek_index( tower->votes, i );
-    FD_LOG_INFO(( "evs %ld; avs %ld", expected_vote.slot, actual_vote->slot  ));
+    FD_LOG_INFO(( "evs %lu; avs %lu", expected_vote.slot, actual_vote->slot  ));
     FD_TEST( expected_vote.slot == actual_vote->slot );
     FD_TEST( expected_vote.conf == actual_vote->conf );
   }

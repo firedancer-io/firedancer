@@ -58,7 +58,7 @@ process_account( FILE * file,
     return 0;
   }
   if( FD_UNLIKELY( chunk->magic != FD_SOLCAP_V1_ACCT_MAGIC ) ) {
-    FD_LOG_ERR(( "expected account table chunk at %#lx, got magic=0x%016lx", goff, chunk->magic ));
+    FD_LOG_ERR(( "expected account table chunk at %#lx, got magic=0x%016lx", (ulong)goff, chunk->magic ));
     return 0;
   }
 

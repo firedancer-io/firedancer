@@ -139,7 +139,7 @@ fd_flamenco_yaml_walk( void *       _self,
   (void)type_name;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
-    FD_LOG_WARNING(( "indent level %d exceeds max %lu",
+    FD_LOG_WARNING(( "indent level %u exceeds max %lu",
                      level, FD_FLAMENCO_YAML_MAX_INDENT ));
     return;
   }
@@ -341,7 +341,7 @@ fd_flamenco_yaml_walk( void *       _self,
   case FD_FLAMENCO_TYPE_ENUM_DISC:
     break;
   default:
-    FD_LOG_CRIT(( "unknown type %#x", type ));
+    FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
     break;
   }
 
