@@ -1023,7 +1023,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
    the responsibility of the caller to populate the newly pushed instruction fields, which are undefined otherwise.
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L246-L290 */
-static inline int
+int
 fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
                      fd_instr_info_t *       instr ) {
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L256-L286 */
@@ -1059,9 +1059,9 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
    checking for unbalanced instructions if the program execution was successful within fd_execute_instr.
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L293-L298 */
-static inline int
+int
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
-                    fd_instr_info_t * const   instr ) {
+                    fd_instr_info_t const *   instr ) {
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L362-L364 */
   if( FD_UNLIKELY( txn_ctx->instr_stack_sz==0 ) ) {
     return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;

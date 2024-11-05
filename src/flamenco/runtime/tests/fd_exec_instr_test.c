@@ -1842,7 +1842,17 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   }
 
   /* Actually invoke the syscall */
+  int stack_push_err = fd_instr_stack_push( ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
+  if( FD_UNLIKELY( stack_push_err ) ) {
+      FD_LOG_WARNING(( "instr stack push err" ));
+      goto error;
+  }
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
+  int stack_pop_err = fd_instr_stack_pop( ctx->txn_ctx, ctx->instr );
+  if( FD_UNLIKELY( stack_pop_err ) ) {
+      FD_LOG_WARNING(( "instr stack pop err" ));
+      goto error;
+  }
   if( syscall_err ) {
     /*  In the CPI syscall, certain checks are performed out of order between Firedancer and Agave's
         implementation. Certain checks in FD (whose error codes mapped below)
