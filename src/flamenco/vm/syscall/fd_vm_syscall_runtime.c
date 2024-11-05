@@ -226,7 +226,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
 
     void * program_id = FD_VM_MEM_HADDR_ST( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, sizeof(fd_pubkey_t) );
 
-    FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, dst_vaddr, cpy_sz, program_id_vaddr, sizeof(fd_pubkey_t) );
+    FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, (ulong)dst, cpy_sz, (ulong)program_id, sizeof(fd_pubkey_t) );
 
     memcpy( program_id, &return_data->program_id, sizeof(fd_pubkey_t) );
   }
