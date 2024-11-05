@@ -119,7 +119,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/5535e79b8749f00d44e7d1524abcb56dad98ca75/runtime-transaction/src/compute_budget_instruction_details.rs#L51-L64 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L51-L64 */
   if( has_requested_heap_size ) {
     if( FD_UNLIKELY( !sanitize_requested_heap_size( updated_requested_heap_size ) ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, requested_heap_size_instr_index );
@@ -128,19 +128,21 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     ctx->heap_size = updated_requested_heap_size;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L66-L76 */
   if( has_compute_units_limit_update ) {
     ctx->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, updated_compute_unit_limit );
   } else {
     ctx->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, 
                                             (ulong)fd_uint_sat_mul( num_non_compute_budget_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
   }
+  ctx->compute_meter = ctx->compute_unit_limit;
 
   if( has_compute_units_price_update ) {
     ctx->prioritization_fee_type = prioritization_fee_type;
     ctx->compute_unit_price      = updated_compute_unit_price;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/runtime-transaction/src/compute_budget_instruction_details.rs#L84-L93 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L84-L93 */
   if( has_loaded_accounts_data_size_limit_update ) {
     if( FD_UNLIKELY( updated_loaded_accounts_data_size_limit==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
@@ -148,8 +150,6 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     ctx->loaded_accounts_data_size_limit = 
       fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, updated_loaded_accounts_data_size_limit );
   }
-
-  ctx->compute_meter = ctx->compute_unit_limit;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
