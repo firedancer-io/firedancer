@@ -254,10 +254,38 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
     return FD_VM_ERR_EMPTY;
 
+  /* Calldests iterator for checking JA bounds */
+  ulong calldests_iter = fd_sbpf_calldests_const_iter_init( vm->calldests );
+
   /* FIXME: CLEAN UP LONG / ULONG TYPE CONVERSION */
   ulong const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
   for( ulong i=0UL; i<text_cnt; i++ ) {
+
+    /* https://github.com/solana-labs/rbpf/blob/69a52ec6a341bb7374d387173b5e6dc56218fe0c/src/verifier.rs#L238-L248 */
+    if ( ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) ) {
+
+      /* If we are at the start of a function, check that the function ends in a JA or RETURN */
+      if ( calldests_iter == i ) {
+        ulong function_start = i;
+        ulong next_function_start = text_cnt;
+
+        /* Find the instruction just before the next function */
+        calldests_iter = fd_sbpf_calldests_const_iter_next( vm->calldests, calldests_iter );
+        if ( FD_LIKELY( !fd_sbpf_calldests_const_iter_done( calldests_iter ) ) ) {
+          next_function_start = calldests_iter;
+        }
+        ulong function_end = fd_ulong_sat_sub(next_function_start , 1UL );
+        uchar last_instr_opcode = fd_sbpf_instr( text[ function_end ] ).opcode.raw;
+
+        /* Ensure that the last instruction is either a JA or RETURN */
+        if ( !( last_instr_opcode == 0x05 || last_instr_opcode == 0x9D ) ) {
+          return FD_VM_ERR_INVALID_FUNCTION;
+        }
+
+      }
+    }
+
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
 
     uchar validation_code = validation_map[ instr.opcode.raw ];

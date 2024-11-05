@@ -205,7 +205,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      enabled AND we halt on a segfault caused by a store on an invalid vaddr. */
   ulong segv_store_vaddr;
 
-  /* SBPF version of this program */
+   /* The SBPF version of the executed program. */
   ulong sbpf_version;
 };
 

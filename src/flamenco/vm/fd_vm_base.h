@@ -79,6 +79,7 @@
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
 #define FD_VM_ERR_INVALID_R10_WRITE (-39) /* detected a write to R10 */
+#define FD_VM_ERR_INVALID_FUNCTION  (-40) /* invalid function at instruction */
 
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
