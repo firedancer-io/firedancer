@@ -56,7 +56,7 @@ static void
 jsonp_long( fd_gui_t *   gui,
             char const * key,
             long         value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":%lu,", key, value );
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":%ld,", key, value );
   else                   fd_http_server_printf( gui->http, "%ld,", value );
 }
 
