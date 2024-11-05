@@ -171,6 +171,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_INVALID     ((uchar)8) /* The opcode is invalid */
 # define FD_CHECK_CALLX ((uchar)9) /* Validation should check that callx has valid register number */
 # define FD_CHECK_ADD   ((uchar)10) /* Validation should check that the instruction is a valid ADD instruction */
+# define FD_CHECK_CALL_IMM ((uchar)11) /* Validation should check that callimm jumps to a valid program counter */
 
   static uchar const validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -206,7 +207,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_VALID,      /* 0x7a */ FD_CHECK_ST,   /* 0x7b */ FD_CHECK_ST,
     /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_INVALID,    /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
-    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_VALID,      /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
+    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_CHECK_CALL_IMM, /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
     /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_CHECK_CALLX,/* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
@@ -353,6 +354,16 @@ fd_vm_validate( fd_vm_t const * vm ) {
          https://github.com/solana-labs/rbpf/blob/v0.8.1/src/verifier.rs#L218 */
       if( FD_UNLIKELY( instr.imm > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
+      }
+      break;
+    }
+
+    case FD_CHECK_CALL_IMM: {
+      /* Check that the destination is a valid calldest */
+      if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
+        if ( FD_UNLIKELY( fd_sbpf_calldests_test( vm->calldests, instr.imm ) ) ) {
+          return FD_VM_ERR_INVALID_FUNCTION;
+        }
       }
       break;
     }
