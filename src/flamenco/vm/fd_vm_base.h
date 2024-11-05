@@ -79,6 +79,7 @@
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
 #define FD_VM_ERR_INVALID_FUNCTION  (-39) /* invalid function at instruction */
+#define FD_VM_ERR_JUMP_OUT_OF_CODE  (-40) /* invalid jump out of current function */
 
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
@@ -424,7 +425,8 @@ FD_PROTOTYPES_END
 #define FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT           (64UL*1024UL*1024UL) /* 64MiB */
 
 /* SBPF Versions */
-#define SBPF_VERSION_STATIC_SYSCALLS (3UL)
+#define SBPF_VERSION_STATIC_SYSCALLS     (3UL)
+#define SBPF_VERSION_STRICT_VERIFICATION (4UL)
 
 /* fd_vm_disasm API ***************************************************/
 
