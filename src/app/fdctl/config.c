@@ -523,7 +523,7 @@ fdctl_cfg_from_env( int *      pargc,
                    "your configuration file under [net.interface]" ));
 
     if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
+      FD_LOG_ERR(( "could not get name of interface with index %d", ifindex ));
   }
 
   ulong cluster = determine_cluster( config->gossip.entrypoints_cnt,
@@ -608,9 +608,9 @@ fdctl_cfg_from_env( int *      pargc,
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
 
   if( FD_UNLIKELY( getuid() != 0 && config->uid != getuid() ) )
-    FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), config->uid ));
+    FD_LOG_ERR(( "running as uid %u, but config specifies uid %u", getuid(), config->uid ));
   if( FD_UNLIKELY( getgid() != 0 && config->gid != getgid() ) )
-    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), config->gid ));
+    FD_LOG_ERR(( "running as gid %u, but config specifies gid %u", getgid(), config->gid ));
 
   ulong len = strlen( config->hugetlbfs.mount_path );
   if( FD_UNLIKELY( !len ) ) FD_LOG_ERR(( "[hugetlbfs.mount_path] must be non-empty in your configuration file" ));

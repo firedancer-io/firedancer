@@ -199,14 +199,14 @@ main( int     argc,
     }
   }
 
-  FD_LOG_DEBUG(( "client_conn->state: %d", client_conn->state ));
+  FD_LOG_DEBUG(( "client_conn->state: %u", client_conn->state ));
 
   for( ulong j = 0; j < 20; j++ ) {
     service_client( client_quic );;
     service_server( server_quic );;
   }
 
-  FD_LOG_DEBUG(( "client_conn->state: %d", client_conn->state ));
+  FD_LOG_DEBUG(( "client_conn->state: %u", client_conn->state ));
 
   FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( conn_final_cnt==0 );

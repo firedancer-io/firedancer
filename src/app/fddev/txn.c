@@ -95,7 +95,7 @@ send_quic_transactions( fd_quic_t *         quic,
   }
   FD_TEST( conn );
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE ) )
-    FD_LOG_ERR(( "unable to connect to QUIC endpoint at "FD_IP4_ADDR_FMT":%hu, is it running? state is %d", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, conn->state ));
+    FD_LOG_ERR(( "unable to connect to QUIC endpoint at "FD_IP4_ADDR_FMT":%hu, is it running? state is %u", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, conn->state ));
 
   ulong sent = 0;
   while( sent < count && !g_conn_final ) {

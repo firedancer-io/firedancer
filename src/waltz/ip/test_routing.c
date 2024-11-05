@@ -186,7 +186,7 @@ test_route( /* fd_ip_t * */ ip,                                                 
   FD_LOG_NOTICE(( "exp_rtn:          " "%d",    exp_rtn                  ));           \
   FD_LOG_NOTICE(( "exp_dst_mac:      " MAC_FMT, MAC_VAR(exp_dst_mac)     ));           \
   FD_LOG_NOTICE(( "exp_next_ip_addr: " IP_FMT,  IP_VAR(exp_next_ip_addr) ));           \
-  FD_LOG_NOTICE(( "exp_ifindex:      " "%u",    exp_ifindex              ));           \
+  FD_LOG_NOTICE(( "exp_ifindex:      " "%d",    exp_ifindex              ));           \
                                                                                        \
   FD_TEST( rtn             == exp_rtn             );                                   \
   FD_TEST( memcmp( dst_mac, exp_dst_mac, 6 ) == 0 );                                   \

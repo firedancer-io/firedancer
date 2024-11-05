@@ -317,7 +317,7 @@ stem_run1( ulong                        in_cnt,
   event_seq = 0UL;
 
   async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
-  if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", lazy, event_cnt ));
+  if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", (ulong)lazy, event_cnt ));
 
   FD_LOG_INFO(( "Running stem" ));
   FD_MGAUGE_SET( STEM, STATUS, 1UL );

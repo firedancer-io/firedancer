@@ -268,7 +268,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                   "parent bank hash: %s\n"
                   "accounts_delta:   %s\n"
                   "lthash:           %s\n"
-                  "signature_count:  %ld\n"
+                  "signature_count:  %lu\n"
                   "last_blockhash:   %s\n",
                   slot_ctx->slot_bank.slot,
                   FD_BASE58_ENC_32_ALLOCA( hash->hash ),
@@ -480,12 +480,12 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_acct_addr_cstr( owner_string, acc_rec->meta->info.owner );
 
     FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
-        "slot: %ld "
-        "lamports: %ld  "
+        "slot: %lu "
+        "lamports: %lu  "
         "owner: %s "
         "executable: %s,  "
-        "rent_epoch: %ld, "
-        "data_len: %ld",
+        "rent_epoch: %lu, "
+        "data_len: %lu",
         acc_key_string,
         slot_ctx->slot_bank.slot,
         acc_rec->meta->info.lamports,
@@ -756,12 +756,12 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Logging ... */
     FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
-        "slot: %ld "
-        "lamports: %ld  "
+        "slot: %lu "
+        "lamports: %lu  "
         "owner: %s  "
         "executable: %s,  "
-        "rent_epoch: %ld, "
-        "data_len: %ld",
+        "rent_epoch: %lu, "
+        "data_len: %lu",
         FD_BASE58_ENC_32_ALLOCA( acc_key ),
         slot_ctx->slot_bank.slot,
         acc_rec->meta->info.lamports,
@@ -1207,7 +1207,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
 
   int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
 
-  FD_LOG_WARNING(("allocating memory for hash.  num_iter_accounts: %ld   slots: %d", num_iter_accounts, accounts_hash_slots));
+  FD_LOG_WARNING(("allocating memory for hash.  num_iter_accounts: %lu   slots: %d", num_iter_accounts, accounts_hash_slots));
   void * hashmem = fd_valloc_malloc( slot_ctx->valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
   FD_LOG_WARNING(("initializing memory for hash"));
   accounts_hash_t * hash_map = accounts_hash_join(accounts_hash_new(hashmem, accounts_hash_slots));
@@ -1216,7 +1216,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
 
   // walk up the transactions...
   for (ulong idx = 0; idx < txn_cnt; idx++) {
-    FD_LOG_WARNING(("txn idx %ld", idx));
+    FD_LOG_WARNING(("txn idx %lu", idx));
     for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
          NULL != rec;
          rec = fd_funk_txn_next_rec(funk, rec)) {

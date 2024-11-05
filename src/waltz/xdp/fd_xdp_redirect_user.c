@@ -308,7 +308,7 @@ fd_xsk_activate( fd_xsk_t * xsk,
   int  value = fd_xsk_fd     ( xsk );
   if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( xsk_map_fd, &key, &value, BPF_ANY ) ) ) {
     FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%u,value=%#x,flags=%#x) failed (%i-%s)",
-                     xsk_map_fd, key, value, BPF_ANY, errno, fd_io_strerror( errno ) ));
+                     xsk_map_fd, key, (uint)value, (uint)BPF_ANY, errno, fd_io_strerror( errno ) ));
     return NULL;
   }
 

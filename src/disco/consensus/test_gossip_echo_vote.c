@@ -70,7 +70,7 @@ sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len, int sign_typ
     break;
 
   default:
-    FD_LOG_CRIT(( "Invalid sign type %u", sign_type ));
+    FD_LOG_CRIT(( "Invalid sign type %d", sign_type ));
   }
 }
 
@@ -341,7 +341,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           uint   dst_ip   = 0x0100007f; /* localhost */
           ushort dst_port = 1029;       /* vote udp port */
           send_udp_pkt( udp_pkt.buf, udp_pkt.buf_sz, arg_->wksp, dst_ip, dst_port );
-          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu\nOld sig1: %s\nOld sig2: %s\nNew sig1: %s\nNew sig2: %s",
+          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %ld\nOld sig1: %s\nOld sig2: %s\nNew sig1: %s\nNew sig2: %s",
                          new_timestamp,
                          FD_BASE58_ENC_64_ALLOCA( vote->txn.raw + parsed_txn->signature_off ),
                          FD_BASE58_ENC_64_ALLOCA( vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ),

@@ -47,7 +47,7 @@ static char const help_str[] =
   "  --numa-idx   Workspace NUMA index (default is local to tile 0)\n"
   "\n";
 
-#define MAX_QUEUES_PER_TILE (16)
+#define MAX_QUEUES_PER_TILE (16u)
 
 static uint
 get_first_ip4_addr( char const * iface ) {

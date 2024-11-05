@@ -250,7 +250,7 @@ cmd_trace( char const * bin_path,
   printf( "Interp_res:          %i (%s)\n", exec_err, fd_vm_strerror( exec_err ) );
   printf( "Return value:        %lu\n",     vm.reg[0]                            );
   printf( "Instruction counter: %lu\n",     vm.ic                                );
-  printf( "Time:                %lu\n",     dt                                   );
+  printf( "Time:                %ld\n",     dt                                   );
 
   free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
 
@@ -359,9 +359,9 @@ cmd_run( char const * bin_path,
   printf( "Interp_res:          %i (%s)\n", exec_err, fd_vm_strerror( exec_err ) );
   printf( "Return value:        %lu\n",     vm.reg[0]                            );
   printf( "Instruction counter: %lu\n",     vm.ic                                );
-  printf( "Time:                %lu\n",     dt                                   );
+  printf( "Time:                %ld\n",     dt                                   );
   if( compile_dt ) {
-    printf( "Compile time:        %lu\n",     compile_dt                           );
+    printf( "Compile time:        %ld\n",     compile_dt );
   }
 
   return FD_VM_SUCCESS;

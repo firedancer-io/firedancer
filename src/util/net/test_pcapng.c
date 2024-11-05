@@ -142,7 +142,7 @@ test_pcapng_dogfood( void ) {
     .userappl = "Firedancer"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_shb( &shb_opts, pcap ) );
-  FD_LOG_DEBUG(( "Wrote SHB (end=%#lx)", ftell( pcap ) ));
+  FD_LOG_DEBUG(( "Wrote SHB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   fd_pcapng_idb_opts_t idb_opts = {
     .name     = "eth0",
@@ -151,17 +151,17 @@ test_pcapng_dogfood( void ) {
     .hardware = "A fake NIC"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_idb( FD_PCAPNG_LINKTYPE_ETHERNET, &idb_opts, pcap ) );
-  FD_LOG_DEBUG(( "Wrote IDB (end=%#lx)", ftell( pcap ) ));
+  FD_LOG_DEBUG(( "Wrote IDB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   long ts = 0x12345678;
   uchar pkt[6UL] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
-  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt,   6UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", ftell( pcap ) ));
-  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+1, 5UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", ftell( pcap ) ));
+  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt,   6UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", (ulong)ftell( pcap ) ));
+  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+1, 5UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   fd_pcapng_fwrite_tls_key_log( (uchar const *)"secret", 6UL, pcap );
-  FD_LOG_DEBUG(( "Wrote DSB (end=%#lx)", ftell( pcap ) ));
+  FD_LOG_DEBUG(( "Wrote DSB (end=%#lx)", (ulong)ftell( pcap ) ));
 
-  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+2, 4UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", ftell( pcap ) ));
+  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+2, 4UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   /* Read */
 

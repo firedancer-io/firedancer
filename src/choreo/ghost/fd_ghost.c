@@ -635,11 +635,11 @@ print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total
   }
   double pct = ( (double)node->weight / (double)total ) * 100;
   if( FD_UNLIKELY( total == 0 ) ) {
-    printf( "%s%ld (%lu)", prefix, node->slot, node->weight );
+    printf( "%s%lu (%lu)", prefix, node->slot, node->weight );
   } else if( FD_UNLIKELY( pct < 0.99 ) ) {
-    printf( "%s%ld (%.0lf%%, %lu)", prefix, node->slot, pct, node->weight );
+    printf( "%s%lu (%.0lf%%, %lu)", prefix, node->slot, pct, node->weight );
   } else {
-    printf( "%s%ld (%.0lf%%)", prefix, node->slot, pct );
+    printf( "%s%lu (%.0lf%%)", prefix, node->slot, pct );
   }
 
   fd_ghost_node_t * curr = node->child;

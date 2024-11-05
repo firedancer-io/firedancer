@@ -196,9 +196,9 @@ check_path( const char * path,
     PARTIALLY_CONFIGURED( "path `%s` is a directory, not a file", path );
 
   if( FD_UNLIKELY( st.st_uid != expected_uid ) )
-    PARTIALLY_CONFIGURED( "path `%s` has uid %d, expected %d", path, st.st_uid, expected_uid );
+    PARTIALLY_CONFIGURED( "path `%s` has uid %u, expected %u", path, st.st_uid, expected_uid );
   if( FD_UNLIKELY( st.st_gid != expected_gid ) )
-    PARTIALLY_CONFIGURED( "path `%s` has gid %d, expected %d", path, st.st_gid, expected_gid );
+    PARTIALLY_CONFIGURED( "path `%s` has gid %u, expected %u", path, st.st_gid, expected_gid );
   if( FD_UNLIKELY( st.st_mode != expected_mode ) )
     PARTIALLY_CONFIGURED( "path `%s` has mode %o, expected %o", path, st.st_mode, expected_mode );
 

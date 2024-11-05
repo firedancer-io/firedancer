@@ -640,7 +640,7 @@ fd_gossip_send( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, fd_gossi
   size_t sz = (size_t)((const uchar *)ctx.data - buf);
   fd_gossip_send_raw( glob, dest, buf, sz);
   // char tmp[100];
-  // FD_LOG_WARNING(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
+  // FD_LOG_WARNING(("sent msg type %u to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
 }
 
 /* Initiate the ping/pong protocol to a validator address */
@@ -1616,7 +1616,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       ulong sz = (ulong)(newend - buf);
       fd_gossip_send_raw(glob, from, buf, sz);
       char tmp[100];
-      FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
+      FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
       ++npackets;
       newend = (uchar *)ctx.data;
       *crds_len = 0;
@@ -1631,7 +1631,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     ulong sz = (ulong)(newend - buf);
     fd_gossip_send_raw(glob, from, buf, sz);
     char tmp[100];
-    FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
+    FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
     ++npackets;
   }
 
@@ -2111,7 +2111,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
 
     char tmp[100];
 
-    FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
+    FD_LOG_DEBUG(("recv msg type %u from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
     fd_gossip_recv(glob, from, &gmsg);
 
     fd_gossip_unlock( glob );

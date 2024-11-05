@@ -185,7 +185,7 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
       break;
 
     default:
-      FD_LOG_DEBUG(( "NOTIFY: %#x", type ));
+      FD_LOG_DEBUG(( "NOTIFY: %#x", (uint)type ));
       break;
   }
 }
