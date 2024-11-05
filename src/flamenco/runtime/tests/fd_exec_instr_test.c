@@ -755,7 +755,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature )
       ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
     fd_point_value_t point_value = {0};
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, point_value, (fd_hash_t *) empty_bytes);
+    fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 0UL, 2UL, 1UL, point_value, last_hash);
   }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
