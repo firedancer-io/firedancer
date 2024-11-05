@@ -80,6 +80,7 @@
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
 #define FD_VM_ERR_INVALID_R10_WRITE (-39) /* detected a write to R10 */
 #define FD_VM_ERR_INVALID_FUNCTION  (-40) /* invalid function at instruction */
+#define FD_VM_ERR_JUMP_OUT_OF_CODE  (-41) /* invalid jump out of current function */
 
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */

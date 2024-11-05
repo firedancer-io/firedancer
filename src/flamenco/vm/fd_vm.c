@@ -1,3 +1,4 @@
+#include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
@@ -254,35 +255,36 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
     return FD_VM_ERR_EMPTY;
 
-  /* Calldests iterator for checking JA bounds */
+  /* Keep track of the first and last instruction of the current function */
   ulong calldests_iter = fd_sbpf_calldests_const_iter_init( vm->calldests );
+  ulong function_start_instruction = calldests_iter;
+  ulong function_end_instruction = fd_ulong_sat_sub( vm->text_cnt, 1UL );
 
   /* FIXME: CLEAN UP LONG / ULONG TYPE CONVERSION */
   ulong const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
   for( ulong i=0UL; i<text_cnt; i++ ) {
 
+    /* If we are at the beginning of a function, update the last instruction tracker */
+    if ( FD_UNLIKELY( function_start_instruction == i ) ) {
+      calldests_iter = fd_sbpf_calldests_const_iter_next( vm->calldests, calldests_iter );
+      ulong next_function_start = text_cnt;
+      if ( !fd_sbpf_calldests_const_iter_done( calldests_iter ) ) {
+        next_function_start = calldests_iter;
+      }
+      function_end_instruction = fd_ulong_sat_sub( next_function_start, 1UL );
+    }
+
     /* https://github.com/solana-labs/rbpf/blob/69a52ec6a341bb7374d387173b5e6dc56218fe0c/src/verifier.rs#L238-L248 */
     if ( ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) ) {
 
       /* If we are at the start of a function, check that the function ends in a JA or RETURN */
-      if ( calldests_iter == i ) {
-        ulong function_start = i;
-        ulong next_function_start = text_cnt;
-
-        /* Find the instruction just before the next function */
-        calldests_iter = fd_sbpf_calldests_const_iter_next( vm->calldests, calldests_iter );
-        if ( FD_LIKELY( !fd_sbpf_calldests_const_iter_done( calldests_iter ) ) ) {
-          next_function_start = calldests_iter;
-        }
-        ulong function_end = fd_ulong_sat_sub(next_function_start , 1UL );
-        uchar last_instr_opcode = fd_sbpf_instr( text[ function_end ] ).opcode.raw;
-
+      if ( function_start_instruction == i ) {
         /* Ensure that the last instruction is either a JA or RETURN */
+        uchar last_instr_opcode = fd_sbpf_instr( text[ function_end_instruction ] ).opcode.raw;
         if ( !( last_instr_opcode == 0x05 || last_instr_opcode == 0x9D ) ) {
           return FD_VM_ERR_INVALID_FUNCTION;
         }
-
       }
     }
 
@@ -297,6 +299,14 @@ fd_vm_validate( fd_vm_t const * vm ) {
       long jmp_dst = (long)i + (long)instr.offset + 1L;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
+
+      if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
+        /* Check the jump offset is to a code location inside the same function */
+        if ( i < function_start_instruction || i > function_end_instruction ) {
+          return FD_VM_ERR_JUMP_OUT_OF_CODE;
+        }
+      }
+
       break;
     }
 
@@ -375,6 +385,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* All other distination registers are invalid */
     if ( FD_UNLIKELY( instr.dst_reg > 11 ) ) {
       return FD_VM_ERR_INVALID_DST_REG;
+    }
+
+    /* If we have just finished an instruction, advance the start instruction tracker */
+    if ( FD_UNLIKELY( function_end_instruction == i ) ) {
+      function_start_instruction = fd_ulong_sat_add( function_end_instruction, 1UL );
     }
   }
 
