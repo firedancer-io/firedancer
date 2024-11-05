@@ -303,8 +303,13 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
       if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
         /* Check the jump offset is to a code location inside the same function */
-        if ( i < function_start_instruction || i > function_end_instruction ) {
+        if ( jmp_dst < (long)function_start_instruction || jmp_dst > (long)function_end_instruction ) {
           return FD_VM_ERR_JUMP_OUT_OF_CODE;
+        }
+
+        /* Check that the jump does not jump to the middle of a LDDW instruction */
+        if ( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==0 ) ) {
+          return FD_VM_ERR_JUMP_TO_MIDDLE_OF_LDDW;
         }
       }
 
