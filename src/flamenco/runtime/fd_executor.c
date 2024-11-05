@@ -101,16 +101,11 @@ fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
   fd_pubkey_t const * pubkey        = prog_acc->pubkey;
   fd_pubkey_t const * owner         = (fd_pubkey_t const *)prog_acc->const_meta->info.owner;
 
-  int is_native_program = !memcmp( owner, fd_solana_native_loader_id.key,  sizeof(fd_pubkey_t) ) || 
-                          !memcmp( owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) );
-  if( FD_UNLIKELY( !is_native_program &&
-                   memcmp( owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-                   memcmp( owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-                   memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    /* If we think it's a user program, then it better be owned by one
-       of the three. */
-    return NULL;
-  }
+  /* Somehow in testnet, the ED25519 program owner is the system program */
+  int is_native_program = !memcmp( owner,  fd_solana_native_loader_id.key,              sizeof(fd_pubkey_t) ) || 
+                        ( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t) ) && 
+                          !memcmp( owner,  fd_solana_system_program_id.key,             sizeof(fd_pubkey_t) ) );
+
   fd_pubkey_t const * lookup_pubkey = is_native_program ? pubkey : owner;
   const fd_native_prog_info_t null_function = (const fd_native_prog_info_t) {0};
   return fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
