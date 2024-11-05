@@ -67,7 +67,7 @@
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
     if( FD_UNLIKELY( buf+4 > buf_end ) ) return FD_QUIC_ENCODE_FAIL;   \
     frame->NAME##_pnoff = (unsigned)( buf - orig_buf );                \
-    FD_STORE( uint, buf, (uint)frame->NAME );                          \
+    FD_STORE( uint, buf, fd_uint_bswap( (uint)frame->NAME ) );         \
     buf += 4;
 
 
