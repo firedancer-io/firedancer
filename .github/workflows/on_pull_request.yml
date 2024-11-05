@@ -15,3 +15,8 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/ledgers.yml
     secrets: inherit
+  codeql:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/codeql.yml
+    permissions:
+      security-events: write

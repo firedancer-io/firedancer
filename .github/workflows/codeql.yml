@@ -1,0 +1,46 @@
+name: "CodeQL PR Analysis"
+
+on:
+    workflow_call:
+    workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze (${{matrix.language}})
+    runs-on: 'ubuntu-latest'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - language: c-cpp
+          build-mode: manual
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get install -y gettext autopoint gcc-multilib protobuf-compiler llvm lcov libudev-dev cmake libclang-dev
+    - name: Install dependencies
+      shell: bash
+      run: |
+        echo "y" | ./deps.sh
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+        queries: ./contrib/codeql/
+        config: |
+            disable-default-queries: true
+    - if: matrix.build-mode == 'manual'
+      shell: bash
+      run: |
+        MACHINE=linux_clang_noarch64 make -j unit-test
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
