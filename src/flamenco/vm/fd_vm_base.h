@@ -64,22 +64,23 @@
    info arg.  FIXME: Are these exact matches to Solana?  If so, provide
    link, if not, document and refine name / consolidate further. */
 
-#define FD_VM_ERR_INVALID_OPCODE    (-25) /* detected an invalid opcode */
-#define FD_VM_ERR_INVALID_SRC_REG   (-26) /* detected an invalid source register */
-#define FD_VM_ERR_INVALID_DST_REG   (-27) /* detected an invalid destination register */
-#define FD_VM_ERR_INF_LOOP          (-28) /* detected an infinite loop */
-#define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-29) /* detected an out of bounds jump */
-#define FD_VM_ERR_JMP_TO_ADDL_IMM   (-30) /* detected a jump to an addl imm */
-#define FD_VM_ERR_INVALID_END_IMM   (-31) /* detected an invalid immediate for an endianness conversion instruction */
-#define FD_VM_ERR_INCOMPLETE_LDQ    (-32) /* detected an incomplete ldq at program end */
-#define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-33) /* detected a ldq without an addl imm following it */
-#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-34) /* detected a call imm with no function was registered for that immediate */
-#define FD_VM_ERR_INVALID_REG       (-35) /* detected an invalid register */
-#define FD_VM_ERR_BAD_TEXT          (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
-#define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
-#define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
-#define FD_VM_ERR_INVALID_FUNCTION  (-39) /* invalid function at instruction */
-#define FD_VM_ERR_JUMP_OUT_OF_CODE  (-40) /* invalid jump out of current function */
+#define FD_VM_ERR_INVALID_OPCODE         (-25) /* detected an invalid opcode */
+#define FD_VM_ERR_INVALID_SRC_REG        (-26) /* detected an invalid source register */
+#define FD_VM_ERR_INVALID_DST_REG        (-27) /* detected an invalid destination register */
+#define FD_VM_ERR_INF_LOOP               (-28) /* detected an infinite loop */
+#define FD_VM_ERR_JMP_OUT_OF_BOUNDS      (-29) /* detected an out of bounds jump */
+#define FD_VM_ERR_JMP_TO_ADDL_IMM        (-30) /* detected a jump to an addl imm */
+#define FD_VM_ERR_INVALID_END_IMM        (-31) /* detected an invalid immediate for an endianness conversion instruction */
+#define FD_VM_ERR_INCOMPLETE_LDQ         (-32) /* detected an incomplete ldq at program end */
+#define FD_VM_ERR_LDQ_NO_ADDL_IMM        (-33) /* detected a ldq without an addl imm following it */
+#define FD_VM_ERR_NO_SUCH_EXT_CALL       (-34) /* detected a call imm with no function was registered for that immediate */
+#define FD_VM_ERR_INVALID_REG            (-35) /* detected an invalid register */
+#define FD_VM_ERR_BAD_TEXT               (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
+#define FD_VM_SH_OVERFLOW                (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
+#define FD_VM_TEXT_SZ_UNALIGNED          (-38) /* detected a text section that is not a multiple of 8 */
+#define FD_VM_ERR_INVALID_FUNCTION       (-39) /* invalid function at instruction */
+#define FD_VM_ERR_JUMP_OUT_OF_CODE       (-40) /* invalid jump out of current function */
+#define FD_VM_ERR_JUMP_TO_MIDDLE_OF_LDDW (-41) /* jump to middle of LDDW instruction */
 
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
