@@ -161,6 +161,18 @@ int
 fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
                                   fd_borrowed_account_t * * account );
+
+/* Same as above, except that this function doesn't check if the account
+   is dead (0 balance, 0 data, etc.) or not. When agave obtains a
+   borrowed account, it doesn't always check if the account is dead or
+   not. For example
+   https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453
+   This function allows us to more closely emulate that behavior. */
+int
+fd_txn_borrowed_account_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
+                                             uchar idx,
+                                             fd_borrowed_account_t * * account );
+
 int
 fd_txn_borrowed_account_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
