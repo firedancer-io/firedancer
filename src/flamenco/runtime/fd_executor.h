@@ -152,6 +152,16 @@ fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
 void
 dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
 
+/* We expose these only for the fuzzing harness.
+   Normally you shouldn't be invoking these manually. */
+int
+fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
+                     fd_instr_info_t *       instr );
+
+int
+fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
+                    fd_instr_info_t const *   instr );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */
