@@ -204,6 +204,9 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   /* Agave reports different error codes (for developers to understand the failure cause) if direct mapping is 
      enabled AND we halt on a segfault caused by a store on an invalid vaddr. */
   ulong segv_store_vaddr;
+
+   /* The SBPF version of the executed program. */
+  ulong sbpf_version;
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
