@@ -121,11 +121,12 @@ static inline ulong
 fd_quic_pktnum_decode( uchar const * buf,
                        ulong         sz ) {
   uchar scratch[4] = {0};
+  uint n = 0;
   switch( sz ) {
-  case 4: scratch[3] = buf[3]; __attribute__((fallthrough));
-  case 3: scratch[2] = buf[2]; __attribute__((fallthrough));
-  case 2: scratch[1] = buf[1]; __attribute__((fallthrough));
-  case 1: scratch[0] = buf[0];
+  case 4: scratch[3] = buf[ n++ ]; __attribute__((fallthrough));
+  case 3: scratch[2] = buf[ n++ ]; __attribute__((fallthrough));
+  case 2: scratch[1] = buf[ n++ ]; __attribute__((fallthrough));
+  case 1: scratch[0] = buf[ n   ];
   }
   return FD_LOAD( uint, scratch );
 }

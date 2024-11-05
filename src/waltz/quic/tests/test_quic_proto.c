@@ -196,6 +196,17 @@ test_varint_parse( void ) {
   } while(0);
 }
 
+/* Test packet number handling */
+
+void
+test_pktnum_parse( void ) {
+  uchar buf[4] = {0x01, 0x02, 0x03, 0x04}; /* big endian */
+  FD_TEST( fd_quic_pktnum_decode( buf, 1UL )==      0x01 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 2UL )==    0x0102 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 3UL )==  0x010203 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 4UL )==0x01020304 );
+}
+
 /* Test the bit field parser generator */
 
 #define BITFIELD_TEST()                                \
@@ -353,6 +364,7 @@ main( int     argc,
 
   test_varint_encode();
   test_varint_parse();
+  test_pktnum_parse();
   test_bitfield_encode();
   test_crypto_frame();
 
