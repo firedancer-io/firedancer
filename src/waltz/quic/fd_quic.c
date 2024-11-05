@@ -883,7 +883,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   default:
     /* FIXME this should be unreachable, but gracefully handle this case as defense-in-depth */
     /* unknown frame types are PROTOCOL_VIOLATION errors */
-    FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) )); )
+    FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %u", id )); )
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2597,7 +2597,9 @@ fd_quic_tls_cb_peer_params( void *        context,
   }
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
-  conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+  if( peer_tp->max_idle_timeout ) {
+    conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+  }
 
   conn->transport_params_set = 1;
 }
