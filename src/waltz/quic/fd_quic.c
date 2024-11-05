@@ -3977,7 +3977,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
           /* find the stream */
           fd_quic_stream_t *     stream       = NULL;
           fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-          if( FD_LIKELY( stream_entry &&
+          if( FD_LIKELY( stream_entry && stream_entry->stream &&
                 ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
             stream = stream_entry->stream;
 
@@ -4762,7 +4762,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
           /* find the stream */
           fd_quic_stream_t *     stream       = NULL;
           fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-          if( FD_LIKELY( stream_entry &&
+          if( FD_LIKELY( stream_entry && stream_entry->stream &&
                 ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
             stream = stream_entry->stream;
 
@@ -5010,7 +5010,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
         /* find the stream */
         fd_quic_stream_t *     stream       = NULL;
         fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-        if( FD_LIKELY( stream_entry &&
+        if( FD_LIKELY( stream_entry && stream_entry->stream &&
               ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
           stream = stream_entry->stream;
 
@@ -5444,7 +5444,9 @@ fd_quic_tx_stream_free( fd_quic_t *        quic,
   fd_quic_stream_map_t * stream_map   = conn->stream_map;
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( stream_map, stream_id, NULL );
   if( FD_LIKELY( stream_entry ) ) {
-    stream_entry->stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
+    if( FD_LIKELY( stream_entry->stream ) ) {
+      stream_entry->stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
+    }
     fd_quic_stream_map_remove( stream_map, stream_entry );
   }
 
@@ -5721,8 +5723,9 @@ fd_quic_frame_handle_max_stream_data(
 
   /* find stream */
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
-  if( FD_UNLIKELY( !stream_entry ||
-        ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) != 0 ) ) return 0;
+  if( FD_UNLIKELY( !stream_entry ) ) return 0;
+  if( FD_UNLIKELY( !stream_entry->stream ) ) return 0;
+  if( FD_UNLIKELY( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) ) return 0;
 
   fd_quic_stream_t * stream = stream_entry->stream;
 
