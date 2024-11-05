@@ -41,6 +41,7 @@
 #define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
 #define FD_VM_ERR_INVALID_PDA (-17) /* the computed pda was not a valid ed25519 point */
 #define FD_VM_ERR_SIGFPE      (-18) /* divide by zero */
+#define FD_VM_ERR_INVAL_JUMP  (-19) /* invalid jump to function not registered */
 
 /* FIXME: Are these exact matches to Solana?  If so, provide link, if
    not, document and refine name / consolidate further. */

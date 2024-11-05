@@ -639,7 +639,10 @@ interp_exec:
        the text section (below via unsigned wraparoud or above) as
        sigtext */
 
-    /* FIXME: when static_syscalls are enabled, check that the call destination is valid */
+    if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
+      if ( fd_sbpf_calldests_test( vm->calldests, pc ) ) goto sigjump;
+    }
+
     /* FIXME: sigbus for misaligned? */
 
     if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigcall; /* Note: untaken branches don't consume BTB */
@@ -826,6 +829,7 @@ interp_exec:
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
   cu -= fd_ulong_min( ic_correction, cu )
 
+sigjump:     err = FD_VM_ERR_INVAL_JUMP; FD_VM_INTERP_FAULT; /* cu current */  goto interp_halt;
 sigtext:     err = FD_VM_ERR_SIGTEXT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigsplit:    err = FD_VM_ERR_SIGSPLIT; FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigcall:     err = FD_VM_ERR_SIGCALL;  /* ic current */      /* cu current */  goto interp_halt;
