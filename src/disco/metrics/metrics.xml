@@ -226,7 +226,7 @@ metric introduced.
 
 <enum name="QuicFrameType">
   <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
-  <int value="0" name="Ping" label="PING frame" />
+  <int value="0" name="Unknown" label="Unknown frame type" />
   <int value="1" name="Ack" label="ACK frame" />
   <int value="2" name="ResetStream" label="RESET_STREAM frame" />
   <int value="3" name="StopSending" label="STOP_SENDING frame" />
@@ -246,6 +246,8 @@ metric introduced.
   <int value="17" name="ConnCloseQuic" label="CONN_CLOSE(transport) frame" />
   <int value="18" name="ConnCloseApp" label="CONN_CLOSE(app) frame" />
   <int value="19" name="HandshakeDone" label="HANDSHAKE_DONE frame" />
+  <int value="20" name="Ping" label="PING frame" />
+  <int value="21" name="Padding" label="PADDING frame" />
 </enum>
 
 <group name="Quic" tile="quic">

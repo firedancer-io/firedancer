@@ -12,7 +12,6 @@
 #include "templ/fd_quic_frame_handler_decl.h"
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
-#include "templ/fd_quic_frame_types_templ.h"
 
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
@@ -838,48 +837,17 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   return ~0u;
 }
 
-typedef struct fd_quic_frame_context fd_quic_frame_context_t;
-
 struct fd_quic_frame_context {
   fd_quic_t *      quic;
   fd_quic_conn_t * conn;
   fd_quic_pkt_t *  pkt;
 };
 
-static schar const fd_quic_frame_metric_id[ 0x20 ] = {
-  [0x00]=-1, /* invalid */
-  [0x01]= 0, /* PING */
-  [0x02]= 1, /* ACK */
-  [0x03]= 1, /* ACK (with ECN) */
-  [0x04]= 2, /* RESET_STREAM */
-  [0x05]= 3, /* STOP_SENDING */
-  [0x06]= 4, /* CRYPTO */
-  [0x07]= 5, /* NEW_TOKEN */
-  [0x08]= 6, /* STREAM */
-  [0x09]= 6,
-  [0x0a]= 6,
-  [0x0b]= 6,
-  [0x0c]= 6,
-  [0x0d]= 6,
-  [0x0e]= 6,
-  [0x0f]= 6,
-  [0x10]= 7, /* MAX_DATA */
-  [0x11]= 8, /* MAX_STREAM_DATA */
-  [0x12]= 9, /* MAX_STREAMS */
-  [0x13]= 9,
-  [0x14]=10, /* DATA_BLOCKED */
-  [0x15]=11, /* STREAM_DATA_BLOCKED */
-  [0x16]=12, /* STREAMS_BLOCKED */
-  [0x17]=12,
-  [0x18]=13, /* NEW_CONNECTION_ID */
-  [0x19]=14, /* RETIRE_CONNECTION_ID */
-  [0x1a]=15, /* PATH_CHALLENGE */
-  [0x1b]=16, /* PATH_RESPONSE */
-  [0x1c]=17, /* CONNECTION_CLOSE (transport) */
-  [0x1d]=18, /* CONNECTION_CLOSE (app) */
-  [0x1e]=19, /* HANDSHAKE_DONE */
-  [0x1f]=-1, /* invalid */
-};
+typedef struct fd_quic_frame_context fd_quic_frame_context_t;
+
+/* Include frame code generator */
+
+#include "templ/fd_quic_frame.c"
 
 /* handle single v1 frames */
 /* returns bytes consumed */
@@ -891,45 +859,35 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          uchar const *     buf,
                          ulong             buf_sz ) {
   if( conn->state == FD_QUIC_CONN_STATE_DEAD ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( buf_sz<1UL ) ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
 
-  uchar const * p     = buf;
-  uchar const * p_end = buf + buf_sz;
-
-  /* skip padding */
-  while( p < p_end && *p == '\x00' ) {
-    p++;
-  }
-  if( p == p_end ) return (ulong)(p - buf);
-
-  /* frame id is first byte */
-  uchar id    = *p;
-  uchar id_lo = 255; /* allow for fragments to work */
-  uchar id_hi = 0;
-
-  /* check whether packet type, frame type combo is allowed */
+  /* Frame ID is technically a varint but it's sufficient to look at the
+     first byte. */
+  uint id = buf[0];
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
+  quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
 
-  if( FD_LIKELY( id<sizeof(fd_quic_frame_metric_id) ) ) {
-    int norm_id = fd_quic_frame_metric_id[ id ];
-    if( FD_LIKELY( norm_id>=0 ) ) {
-      quic->metrics.frame_rx_cnt[ norm_id ]++;
-    }
+  /* tail call to frame handler */
+  switch( id ) {
+
+# define F(T,MID,NAME,...) \
+    case T: return fd_quic_interpret_##NAME##_frame( frame_context, buf, buf_sz );
+  FD_QUIC_FRAME_TYPES(F)
+# undef F
+
+  default:
+    /* FIXME this should be unreachable, but gracefully handle this case as defense-in-depth */
+    /* unknown frame types are PROTOCOL_VIOLATION errors */
+    FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) )); )
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
   }
 
-#include "templ/fd_quic_parse_frame.h"
-#include "templ/fd_quic_frames_templ.h"
-#include "templ/fd_quic_undefs.h"
-
-  /* unknown frame types are PROTOCOL_VIOLATION errors */
-  FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) )); )
-  fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
-
-  return FD_QUIC_PARSE_FAIL;
 }
 
 fd_quic_t *
@@ -4607,13 +4565,13 @@ static ulong
 fd_quic_frame_handle_padding_frame(
     void * context,
     fd_quic_padding_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return 0;
+    uchar const * const p0,
+    ulong               p_sz ) {
+  (void)context; (void)data;
+  uchar const *       p     = p0;
+  uchar const * const p_end = p + p_sz;
+  while( p<p_end && p[0]==0 ) p++;
+  return (ulong)( p - p0 );
 }
 
 static ulong
@@ -5705,11 +5663,11 @@ fd_quic_frame_handle_max_data_frame(
 }
 
 static ulong
-fd_quic_frame_handle_max_stream_data(
-    void *                      vp_context,
-    fd_quic_max_stream_data_t * data,
-    uchar const *               p,
-    ulong                      p_sz ) {
+fd_quic_frame_handle_max_stream_data_frame(
+    void *                            vp_context,
+    fd_quic_max_stream_data_frame_t * data,
+    uchar const *                     p,
+    ulong                             p_sz ) {
   (void)p;
   (void)p_sz;
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;

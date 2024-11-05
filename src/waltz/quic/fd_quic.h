@@ -310,7 +310,7 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* TODO: evaluate performance impact of metrics */
 
 union fd_quic_metrics {
-  ulong  ul[ 39 ];
+  ulong  ul[ 41 ];
   struct {
     /* Network metrics */
     ulong net_rx_pkt_cnt;  /* number of IP packets received */
@@ -329,7 +329,7 @@ union fd_quic_metrics {
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
     /* Frame metrics */
-    ulong frame_rx_cnt[ 20 ];      /* number of frames received (indexed by implementation-defined IDs) */
+    ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
 
     /* Handshake metrics */
     ulong hs_created_cnt;          /* number of handshake flows created */
