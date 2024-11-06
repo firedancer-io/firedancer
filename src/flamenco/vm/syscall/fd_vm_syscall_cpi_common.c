@@ -594,19 +594,22 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
 
+  /* Translate instruction ********************************************/
+  /* translate_instruction is the first thing that agave does
+     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1089 */
+  VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
+    FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
+  /* Agave consumes CU in translate_instruction
+     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
+  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
+    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
+  }
+
   /* Pre-flight checks ************************************************/
   int err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
   if( FD_UNLIKELY( err ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
     return err;
-  }
-  
-  /* Translate instruction ********************************************/
-  VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
-    FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
-
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
   /* Derive PDA signers ************************************************/
