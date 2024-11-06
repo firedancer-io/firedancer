@@ -231,10 +231,10 @@ test_varint_parse( void ) {
 void
 test_pktnum_parse( void ) {
   uchar buf[4] = {0x01, 0x02, 0x03, 0x04}; /* big endian */
-  FD_TEST( fd_quic_pktnum_decode( buf, 1UL )==      0x01 );
-  FD_TEST( fd_quic_pktnum_decode( buf, 2UL )==    0x0102 );
-  FD_TEST( fd_quic_pktnum_decode( buf, 3UL )==  0x010203 );
-  FD_TEST( fd_quic_pktnum_decode( buf, 4UL )==0x01020304 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 1U )==      0x01 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 2U )==    0x0102 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 3U )==  0x010203 );
+  FD_TEST( fd_quic_pktnum_decode( buf, 4U )==0x01020304 );
 }
 
 /* Test crypto frame parser */

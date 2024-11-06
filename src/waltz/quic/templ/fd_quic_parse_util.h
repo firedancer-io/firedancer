@@ -115,16 +115,14 @@ fd_quic_varint_decode( uchar const * buf,
   }
 }
 
-static inline ulong
-fd_quic_pktnum_decode( uchar const * buf,
-                       ulong         sz ) {
-  uchar scratch[4] = {0};
-  uint n = 0;
-  switch( sz ) {
-  case 4: scratch[3] = buf[ n++ ]; __attribute__((fallthrough));
-  case 3: scratch[2] = buf[ n++ ]; __attribute__((fallthrough));
-  case 2: scratch[1] = buf[ n++ ]; __attribute__((fallthrough));
-  case 1: scratch[0] = buf[ n   ];
-  }
-  return FD_LOAD( uint, scratch );
+/* fd_quic_pktnum_decode extracts the compressed packet number from a
+   QUIC packet header.  May speculatively read up to 3 bytes outside the
+   packet number.  buf points to the first byte of the packet number.
+   sz is in [0,3]. */
+
+static inline uint
+fd_quic_pktnum_decode( uchar const buf[4],
+                       uint        sz ) {
+  uint src = fd_uint_bswap( FD_LOAD( uint, buf ) );
+  return src >> (32-8*sz);
 }
