@@ -288,20 +288,5 @@ fd_quic_encode_transport_params( uchar *                            buf,
                                  ulong                              buf_sz,
                                  fd_quic_transport_params_t const * params );
 
-
-/* determine the footprint in bytes required for a particular transport params
-   args
-     params        the parameters to be encoded
-
-   returns the number of bytes required */
-ulong
-fd_quic_transport_params_footprint( fd_quic_transport_params_t const * params );
-
-
-/* validates whether the values in the transport params struct
-   have valid lengths for varint encoding */
-int
-fd_quic_transport_params_validate( fd_quic_transport_params_t const * params );
-
 #endif
 

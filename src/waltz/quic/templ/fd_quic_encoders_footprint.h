@@ -1,6 +1,6 @@
 /* QUIC encoders footprint */
 
-/* used to define functions for determining footprint
+/* used to define functions for determining footprint upper bound
    without encoding the data */
 
 /* "returns" the number of bytes encoded */
@@ -23,16 +23,14 @@
     buf += FD_TEMPL_ENCODE_FP(TYPE);                                        \
 
 
-/* determines the encoding footprint of the PKTNUM */
+/* worst case pktnum encoded size */
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
     buf += 4;
 
 
-/* determines the encoding footprint of the VARINT */
+/* worst case varint encoded size */
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
-    tmp_len = FD_QUIC_ENCODE_VARINT_LEN(frame->NAME);                  \
-    if( tmp_len == FD_QUIC_ENCODE_FAIL ) return FD_QUIC_ENCODE_FAIL;   \
-    buf += tmp_len;                                                    \
+    buf += 8;                                                          \
 
 
 /* VAR currently assumed to be aligned bytes */
