@@ -2,43 +2,49 @@
 
 #include "../fd_quic_common.h"
 
-/* fd_quic_test_negative "returns" (x<0), but in a way that doesn't produce
-   warnings/errors when x is unsigned
+static inline uint
+fd_quic_varint_min_sz( ulong val ) {
+  val = fd_ulong_min( val, 0x3fffffffffffffffUL );
+  int sz_class = fd_uint_find_msb( (uint)fd_ulong_find_msb( val|0x3fUL ) + 2 ) - 2;
+  return 1U<<sz_class;
+}
 
-   this optimizes well in experiments */
-#if 1
-#define fd_quic_test_negative(x) ( (_Bool)( (double)(x) < 0 ) )
-#else
-/* alternative that seems heavy-handed and is gcc specific */
-#pragma GCC diagnostic ignored "-Wtype-limits"
-#define fd_quic_test_negative(x) ( (x) < 0 )
-#endif
+static inline uint
+fd_quic_varint_encode( uchar out[8],
+                       ulong val ) {
 
-/* determine the encoded VARINT length of a given value */
-/* VARINT isn't valid for negatives .. shouldn't occur */
-#define FD_QUIC_ENCODE_VARINT_LEN(val)               \
-  (                                                  \
-    fd_quic_test_negative(val) ? FD_QUIC_ENCODE_FAIL \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x08 - 2 ) ) ) ? 1   \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x10 - 2 ) ) ) ? 2   \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x20 - 2 ) ) ) ? 4   \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x40 - 2 ) ) ) ? 8   \
-    :                                                \
-    FD_QUIC_ENCODE_FAIL                              \
-  )
+  /* input byte pattern:
+     - sz 1: aa 00 00 00 00 00 00 00
+     - sz 2: aa bb 00 00 00 00 00 00
+     - sz 4: aa bb cc dd 00 00 00 00
+     - sz 8: aa bb cc dd ee ff ff gg */
 
+  uint sz = fd_quic_varint_min_sz( val );
 
-/* determine whether a value is valid for a VARINT encoding
-   0 <= varint < 2^62 */
-/* VARINT isn't valid for negatives .. shouldn't occur */
-#define FD_QUIC_VALIDATE_VARINT(val)                               \
-  (                                                                \
-    (!fd_quic_test_negative(val)) & ( (ulong)(val) < (1UL<<62UL) ) \
-  )
+  /* shifted byte pattern
+     - sz 1: 00 00 00 00 00 00 00 aa
+     - sz 2: 00 00 00 00 00 00 aa bb
+     - sz 4: 00 00 00 00 aa bb cc dd
+     - sz 8: aa bb cc dd ee ff ff gg */
+
+  ulong shifted = val << ( 8 * ( 8 - sz ) );
+
+  /* swapped byte pattern
+     - sz 1: aa 00 00 00 00 00 00 00
+     - sz 2: bb aa 00 00 00 00 00 00
+     - sz 4: dd cc bb aa 00 00 00 00
+     - sz 8: gg ff ee dd cc bb aa 00 */
+
+  ulong encoded = fd_ulong_bswap( shifted );
+
+  /* set length indication */
+
+  encoded &= 0xffffffffffffff3fUL;
+  encoded |= ((ulong)fd_uint_find_msb( sz ))<<6;
+
+  FD_STORE( ulong, out, encoded );
+  return sz;
+}
 
 
 /* encode a VARINT "val" into "buf" of size "buf_sz"
@@ -47,41 +53,11 @@
    buf_sz must be a mutable integer and will be reduced by the number of
      bytes written
    bounds are checked before writing into buf */
-#define FD_QUIC_ENCODE_VARINT(buf,buf_sz,val)                             \
-  do {                                                                    \
-    ulong val64 = fd_quic_test_negative(val) ? 0 : (val);                 \
-    if( val64 < ( 1UL << ( 0x08 - 2 ) ) ) {                               \
-      if( buf_sz < 1 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)val64;                                              \
-      buf++; buf_sz--;                                                    \
-    } else                                                                \
-    if( val64 < ( 1UL << ( 0x10 - 2 ) ) ) {                               \
-      if( buf_sz < 2 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)( ( ( val64 >> 0x08 ) & 0xfful ) | 0x40u );         \
-      buf[1] = ( val64 >> 0x00 ) & 0xffu;                                 \
-      buf+=2; buf_sz-=2;                                                  \
-    } else                                                                \
-    if( val64 < ( (ulong)1 << ( 0x20 - 2 ) ) ) {                          \
-      if( buf_sz < 4 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)( ( ( val64 >> 0x18 ) & 0xffu ) | 0x80u );          \
-      buf[1] = ( val64 >> 0x10 ) & 0xffu;                                 \
-      buf[2] = ( val64 >> 0x08 ) & 0xffu;                                 \
-      buf[3] = ( val64 >> 0x00 ) & 0xffu;                                 \
-      buf+=4; buf_sz-=4;                                                  \
-    } else                                                                \
-    if( val64 < ( (ulong)1 << ( 0x40 - 2 ) ) ) {                          \
-      if( buf_sz < 8 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)( ( ( val64 >> 0x38 ) & 0xffu ) | 0xc0u );          \
-      buf[1] = ( val64 >> 0x30 ) & 0xffu;                                 \
-      buf[2] = ( val64 >> 0x28 ) & 0xffu;                                 \
-      buf[3] = ( val64 >> 0x20 ) & 0xffu;                                 \
-      buf[4] = ( val64 >> 0x18 ) & 0xffu;                                 \
-      buf[5] = ( val64 >> 0x10 ) & 0xffu;                                 \
-      buf[6] = ( val64 >> 0x08 ) & 0xffu;                                 \
-      buf[7] = ( val64 >> 0x00 ) & 0xffu;                                 \
-      buf+=8; buf_sz-=8;                                                  \
-    } else                                                                \
-      return FD_QUIC_ENCODE_FAIL;                                         \
+#define FD_QUIC_ENCODE_VARINT(buf,buf_sz,val)                 \
+  do {                                                        \
+    if( FD_UNLIKELY( buf_sz<8 ) ) return FD_QUIC_ENCODE_FAIL; \
+    uint sz = fd_quic_varint_encode( buf, (val) );            \
+    buf += sz; buf_sz -= sz;                                  \
   } while(0);
 
 /* fd_quic_h0_hdr_form extract the 'Header Form' bit, the first bit of a QUIC v1 packet.

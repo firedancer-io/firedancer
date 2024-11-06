@@ -179,7 +179,7 @@ fd_quic_gen_new_keys(
      hdr               the input header bytes
      hdr_sz            the size of the header in bytes
      pkt               the input packet bytes
-     pkt_sz            the size of the packet in bytes
+     pkt_sz            the size of the packet in bytes (frames after packet number not including MAC tag)
      keys              a pointer to the keys to use
      pkt_number        needed to create the nonce used in encryption
                          likely points to the packet number within "hdr"

@@ -116,9 +116,17 @@ fd_quic_retry_create(
   out_ptr  += sizeof(fd_quic_retry_token_t);
   out_free -= sizeof(fd_quic_retry_token_t);
 
-  ulong retry_unsigned_sz = (ulong)out_ptr - (ulong)retry;
+# if FD_QUIC_DISABLE_CRYPTO
+
+  memset( out_ptr, 0, FD_QUIC_CRYPTO_TAG_SZ );
+  out_ptr  += FD_QUIC_CRYPTO_TAG_SZ;
+  out_free -= FD_QUIC_CRYPTO_TAG_SZ;
+
+# else
 
   /* Create the outer integrity tag (standard) */
+
+  ulong retry_unsigned_sz = (ulong)out_ptr - (ulong)retry;
 
   uchar retry_pseudo_buf[ FD_QUIC_RETRY_MAX_PSEUDO_SZ ];
   ulong retry_pseudo_sz = fd_quic_retry_pseudo( retry_pseudo_buf, retry, retry_unsigned_sz + FD_QUIC_CRYPTO_TAG_SZ, orig_dst_conn_id );
@@ -126,6 +134,8 @@ fd_quic_retry_create(
   fd_quic_retry_integrity_tag_sign( aes_gcm, retry_pseudo_buf, retry_pseudo_sz, out_ptr );
   out_ptr  += FD_QUIC_CRYPTO_TAG_SZ;
   out_free -= FD_QUIC_CRYPTO_TAG_SZ;
+
+# endif /* FD_QUIC_DISABLE_CRYPTO */
 
   assert( (ulong)out_ptr - (ulong)retry <= FD_QUIC_RETRY_LOCAL_SZ );
   ulong retry_sz = (ulong)out_ptr - (ulong)retry;
@@ -258,6 +268,12 @@ fd_quic_retry_client_verify( uchar const * const       retry_ptr,
   ulong retry_pseudo_sz = fd_quic_retry_pseudo( retry_pseudo_buf, retry_ptr, retry_sz, orig_dst_conn_id );
   if( FD_UNLIKELY( retry_pseudo_sz==FD_QUIC_PARSE_FAIL ) ) FD_LOG_ERR(( "fd_quic_retry_pseudo_hdr failed" ));
 
+# if FD_QUIC_DISABLE_CRYPTO
+
+  (void)retry_tag;  /* skip verification */
+
+# else
+
   /* Validate the retry integrity tag
 
      Retry packets (see Section 17.2.5 of [QUIC-TRANSPORT]) carry a Retry Integrity Tag that
@@ -272,6 +288,8 @@ fd_quic_retry_client_verify( uchar const * const       retry_ptr,
     FD_DEBUG( FD_LOG_DEBUG(( "Invalid retry integrity tag" )); )
     return FD_QUIC_FAILED;
   }
+
+# endif
 
   /* Set out params */
 

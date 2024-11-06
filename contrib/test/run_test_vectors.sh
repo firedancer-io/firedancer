@@ -22,18 +22,16 @@ GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-fixtures/test-vectors-commit-
 echo $GIT_REF
 
 if [ ! -d dump/test-vectors ]; then
-  pushd dump
-  git clone --depth=1 -q https://github.com/firedancer-io/test-vectors.git
+  cd dump
+  git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
   cd test-vectors
-  git fetch --depth=1 -q origin $GIT_REF
-  git checkout -q $GIT_REF
-  popd
 else
-  pushd dump/test-vectors
-  git fetch --depth=1 -q origin $GIT_REF
-  git checkout -q $GIT_REF
-  popd
+  cd dump/test-vectors
 fi
+
+git fetch -q --depth=1 origin $GIT_REF
+git checkout -q $GIT_REF
+cd ../..
 
 LOG=$LOG_PATH/test_exec_syscall
 cat contrib/test/test-vectors-fixtures/syscall-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
