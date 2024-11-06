@@ -262,7 +262,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   }
 
   /* src_sz == 0 is ok */
-  void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, src_sz );
+  void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, src_sz );
 
   fd_pubkey_t const    * program_id  = &instr_ctx->instr->program_id_pubkey;
   fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
