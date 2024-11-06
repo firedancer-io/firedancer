@@ -754,7 +754,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_INFO(( "Using shred version %hu", (ushort)expected_shred_version ));
 
   /* populate ctx */
-  ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_shred", 0UL );
+  ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_shred", tile->kind_id );
   FD_TEST( sign_in_idx!=ULONG_MAX );
   fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
