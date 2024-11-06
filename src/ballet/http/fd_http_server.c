@@ -655,7 +655,7 @@ again:
     len_bytes = 1UL;
   } else if( FD_LIKELY( payload_len==126 ) ) {
     if( FD_UNLIKELY( conn->recv_bytes_read<4UL ) ) return; /* Need at least 4 bytes to determine frame length */
-    payload_len = ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+2UL ]<<8UL) | (ulong)conn->recv_bytes[ 3 ];
+    payload_len = ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+2UL ]<<8UL) | (ulong)conn->recv_bytes[ conn->recv_bytes_parsed+3UL ];
     len_bytes = 3UL;
   } else if( FD_LIKELY( payload_len==127 ) ) {
     if( FD_UNLIKELY( conn->recv_bytes_read<10UL ) ) return; /* Need at least 10 bytes to determine frame length */
