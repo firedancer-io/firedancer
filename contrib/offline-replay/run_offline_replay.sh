@@ -20,6 +20,18 @@ send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \
 CURRENT_MISMATCH_COUNT=0    
 CURRENT_FAILURE_COUNT=0
 
+allocated_pages=$($FIREDANCER_REPO/"$OBJDIR"/bin/fd_shmem_cfg query)
+gigantic_pages=$(echo "$allocated_pages" | grep "gigantic pages:" -A 1 | grep -oP '\d+(?= total)')
+huge_pages=$(echo "$allocated_pages" | grep "huge pages:" -A 1 | grep -oP '\d+(?= total)')
+
+if [ "$gigantic_pages" -eq 0 ] && [ "$huge_pages" -eq 0 ]; then
+    echo "No gigantic or huge pages configured, Configuring..."
+    sudo $FIREDANCER_REPO/"$OBJDIR"/bin/fd_shmem_cfg alloc $ALLOC_GIGANTIC_PAGES gigantic 0 alloc $ALLOC_HUGE_PAGES huge 0
+else
+    echo "Currently allocated gigantic pages: $gigantic_pages"
+    echo "Currently allocated huge pages: $huge_pages"
+fi
+
 while true; do
     source $NETWORK_PARAMETERS_FILE $NETWORK
     echo "Updated network parameters"

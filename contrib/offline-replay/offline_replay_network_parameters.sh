@@ -43,12 +43,5 @@ case $network in
     ;;
 esac
 
-# Print the set variables
-echo "NETWORK: $network"
-echo "BUCKET_ENDPOINT: $BUCKET_ENDPOINT"
-echo "GENESIS_FILE: $GENESIS_FILE"
-echo "FUNK_PAGES: $FUNK_PAGES"
-echo "INDEX_MAX: $INDEX_MAX"
-echo "PAGES: $PAGES"
-echo "AGAVE_TAG: $AGAVE_TAG"
-echo "FD_CLUSTER_VERSION: $FD_CLUSTER_VERSION"
+export ALLOC_HUGE_PAGES=300
+export ALLOC_GIGANTIC_PAGES=250
