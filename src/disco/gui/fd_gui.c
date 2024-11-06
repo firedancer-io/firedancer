@@ -402,7 +402,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
+    cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ] +
+                              resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ];
     cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
                             + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
                             + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]

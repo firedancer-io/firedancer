@@ -77,6 +77,7 @@
 | quic_&#8203;connections_&#8203;created | `counter` | The total number of connections that have been created. |
 | quic_&#8203;connections_&#8203;closed | `counter` | Number of connections gracefully closed. |
 | quic_&#8203;connections_&#8203;aborted | `counter` | Number of connections aborted. |
+| quic_&#8203;connections_&#8203;timed_&#8203;out | `counter` | Number of connections timed out. |
 | quic_&#8203;connections_&#8203;retried | `counter` | Number of connections established with retry. |
 | quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots | `counter` | Number of connections that failed to create due to lack of slots. |
 | quic_&#8203;connection_&#8203;error_&#8203;tls_&#8203;fail | `counter` | Number of connections that aborted due to TLS failure. |

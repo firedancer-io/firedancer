@@ -1841,6 +1841,12 @@ fd_ext_resolv_publish_root_bank( uchar * data,
   poh_link_publish( &replay_resolv, 0UL, data, data_len );
 }
 
+void
+fd_ext_resolv_publish_completed_blockhash( uchar * data,
+                                           ulong   data_len ) {
+  poh_link_publish( &replay_resolv, 1UL, data, data_len );
+}
+
 static inline fd_poh_out_ctx_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
