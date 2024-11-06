@@ -2,3 +2,4 @@ dump/test-vectors/cpi/fixtures/callee_not_executable_log.fix
 dump/test-vectors/cpi/fixtures/cpi_prepare_missing_acct.fix
 dump/test-vectors/cpi/fixtures/18387a7e499df53e20db216f4520bca9ce0727e7_1582213.fix
 dump/test-vectors/cpi/fixtures/dead_non_executable_callee.fix
+dump/test-vectors/cpi/fixtures/850b8f0286d8f4793a4f447c917164247e74a803_302825.fix
