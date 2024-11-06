@@ -77,12 +77,8 @@
    remaining bits are all data bits
    checks for capacity before writing */
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
-    do {                                                               \
-      tmp_len = FD_QUIC_ENCODE_VARINT_LEN(frame->NAME);                \
-      if( tmp_len > ((ulong)(buf_end - buf) ) ) return FD_QUIC_PARSE_FAIL; \
-      ulong tmp_sz = (ulong)( buf_end - buf );                         \
-      FD_QUIC_ENCODE_VARINT(buf,tmp_sz,frame->NAME);                   \
-    } while(0);
+    if( FD_UNLIKELY( buf+8 > buf_end ) ) return FD_QUIC_ENCODE_FAIL;   \
+    buf += fd_quic_varint_encode( buf, frame->NAME );
 
 
 // VAR currently assumed to be aligned bytes

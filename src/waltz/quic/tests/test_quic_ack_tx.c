@@ -86,7 +86,7 @@ main( int     argc,
   }
 
   /* generate one frame */
-  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+5, 0U, 2011UL )==buf+5UL );
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+16, 0U, 2011UL )==buf+5UL );
   FD_TEST( gen->tail==1UL && gen->head==FD_QUIC_ACK_QUEUE_CNT );
   fd_quic_ack_frame_t ack_frame[2];
   FD_TEST( fd_quic_decode_ack_frame( ack_frame, buf, 5UL )==5UL );

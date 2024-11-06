@@ -160,7 +160,9 @@ test_max_size( void ) {
     .retry_source_connection_id_len     = FD_QUIC_MAX_CONN_ID_SZ
   };
 
-  ulong sz = fd_quic_transport_params_footprint( &params );
+  uchar buf[4096];
+  ulong sz = fd_quic_encode_transport_params( buf, sizeof(buf), &params );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
   FD_LOG_NOTICE(( "Largest RFC 9000 transport parameter blob: %lu bytes", sz ));
 
 }

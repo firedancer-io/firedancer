@@ -129,7 +129,7 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 #define FD_QUIC_ENCODE_TP_VARINT(NAME,ID)                              \
   do {                                                                 \
-    ulong val_len = FD_QUIC_ENCODE_VARINT_LEN( params->NAME );         \
+    ulong val_len = fd_quic_varint_min_sz( params->NAME );             \
     if( val_len == FD_QUIC_ENCODE_FAIL ) return FD_QUIC_ENCODE_FAIL;   \
     FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID );                          \
     FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len );                     \
@@ -171,23 +171,23 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
    plus the length of the parameter value */
 #define FD_QUIC_FOOTPRINT_TP_VARINT(NAME,ID)                           \
   (                                                                    \
-    FD_QUIC_ENCODE_VARINT_LEN( ID ) +                                  \
-    FD_QUIC_ENCODE_VARINT_LEN( FD_QUIC_ENCODE_VARINT_LEN( params->NAME ) ) + \
-    FD_QUIC_ENCODE_VARINT_LEN( params->NAME )                          \
+    fd_quic_varint_min_sz( ID ) +                                      \
+    fd_quic_varint_min_sz( fd_quic_varint_min_sz( params->NAME ) ) +   \
+    fd_quic_varint_min_sz( params->NAME )                              \
   )
 
 /* the length of a connection id is specified by *_len */
 #define FD_QUIC_FOOTPRINT_TP_CONN_ID(NAME,ID)                          \
   (                                                                    \
-    FD_QUIC_ENCODE_VARINT_LEN( ID ) +                                  \
-    FD_QUIC_ENCODE_VARINT_LEN( params->NAME##_len ) +                  \
+    fd_quic_varint_min_sz( ID ) +                                      \
+    fd_quic_varint_min_sz( params->NAME##_len ) +                      \
     params->NAME##_len                                                 \
   )
 
 #define FD_QUIC_FOOTPRINT_TP_ZERO_LENGTH(NAME,ID)                      \
   (                                                                    \
-    FD_QUIC_ENCODE_VARINT_LEN( ID ) +                                  \
-    FD_QUIC_ENCODE_VARINT_LEN( 0 )                                     \
+    fd_quic_varint_min_sz( ID ) +                                      \
+    fd_quic_varint_min_sz( 0 )                                         \
   )
 
 #define FD_QUIC_FOOTPRINT_TP_TOKEN(NAME,ID) \
@@ -196,23 +196,6 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 #define FD_QUIC_FOOTPRINT_TP_PREFERRED_ADDRESS(NAME,ID) \
   FD_QUIC_FOOTPRINT_TP_CONN_ID(NAME,ID)
 
-
-/* validate TP_VARINT */
-#define FD_QUIC_VALIDATE_TP_VARINT(NAME,ID)                          \
-  (                                                                  \
-  FD_QUIC_VALIDATE_VARINT( ID ) |                                    \
-  FD_QUIC_VALIDATE_VARINT( params->NAME )                            \
-  )
-
-/* validate TP_CONN_ID */
-#define FD_QUIC_VALIDATE_TP_CONN_ID(NAME,ID)                       \
-  (                                                                \
-  FD_QUIC_VALIDATE_VARINT( ID ) |                                  \
-  FD_QUIC_VALIDATE_VARINT( params->NAME##_len )                    \
-  )
-
-#define FD_QUIC_VALIDATE_TP_ZERO_LENGTH(NAME,ID)                   \
-  FD_QUIC_VALIDATE_VARINT( ID )
 
 #define FD_QUIC_VALIDATE_TP_TOKEN(NAME,ID) \
   FD_QUIC_VALIDATE_TP_CONN_ID(NAME,ID)
@@ -237,22 +220,3 @@ fd_quic_encode_transport_params( uchar *                            buf,
 
   return orig_buf_sz - buf_sz;
 }
-
-
-ulong
-fd_quic_transport_params_footprint( fd_quic_transport_params_t const * params ) {
-#define __( NAME, ID, TYPE, DFT, DESC, ... ) \
-  + ( ( params->NAME##_present ) ?  FD_QUIC_FOOTPRINT_TP_##TYPE(NAME,ID) : 0 )
-  return  FD_QUIC_TRANSPORT_PARAMS( __, _ );
-#undef __
-}
-
-
-int
-fd_quic_transport_params_validate( fd_quic_transport_params_t const * params ) {
-#define __( NAME, ID, TYPE, DFT, DESC, ... ) \
-  & ( (!params->NAME##_present) | FD_QUIC_VALIDATE_TP_##TYPE(NAME,ID) )
-  return 1 FD_QUIC_TRANSPORT_PARAMS( __, _ );
-#undef __
-}
-
