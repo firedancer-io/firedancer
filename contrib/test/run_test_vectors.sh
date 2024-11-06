@@ -23,14 +23,13 @@ echo $GIT_REF
 
 if [ ! -d dump/test-vectors ]; then
   cd dump
-  git clone -q https://github.com/firedancer-io/test-vectors.git
+  git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
   cd test-vectors
 else
   cd dump/test-vectors
-  git pull -q
 fi
 
-git fetch -q origin $GIT_REF
+git fetch -q --depth=1 origin $GIT_REF
 git checkout -q $GIT_REF
 cd ../..
 
