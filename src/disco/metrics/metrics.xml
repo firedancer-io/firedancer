@@ -259,6 +259,7 @@ metric introduced.
     <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
     <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
     <counter name="ConnectionsAborted" summary="Number of connections aborted." />
+    <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
     <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
     <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
     <counter name="ConnectionErrorTlsFail" summary="Number of connections that aborted due to TLS failure." />
