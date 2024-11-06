@@ -164,7 +164,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
 
     /* Load program. */
 
-    if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
+    if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false,
+      FD_FEATURE_ACTIVE( slot_ctx, sbpf_version_dynamic_frames ) ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
       fd_funk_rec_remove( funk, rec, 0 );

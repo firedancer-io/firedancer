@@ -191,9 +191,9 @@ _load_txn_account( fd_borrowed_account_t *           acc,
 }
 
 int
-_restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
+_restore_feature_flags( fd_features_t *                    features,
                         fd_exec_test_feature_set_t const * feature_set ) {
-  fd_features_disable_all( &epoch_ctx->features );
+  fd_features_disable_all( features );
   for( ulong j=0UL; j < feature_set->features_count; j++ ) {
     ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
@@ -202,7 +202,7 @@ _restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
       return 0;
     }
     /* Enabled since genesis */
-    fd_features_set( &epoch_ctx->features, id, 0UL );
+    fd_features_set( features, id, 0UL );
   }
   return 1;
 }
@@ -271,7 +271,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Restore feature flags */
 
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
-  if( !_restore_feature_flags( epoch_ctx, feature_set ) ) {
+  if( !_restore_feature_flags( &epoch_ctx->features, feature_set ) ) {
     return 0;
   }
 
@@ -637,7 +637,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Restore feature flags */
 
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
-  if( !_restore_feature_flags( epoch_ctx, feature_set ) ) {
+  if( !_restore_feature_flags( &epoch_ctx->features, feature_set ) ) {
     return NULL;
   }
 
@@ -1580,6 +1580,14 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
   fd_sbpf_elf_info_t info;
   fd_valloc_t valloc = fd_scratch_virtual();
 
+  /* Parse feature flags */
+  fd_features_t features[1];
+  if( !_restore_feature_flags( features, &input->features ) ) {
+    FD_LOG_WARNING(( "failed to restore feature set" ));
+    return 0UL;
+  }
+  int sbpf_version_header_enabled = features->sbpf_version_dynamic_frames != FD_FEATURE_DISABLED;
+
   if ( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ){
     return 0UL;
   }
@@ -1641,7 +1649,7 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
 
     fd_vm_syscall_register_all( syscalls, 0 );
 
-    int res = fd_sbpf_program_load( prog, _bin, elf_sz, syscalls, input->deploy_checks );
+    int res = fd_sbpf_program_load( prog, _bin, elf_sz, syscalls, input->deploy_checks, sbpf_version_header_enabled );
     if( FD_UNLIKELY( res ) ) {
       break;
     }

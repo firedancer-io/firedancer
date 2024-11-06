@@ -12,6 +12,12 @@
 #include "../../util/fd_util_base.h"
 #include "../elf/fd_elf64.h"
 
+/* SBPF Versions *******************************************************/
+#define FD_SBPF_VERSION_1                       (1UL)
+#define FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES    (2UL)
+#define FD_SBPF_VERSION_ARITHMETIC_IMPROVEMENTS (3UL)
+#define FD_SBPF_VERSION_STATIC_SYCALLS          (4UL)
+
 /* Error types ********************************************************/
 
 /* FIXME make error types more specific */
@@ -134,6 +140,9 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   void * calldests_shmem;
   /* Local join to bit vector of valid call destinations */
   fd_sbpf_calldests_t * calldests;
+
+  /* SBPF version */
+  ulong sbpf_version;
 };
 typedef struct fd_sbpf_program fd_sbpf_program_t;
 
@@ -217,7 +226,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       void const *         bin,
                       ulong                bin_sz,
                       fd_sbpf_syscalls_t * syscalls,
-                      int                  elf_deploy_checks );
+                      int                  elf_deploy_checks,
+                      int                  sbpf_version_header );
 
 /* fd_sbpf_program_delete destroys the program object and unformats the
    memory regions holding it. */

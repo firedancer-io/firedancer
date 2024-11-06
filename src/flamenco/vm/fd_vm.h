@@ -214,11 +214,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
 FD_PROTOTYPES_BEGIN
 
-/* SBPF Versions */
-#define FD_VM_SBPF_VERSION_1                       (1UL)
-#define FD_VM_SBPF_VERSION_DYNAMIC_STACK_FRAMES    (2UL)
-#define FD_VM_SBPF_VERSION_ARITHMETIC_IMPROVEMENTS (3UL)
-#define FD_VM_SBPF_VERSION_STATIC_SYCALLS          (4UL)
+
 
 /* FIXME: FD_VM_T NEEDS PROPER CONSTRUCTORS */
 
