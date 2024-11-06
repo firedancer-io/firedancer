@@ -192,12 +192,12 @@ guess_packet_size( uchar const * data,
   ulong total_len     = size;
 
   if( FD_UNLIKELY( size < 1) ) return FD_QUIC_PARSE_FAIL;
-  uchar hdr_form = fd_quic_extract_hdr_form( *cur_ptr );
+  uchar hdr_form = fd_quic_h0_hdr_form( *cur_ptr );
 
   ulong rc;
   if( hdr_form == 1 ) {  /* long header */
 
-    uchar long_packet_type = fd_quic_extract_long_packet_type( *cur_ptr );
+    uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
     cur_ptr += 1; cur_sz -= 1UL;
     fd_quic_long_hdr_t long_hdr[1];
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr, cur_sz );
@@ -273,7 +273,7 @@ decrypt_packet( uchar * const data,
   int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
-  uint  pkt_number_sz = ( (uint)data[0] & 0x03U ) + 1U;
+  uint  pkt_number_sz = fd_quic_h0_pkt_num_len( data[0] ) + 1U;
   ulong pkt_number = fd_quic_pktnum_decode( data+pkt_num_pnoff, pkt_number_sz );
 
   decrypt_res =
@@ -332,7 +332,7 @@ encrypt_packet( uchar * const data,
     return size;
 
   uchar first = data[0];
-  ulong pkt_number_sz = ( first & 0x03u ) + 1;
+  ulong pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
 
   ulong         out_sz = total_len;
   uchar const * hdr    = data;

@@ -3,12 +3,6 @@
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                        \
   struct fd_quic_##NAME {
 
-#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                 \
-    fd_quic_##TYPE NAME;
-
-#define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE)       \
-    fd_quic_##TYPE NAME;
-
 #define FD_TEMPL_MBR_ELEM(NAME,TYPE)                           \
     fd_quic_##TYPE NAME;
 

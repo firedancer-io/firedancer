@@ -75,23 +75,6 @@
   } while(0);
 
 
-// consumes unaligned bits in input
-#define FD_TEMPL_MBR_BITS_BEGIN()                                      \
-  do {                                                                 \
-    if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
-    uint bits = buf[ cur_byte ];                                       \
-
-#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                         \
-    bits = fd_uchar_rotate_left( (uchar)bits, BITS );                  \
-    out->NAME = (fd_quic_##TYPE)( bits & ((1UL<<BITS)-1) );
-
-#define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE) \
-          FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
-
-#define FD_TEMPL_MBR_BITS_END()                                        \
-    cur_byte++;                                                        \
-  } while(0);
-
 // VAR currently assumed to be aligned bytes
 // BITS_MIN and BITS_MAX are always divisible by 8
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \

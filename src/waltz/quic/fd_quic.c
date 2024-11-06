@@ -1559,7 +1559,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
        since the packet integrity is checked in fd_quic_crypto_decrypt? */
 
     /* number of bytes in the packet header */
-    pkt_number_sz = ( (uint)cur_ptr[0] & 0x03u ) + 1u;
+    pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
     tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
@@ -1720,7 +1720,7 @@ fd_quic_handle_v1_handshake(
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
   /* number of bytes in the packet header */
-  pkt_number_sz = ( (uint)cur_ptr[0] & 0x03u ) + 1u;
+  pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
   tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
@@ -1967,7 +1967,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     uint first = (uint)cur_ptr[0];
 
     /* number of bytes in the packet header */
-    pkt_number_sz = ( first & 0x03u ) + 1u;
+    pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
@@ -2097,7 +2097,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
      Decrementing cur_sz is done in the long header branch, the short header
      branch parses the first byte again using the parser generator.
    */
-  uchar hdr_form = fd_quic_extract_hdr_form( *cur_ptr );
+  uchar hdr_form = fd_quic_h0_hdr_form( *cur_ptr );
   ulong rc;
 
   /* hdr_form is 1 bit */
@@ -2116,7 +2116,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       conn  = entry ? entry->conn : NULL;
     }
 
-    uchar long_packet_type = fd_quic_extract_long_packet_type( *cur_ptr );
+    uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
 
     /* encryption level matches that of TLS */
     pkt->enc_level = long_packet_type; /* V2 uses an indirect mapping */
@@ -3027,14 +3027,11 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
 
   /* our current conn_id */
   ulong conn_id = conn->our_conn_id;
+  uint  pkt_num_len = 3; /* indicates 4-byte packet number */
 
   switch( enc_level ) {
     case fd_quic_enc_level_initial_id:
-      pkt_hdr->quic_pkt.initial.hdr_form         = 1;
-      pkt_hdr->quic_pkt.initial.fixed_bit        = 1;
-      pkt_hdr->quic_pkt.initial.long_packet_type = 0;      /* TODO should be set by encoder */
-      pkt_hdr->quic_pkt.initial.reserved_bits    = 0;      /* must be set to zero by rfc9000 17.2 */
-      pkt_hdr->quic_pkt.initial.pkt_number_len   = 3;      /* indicates 4-byte packet number */
+      pkt_hdr->quic_pkt.initial.h0               = fd_quic_initial_h0( pkt_num_len );
       pkt_hdr->quic_pkt.initial.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
       pkt_hdr->quic_pkt.initial.version          = 1;
       pkt_hdr->quic_pkt.initial.dst_conn_id_len  = peer_conn_id->sz;
@@ -3063,13 +3060,9 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       return;
 
     case fd_quic_enc_level_handshake_id:
-      pkt_hdr->quic_pkt.handshake.hdr_form         = 1;
-      pkt_hdr->quic_pkt.handshake.fixed_bit        = 1;
-      pkt_hdr->quic_pkt.handshake.long_packet_type = 2;
-      pkt_hdr->quic_pkt.handshake.reserved_bits    = 0;      /* must be set to zero by rfc9000 17.2 */
-      pkt_hdr->quic_pkt.handshake.pkt_number_len   = 3;      /* indicates 4-byte packet number */
-      pkt_hdr->quic_pkt.handshake.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
-      pkt_hdr->quic_pkt.handshake.version          = 1;
+      pkt_hdr->quic_pkt.handshake.h0           = fd_quic_handshake_h0( pkt_num_len );
+      pkt_hdr->quic_pkt.handshake.pkt_num_bits = 4 * 8;  /* actual number of bits to encode */
+      pkt_hdr->quic_pkt.handshake.version      = 1;
 
       /* destination */
       if( initial ) {
@@ -3098,14 +3091,8 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       uchar sb = conn->spin_bit;
 
       /* one_rtt has a short header */
-      pkt_hdr->quic_pkt.one_rtt.hdr_form         = 0;
-      pkt_hdr->quic_pkt.one_rtt.fixed_bit        = 1;
-      pkt_hdr->quic_pkt.one_rtt.spin_bit         = sb;         /* should either match or flip for client/server */
-                                                               /* randomized for disabled spin bit */
-      pkt_hdr->quic_pkt.one_rtt.reserved0        = 0;          /* must be set to zero by rfc9000 17.2 */
-      pkt_hdr->quic_pkt.one_rtt.key_phase        = key_phase;  /* flipped on key change */
-      pkt_hdr->quic_pkt.one_rtt.pkt_number_len   = 3;          /* indicates 4-byte packet number */
-      pkt_hdr->quic_pkt.one_rtt.pkt_num_bits     = 4 * 8;      /* actual number of bits to encode */
+      pkt_hdr->quic_pkt.one_rtt.h0           = fd_quic_one_rtt_h0( sb, key_phase, pkt_num_len );
+      pkt_hdr->quic_pkt.one_rtt.pkt_num_bits = 4 * 8;      /* actual number of bits to encode */
 
       /* destination */
       fd_memcpy( pkt_hdr->quic_pkt.one_rtt.dst_conn_id,
@@ -3168,19 +3155,6 @@ fd_quic_pkt_hdr_encode( uchar * cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t * pkt_h
       return fd_quic_encode_handshake( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.handshake );
     case fd_quic_enc_level_appdata_id:
       return fd_quic_encode_one_rtt( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.one_rtt );
-    default:
-      FD_LOG_ERR(( "%s - logic error: unexpected enc_level", __func__ ));
-  }
-}
-
-/* returns the packet number length */
-uint
-fd_quic_pkt_hdr_pkt_number_len( fd_quic_pkt_hdr_t * pkt_hdr,
-                                uint            enc_level ) {
-  switch( enc_level ) {
-    case fd_quic_enc_level_initial_id:   return pkt_hdr->quic_pkt.initial.pkt_number_len + 1u;
-    case fd_quic_enc_level_handshake_id: return pkt_hdr->quic_pkt.handshake.pkt_number_len + 1u;
-    case fd_quic_enc_level_appdata_id:   return pkt_hdr->quic_pkt.one_rtt.pkt_number_len + 1u;
     default:
       FD_LOG_ERR(( "%s - logic error: unexpected enc_level", __func__ ));
   }
@@ -3828,8 +3802,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     /* first initial frame is padded to FD_QUIC_MIN_INITIAL_PKT_SZ
        all short quic packets are padded so 16 bytes of sample are available */
     uint tot_frame_sz = (uint)( payload_ptr - frame_start );
-    uint base_pkt_len = (uint)tot_frame_sz + fd_quic_pkt_hdr_pkt_number_len( &pkt_hdr, enc_level ) +
-                            FD_QUIC_CRYPTO_TAG_SZ;
+    uint base_pkt_len = (uint)tot_frame_sz + 4 /* packet num len */ + FD_QUIC_CRYPTO_TAG_SZ;
     uint padding      = initial_pkt ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
 
     /* TODO possibly don't need both SAMPLE_SZ and TAG_SZ */

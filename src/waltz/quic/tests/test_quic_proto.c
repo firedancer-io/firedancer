@@ -207,86 +207,6 @@ test_pktnum_parse( void ) {
   FD_TEST( fd_quic_pktnum_decode( buf, 4UL )==0x01020304 );
 }
 
-/* Test the bit field parser generator */
-
-#define BITFIELD_TEST()                                \
-  FD_TEMPL_DEF_STRUCT_BEGIN(bitfield_test)             \
-    FD_TEMPL_MBR_BITS_BEGIN()                          \
-    FD_TEMPL_MBR_ELEM_BITS     ( b7, uchar,  1       ) \
-    FD_TEMPL_MBR_ELEM_BITS     ( b6, uchar,  1       ) \
-    FD_TEMPL_MBR_ELEM_BITS     ( b4, uchar,  2       ) \
-    FD_TEMPL_MBR_ELEM_BITS     ( b2, uchar,  2       ) \
-    FD_TEMPL_MBR_ELEM_BITS_TYPE( b0, uchar,  2, 0x01 ) \
-    FD_TEMPL_MBR_BITS_END()                            \
-  FD_TEMPL_DEF_STRUCT_END(bitfield_test)
-
-#include "../templ/fd_quic_defs.h"
-BITFIELD_TEST()
-#include "../templ/fd_quic_undefs.h"
-
-#include "../templ/fd_quic_encoders.h"
-BITFIELD_TEST()
-#include "../templ/fd_quic_undefs.h"
-
-#include "../templ/fd_quic_parsers.h"
-BITFIELD_TEST()
-#include "../templ/fd_quic_undefs.h"
-
-#undef BITFIELD_TEST
-
-static void
-test_bitfield_reencode( uchar * buf ) {
-  fd_quic_bitfield_test_t b = {0};
-  FD_TEST( fd_quic_decode_bitfield_test( &b, buf, 1UL )==1UL );
-  FD_TEST( b.b0==0x01 );
-  uchar out[1];
-  FD_TEST( fd_quic_encode_bitfield_test( out, 1UL, &b )==1UL );
-  FD_TEST( out[0]==buf[0] );
-}
-
-void
-test_bitfield_encode( void ) {
-  fd_quic_bitfield_test_t b = {0};
-  uchar buf[1];
-  FD_TEST( fd_quic_encode_bitfield_test( NULL, 0UL, &b )==FD_QUIC_ENCODE_FAIL );
-  FD_TEST( fd_quic_decode_bitfield_test( &b, NULL, 0UL )==FD_QUIC_PARSE_FAIL  );
-
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b )==1UL );
-  FD_TEST( buf[0]==0x01 );
-  test_bitfield_reencode( buf );
-
-  b.b7 = 1;
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b )==1UL );
-  FD_TEST( buf[0]==0x81 );
-  test_bitfield_reencode( buf );
-  b.b7 = 0;
-
-  b.b6 = 1;
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b )==1UL );
-  FD_TEST( buf[0]==0x41 );
-  test_bitfield_reencode( buf );
-  b.b6 = 0;
-
-  b.b4 = 1;
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b )==1UL );
-  FD_TEST( buf[0]==0x11 );
-  test_bitfield_reencode( buf );
-  b.b4 = 2;
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b )==1UL );
-  FD_TEST( buf[0]==0x21 );
-  test_bitfield_reencode( buf );
-  b.b4 = 3;
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b )==1UL );
-  FD_TEST( buf[0]==0x31 );
-  test_bitfield_reencode( buf );
-  b.b4 = 0;
-
-  fd_quic_bitfield_test_t b2 = { .b2=2, .b4=1, .b6=0, .b7=1 };
-  FD_TEST( fd_quic_encode_bitfield_test( buf, 1UL, &b2 )==1UL );
-  FD_TEST( buf[0]==0x99 );
-  test_bitfield_reencode( buf );
-}
-
 /* Test crypto frame parser */
 
 uchar raw_crypto_frame[] =
@@ -365,7 +285,6 @@ main( int     argc,
   test_varint_encode();
   test_varint_parse();
   test_pktnum_parse();
-  test_bitfield_encode();
   test_crypto_frame();
 
   FD_LOG_NOTICE(( "pass" ));

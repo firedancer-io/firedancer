@@ -35,11 +35,6 @@
     buf += tmp_len;                                                    \
 
 
-/* determines the footprint of bit fields */
-# define FD_TEMPL_MBR_BITS_BEGIN()                                     \
-    buf++;
-
-
 /* VAR currently assumed to be aligned bytes */
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)           \
     tmp_len = frame->LEN_NAME;                                           \

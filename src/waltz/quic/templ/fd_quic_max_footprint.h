@@ -36,14 +36,6 @@
     char NAME[8];
 
 
-/* determines the footprint of unaligned bits */
-#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                           \
-    char NAME[(BITS+7u)>>3u];
-
-#define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE) \
-          FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
-
-
 /* VAR currently assumed to be aligned bytes */
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)           \
     char NAME[(BITS_MAX+7u)>>3u];
