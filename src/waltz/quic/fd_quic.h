@@ -310,7 +310,7 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* TODO: evaluate performance impact of metrics */
 
 union fd_quic_metrics {
-  ulong  ul[ 41 ];
+  ulong  ul[ 42 ];
   struct {
     /* Network metrics */
     ulong net_rx_pkt_cnt;  /* number of IP packets received */
@@ -323,6 +323,7 @@ union fd_quic_metrics {
     ulong conn_created_cnt;        /* number of conns created */
     ulong conn_closed_cnt;         /* number of conns gracefully closed */
     ulong conn_aborted_cnt;        /* number of conns aborted */
+    ulong conn_timeout_cnt;        /* number of conns timed out */
     ulong conn_retry_cnt;          /* number of conns established with retry */
     ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
     ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */

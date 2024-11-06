@@ -2748,7 +2748,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
 
         conn->state = FD_QUIC_CONN_STATE_DEAD;
-        quic->metrics.conn_aborted_cnt++;
+        quic->metrics.conn_timeout_cnt++;
       }
     } else if( FD_QUIC_PING_ENABLE ) {
       /* send PING */

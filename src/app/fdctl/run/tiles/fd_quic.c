@@ -179,6 +179,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTIONS_CREATED, ctx->quic->metrics.conn_created_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_TIMED_OUT, ctx->quic->metrics.conn_timeout_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_RETRIED, ctx->quic->metrics.conn_retry_cnt );
 
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
