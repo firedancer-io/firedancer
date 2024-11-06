@@ -97,12 +97,16 @@ main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
-  float        loss     = fd_env_strip_cmdline_float( &argc, &argv, "--loss",      NULL, 0.0f                         );
-  float        reorder  = fd_env_strip_cmdline_float( &argc, &argv, "--reorder",   NULL, 0.0f                         );
-  float        duration = fd_env_strip_cmdline_float( &argc, &argv, "--duration",  NULL, 10.0f                        );
+# define FRAG_SZ (1163UL) /* Usable QUIC stream data space FIXME increase IPv4 MTU */
+
+  char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+  float        loss     = fd_env_strip_cmdline_float ( &argc, &argv, "--loss",      NULL, 0.0f                         );
+  float        reorder  = fd_env_strip_cmdline_float ( &argc, &argv, "--reorder",   NULL, 0.0f                         );
+  float        duration = fd_env_strip_cmdline_float ( &argc, &argv, "--duration",  NULL, 10.0f                        );
+  ushort       sz       = fd_env_strip_cmdline_ushort( &argc, &argv, "--sz",        NULL, FRAG_SZ                      );
+  FD_TEST( sz<=FRAG_SZ );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -111,12 +115,10 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-# define FRAG_SZ (1163UL) /* Usable QUIC stream data space FIXME increase IPv4 MTU */
-
   /* Tune QUIC client and server such that server ACKs just before
      client runs out of space. */
   ulong ack_threshold = 8192UL; //FD_QUIC_DEFAULT_ACK_THRESHOLD;
-  ulong client_burst  = ack_threshold / FRAG_SZ + 1;
+  ulong client_burst  = ack_threshold / sz + 1;
 
   fd_quic_limits_t const server_limits = {
     .conn_cnt           = 1,
@@ -216,7 +218,7 @@ main( int     argc,
   FD_TEST( client_stream );
 
   char buf[ FRAG_SZ ] = "Hello world!\x00-   ";
-  int rc = fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
+  int rc = fd_quic_stream_send( client_stream, buf, sz, 1 );
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
   long last_ts = fd_log_wallclock();
@@ -230,7 +232,7 @@ main( int     argc,
 
     client_stream = fd_quic_conn_new_stream( client_conn );
     if( !client_stream ) continue;
-    fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
+    fd_quic_stream_send( client_stream, buf, sz, 1 );
 
     long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
