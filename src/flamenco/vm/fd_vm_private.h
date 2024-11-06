@@ -351,7 +351,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
-  ulong region   = vaddr >> 32;
+  ulong region   = fd_ulong_min( vaddr >> 32, 5UL );
   ulong offset   = vaddr & 0xffffffffUL;
   if( FD_UNLIKELY( region==4UL ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
@@ -564,11 +564,19 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     (void *)_haddr;                                                                                         \
   }))
 
+#define FD_VM_MEM_HADDR_ST_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                               \
+    fd_vm_t const * _vm       = (vm);                                                                       \
+    uchar           _is_multi = 0;                                                                          \
+    ulong           _vaddr    = (vaddr);                                                                    \
+    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
+    (void const *)_haddr;                                                                                   \
+  }))
+
 #define FD_VM_MEM_HADDR_ST_WRITE_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                         \
     fd_vm_t const * _vm       = (vm);                                                                       \
     uchar           _is_multi = 0;                                                                          \
     ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
+    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 0, 0UL, &_is_multi ); \
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
@@ -588,6 +596,14 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
 #define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 #define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
+
+/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED simply converts a vaddr within the input memory region
+   into an haddr. The macro assumes that the caller already checked that the vaddr exists within the
+   input region (region==4UL) and sets the region_idx and haddr. */
+#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
+  _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
+  _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
+}))
 
 /* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
    Agave's translate_slice function returns an empty array if the sz == 0.

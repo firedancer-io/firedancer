@@ -4,10 +4,11 @@
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
 static void
-test_vm_syscall_toggle_direct_mapping( fd_exec_instr_ctx_t * instr_ctx, int enable ) {
+test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
   char const * one_offs[] = { "EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33" };
-  fd_features_enable_one_offs( (fd_features_t*)&instr_ctx->epoch_ctx->features, one_offs, 1U, slot );
+  fd_features_enable_one_offs( (fd_features_t*)&vm_ctx->instr_ctx->epoch_ctx->features, one_offs, 1U, slot );
+  vm_ctx->direct_mapping = enable;
 }
 
 static void
@@ -239,7 +240,7 @@ main( int     argc,
   FD_TEST( vm_ok );
 
   /* Run relevant tests with and without direct mapping enabled */
-  test_vm_syscall_toggle_direct_mapping( instr_ctx, 0 ); /* disable direct mapping */
+  test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region without offset",
                               vm,
@@ -266,7 +267,7 @@ main( int     argc,
                               100UL,
                               0UL, FD_VM_ERR_SIGSEGV );
 
-  test_vm_syscall_toggle_direct_mapping( instr_ctx, 1 ); /* enable direct mapping */
+  test_vm_syscall_toggle_direct_mapping( vm, 1 ); /* enable direct mapping */
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region without offset",
                               vm,
@@ -320,7 +321,7 @@ main( int     argc,
   input_mem_regions[2].is_writable=1;
 
 
-  test_vm_syscall_toggle_direct_mapping( instr_ctx, 0 ); /* disable direct mapping */
+  test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy at the heap region",
                               vm,
@@ -381,7 +382,7 @@ main( int     argc,
                               100UL,
                               0UL, FD_VM_ERR_MEM_OVERLAP );
 
-  test_vm_syscall_toggle_direct_mapping( instr_ctx, 1 ); /* enable direct mapping */
+  test_vm_syscall_toggle_direct_mapping( vm, 1 ); /* enable direct mapping */
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy at the heap region",
                               vm,
@@ -479,7 +480,7 @@ main( int     argc,
                                 0UL, FD_VM_ERR_MEM_OVERLAP );
 
 
-  test_vm_syscall_toggle_direct_mapping( instr_ctx, 0 ); /* disable direct mapping */
+  test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */
 
   // test we can memmove from heap region to heap region
   test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove from heap region to heap region",
@@ -521,7 +522,7 @@ main( int     argc,
                                100UL,
                                0UL, FD_VM_ERR_SIGSEGV );
 
-  test_vm_syscall_toggle_direct_mapping( instr_ctx, 1 ); /* enable direct mapping */
+  test_vm_syscall_toggle_direct_mapping( vm, 1 ); /* enable direct mapping */
 
   // test we can memmove from heap region to heap region
   test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove from heap region to heap region",
