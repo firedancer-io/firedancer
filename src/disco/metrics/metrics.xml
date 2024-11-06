@@ -300,6 +300,7 @@ metric introduced.
 <group name="Resolv" tile="resolv">
   <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
   <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
+  <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
 </group>
 
 <group name="Pack" tile="pack">
