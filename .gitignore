@@ -10,6 +10,8 @@ genhtml/
 target/
 *.lcov
 *.profraw
+/report
+flamegraph.html
 
 # GDB
 .gdb_history
