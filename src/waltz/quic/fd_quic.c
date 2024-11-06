@@ -457,16 +457,12 @@ fd_quic_init( fd_quic_t * quic ) {
     .cert_public_key       = quic->config.identity_public_key,
   };
 
-  /* fetch ahead */
-  fd_quic_metrics_t * metrics = &quic->metrics;
-
   ulong tls_laddr = (ulong)quic + layout.tls_off;
   state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
   if( FD_UNLIKELY( !state->tls ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_tls_new failed" ) ) );
     return NULL;
   }
-  metrics->hs_created_cnt++;
 
   ulong stream_pool_cnt = limits->stream_pool_cnt;
   ulong tx_buf_sz       = limits->tx_buf_sz;
@@ -1511,6 +1507,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
       conn->tls_hs = tls_hs;
+      quic->metrics.hs_created_cnt++;
 
       fd_quic_gen_initial_secret_and_keys( conn, conn_id );
     } else {
@@ -4218,8 +4215,10 @@ fd_quic_connect( fd_quic_t *  quic,
       tp );
   if( FD_UNLIKELY( !tls_hs ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )) );
+    quic->metrics.hs_err_alloc_fail_cnt++;
     goto fail_conn;
   }
+  quic->metrics.hs_created_cnt++;
 
   /* run process tls immediately */
   int process_rc = fd_quic_tls_process( tls_hs );
@@ -4249,6 +4248,7 @@ fail_tls_hs:
   fd_quic_tls_hs_delete( tls_hs );
 
 fail_conn:
+  quic->metrics.conn_aborted_cnt++;
   conn->state  = FD_QUIC_CONN_STATE_DEAD;
 
   return NULL;
