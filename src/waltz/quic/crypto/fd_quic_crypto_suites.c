@@ -7,6 +7,7 @@
 #include "../../../ballet/aes/fd_aes_base.h"
 #include "../../../ballet/aes/fd_aes_gcm.h"
 #include "../../../ballet/hmac/fd_hmac.h"
+#include "../templ/fd_quic_parse_util.h"
 
 /* FD_QUIC_CRYPTO_V1_INITIAL_SALT is the salt to the initial secret
    HKDF in QUIC v1. */
@@ -225,7 +226,7 @@ fd_quic_crypto_encrypt(
 
   /* first byte needed in a couple of places */
   uchar first = out[0];
-  ulong pkt_number_sz = ( first & 0x03u ) + 1;
+  ulong pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
   uchar const * pkt_number_ptr = out + hdr_sz - pkt_number_sz;
 
   // nonce is quic-iv XORed with packet-number
@@ -296,7 +297,7 @@ fd_quic_crypto_decrypt(
 
   /* Derive header size */
   uint    first         = buf[0];
-  ulong   pkt_number_sz = ( first & 0x03u ) + 1u;
+  ulong   pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
   uchar * hdr           = buf;
   ulong   hdr_sz        = pkt_number_off + pkt_number_sz;
 
@@ -388,7 +389,7 @@ fd_quic_crypto_decrypt_hdr(
   buf[0]  = (uchar)first;
 
   /* now we can calculate the actual packet number size */
-  ulong pkt_number_sz = ( first & 0x03u ) + 1u;
+  ulong pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
 
   /* undo packet number encryption */
   for( ulong j = 0u; j < pkt_number_sz; ++j ) {

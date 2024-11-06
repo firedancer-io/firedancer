@@ -85,26 +85,6 @@
     } while(0);
 
 
-// encodes unaligned bits into buf
-#define FD_TEMPL_MBR_BITS_BEGIN()                                      \
-  do {                                                                 \
-    uint bits = 0U;                                                    \
-    if( FD_UNLIKELY( buf >= buf_end ) ) return FD_QUIC_ENCODE_FAIL;    \
-
-#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                         \
-    bits <<= BITS;                                                     \
-    bits |= frame->NAME;
-
-#define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE)               \
-    frame->NAME = CODE;                                                \
-    FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
-
-#define FD_TEMPL_MBR_BITS_END()                                        \
-    buf[0] = (uchar)bits;                                              \
-    buf++;                                                             \
-  } while(0);
-
-
 // VAR currently assumed to be aligned bytes
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
     tmp_len = frame->LEN_NAME;                                         \

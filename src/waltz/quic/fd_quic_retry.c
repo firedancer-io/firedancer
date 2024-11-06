@@ -73,11 +73,8 @@ fd_quic_retry_create(
   /* Craft a new Retry packet */
 
   fd_quic_retry_hdr_t retry_hdr[1] = {{
-    .hdr_form         = 1,
-    .fixed_bit        = 1,
-    .long_packet_type = 3,
-    .unused           = 0xf,
-    .version          = 1,
+    .h0              = 0xf0,
+    .version         = 1,
     .dst_conn_id_len = pkt->long_hdr->src_conn_id_len,
     // .dst_conn_id (initialized below)
     .src_conn_id_len = new_conn_id->sz,

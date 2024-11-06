@@ -197,7 +197,7 @@ FD_PROTOTYPES_BEGIN
    by fd_quic.  (Other QUIC implementations may produce differently
    sized retry packets) */
 
-#define FD_QUIC_RETRY_LOCAL_SZ (164UL)
+#define FD_QUIC_RETRY_LOCAL_SZ (161UL)
 
 /* fd_quic_retry_{create,verify} do end-to-end issuance and verification
    of fd_quic retry tokens.  Used by the server-side. */

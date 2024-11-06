@@ -84,20 +84,42 @@
       return FD_QUIC_ENCODE_FAIL;                                         \
   } while(0);
 
-/* fd_quic_extract_hdr_form extract the 'Header Form' bit, the first bit of a QUIC v1 packet.
+/* fd_quic_h0_hdr_form extract the 'Header Form' bit, the first bit of a QUIC v1 packet.
    Returns 1 if the packet is a long header packet, 0 if the packet is a short header packet.
    Does not require decryption of the packet header. */
 static inline uchar
-fd_quic_extract_hdr_form( uchar hdr ) {
+fd_quic_h0_hdr_form( uchar hdr ) {
   return hdr>>7;
 }
 
-/* fd_quic_extract_long_packet_type extracts the 'Long Packet Type' from
+/* fd_quic_h0_long_packet_type extracts the 'Long Packet Type' from
    the first byte of a QUIC v1 long header packet.  Returns FD_QUIC_PKTTYPE_V1_{...}
    in range [0,4).  Does not require decryption of the packet header. */
 static inline uchar
-fd_quic_extract_long_packet_type( uchar hdr ) {
+fd_quic_h0_long_packet_type( uchar hdr ) {
   return (hdr>>4)&3;
+}
+
+static inline uchar
+fd_quic_h0_pkt_num_len( uint h0 ) {
+  return (uchar)( h0 & 0x03 );
+}
+
+static inline uchar
+fd_quic_initial_h0( uint pkt_num_len /* [0,3] */ ) {
+  return (uchar)( 0xc0 | pkt_num_len );
+}
+
+static inline uchar
+fd_quic_handshake_h0( uint pkt_num_len /* [0,3] */ ) {
+  return (uchar)( 0xe0 | pkt_num_len );
+}
+
+static inline uchar
+fd_quic_one_rtt_h0( uint spin_bit,   /* [0,1] */
+                    uint key_phase,  /* [0,1] */
+                    uint pkt_num_len /* [0,3] */ ) {
+  return (uchar)( 0x40 | (spin_bit<<5) | (key_phase<<2) | pkt_num_len );
 }
 
 __attribute__((used)) static ulong
