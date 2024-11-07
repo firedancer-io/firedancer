@@ -334,7 +334,7 @@ fd_account_hash_task( void *tpool,
     fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
     fd_lthash_value_t new_lthash_value;
     fd_lthash_zero(&new_lthash_value);
-    fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data, slot_ctx );
+    fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data );
 
     if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
       task_info->hash_changed = 1;
@@ -349,11 +349,11 @@ fd_account_hash_task( void *tpool,
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
 
-    fd_hash_account_current( old_hash.hash, &old_lthash_value, acc_meta_parent, acc_key->key, acc_data, slot_ctx );
+    fd_hash_account_current( old_hash.hash, &old_lthash_value, acc_meta_parent, acc_key->key, acc_data );
     fd_lthash_sub( acc, &old_lthash_value );
   }
 
-  if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) && acc_meta->slot == slot_ctx->slot_bank.slot ) {
+  if( acc_meta->slot == slot_ctx->slot_bank.slot ) {
       task_info->hash_changed = 1;
   }
 }
@@ -719,13 +719,12 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     } else {
       // Maybe instead of going through the whole hash mechanism, we
       // can find the parent funky record and just compare the data?
-      fd_hash_account_current( acc_hash->hash, NULL, acc_meta, acc_key->key, acc_data, slot_ctx );
+      fd_hash_account_current( acc_hash->hash, NULL, acc_meta, acc_key->key, acc_data );
     }
 
     /* If hash didn't change, nothing to do */
     if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) ) {
-      if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot )
-        && acc_meta->slot == slot_ctx->slot_bank.slot ) {
+      if( acc_meta->slot == slot_ctx->slot_bank.slot ) {
         /* no-op */
       } else {
         continue;
@@ -818,42 +817,11 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 void const *
-fd_hash_account_v0( uchar                     hash[ static 32 ],
-                    fd_lthash_value_t        *lthash,
-                    fd_account_meta_t const  *m,
-                    uchar const               pubkey[ static 32 ],
-                    uchar const             * data,
-                    ulong                     slot ) {
-  ulong         lamports   = m->info.lamports;  /* >0UL */
-  ulong         rent_epoch = m->info.rent_epoch;
-  uchar         executable = m->info.executable & 0x1;
-  uchar const * owner      = (uchar const *)m->info.owner;
-
-  fd_blake3_t b3[1];
-  fd_blake3_init  ( b3 );
-  fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
-  fd_blake3_append( b3, &slot,       sizeof( ulong ) );
-  fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
-  fd_blake3_append( b3, data,        m->dlen         );
-  fd_blake3_append( b3, &executable, sizeof( uchar ) );
-  fd_blake3_append( b3, owner,       32UL            );
-  fd_blake3_append( b3, pubkey,      32UL            );
-  if( NULL == lthash ) {
-    fd_blake3_fini  ( b3, hash );
-  } else {
-    fd_blake3_fini_varlen( b3, lthash->bytes, FD_LTHASH_LEN_BYTES );
-    fd_memcpy( hash, lthash->bytes, 32);
-  }
-
-  return hash;
-}
-
-void const *
-fd_hash_account_v1( uchar                     hash[ static 32 ],
-                    fd_lthash_value_t        *lthash,
-                    fd_account_meta_t const * m,
-                    uchar const               pubkey[ static 32 ],
-                    uchar const             * data ) {
+fd_hash_account( uchar                     hash[ static 32 ],
+                 fd_lthash_value_t       * lthash,
+                 fd_account_meta_t const * m,
+                 uchar const               pubkey[ static 32 ],
+                 uchar const             * data ) {
   ulong         lamports   = m->info.lamports;  /* >0UL */
   ulong         rent_epoch = m->info.rent_epoch;
   uchar         executable = m->info.executable & 0x1;
@@ -882,12 +850,8 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
                          fd_lthash_value_t         *lthash,
                          fd_account_meta_t const   *account,
                          uchar const                pubkey[ static 32 ],
-                         uchar const               *data,
-                         fd_exec_slot_ctx_t const  *slot_ctx ) {
-  if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) )
-    return fd_hash_account_v1( hash, lthash, account, pubkey, data );
-  else
-    return fd_hash_account_v0( hash, lthash, account, pubkey, data, slot_ctx->slot_bank.slot );
+                         uchar const               *data ) {
+  return fd_hash_account( hash, lthash, account, pubkey, data );
 }
 
 struct accounts_hash {
@@ -951,7 +915,7 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
     fd_lthash_value_t new_lthash_value;
     fd_lthash_zero(&new_lthash_value);
 
-    fd_hash_account_current( (uchar *) hash, &new_lthash_value, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+    fd_hash_account_current( (uchar *) hash, &new_lthash_value, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
     fd_lthash_add( &accum, &new_lthash_value );
 
     fd_hash_t * h = (fd_hash_t *) metadata->hash;
@@ -1108,12 +1072,12 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
       fd_hash_t *h = (fd_hash_t *) metadata->hash;
       if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
         // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
-        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
       } else if( do_hash_verify ) {
         uchar hash[32];
         ulong old_slot = slot_ctx->slot_bank.slot;
         slot_ctx->slot_bank.slot = metadata->slot;
-        fd_hash_account_current( (uchar *) &hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+        fd_hash_account_current( (uchar *) &hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
         slot_ctx->slot_bank.slot = old_slot;
         if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
@@ -1237,7 +1201,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
         uchar hash  [ 32 ];
         fd_lthash_value_t new_lthash_value;
         fd_lthash_zero(&new_lthash_value);
-        fd_hash_account_current( hash, &new_lthash_value, metadata, slot->key->pair.key[0].uc, acc_data, slot_ctx );
+        fd_hash_account_current( hash, &new_lthash_value, metadata, slot->key->pair.key[0].uc, acc_data );
         fd_lthash_add( &acc_lthash, &new_lthash_value );
 
         if (fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
