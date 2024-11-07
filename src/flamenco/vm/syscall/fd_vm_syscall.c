@@ -21,7 +21,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
                              uchar is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
-  int enable_secp256k1_recover_syscall     = 0;
   int enable_blake3_syscall                = 0;
   int enable_curve25519_syscall            = 0;
   int enable_poseidon_syscall              = 0;
@@ -33,7 +32,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   if( slot_ctx ) {
 
-    enable_secp256k1_recover_syscall     = FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled );
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled );
     enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled );
     enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall );
@@ -45,7 +43,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   } else { /* enable ALL */
 
-    enable_secp256k1_recover_syscall     = 1;
     enable_blake3_syscall                = 1;
     enable_curve25519_syscall            = 1;
     enable_poseidon_syscall              = 1;
@@ -89,9 +86,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   REGISTER( "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address );
   REGISTER( "sol_sha256",                            fd_vm_syscall_sol_sha256 );
   REGISTER( "sol_keccak256",                         fd_vm_syscall_sol_keccak256 );
-
-  if( enable_secp256k1_recover_syscall )
-    REGISTER( "sol_secp256k1_recover",               fd_vm_syscall_sol_secp256k1_recover );
+  REGISTER( "sol_secp256k1_recover",                 fd_vm_syscall_sol_secp256k1_recover );
 
   if( enable_blake3_syscall )
     REGISTER( "sol_blake3",                          fd_vm_syscall_sol_blake3 );
