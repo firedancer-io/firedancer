@@ -2623,26 +2623,18 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       __builtin_unreachable();
     }
 
-    if( FD_LIKELY(
-            FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_votes_to_directly_update_vote_state ) ) ) {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L171
+    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L171
-      fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
-      if( FD_UNLIKELY( !slot_hashes ) )
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L172
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !clock ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L172
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->slot_ctx->sysvar_cache );
-      if( FD_UNLIKELY( !clock ) )
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L173
-      rc = process_vote_state_update( 0, me, slot_hashes, clock, vote_state_update, signers, ctx );
-
-    } else {
-      // This no longer exists in the agave source base but removing might break backwards compatability with old ledgers
-      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L173
+    rc = process_vote_state_update( 0, me, slot_hashes, clock, vote_state_update, signers, ctx );
 
     break;
   }
@@ -2692,23 +2684,18 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !fd_vote_decode_compact_update( vote_state_update, &vote_update ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
-    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_votes_to_directly_update_vote_state ) &&
-                   FD_FEATURE_ACTIVE( ctx->slot_ctx, compact_vote_state_updates ) ) ) {
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L185
-      fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
-      if( FD_UNLIKELY( !slot_hashes ) )
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L185
+    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->slot_ctx->sysvar_cache );
-      if( FD_UNLIKELY( !clock ) )
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !clock ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L187
-      rc = process_vote_state_update( 0, me, slot_hashes, clock, &vote_update, signers, ctx );
-    } else {
-      // agave has removed the feature check.. we have not
-      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L187
+    rc = process_vote_state_update( 0, me, slot_hashes, clock, &vote_update, signers, ctx );
+
     break;
   }
 
