@@ -169,6 +169,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_SH64  ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
 # define FD_INVALID     ((uchar)8) /* The opcode is invalid */
 # define FD_CHECK_CALLX ((uchar)9) /* Validation should check that callx has valid register number */
+# define FD_CHECK_ADD   ((uchar)10) /* Validation should check that the instruction is a valid ADD instruction */
 
   static uchar const validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -323,8 +324,30 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG; /* FIXME: MAGIC NUMBER */
 
-    int is_invalid_dst_reg = instr.dst_reg > ((validation_code == FD_CHECK_ST) ? 10 : 9); /* FIXME: MAGIC NUMBER */
-    if( FD_UNLIKELY( is_invalid_dst_reg ) ) return FD_VM_ERR_INVALID_DST_REG;
+    /* Check that the destination register is valid
+       https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L185 */
+    if ( FD_UNLIKELY( instr.dst_reg == 10 ) ) {
+      /* Disallow loads into R10
+         https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L188 */
+      if ( validation_code != FD_CHECK_ST ) {
+        return FD_VM_ERR_INVALID_R10_WRITE;
+      }
+      /* Allow stores into vmaddr(R10)
+         https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L186 */
+    }
+
+    /* Disallow all accesses to R11 unless it is an ADD and dynamic stack frames are enabled
+       https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L187 */
+    if ( FD_UNLIKELY( instr.dst_reg == 11 ) ) {
+      if ( ! ( vm->sbpf_version >= FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES && instr.opcode.raw == 0x04 ) ) {
+        return FD_VM_ERR_INVALID_DST_REG;
+      }
+    }
+
+    /* All other distination registers are invalid */
+    if ( FD_UNLIKELY( instr.dst_reg > 11 ) ) {
+      return FD_VM_ERR_INVALID_DST_REG;
+    }
   }
 
   return FD_VM_SUCCESS;
@@ -514,7 +537,12 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   /* FIXME: Zero out shadow, stack and heap here? */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+
+  /* https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/vm.rs#L332 */
+  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START;
+  if ( vm->sbpf_version < FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES ) {
+    vm->reg[10] += FD_VM_STACK_GUARD_SZ;
+  }
 
   /* Set execution state */
   vm->pc        = vm->entry_pc;

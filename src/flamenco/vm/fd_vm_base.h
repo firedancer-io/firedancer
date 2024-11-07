@@ -78,6 +78,7 @@
 #define FD_VM_ERR_BAD_TEXT          (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
+#define FD_VM_ERR_INVALID_R10_WRITE (-39) /* detected a write to R10 */
 
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
@@ -421,6 +422,13 @@ FD_PROTOTYPES_END
    size, in bytes, that a transaction is allowed to load */
 
 #define FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT           (64UL*1024UL*1024UL) /* 64MiB */
+
+/* SBPF Versions *******************************************************/
+/* FIXME: have one place for these definitions */
+#define FD_SBPF_VERSION_1                       (1UL)
+#define FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES    (2UL)
+#define FD_SBPF_VERSION_ARITHMETIC_IMPROVEMENTS (3UL)
+#define FD_SBPF_VERSION_STATIC_SYCALLS          (4UL)
 
 /* fd_vm_disasm API ***************************************************/
 
