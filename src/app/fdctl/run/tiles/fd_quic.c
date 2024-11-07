@@ -598,7 +598,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Put a bound on chunks we read from the input, to make sure they
       are within in the data region of the workspace. */
-  if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in link cnt is zero" ));
   fd_topo_link_t * link0 = &topo->links[ tile->in_link_id[ 0 ] ];
 
   for( ulong i=1UL; i<tile->in_cnt; i++ ) {
@@ -624,9 +623,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
-
-  if( FD_UNLIKELY( !tile->out_cnt ) )
-    FD_LOG_ERR(( "quic tile has no primary output link" ));
 
   fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
