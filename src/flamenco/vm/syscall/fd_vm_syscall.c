@@ -21,7 +21,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
                              uchar is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
-  int enable_secp256k1_recover_syscall     = 0;
+  int enable_secp256k1_recover_syscall     = 1;
   int enable_blake3_syscall                = 0;
   int enable_curve25519_syscall            = 0;
   int enable_poseidon_syscall              = 0;
@@ -33,7 +33,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   if( slot_ctx ) {
 
-    enable_secp256k1_recover_syscall     = FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled );
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled );
     enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled );
     enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall );
@@ -45,7 +44,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   } else { /* enable ALL */
 
-    enable_secp256k1_recover_syscall     = 1;
     enable_blake3_syscall                = 1;
     enable_curve25519_syscall            = 1;
     enable_poseidon_syscall              = 1;

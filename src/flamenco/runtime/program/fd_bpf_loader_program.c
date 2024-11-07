@@ -200,13 +200,11 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
 
 /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L216-L229 */
 ulong
-calculate_heap_cost( ulong heap_size, ulong heap_cost, int round_up_heap_size, int * err ) {
+calculate_heap_cost( ulong heap_size, ulong heap_cost, int * err ) {
   #define KIBIBYTE_MUL_PAGES       (1024UL * 32UL)
   #define KIBIBYTE_MUL_PAGES_SUB_1 (KIBIBYTE_MUL_PAGES - 1UL)
 
-  if( round_up_heap_size ) {
-    heap_size = fd_ulong_sat_add( heap_size, KIBIBYTE_MUL_PAGES_SUB_1 );
-  }
+  heap_size = fd_ulong_sat_add( heap_size, KIBIBYTE_MUL_PAGES_SUB_1 );
 
   if( FD_UNLIKELY( heap_size==0UL ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -545,9 +543,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L288-L298 */
   ulong heap_size = instr_ctx->txn_ctx->heap_size;
   ulong heap_cost = FD_VM_HEAP_COST;
-  int round_up_heap_size = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, round_up_heap_size );
   int heap_err = 0;
-  ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, round_up_heap_size, &heap_err );
+  ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, &heap_err );
 
   if( FD_UNLIKELY( heap_err ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
