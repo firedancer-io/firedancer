@@ -256,7 +256,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   self->is_server = is_server;
   self->is_flush  = 0;
   self->context   = context;
-  self->state     = is_server ? FD_QUIC_TLS_HS_STATE_NEED_INPUT : FD_QUIC_TLS_HS_STATE_NEED_SERVICE;
+  self->state     = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
 
   /* initialize handshake data */
 
@@ -333,9 +333,21 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
   switch( self->state ) {
     case FD_QUIC_TLS_HS_STATE_DEAD:
     case FD_QUIC_TLS_HS_STATE_COMPLETE:
-      return FD_QUIC_TLS_SUCCESS;
+      return FD_QUIC_SUCCESS;
     default:
       break;
+  }
+
+  /* Client needs to initiate the handshake */
+
+  if( ( self->hs.base.state == FD_TLS_HS_START ) &
+      ( !self->is_server                       ) ) {
+    long res = fd_tls_client_handshake( &self->quic_tls->tls, &self->hs.cli, NULL, 0UL, 0 );
+    if( FD_UNLIKELY( res<0L ) ) {
+      self->alert = (uint)-res;
+      return FD_QUIC_FAILED;
+    }
+    return FD_QUIC_SUCCESS;
   }
 
   /* QUIC-TLS allows coalescing multiple records into the same CRYPTO
@@ -347,60 +359,35 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
     if( FD_UNLIKELY( res<0L ) ) {
       int alert = (int)-res;
       self->alert = (uint)alert;
-      return FD_QUIC_TLS_FAILED;
+      return FD_QUIC_FAILED;
     }
     if( FD_UNLIKELY( res==0UL ) ) {
       FD_LOG_WARNING(( "preventing deadlock" ));
-      return FD_QUIC_TLS_FAILED;
+      return FD_QUIC_FAILED;
     }
 
     data    += (ulong)res;
     data_sz -= (ulong)res;
   } while( data_sz );
 
-  /* needs a call to fd_quic_tls_process */
-  self->state = FD_QUIC_TLS_HS_STATE_NEED_SERVICE;
-
-  return FD_QUIC_TLS_SUCCESS;
-}
-
-int
-fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
-  if( self->state != FD_QUIC_TLS_HS_STATE_NEED_SERVICE ) return FD_QUIC_TLS_SUCCESS;
-
-  uchar hs_state = self->hs.base.state;
-
-  switch( hs_state ) {
+  switch( self->hs.base.state ) {
   case FD_TLS_HS_CONNECTED:
     /* handshake completed */
     self->is_hs_complete = 1;
     self->quic_tls->handshake_complete_cb( self, self->context );
     self->state = FD_QUIC_TLS_HS_STATE_COMPLETE;
-    return FD_QUIC_TLS_SUCCESS;
+    return FD_QUIC_SUCCESS;
   case FD_TLS_HS_FAIL:
     /* handshake permanently failed */
     self->state = FD_QUIC_TLS_HS_STATE_DEAD;
-    return FD_QUIC_TLS_FAILED;
-  case FD_TLS_HS_START:
-    /* special case: Client needs to initiate the handshake */
-    if( !self->is_server ) {
-      long res = fd_tls_client_handshake( &self->quic_tls->tls, &self->hs.cli, NULL, 0UL, 0 );
-      if( FD_UNLIKELY( res<0L ) ) {
-        self->alert = (uint)-res;
-        return FD_QUIC_TLS_FAILED;
-      }
-      return FD_QUIC_TLS_SUCCESS;
-    } else {
-      /* server has no such special case */
-      __attribute__((fallthrough));
-    }
+    return FD_QUIC_FAILED;
   default:
     /* fd_quic_tls_provide_data will perform as much handshaking as
        possible.  Thus, we know that we are blocked on needing more data
        when we reach fd_quic_tls_process without having completed the
        handshake. */
     self->state = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
-    return FD_QUIC_TLS_SUCCESS;
+    return FD_QUIC_SUCCESS;
   }
 }
 

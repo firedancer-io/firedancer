@@ -81,7 +81,7 @@ fd_quic_frame_type_flags[ FD_QUIC_FRAME_TYPE_CNT ] = {
 FD_FN_PURE static inline int
 fd_quic_frame_type_allowed( uint pkt_type,
                             uint frame_type ) {
-  if( FD_UNLIKELY( pkt_type > 3u ) ) FD_LOG_ERR(( "Packet type not valid: %x", pkt_type ));
+  if( FD_UNLIKELY( pkt_type > FD_QUIC_PKT_TYPE_ONE_RTT ) ) return 0;
   if( FD_UNLIKELY( frame_type >= FD_QUIC_FRAME_TYPE_CNT ) ) return 0;
   return !!( fd_quic_frame_type_flags[frame_type] & (1u<<pkt_type) );
 }

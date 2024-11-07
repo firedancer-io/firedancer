@@ -62,8 +62,8 @@ fd_quic_sandbox_next_packet( fd_quic_sandbox_t * sandbox ) {
   ulong mline = fd_mcache_line_idx( seq, depth );
 
   fd_frag_meta_t * frag = mcache + mline;
-  if( FD_UNLIKELY( frag->seq < seq ) ) return NULL;
-  if( FD_UNLIKELY( frag->seq > seq ) ) {
+  if( FD_UNLIKELY( fd_seq_lt( frag->seq, seq ) ) ) return NULL;
+  if( FD_UNLIKELY( fd_seq_gt( frag->seq, seq ) ) ) {
     /* Occurs if the fd_quic published 'depth' packets in succession
        without any reads via this function. */
     FD_LOG_WARNING(( "overrun detected, some captured packets were lost" ));

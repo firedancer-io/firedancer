@@ -265,7 +265,7 @@ guess_packet_size( uchar const * data,
   ulong pkt_num_pnoff = 0UL;
   ulong total_len     = size;
 
-  if( FD_UNLIKELY( size < 1) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( size < 1 ) ) return FD_QUIC_PARSE_FAIL;
   uchar hdr_form = fd_quic_h0_hdr_form( *cur_ptr );
 
   ulong rc;
@@ -279,7 +279,7 @@ guess_packet_size( uchar const * data,
     cur_ptr += rc; cur_sz -= rc;
 
     switch( long_packet_type ) {
-    case FD_QUIC_PKTTYPE_V1_INITIAL: {
+    case FD_QUIC_PKT_TYPE_INITIAL: {
       fd_quic_initial_t initial[1];
       rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
       if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
@@ -289,7 +289,7 @@ guess_packet_size( uchar const * data,
       total_len     = pkt_num_pnoff + initial->len;
       break;
     }
-    case FD_QUIC_PKTTYPE_V1_HANDSHAKE: {
+    case FD_QUIC_PKT_TYPE_HANDSHAKE: {
       fd_quic_handshake_t handshake[1];
       rc = fd_quic_decode_handshake( handshake, cur_ptr, cur_sz );
       if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
@@ -299,12 +299,12 @@ guess_packet_size( uchar const * data,
       total_len     = pkt_num_pnoff + handshake->len;
       break;
     }
-    case FD_QUIC_PKTTYPE_V1_RETRY:
+    case FD_QUIC_PKT_TYPE_RETRY:
       /* Do we need to decrypt Retry packets?  I'm not sure */
       /* TODO correctly derive size of packet in case there is another
               packet following the retry packet */
       return 0UL;
-    case FD_QUIC_PKTTYPE_V1_ZERO_RTT:
+    case FD_QUIC_PKT_TYPE_ZERO_RTT:
       /* No support for 0-RTT yet */
       return 0UL;
     default:
@@ -347,8 +347,8 @@ decrypt_packet( uchar * const data,
   int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
-  uint  pkt_number_sz = ( (uint)data[0] & 0x03U ) + 1U;
-  ulong pkt_number = fd_quic_pktnum_decode( data+pkt_num_pnoff, pkt_number_sz );
+  uint  pkt_number_sz = fd_quic_h0_pkt_num_len( data[0] ) + 1u;
+  ulong pkt_number    = fd_quic_pktnum_decode( data+pkt_num_pnoff, pkt_number_sz );
 
   decrypt_res =
     fd_quic_crypto_decrypt( data,           size,
