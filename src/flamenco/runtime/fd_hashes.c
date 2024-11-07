@@ -157,8 +157,6 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
-  if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
-    return;
 
   ulong slot_idx = 0;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -195,8 +193,6 @@ fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
 // https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
 static int
 fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
-  if( FD_LIKELY (!FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) ) )
-    return 0;
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong calculation_stop = epoch_bank->eah_stop_slot;
@@ -205,8 +201,6 @@ fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
 
 static int
 fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
-  if( FD_LIKELY (!FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) ) )
-    return 0;
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
@@ -808,10 +802,8 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   if (slot_ctx->slot_bank.slot >= epoch_bank->eah_start_slot) {
-    if ( FD_UNLIKELY (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash) ) ) {
-      fd_accounts_hash( slot_ctx, NULL, &slot_ctx->slot_bank.epoch_account_hash );
-      epoch_bank->eah_start_slot = ULONG_MAX;
-    }
+    fd_accounts_hash( slot_ctx, NULL, &slot_ctx->slot_bank.epoch_account_hash );
+    epoch_bank->eah_start_slot = ULONG_MAX;
   }
 
   for (ulong i = 0; i < erase_rec_cnt; i++) {
@@ -1153,20 +1145,18 @@ int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash, uint check_hash ) {
   (void) check_hash;
 
-  if( FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash ) ) {
-    if( fd_should_snapshot_include_epoch_accounts_hash (slot_ctx) ) {
-      FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
-      fd_sha256_t h;
-      fd_hash_t hash;
-      fd_accounts_hash( slot_ctx, tpool, &hash );
+  if( fd_should_snapshot_include_epoch_accounts_hash (slot_ctx) ) {
+    FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
+    fd_sha256_t h;
+    fd_hash_t hash;
+    fd_accounts_hash( slot_ctx, tpool, &hash );
 
-      fd_sha256_init( &h );
-      fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
-      fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
-      fd_sha256_fini( &h, accounts_hash );
+    fd_sha256_init( &h );
+    fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_fini( &h, accounts_hash );
 
-      return 0;
-    }
+    return 0;
   }
   return fd_accounts_hash( slot_ctx, tpool, accounts_hash );
 }
