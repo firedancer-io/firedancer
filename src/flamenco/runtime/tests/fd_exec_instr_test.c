@@ -998,7 +998,6 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
 
 static void
 _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
-                      fd_exec_txn_ctx_t *           txn_ctx,
                       fd_exec_slot_ctx_t *          slot_ctx,
                       fd_wksp_t *                   wksp,
                       fd_alloc_t *                  alloc ) {
@@ -1013,10 +1012,6 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
 
   // Detach from workspace
   fd_wksp_detach( wksp );
-
-  if( txn_ctx ) {
-    fd_wksp_free_laddr( fd_exec_txn_ctx_delete( fd_exec_txn_ctx_leave( txn_ctx ) ) );
-  }
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
@@ -1431,7 +1426,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Create and exec transaction */
     fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
     if( task_info == NULL ) {
-      _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
+      _txn_context_destroy( runner, slot_ctx, wksp, alloc );
       return 0UL;
     }
     fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
@@ -1480,7 +1475,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         */
       }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
+      _txn_context_destroy( runner, slot_ctx, wksp, alloc );
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
@@ -1565,7 +1560,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
+    _txn_context_destroy( runner, slot_ctx, wksp, alloc );
 
     *output = txn_result;
     return actual_end - (ulong)output_buf;
