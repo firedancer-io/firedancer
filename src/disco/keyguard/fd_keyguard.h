@@ -19,7 +19,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_VOTER   (0)  /* vote transaction sender */
 #define FD_KEYGUARD_ROLE_GOSSIP  (1)  /* gossip participant */
 #define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
-#define FD_KEYGUARD_ROLE_QUIC    (3)  /* QUIC tile */
 #define FD_KEYGUARD_ROLE_REPAIR  (4)  /* Repair tile */
 #define FD_KEYGUARD_ROLE_BUNDLE  (5)  /* Bundle tile */
 #define FD_KEYGUARD_ROLE_CNT     (6)  /* number of known roles */

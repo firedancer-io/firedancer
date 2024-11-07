@@ -83,9 +83,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "poh_shred"    );
 
-  fd_topob_wksp( topo, "quic_sign"    );
-  fd_topob_wksp( topo, "sign_quic"    );
-
   fd_topob_wksp( topo, "shred_sign"   );
   fd_topob_wksp( topo, "sign_shred"   );
 
@@ -155,8 +152,6 @@ fd_topo_initialize( config_t * config ) {
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_storei", "shred_storei", 0,        65536UL,                                  4UL*FD_SHRED_STORE_MTU,        4UL+config->tiles.shred.max_pending_shred_sets );
 
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_sign",    "quic_sign",    0,        128UL,                                    130UL,                         1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "sign_quic",    "sign_quic",    0,        128UL,                                    64UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                          1UL );
 
@@ -348,13 +343,6 @@ fd_topo_initialize( config_t * config ) {
      so there's at most one fragment in flight at a time anyway.  The
      sign links are also not polled by the mux, instead the tiles will
      read the sign responses out of band in a dedicated spin loop. */
-  for( ulong i=0UL; i<quic_tile_cnt; i++ ) {
-    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "quic_sign",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_out( topo, "quic",     i,                        "quic_sign",      i                                                  );
-    /**/               fd_topob_tile_in(  topo, "quic",     i,           "metric_in", "sign_quic",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_quic",      i                                                  );
-  }
-
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",    i                                                    );
