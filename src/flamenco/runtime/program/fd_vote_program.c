@@ -2471,11 +2471,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_vote_authorize_checked_with_seed_args_t const * args =
         &instruction.inner.authorize_checked_with_seed;
 
-    // This has been removed from anza but we are keeping it for backwards compatability
-    if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, vote_authorize_with_seed ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
-
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L112
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
