@@ -9,9 +9,6 @@
 /* the max supported versions we could receive in a version packet */
 #define FD_QUIC_MAX_VERSIONS 8
 
-#include <stddef.h>
-
-#include "tls/fd_quic_tls_enum.h"
 
 /* forward decls */
 typedef struct fd_quic             fd_quic_t;
