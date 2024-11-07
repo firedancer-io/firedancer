@@ -27,9 +27,11 @@ typedef struct fd_xdp_fds fd_xdp_fds_t;
 
 fd_xdp_fds_t
 fd_xdp_install( uint           if_idx,
-                uint           ip_addr,
+                ulong          multihome_ip_addrs_cnt,
+                uint   const * multihome_ip_addrs,
+                uint           src_ip_addr,
                 ulong          ports_cnt,
                 ushort const * ports,
-                char const *   xdp_mode );
+                char   const * xdp_mode );
 
 #endif /* HEADER_fd_src_waltz_xdp_fd_xdp1_h */

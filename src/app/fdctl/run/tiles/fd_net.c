@@ -576,6 +576,8 @@ privileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
 
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
+                                          tile->net.multihome_ip_addrs_cnt,
+                                          tile->net.multihome_ip_addrs,
                                           tile->net.src_ip_addr,
                                           sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                           udp_port_candidates,
