@@ -38,10 +38,12 @@ struct __attribute__((aligned(8))) bpf_link_create {
 
 fd_xdp_fds_t
 fd_xdp_install( uint           if_idx,
-                uint           ip_addr,
+                ulong          multihome_ip_addr_cnt,
+                uint   const * multihome_ip_addrs,
+                uint           src_ip_addr,
                 ulong          ports_cnt,
                 ushort const * ports,
-                char const *   xdp_mode ) {
+                char   const * xdp_mode ) {
   union bpf_attr attr = {
     .map_type    = BPF_MAP_TYPE_HASH,
     .map_name    = "fd_xdp_udp_dsts",
@@ -57,7 +59,7 @@ fd_xdp_install( uint           if_idx,
     if( FD_UNLIKELY( !port ) ) continue;  /* port 0 implies drop */
 
     uint value = 1U;
-    ulong key  = ((ulong)(ip_addr)<<16 ) | fd_ushort_bswap( port );
+    ulong key  = ((ulong)(src_ip_addr)<<16 ) | fd_ushort_bswap( port );
     union bpf_attr attr = {
       .map_fd   = (uint)udp_dsts_map_fd,
       .key      = (ulong)&key,
@@ -68,6 +70,27 @@ fd_xdp_install( uint           if_idx,
     if( FD_UNLIKELY( -1L==bpf( BPF_MAP_UPDATE_ELEM, &attr, sizeof(union bpf_attr) ) ) ) {
       FD_LOG_ERR(( "bpf_map_update_elem(fd=%d,key=%#lx,value=%#x,flags=0) failed (%i-%s)",
                     udp_dsts_map_fd, key, value, errno, fd_io_strerror( errno ) ));
+    }
+  }
+  /* Add multihoming ip addresses to the map as well */
+  for ( ulong i=0UL; i<multihome_ip_addr_cnt; i++ ) {
+    for( ulong bind_id=0UL; bind_id<ports_cnt; bind_id++ ) {
+      ushort port = (ushort)ports[bind_id];
+      if( FD_UNLIKELY( !port ) ) continue;  /* port 0 implies drop */
+
+      uint value = 1U;
+      ulong key  = ((ulong)(multihome_ip_addrs[i])<<16 ) | fd_ushort_bswap( port );
+      union bpf_attr attr = {
+        .map_fd   = (uint)udp_dsts_map_fd,
+        .key      = (ulong)&key,
+        .value    = (ulong)&value,
+        .flags    = 0UL
+      };
+
+      if( FD_UNLIKELY( -1L==bpf( BPF_MAP_UPDATE_ELEM, &attr, sizeof(union bpf_attr) ) ) ) {
+        FD_LOG_ERR(( "bpf_map_update_elem(fd=%d,key=%#lx,value=%#x,flags=0) failed (%i-%s)",
+                      udp_dsts_map_fd, key, value, errno, fd_io_strerror( errno ) ));
+      }
     }
   }
 
