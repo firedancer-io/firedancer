@@ -37,7 +37,6 @@ default_enable_features( fd_features_t * features ) {
   features->libsecp256k1_fail_on_bad_count2 = 0UL;
   features->remaining_compute_units_syscall_enabled = 0UL;
   features->simplify_writable_program_account_check = 0UL;
-  features->set_exempt_rent_epoch_max = 0UL;
   features->enable_bpf_loader_set_authority_checked_ix = 0UL;
   features->consume_blockstore_duplicate_proofs = 0UL;
   features->disable_deploy_of_alloc_free_syscall = 0UL;
