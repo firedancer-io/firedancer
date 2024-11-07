@@ -46,7 +46,7 @@
   X(0x1d, 18, conn_close_1,        "Section 19.19",  _, _, 0, 1,   N,  )   \
   X(0x1e, 19, handshake_done,      "Section 19.20",  _, _, _, 1,    ,  )
 
-#define FD_QUIC_FRAME_TYPE_CNT (0x20) /* lookup tables should have this many entries */
+#define FD_QUIC_FRAME_TYPE_CNT (0x1f) /* lookup tables should have this many entries */
 
 
 /* Lookup table for allowed frame types *******************************/

@@ -5798,7 +5798,7 @@ fd_quic_frame_handle_conn_close_0_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* the information here can be invaluble for debugging */
+  /* the information here can be invaluable for debugging */
   FD_DEBUG(
     char reason_buf[256] = {0};
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
@@ -5831,7 +5831,7 @@ fd_quic_frame_handle_conn_close_1_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* the information here can be invaluble for debugging */
+  /* the information here can be invaluable for debugging */
   FD_DEBUG(
     char reason_buf[256] = {0};
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
