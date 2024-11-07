@@ -336,9 +336,6 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     ulong * ret
 ) {
 
-  /* stop_sibling_instruction_search_at_parent has been activated on mainnet and testnet, so
-     we treat it has hardcoded (always activated) here. */
-
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Consume base compute cost
