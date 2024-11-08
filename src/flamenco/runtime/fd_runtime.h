@@ -79,6 +79,22 @@ struct fd_raw_block_txn_iter {
 
 typedef struct fd_raw_block_txn_iter fd_raw_block_txn_iter_t;
 
+/* The prevailing layout we have in the runtime is the meta followed by
+   the account's data. This struct encodes that layout and asserts that
+   the alignment requirements of the constituents are satisfied. */
+// TODO: Use this struct at allocation sites so it's clear we use this layout
+struct __attribute__((packed)) fd_account_rec {
+  fd_account_meta_t meta;
+  uchar data[];
+};
+typedef struct fd_account_rec fd_account_rec_t;
+#define FD_ACCOUNT_REC_ALIGN      (8UL)
+#define FD_ACCOUNT_REC_DATA_ALIGN (8UL)
+FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_META_ALIGN,     account_rec_meta_align );
+FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_REC_DATA_ALIGN, account_rec_data_align );
+FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, meta)%FD_ACCOUNT_META_ALIGN)==0,     account_rec_meta_offset );
+FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, data)%FD_ACCOUNT_REC_DATA_ALIGN)==0, account_rec_data_offset );
+
 FD_PROTOTYPES_BEGIN
 
 ulong

@@ -995,7 +995,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
 
   /* Post-sanitization checks. Called from `prepare_sanitized_batch()` which, for now, only is used
      to lock the accounts and perform a couple basic validations.
-     https://github.com/anza-xyz/agave/blob/v2.0.9/sdk/src/transaction/sanitized.rs#L277-L289 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
   err = fd_executor_validate_account_locks( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
@@ -1446,7 +1446,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
     memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
 
-    void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
+    void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
     fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
     borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
@@ -1823,7 +1823,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
         memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
 
-        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
+        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
         borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 

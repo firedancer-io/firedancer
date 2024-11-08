@@ -6,11 +6,14 @@
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/pack/fd_microblock.h"
+#include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
 #include "../log_collector/fd_log_collector.h"
 #include "tests/generated/invoke.pb.h"
 #include "tests/generated/txn.pb.h"
+#include "../features/fd_features.h"
+#include "fd_runtime.h"
 
 /* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx
    and fails in case of error. */
@@ -21,6 +24,12 @@
   } while(0)
 
 FD_PROTOTYPES_BEGIN
+
+/* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
+static inline ulong
+get_transaction_account_lock_limit( fd_exec_slot_ctx_t const * slot_ctx ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
+}
 
 /* Create an InstrContext protobuf struct from a given 
    transaction context and instr info. 

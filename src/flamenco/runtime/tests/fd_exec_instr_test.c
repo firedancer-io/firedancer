@@ -100,7 +100,7 @@ fd_exec_instr_test_runner_new( void * mem,
   runner->funk = funk;
 
   /* Create spad */
-  runner->spad = fd_spad_join( fd_spad_new( spad_mem, fd_ulong_align_up( 128UL * FD_ACC_TOT_SZ_MAX, FD_SPAD_ALIGN ) ) );
+  runner->spad = fd_spad_join( fd_spad_new( spad_mem, fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) ) ) );
   return runner;
 }
 
@@ -229,7 +229,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_funk_end_write( funk );
   fd_scratch_push();
 
-  ulong vote_acct_max = 128UL;
+  ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
   /* Allocate contexts */
   uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
@@ -330,8 +330,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
-  if( FD_UNLIKELY( test_ctx->accounts_count > 128 ) ) {
-    /* TODO remove this hardcoded constant */
+  if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
     REPORT( NOTICE, "too many accounts" );
     return 0;
   }
@@ -366,7 +365,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     if( borrowed_accts[j].const_meta ) {
-      uchar * data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
+      uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong   dlen = borrowed_accts[j].const_meta->dlen;
       fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
@@ -509,8 +508,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Load instruction accounts */
 
-  if( FD_UNLIKELY( test_ctx->instr_accounts_count > 128 ) ) {
-    /* TODO remove this hardcoded constant */
+  if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
     REPORT( NOTICE, "too many instruction accounts" );
     return 0;
   }
@@ -612,7 +610,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
   fd_funk_end_write( runner->funk );
 
-  ulong vote_acct_max = 128UL;
+  ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
   /* Allocate contexts */
   uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );

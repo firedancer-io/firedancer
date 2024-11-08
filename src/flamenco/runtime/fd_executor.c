@@ -29,6 +29,7 @@
 #include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/pack/fd_pack_cost.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../../ballet/pack/fd_pack.h"
 
 #include "../../util/bits/fd_uwide.h"
 
@@ -46,8 +47,12 @@
 
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
-
-#define MAX_TX_ACCOUNT_LOCKS (128UL)
+/* We should strive for these max limits matching between pack and the
+   runtime. If there's a reason for these limits to mismatch, and there
+   could be, then someone should explicitly document that when relaxing
+   these assertions. */
+FD_STATIC_ASSERT( FD_PACK_MAX_COST_PER_BLOCK==MAX_COMPUTE_UNITS_PER_BLOCK,                     executor_pack_max_mismatch );
+FD_STATIC_ASSERT( FD_PACK_MAX_WRITE_COST_PER_ACCT==MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT, executor_pack_max_mismatch );
 
 /* TODO: precompiles currently enter this noop function. Once the move_precompile_verification_to_svm
    feature gets activated, this will need to be replaced with precompile verification functions. */
@@ -502,24 +507,18 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
-static inline ulong
-get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
-}
-
-/* https://github.com/anza-xyz/agave/blob/v2.0.9/sdk/src/transaction/sanitized.rs#L277-L289 */
+/* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
   /* Ensure the number of account keys does not exceed the transaction lock limit
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L282-L283 */
-  ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx );
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L123 */
+  ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx->slot_ctx );
   if( FD_UNLIKELY( txn_ctx->accounts_cnt>tx_account_lock_limit ) ) {
     return FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS;
   }
 
   /* Duplicate account check
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/src/transaction/sanitized.rs#L284-L285 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L125 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
     for( ushort j=(ushort)(i+1U); j<txn_ctx->accounts_cnt; j++ ) {
       if( FD_UNLIKELY( !memcmp( &txn_ctx->accounts[i], &txn_ctx->accounts[j], sizeof(fd_pubkey_t) ) ) ) {
@@ -1239,7 +1238,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     memcpy( borrowed_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
 
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
-      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_SPAD_ALIGN, FD_ACC_TOT_SZ_MAX );
+      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
 
       /* All new accounts should have their rent epoch set to ULONG_MAX.

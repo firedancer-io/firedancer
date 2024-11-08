@@ -584,11 +584,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Translate instruction ********************************************/
   /* translate_instruction is the first thing that agave does
-     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1089 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1089 */
   VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
     FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
   /* Agave consumes CU in translate_instruction
-     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
@@ -661,16 +661,16 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Translate account infos ******************************************/
   /* This is the equivalent of translate_slice in translate_account_infos:
-     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L816 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L816 */
   VM_SYSCALL_CPI_ACC_INFO_T * acc_infos =
     FD_VM_MEM_SLICE_HADDR_ST( vm, 
                               acct_infos_va,
                               VM_SYSCALL_CPI_ACC_INFO_ALIGN,
                               fd_ulong_sat_mul( acct_info_cnt, VM_SYSCALL_CPI_ACC_INFO_SIZE ) );
   /* Right after translating, Agave checks the number of account infos:
-     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L822 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L822 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS( vm->instr_ctx->slot_ctx ) ) ) {
+    if( FD_UNLIKELY( acct_info_cnt > get_cpi_max_account_infos( vm->instr_ctx->slot_ctx ) ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
       return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
     }

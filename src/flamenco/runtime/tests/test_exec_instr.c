@@ -1,8 +1,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #define WKSP_TAG 2
 
-#include "../../fd_flamenco.h"
-#include "../../fd_flamenco_base.h"
 #include "fd_exec_instr_test.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -71,8 +69,8 @@ main( int     argc,
   ulong   scratch_fmem[ 64UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   uchar * scratch_smem = malloc( 1 << 30 ); // 1 GB
 
-  ulong   spad_mem_max = 128UL * FD_ACC_TOT_SZ_MAX;
-  uchar * spad_mem     = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, spad_mem_max, 3 ); /* 1.28 GB */
+  ulong   spad_mem_max = fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) );
+  uchar * spad_mem     = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, spad_mem_max, 3 ); /* 1342191744 B */
   
   fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<30, 64UL );
 

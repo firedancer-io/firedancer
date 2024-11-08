@@ -7,6 +7,8 @@
 
 #include "../fd_borrowed_account.h"
 
+#include "../../../ballet/txn/fd_txn.h"
+
 /* Return data for syscalls */
 
 struct fd_txn_return_data {
@@ -51,7 +53,7 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 
 /* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
-/* https://github.com/firedancer-io/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
+/* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
 #define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
 
 struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
@@ -78,12 +80,17 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_exec_instr_ctx_t   instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
   fd_exec_instr_ctx_t * failed_instr;
   int                   instr_err_idx;
+  /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
+     Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
+     That is the limit we are going to use here. */
   ulong                 accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t           accounts[128];                               /* Array of account pubkeys accessed by this transaction. */
+  fd_pubkey_t           accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of account pubkeys accessed by this transaction. */
   ulong                 executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
-  fd_borrowed_account_t executable_accounts[128];                    /* Array of BPF upgradeable loader program data accounts */
-  fd_borrowed_account_t borrowed_accounts[128];                      /* Array of borrowed accounts accessed by this transaction. */
-  uchar                 nonce_accounts[128];                         /* Nonce accounts in the txn to be saved */
+  fd_borrowed_account_t executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+  fd_borrowed_account_t borrowed_accounts[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of borrowed accounts accessed by this transaction. */
+  uchar                 nonce_accounts[ MAX_TX_ACCOUNT_LOCKS ];      /* Nonce accounts in the txn to be saved */
   uint                  num_instructions;                            /* Counter for number of instructions in txn */
   fd_txn_return_data_t  return_data;                                 /* Data returned from `return_data` syscalls */
   fd_vote_account_cache_t * vote_accounts_map;                       /* Cache of bank's deserialized vote accounts to support fork choice */
@@ -166,7 +173,7 @@ fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
    is dead (0 balance, 0 data, etc.) or not. When agave obtains a
    borrowed account, it doesn't always check if the account is dead or
    not. For example
-   https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453
+   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453
    This function allows us to more closely emulate that behavior. */
 int
 fd_txn_borrowed_account_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
