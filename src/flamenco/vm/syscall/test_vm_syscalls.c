@@ -317,7 +317,7 @@ main( int     argc,
                               (ulong)&input + 50UL,
                               1UL,
                               800UL,
-                              1UL, FD_VM_ERR_INVAL );
+                              0UL, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
   input_mem_regions[2].is_writable=1;
 
 
