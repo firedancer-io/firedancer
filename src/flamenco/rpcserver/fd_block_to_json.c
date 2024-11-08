@@ -545,8 +545,8 @@ fd_txn_to_json_full( fd_webserver_t * ws,
 
   EMIT_SIMPLE("],");
 
-  EMIT_SIMPLE("\"addressTableLookups\":[");
   if( txn->transaction_version == FD_TXN_V0 ) {
+    EMIT_SIMPLE("\"addressTableLookups\":[");
     fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
     for( ulong i = 0; i < txn->addr_table_lookup_cnt; i++ ) {
       if( i ) EMIT_SIMPLE(",");
@@ -567,9 +567,10 @@ fd_txn_to_json_full( fd_webserver_t * ws,
       }
       EMIT_SIMPLE("]}");
     }
+    EMIT_SIMPLE("],");
   }
 
-  fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
+  fd_web_reply_sprintf(ws, "\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
                        (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
 
   ushort instr_cnt = txn->instr_cnt;

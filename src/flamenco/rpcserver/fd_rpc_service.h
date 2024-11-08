@@ -27,10 +27,22 @@ struct fd_rpcserver_args {
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 
-void fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx);
+void fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx);
+
+void fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx);
 
 void fd_rpc_stop_service(fd_rpc_ctx_t * ctx);
 
-void fd_rpc_ws_poll(fd_rpc_ctx_t * ctx);
+int fd_rpc_ws_poll(fd_rpc_ctx_t * ctx);
+
+int fd_rpc_ws_fd(fd_rpc_ctx_t * ctx);
+
+void replay_sham_link_during_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * state, void const * msg, int sz);
+
+void replay_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg);
+
+void stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state, void const * msg, int sz);
+
+void stake_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state);
 
 #endif /* HEADER_fd_src_flamenco_rpc_fd_rpc_service_h */

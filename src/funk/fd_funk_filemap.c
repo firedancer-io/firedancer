@@ -19,13 +19,50 @@ fd_funk_open_file( const char * filename,
                    ulong        total_sz,
                    fd_funk_file_mode_t mode,
                    fd_funk_close_file_args_t * close_args_out ) {
+
+  /* See if we already have the file open */
+
+  if( mode == FD_FUNK_READONLY || mode == FD_FUNK_READ_WRITE ) {
+    fd_shmem_join_info_t info;
+    if( !fd_shmem_join_query_by_name("funk", &info) ) {
+      void * shmem = info.join;
+      fd_wksp_t * wksp = fd_wksp_join( shmem );
+      if( FD_UNLIKELY( !wksp ) ) {
+        FD_LOG_ERR(( "fd_wksp_join(%p) failed", shmem ));
+        return NULL;
+      }
+
+      fd_wksp_tag_query_info_t info2;
+      if( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info2, 1 ) ) {
+        FD_LOG_ERR(( "%s does not contain a funky", filename ));
+        return NULL;
+      }
+
+      void * funk_shmem = fd_wksp_laddr_fast( wksp, info2.gaddr_lo );
+      fd_funk_t * funk = fd_funk_join( funk_shmem );
+      if( funk == NULL ) {
+        FD_LOG_ERR(( "failed to join a funky" ));
+        return NULL;
+      }
+
+      FD_LOG_NOTICE(( "reopened funk with %lu records", fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ) ));
+
+      if( close_args_out != NULL ) {
+        close_args_out->shmem = shmem;
+        close_args_out->fd = -1;
+        close_args_out->total_sz = 0;
+      }
+      return funk;
+    }
+  }
+
   /* Open the file */
 
   int open_flags, can_resize, can_create, do_new;
   switch (mode) {
   case FD_FUNK_READONLY:
     if( filename == NULL  || filename[0] == '\0' ) {
-      FD_LOG_ERR(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace" ));
+      FD_LOG_ERR(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace, funk file required" ));
       return NULL;
     }
     open_flags = O_RDWR; /* We mark the memory as read-only after we are done setting up */
@@ -35,7 +72,7 @@ fd_funk_open_file( const char * filename,
     break;
   case FD_FUNK_READ_WRITE:
     if( filename == NULL  || filename[0] == '\0' ) {
-      FD_LOG_ERR(( "mode FD_FUNK_READ_WRITE can not be used with an anonymous workspace" ));
+      FD_LOG_ERR(( "mode FD_FUNK_READ_WRITE can not be used with an anonymous workspace, funk file required" ));
       return NULL;
     }
     open_flags = O_RDWR;

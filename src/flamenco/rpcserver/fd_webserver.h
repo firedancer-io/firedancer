@@ -21,7 +21,9 @@ int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_valloc_
 
 int fd_webserver_stop(fd_valloc_t valloc, fd_webserver_t * ws);
 
-void fd_webserver_poll(fd_webserver_t * ws);
+int fd_webserver_poll(fd_webserver_t * ws);
+
+int fd_webserver_fd(fd_webserver_t * ws);
 
 #ifndef KEYW_UNKNOWN
 #define KEYW_UNKNOWN -1L

@@ -242,7 +242,7 @@ validate( fd_topo_t const * topo ) {
       for( ulong k=0UL; k<topo->tiles[ i ].in_cnt; k++ ) {
         if( FD_UNLIKELY( j==k ) ) continue;
         if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] == topo->tiles[ i ].in_link_id[ k ] ) )
-          FD_LOG_ERR(( "tile %lu (%s) has duplicated in link %lu (%s)", i, topo->tiles[ i ].name, 
+          FD_LOG_ERR(( "tile %lu (%s) has duplicated in link %lu (%s)", i, topo->tiles[ i ].name,
               topo->tiles[ i ].in_link_id[ j ], topo->links[ topo->tiles[ i ].in_link_id[ j ] ].name ));
       }
     }
@@ -254,7 +254,7 @@ validate( fd_topo_t const * topo ) {
       for( ulong k=0UL; k<topo->tiles[ i ].out_cnt; k++ ) {
         if( FD_UNLIKELY( j==k ) ) continue;
         if( FD_UNLIKELY( topo->tiles[ i ].out_link_id[ j ] == topo->tiles[ i ].out_link_id[ k ] ) )
-          FD_LOG_ERR(( "tile %lu (%s) has duplicated out link %lu (%s)", i, topo->tiles[ i ].name, 
+          FD_LOG_ERR(( "tile %lu (%s) has duplicated out link %lu (%s)", i, topo->tiles[ i ].name,
               topo->tiles[ i ].out_link_id[ j ], topo->links[ topo->tiles[ i ].out_link_id[ j ] ].name ));
       }
     }
@@ -369,6 +369,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "thread", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
+    "rpcsrv", /* FIREDANCER only */
 #endif
   };
 
@@ -502,6 +503,6 @@ fd_topob_finish( fd_topo_t * topo,
     wksp->page_sz = page_sz;
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
-  
+
   validate( topo );
 }

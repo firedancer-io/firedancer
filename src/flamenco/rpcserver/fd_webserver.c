@@ -311,8 +311,14 @@ int fd_webserver_stop(fd_valloc_t valloc, fd_webserver_t * ws) {
   return 0;
 }
 
-void fd_webserver_poll(fd_webserver_t * ws) {
-  fd_http_server_poll( ws->server );
+int
+fd_webserver_poll(fd_webserver_t * ws) {
+  return fd_http_server_poll( ws->server );
+}
+
+int
+fd_webserver_fd(fd_webserver_t * ws) {
+  return fd_http_server_fd( ws->server );
 }
 
 int

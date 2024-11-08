@@ -1,0 +1,69 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# rpcserv_socket_fd: The metric tile serves a prometheus compatible HTTP
+#                    endpoint, which is over TCP and does not use our
+#                    XDP program.  It uses regular kernel sockets, so
+#                    this is the socket file descriptor.
+unsigned int logfile_fd, unsigned int rpcserv_socket_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# server: serving pages over HTTP requires accepting connections
+#
+# arg 0 is the listen socket file descriptor to accept connections on.
+accept4: (and (eq (arg 0) rpcserv_socket_fd)
+              (eq (arg 1) 0)
+              (eq (arg 2) 0)
+              (eq (arg 3) "SOCK_CLOEXEC|SOCK_NONBLOCK"))
+
+# server: serving pages over HTTP requires reading from connections
+#
+# arg 0 is the file descriptor to read from.  It can be any of the
+# connected client sockets returned by accept4(2).  To accomodate this,
+# we allow any file descriptor except those which we know are not these
+# connected clients, which are the log file, STDOUT, and the listening
+# socket itself.
+read: (not (or (eq (arg 0) 2)
+               (eq (arg 0) logfile_fd)
+               (eq (arg 0) rpcserv_socket_fd)))
+
+# server: serving pages over HTTP requires writing to connections
+#
+# arg 0 is the file descriptor to send to.  It can be any of the
+# connected client sockets returned by accept4(2).  To accomodate this,
+# we allow any file descriptor except those which we know are not these
+# connected clients, which are the log file, STDOUT, and the listening
+# socket itself.
+sendto: (not (or (eq (arg 0) 2)
+                 (eq (arg 0) logfile_fd)
+                 (eq (arg 0) rpcserv_socket_fd)))
+
+# server: serving pages over HTTP requires closing connections
+#
+# arg 0 is the file descriptor to close.  It can be any of the connected
+# client sockets returned by accept4(2).  To accomodate this, we allow
+# any file descriptor except those which we know are not these connected
+# clients, which are the log file, STDOUT, and the listening socket
+# itself.
+close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) logfile_fd)
+                (eq (arg 0) rpcserv_socket_fd)))
+
+# server: serving pages over HTTP requires polling connections
+#
+# arg 2 is the timeout.
+poll: (eq (arg 2) 0)

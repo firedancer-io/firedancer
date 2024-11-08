@@ -286,7 +286,7 @@ repair_shred_deliver_fail( fd_pubkey_t const * id FD_PARAM_UNUSED,
                            uint                shred_index,
                            void *              arg FD_PARAM_UNUSED,
                            int                 reason ) {
-  FD_LOG_WARNING(( "repair failed to get shred - slot: %lu, shred_index: %u, reason: %u", slot, shred_index, reason ));
+  FD_LOG_WARNING(( "repair failed to get shred - slot: %lu, shred_index: %u, reason: %d", slot, shred_index, reason ));
 }
 
 static inline int
@@ -566,7 +566,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->blockstore_wksp==NULL ) {
     FD_LOG_ERR(( "no blocktore workspace" ));
   }
-  
+
   ctx->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
   FD_TEST( ctx->blockstore!=NULL );
 
