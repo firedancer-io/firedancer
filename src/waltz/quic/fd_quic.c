@@ -1225,7 +1225,6 @@ fd_quic_send_retry( fd_quic_t *               quic,
         quic->config.net.listen_udp_port,
         dst_udp_port,
         1 ) == FD_QUIC_FAILED ) ) {
-    quic->metrics.conn_err_retry_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   };
   return 0UL;
