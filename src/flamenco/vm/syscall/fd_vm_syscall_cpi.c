@@ -367,14 +367,15 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
 #define FD_CPI_MAX_SIGNER_CNT              (16UL)
 
-/* Maximum number of account info structs that can be used in a single CPI
+/* "Maximum number of account info structs that can be used in a single CPI
    invocation. A limit on account info structs is effectively the same as
    limiting the number of unique accounts. 128 was chosen to match the max
-   number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS).
+   number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS)."
 
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25 */
+   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25
+   https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
 
-#define FD_CPI_MAX_ACCOUNT_INFOS           ( fd_ulong_if( FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit), 128UL, 64UL ) )
+#define FD_CPI_MAX_ACCOUNT_INFOS(slot_ctx) ( fd_ulong_if( FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit), 128UL, 64UL ) )
 
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
    instructions are not more limited than transaction instructions if the size
@@ -392,52 +393,6 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
 #define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
 
-/* fd_vm_syscall_cpi_preflight_check contains common argument checks
-   for cross-program invocations.
-
-   Solana Labs does these checks after address translation.
-   We do them before to avoid length overflow.  Reordering checks can
-   change the error code, but this is fine as consensus only cares about
-   whether an error occurred at all or not. */
-
-static int
-fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
-                                   ulong acct_info_cnt,
-                                   fd_exec_slot_ctx_t const * slot_ctx ) {
-
-  /* If the amount of signers does not fit into a signed integer, Agave will throw InvalidLength
-     https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580 */
-  if ( FD_UNLIKELY( signers_seeds_cnt > INT_MAX ) ) {
-    return FD_VM_ERR_SYSCALL_INVALID_LENGTH;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
-  if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
-    // TODO: return SyscallError::TooManySigners
-    FD_LOG_WARNING(("TODO: return too many signers" ));
-    return FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
-  if( FD_FEATURE_ACTIVE( slot_ctx, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {
-      // TODO: return SyscallError::MaxInstructionAccountInfosExceeded
-      FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
-      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
-    }
-  } else {
-    ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
-    if ( FD_UNLIKELY( adjusted_len > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
-      /* Cap the number of account_infos a caller can pass to approximate
-         maximum that accounts that could be passed in an instruction
-         TODO: return SyscallError::TooManyAccounts */
-      FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
-      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
-    }
-  }
-
-  return FD_VM_SUCCESS;
-}
 
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct
    count and data sz checks.  Also consumes compute units proportional
