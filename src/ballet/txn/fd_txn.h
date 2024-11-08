@@ -73,6 +73,7 @@
    limit of 64 is currently in place, but this is being changed to 128 in the
    near future (https://github.com/solana-labs/solana/issues/27241), so we'll
    use 128. */
+/* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139 */
 #define FD_TXN_ACCT_ADDR_MAX         (128UL)
 
 /* FD_TXN_ADDR_TABLE_LOOKUP_MAX: The (inclusive) maximum number of address
@@ -105,6 +106,22 @@
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
    transaction, using fd_txn_parse() verification rules. */
 #define FD_TXN_MIN_SERIALIZED_SZ     (134UL)
+
+/* BEGIN Agave limits */
+
+/* "Maximum number of accounts that a transaction may lock.
+    128 was chosen because it is the minimum number of accounts
+    needed for the Neon EVM implementation."
+   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/src/transaction/sanitized.rs#L30 */
+#define MAX_TX_ACCOUNT_LOCKS         (128UL)
+/* In the FD runtime, we've sized things assuming up to
+   MAX_TX_ACCOUNT_LOCKS accounts per transaction. We rely on the txn
+   parser to enforce this limit, up till the point of
+   validate_account_locks(). If the txn parser bumps the account limit,
+   then we might overflow in the runtime. */
+FD_STATIC_ASSERT( MAX_TX_ACCOUNT_LOCKS==FD_TXN_ACCT_ADDR_MAX, num_accounts_per_txn );
+
+/* END Agave limits */
 
 
 /* A Solana transaction instruction, i.e. one command or step to execute in a

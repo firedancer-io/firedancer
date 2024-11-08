@@ -325,7 +325,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
   /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found. */
   /* We allow dead accounts to be borrowed here because that's what agave currently does.
-     https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453 */
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453 */
   int err = fd_txn_borrowed_account_view_idx_allow_dead( instr_ctx->txn_ctx, callee_instr->program_id, &program_rec );
   if( FD_UNLIKELY( err ) ) {
     /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
@@ -373,9 +373,17 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
    number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS)."
 
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25
-   https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
+   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
 
-#define FD_CPI_MAX_ACCOUNT_INFOS(slot_ctx) ( fd_ulong_if( FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit), 128UL, 64UL ) )
+#define FD_CPI_MAX_ACCOUNT_INFOS           (128UL)
+/* This is just encoding what Agave says in their code comments into a
+   compile-time check, so if anyone ever inadvertently changes one of
+   the limits, they will have to take a look. */
+FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
+static inline ulong
+get_cpi_max_account_infos( fd_exec_slot_ctx_t const * slot_ctx ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
+}
 
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
    instructions are not more limited than transaction instructions if the size
@@ -389,6 +397,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
    accounts are always within the maximum instruction account limit for BPF
    program instructions.
 
+   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L19
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/serialization.rs#L26 */
 
 #define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)

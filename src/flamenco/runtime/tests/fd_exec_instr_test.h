@@ -4,6 +4,9 @@
 /* fd_exec_instr_test.h provides APIs for running instruction processor
    tests. */
 
+#include "../../fd_flamenco.h"
+#include "../../fd_flamenco_base.h"
+#include "../fd_runtime.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"
