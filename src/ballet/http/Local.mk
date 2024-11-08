@@ -18,6 +18,7 @@ $(call make-unit-test,test_http_server,test_http_server,fd_ballet fd_util)
 $(call run-unit-test,test_http_server)
 
 $(call make-unit-test,test_live_http_server,test_live_http_server,fd_ballet fd_util)
+$(call make-unit-test,test_http_bench_server,test_http_bench_server,fd_ballet fd_util)
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_picohttpparser,fuzz_picohttpparser,fd_ballet fd_util)

@@ -496,7 +496,7 @@ fd_topo_initialize( config_t * config ) {
       FD_TEST( config->gossip.port == config->tiles.gossip.gossip_listen_port );
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
       if( FD_UNLIKELY( tile->gossip.tvu_port>(ushort)(USHORT_MAX-6) ) )
-        FD_LOG_ERR(( "shred_listen_port in the config must not be greater than %u", (ushort)(USHORT_MAX-6) ));
+        FD_LOG_ERR(( "shred_listen_port in the config must not be greater than %hu", (ushort)(USHORT_MAX-6) ));
       tile->gossip.tvu_fwd_port = (ushort)(config->tiles.shred.shred_listen_port + 6);
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
       tile->gossip.tpu_port = config->tiles.quic.regular_transaction_listen_port;
