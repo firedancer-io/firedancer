@@ -640,6 +640,25 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     return err;
   }
 
+  /* Create the instruction to execute (in the input format the FD runtime expects) from
+     the translated CPI ABI inputs. */
+  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt ];
+
+  vm->instr_ctx->txn_ctx->instr_info_cnt++;
+  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;;
+  }
+
+  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  /* Prepare the instruction for execution in the runtime. This is required by the runtime
+     before we can pass an instruction to the executor. */
+  fd_instruction_account_t instruction_accounts[256];
+  ulong instruction_accounts_cnt;
+  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  if( FD_UNLIKELY( err ) ) return err;
+
   /* Translate account infos ******************************************/
   /* This is the equivalent of translate_slice in translate_account_infos:
      https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L816 */
@@ -664,25 +683,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       return FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS;
     }
   }
-
-  /* Create the instruction to execute (in the input format the FD runtime expects) from
-     the translated CPI ABI inputs. */
-  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt ];
-
-  vm->instr_ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;;
-  }
-
-  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Prepare the instruction for execution in the runtime. This is required by the runtime
-     before we can pass an instruction to the executor. */
-  fd_instruction_account_t instruction_accounts[256];
-  ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
 
   /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
   ulong callee_account_keys[256];
