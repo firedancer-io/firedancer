@@ -326,6 +326,13 @@ typedef struct {
     struct {
       char  identity_key_path[ PATH_MAX ];
     } eqvoc;
+
+    struct {
+      ushort  rpc_port;
+      ushort  tpu_port;
+      uint    tpu_ip_addr;
+      char    identity_key_path[ PATH_MAX ];
+    } rpcserv;
   };
 } fd_topo_tile_t;
 
