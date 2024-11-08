@@ -346,8 +346,6 @@ after_credit( fd_pack_ctx_t *     ctx,
   /* If any banks are busy, check one of the busy ones see if it is
      still busy. */
   if( FD_LIKELY( ctx->bank_idle_bitset!=fd_ulong_mask_lsb( (int)bank_cnt ) ) ) {
-    *charge_busy = 1;
-
     int   poll_cursor = ctx->poll_cursor;
     ulong busy_bitset = (~ctx->bank_idle_bitset) & fd_ulong_mask_lsb( (int)bank_cnt );
 
@@ -378,6 +376,7 @@ after_credit( fd_pack_ctx_t *     ctx,
            eliminate the check easily. */
         ( (MICROBLOCK_DURATION_NS==0L) || (ctx->bank_ready_at[poll_cursor]<now) ) &&
         (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) ) ) {
+      *charge_busy = 1;
       ctx->bank_idle_bitset |= 1UL<<poll_cursor;
     }
 
