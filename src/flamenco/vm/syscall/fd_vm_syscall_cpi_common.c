@@ -647,7 +647,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     FD_VM_MEM_SLICE_HADDR_ST( vm, 
                               acct_infos_va,
                               VM_SYSCALL_CPI_ACC_INFO_ALIGN,
-                              acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE );
+                              fd_ulong_sat_mul( acct_info_cnt, VM_SYSCALL_CPI_ACC_INFO_SIZE ) );
   /* Right after translating, Agave checks the number of account infos:
      https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L822 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
