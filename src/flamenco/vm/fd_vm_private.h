@@ -509,7 +509,7 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
    of translate_slice{_mut}. However, this check does not allow for 
    multi region accesses. So if there is an attempt at a multi region
    translation, an error will be returned. 
-   
+
    FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a 
    store, but intentionally omits the is_writable checks for the 
    input region that are done during memory translation. */
@@ -607,12 +607,21 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
 /* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
    Agave's translate_slice function returns an empty array if the sz == 0.
-   
+
    Users of this macro should be aware that they should never access the returned value if sz==0.
-   
+
    https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560 
-   
-   LONG_MAX check: https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580 */
+
+   LONG_MAX check: https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580
+   Technically, the check in Agave is against
+   "pointer-sized signed integer type ... The size of this primitive is
+    how many bytes it takes to reference any location in memory. For
+    example, on a 32 bit target, this is 4 bytes and on a 64 bit target,
+    this is 8 bytes."
+   Realistically, given the amount of memory that a validator consumes,
+   no one is going to be running on a 32 bit target. So, we don't bother
+   with conditionally compiling in an INT_MAX check. We just assume
+   LONG_MAX. */
 #define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
