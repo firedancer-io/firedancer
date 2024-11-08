@@ -47,6 +47,33 @@
   ulong reg_dst;
   ulong reg_src;
 
+/* These mimic the exact Rust semantics for wrapping_shl and wrapping_shr. */
+
+/* u64::wrapping_shl: a.unchecked_shl(b & (64 - 1))
+   
+   https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shl
+ */
+#define FD_RUST_ULONG_WRAPPING_SHL( a, b ) (a << ( b & ( 63 ) ))
+
+/* u64::wrapping_shr: a.unchecked_shr(b & (64 - 1))
+   
+   https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shr
+ */
+#define FD_RUST_ULONG_WRAPPING_SHR( a, b ) (a >> ( b & ( 63 ) ))
+
+/* u32::wrapping_shl: a.unchecked_shl(b & (32 - 1))
+   
+   https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shl
+ */
+#define FD_RUST_UINT_WRAPPING_SHL( a, b ) (a << ( b & ( 31 ) ))
+
+/* u32::wrapping_shr: a.unchecked_shr(b & (32 - 1))
+   
+   https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shr
+ */
+#define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
+
+
 # define FD_VM_INTERP_INSTR_EXEC                                                                 \
   if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
   instr   = text[ pc ];                  /* Guaranteed in-bounds */                              \
@@ -381,7 +408,8 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x64) /* FD_SBPF_OP_LSH_IMM */
-    reg[ dst ] = (ulong)( (uint)reg_dst << imm );
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L291 */
+    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg_dst, (uint)imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x65) /* FD_SBPF_OP_JSGT_IMM */
@@ -389,7 +417,8 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x67) /* FD_SBPF_OP_LSH64_IMM */
-    reg[ dst ] = reg_dst << imm;
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L376 */
+    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg_dst, imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x69) { /* FD_SBPF_OP_LDXH */
@@ -423,7 +452,8 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6c) /* FD_SBPF_OP_LSH_REG */
-    reg[ dst ] = (ulong)( (uint)reg_dst << (uint)reg_src ); /* FIXME: WIDE SHIFT */
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L292 */
+    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg_dst, reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x6d) /* FD_SBPF_OP_JSGT_REG */
@@ -431,7 +461,8 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6f) /* FD_SBPF_OP_LSH64_REG */
-    reg[ dst ] = reg_dst << reg_src; /* FIXME: WIDE SHIFT */
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L377 */
+    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg_dst, reg_src );
   FD_VM_INTERP_INSTR_END;
 
   /* 0x70 - 0x7f ******************************************************/
@@ -464,7 +495,8 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x74) /* FD_SBPF_OP_RSH_IMM */
-    reg[ dst ] = (ulong)( (uint)reg_dst >> imm ); /* FIXME: WIDE SHIFTS */
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L293 */
+    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x75) /* FD_SBPF_OP_JSGE_IMM */
@@ -472,7 +504,8 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x77) /* FD_SBPF_OP_RSH64_IMM */
-    reg[ dst ] = reg_dst >> imm; /* FIXME: WIDE SHIFTS */
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L378 */
+    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg_dst, imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x79) { /* FD_SBPF_OP_LDXQ */
@@ -506,7 +539,8 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7c) /* FD_SBPF_OP_RSH_REG */
-    reg[ dst ] = (ulong)( (uint)reg_dst >> (uint)reg_src ); /* FIXME: WIDE SHIFTS */
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L294 */
+    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg_dst, (uint)reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x7d) /* FD_SBPF_OP_JSGE_REG */
@@ -514,7 +548,8 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7f) /* FD_SBPF_OP_RSH64_REG */
-    reg[ dst ] = reg_dst >> reg_src; /* FIXME: WIDE SHIFTS */
+    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L379 */
+    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg_dst, reg_src );
   FD_VM_INTERP_INSTR_END;
 
   /* 0x80-0x8f ********************************************************/
