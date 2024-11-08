@@ -57,7 +57,7 @@ prometheus_print1( fd_topo_t const *         topo,
               for( ulong l=0UL; l<consumer_tile->in_cnt; l++ ) {
                 for( ulong m=0UL; m<tile->out_cnt; m++ ) {
                   if( FD_UNLIKELY( consumer_tile->in_link_id[ l ]==tile->out_link_id[ m ] && consumer_tile->in_link_reliable[ l ] ) ) {
-                    fd_topo_link_t const * link = &topo->links[ consumer_tile->in_link_id[ k ] ];
+                    fd_topo_link_t const * link = &topo->links[ consumer_tile->in_link_id[ l ] ];
 
                     ulong value = *(fd_metrics_link_out( tile->metrics, reliable_conns_idx ) + metric->offset );
                     switch( metric->converter ) {
