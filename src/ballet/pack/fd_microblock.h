@@ -60,7 +60,7 @@ struct __attribute__((aligned(64))) fd_txn_p {
      uint rebated_cus; /* requested_execution_cus-real execution CUs. Pack reads this for CU rebating. */
      uint actual_consumed_cus; /* non_execution_cus+real execution CUs. PoH reads this for block CU counting. */
    } bank_cu; /* Populated by bank. */
-   long received_ticks; /* Timestamp when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
+   ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
   };
   uint  flags; /* Populated by pack, bank.  A combination of the bitfields FD_TXN_P_FLAGS_* defined above */
   /* union {

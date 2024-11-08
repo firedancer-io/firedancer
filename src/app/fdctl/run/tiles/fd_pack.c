@@ -27,7 +27,11 @@
    transactions/microblock, that's 62k txn/sec/bank. */
 #define MICROBLOCK_DURATION_NS  (0L)
 
-#define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
+/* There are 151 accepted blockhashes, but those don't include skips.
+   This check is neither precise nor accurate, but just good enough.
+   The bank tile does the final check.  We give a little margin for a
+   few percent skip rate. */
+#define TRANSACTION_LIFETIME_SLOTS 160UL
 
 /* About 6 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT FD_PACK_MAX_BANK_TILES
@@ -160,9 +164,13 @@ typedef struct {
      successful transaction insert. */
   long last_successful_insert;
 
-  /* transaction_lifetime_ns, microblock_duration_ns, and wait_duration
+  /* highest_observed_slot stores the highest slot number we've seen
+     from any transaction coming from the resolv tile.  When this
+     increases, we expire old transactions. */
+  ulong highest_observed_slot;
+
+  /* microblock_duration_ns, and wait_duration
      respectively scaled to be in ticks instead of nanoseconds */
-  ulong transaction_lifetime_ticks;
   ulong microblock_duration_ticks;
   ulong wait_duration_ticks[ MAX_TXN_PER_MICROBLOCK+1UL ];
 
@@ -311,11 +319,10 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   spot->txnp->payload_sz = insert->txnp->payload_sz;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
-  /* Unpack the time stashed in the CUs field */
-  long receive_time = insert->txnp->received_ticks;
+  ulong blockhash_slot = insert->txnp->blockhash_slot;
 
   long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)receive_time+TIME_OFFSET );
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot );
   insert_duration      += fd_tickcount();
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -463,9 +470,6 @@ after_credit( fd_pack_ctx_t *     ctx,
        helps with account locality. */
     fd_pack_microblock_complete( ctx->pack, (ulong)i );
 
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
-
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
@@ -558,6 +562,9 @@ during_frag( fd_pack_ctx_t * ctx,
     }
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
     ctx->leader_bank          = became_leader->bank;
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
@@ -597,9 +604,19 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_DCACHE_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    long now = fd_tickcount();
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+    if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_slot) ) ) {
+      /* Using the resolv tile's knowledge of the current slot is a bit
+         of a hack, since we don't get any info if there are no
+         transactions and we're not leader.  We're actually in exactly
+         the case where that's okay though.  The point of calling
+         expire_before long before we become leader is so that we don't
+         drop new but low-fee-paying transactions when pack is clogged
+         with expired but high-fee-paying transactions.  That can only
+         happen if we are getting transactions. */
+      ctx->highest_observed_slot = sig;
+      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+      FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+    }
 
 #if FD_PACK_USE_EXTRA_STORAGE
     if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
@@ -614,7 +631,7 @@ during_frag( fd_pack_ctx_t * ctx,
       /* We want to store the current time in cur_spot so that we can
          track its expiration better.  We just stash it in the CU
          fields, since those aren't important right now. */
-      ctx->cur_spot->txnp->received_ticks = now;
+      ctx->cur_spot->txnp->blockhash_slot = sig;
       ctx->insert_to_extra                = 1;
       FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
     }
@@ -702,8 +719,9 @@ after_frag( fd_pack_ctx_t *     ctx,
 #else
     if( 1 ) {
 #endif
+      ulong blockhash_slot = sig;
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot );
       insert_duration      += fd_tickcount();
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -778,7 +796,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->rng                           = rng;
   ctx->last_successful_insert        = 0L;
-  ctx->transaction_lifetime_ticks    = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)TRANSACTION_LIFETIME_NS + 0.5);
+  ctx->highest_observed_slot         = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
 #if FD_PACK_USE_EXTRA_STORAGE
   ctx->insert_to_extra               = 0;
