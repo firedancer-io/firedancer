@@ -704,16 +704,6 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 /* Respond to a ping from another validator */
 static void
 fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_ping_t const * ping ) {
-  /* Verify the signature */
-  fd_sha512_t sha2[1];
-  if (fd_ed25519_verify( /* msg */ ping->token.uc,
-                         /* sz */ 32UL,
-                         /* sig */ ping->signature.uc,
-                         /* public_key */ ping->from.uc,
-                         sha2 )) {
-    FD_LOG_WARNING(("received ping with invalid signature"));
-    return;
-  }
 
   /* Build a pong message */
   fd_gossip_msg_t gmsg;
@@ -1001,16 +991,6 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     return;
   }
 
-  /* Verify the signature */
-  fd_sha512_t sha2[1];
-  if (fd_ed25519_verify( /* msg */ pong->token.uc,
-                         /* sz */ 32UL,
-                         /* sig */ pong->signature.uc,
-                         /* public_key */ pong->from.uc,
-                         sha2 )) {
-    FD_LOG_WARNING(("received pong with invalid signature"));
-    return;
-  }
 
   val->pongtime = glob->now;
   fd_hash_copy(&val->id, &pong->from);
@@ -1082,6 +1062,10 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 /* Process an incoming crds value */
 static void
 fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_pubkey_t * pubkey, fd_crds_value_t* crd) {
+  if( crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) {
+    return;
+  }
+
   /* Verify the signature */
   ulong wallclock;
   switch (crd->data.discriminant) {
@@ -1140,9 +1124,6 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0)
     /* Ignore my own messages */
     return;
-  if( crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) {
-    return;
-  }
 
   /* Perform the value hash to get the value table key */
   uchar buf[PACKET_DATA_SIZE];
@@ -1195,22 +1176,6 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     return;
   }
 
-  ctx.data = buf;
-  ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
-    FD_LOG_ERR(("fd_crds_data_encode failed"));
-    return;
-  }
-
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                         /* sig */ crd->signature.uc,
-                         /* public_key */ pubkey->uc,
-                         sha )) {
-    FD_LOG_DEBUG(("received crds_value with invalid signature"));
-    return;
-  }
 
   /* Store the value for later pushing/duplicate detection */
   glob->recv_nondup_cnt++;
@@ -1316,39 +1281,6 @@ static void
 fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_prune_msg_t * msg) {
   (void)from;
 
-  /* Confirm the message is for me */
-  if (memcmp(msg->data.destination.uc, glob->public_key->uc, 32U) != 0)
-    return;
-
-  /* Verify the signature. This is hacky for prune messages */
-  fd_gossip_prune_sign_data_t signdata;
-  signdata.pubkey = msg->data.pubkey;
-  signdata.prunes_len = msg->data.prunes_len;
-  signdata.prunes = msg->data.prunes;
-  signdata.destination = msg->data.destination;
-  signdata.wallclock = msg->data.wallclock;
-
-  /* Verify the signature. You would think that solana would use
-     msg->pubkey.uc for this, but that pubkey is actually ignored. The
-     inclusion of two pubkeys in this message is confusing and
-     problematic. */
-  uchar buf[PACKET_DATA_SIZE];
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = buf;
-  ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
-    FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
-    return;
-  }
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                         /* sig */ msg->data.signature.uc,
-                         /* public_key */ msg->data.pubkey.uc,
-                         sha )) {
-    FD_LOG_WARNING(("received prune_msg with invalid signature"));
-    return;
-  }
 
   /* Find the active push state which needs to be pruned */
   fd_push_state_t* ps = NULL;

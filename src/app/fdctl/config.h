@@ -138,6 +138,7 @@ typedef struct {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint gossip_verify_tile_count;
   } layout;
 
   struct {
