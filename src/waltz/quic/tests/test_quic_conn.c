@@ -158,35 +158,33 @@ void
 my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   (void)stream;
   my_stream_meta_t * meta = (my_stream_meta_t*)ctx;
-  switch( type ) {
-    case FD_QUIC_NOTIFY_END:
-      FD_LOG_DEBUG(( "reclaiming stream" ));
 
-      if( stream->conn->server ) {
-        FD_LOG_DEBUG(( "SERVER" ));
-      } else {
-        FD_LOG_DEBUG(( "CLIENT" ));
+  if( FD_UNLIKELY( type!=FD_QUIC_STREAM_NOTIFY_END ) ) {
+    FD_LOG_DEBUG(( "NOTIFY: %#x", (uint)type ));
+    return;
+  }
 
-        if( client_conn && state == 0 ) {
-          /* obtain new stream */
-          fd_quic_stream_t * new_stream = fd_quic_conn_new_stream( client_conn );
-          FD_TEST( new_stream );
+  FD_LOG_DEBUG(( "reclaiming stream" ));
 
-          /* set context on stream to meta */
-          fd_quic_stream_set_context( new_stream, meta );
+  if( stream->conn->server ) {
+    FD_LOG_DEBUG(( "SERVER" ));
+  } else {
+    FD_LOG_DEBUG(( "CLIENT" ));
 
-          /* populate meta */
-          meta->stream = new_stream;
+    if( client_conn && state == 0 ) {
+      /* obtain new stream */
+      fd_quic_stream_t * new_stream = fd_quic_conn_new_stream( client_conn );
+      FD_TEST( new_stream );
 
-          /* return meta */
-          free_stream( meta );
-        }
-      }
-      break;
+      /* set context on stream to meta */
+      fd_quic_stream_set_context( new_stream, meta );
 
-    default:
-      FD_LOG_DEBUG(( "NOTIFY: %#x", (uint)type ));
-      break;
+      /* populate meta */
+      meta->stream = new_stream;
+
+      /* return meta */
+      free_stream( meta );
+    }
   }
 }
 

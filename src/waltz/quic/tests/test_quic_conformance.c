@@ -120,7 +120,7 @@ test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   }
   FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   == 0UL        );
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[3]== 0UL        );
   FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt );
   FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt );
 
@@ -140,7 +140,7 @@ test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   } while(0);
   FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+1UL );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            1UL );
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[3]==            1UL ); /* drop */
   FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+1UL );
   FD_TEST( sandbox->quic->metrics.frame_rx_cnt[6]     == window_cnt+1UL );
   FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt     );
@@ -162,7 +162,8 @@ test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   } while(0);
   FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+1UL );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            1UL );
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[0]==            0UL ); /* end */
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[3]==            1UL ); /* drop */
   FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+1UL );
   FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt     );
 
@@ -181,7 +182,7 @@ test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   } while(0);
   FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+2UL );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            3UL );
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[3]==            3UL ); /* drop */
   FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+2UL );
   FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt-1UL );
 
@@ -202,8 +203,9 @@ test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
 
   /* Actually free conn */
   fd_quic_conn_free( sandbox->quic, conn );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt == window_cnt+2UL );
-  FD_TEST( sandbox->quic->metrics.stream_active_cnt == 0UL            );
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[3] ==            3UL ); /* drop */
+  FD_TEST( sandbox->quic->metrics.stream_closed_cnt[4] == window_cnt-1UL ); /* conn */
+  FD_TEST( sandbox->quic->metrics.stream_active_cnt    ==            0UL );
 }
 
 static __attribute__((noinline)) void

@@ -67,17 +67,21 @@
 /* FD_QUIC_DEFAULT_SPARSITY: default fd_quic_limits_t->conn_id_sparsity */
 #define FD_QUIC_DEFAULT_SPARSITY (2.5)
 
-/* FD_QUIC_NOTIFY_* indicate stream notification types.
-   ...END:   Stream lifetime has ended, no more callbacks will be
-             generated for it.  Stream will be freed after event
-             delivery.
-   ...RESET: Peer has reset the stream (will not send)
-   ...ABORT: Peer has aborted the stream (will not receive)
-   ...DROP:  Local side dropped the stream */
-#define FD_QUIC_NOTIFY_END   (100)
-#define FD_QUIC_NOTIFY_RESET (101)
-#define FD_QUIC_NOTIFY_ABORT (102)
-#define FD_QUIC_NOTIFY_DROP  (103)
+/* FD_QUIC_STREAM_NOTIFY_* indicate stream notification types.
+   All events indicate that stream lifetime has ended and no more
+   callbacks will be generated for it.  The stream object will be freed
+   after event delivery.
+
+   ...END:        All stream data was transmitted successfully
+   ...PEER_RESET: Peer has ceased sending non-gracefully
+   ...PEER_STOP:  Peer has requested us to stop sending
+   ...DROP:       Local side dropped the stream
+   ...CONN:       Stream aborted due to conn close */
+#define FD_QUIC_STREAM_NOTIFY_END        (0)
+#define FD_QUIC_STREAM_NOTIFY_PEER_RESET (1)
+#define FD_QUIC_STREAM_NOTIFY_PEER_STOP  (2)
+#define FD_QUIC_STREAM_NOTIFY_DROP       (3)
+#define FD_QUIC_STREAM_NOTIFY_CONN       (4)
 
 /* defines the packet types */
 #define FD_QUIC_PKT_TYPE_INITIAL   0

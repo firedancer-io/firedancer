@@ -190,7 +190,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
 
   FD_MCNT_SET(   QUIC, STREAM_OPENED, ctx->quic->metrics.stream_opened_cnt );
-  FD_MCNT_SET(   QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
   FD_MGAUGE_SET( QUIC, STREAM_ACTIVE, ctx->quic->metrics.stream_active_cnt );
 
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
@@ -411,7 +411,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
 
   /* Abort reassembly slot if QUIC stream closes non-gracefully */
 
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+  if( FD_UNLIKELY( type!=FD_QUIC_STREAM_NOTIFY_END ) ) {
     FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
     fd_tpu_reasm_cancel( reasm, slot );
     return;  /* not a successful stream close */
