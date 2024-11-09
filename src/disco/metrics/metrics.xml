@@ -31,13 +31,6 @@ metric introduced.
     <int value="3" name="ErrorState" label="Unexpected slot state" />
 </enum>
 
-<enum name="QuicStreamType">
-    <int value="0" name="BidiClient" label="Bidirectional client" />
-    <int value="1" name="BidiServer" label="Bidirectional server" />
-    <int value="2" name="UniClient" label="Unidirectional client" />
-    <int value="3" name="UniServer" label="Unidirectional server" />
-</enum>
-
 <enum name="PackTxnInsertReturn">
   <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
   <int value="-11" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
@@ -250,6 +243,14 @@ metric introduced.
   <int value="21" name="Padding" label="PADDING frame" />
 </enum>
 
+<enum name="QuicStreamCloseType">
+  <int value="0" name="End" label="gracefully closed" />
+  <int value="1" name="PeerReset" label="RESET_STREAM event received" />
+  <int value="2" name="PeerStop" label="STOP_SENDING events received" />
+  <int value="3" name="Drop" label="dropped due to excessive concurrency" />
+  <int value="4" name="ConnAbort" label="connection abort" />
+</enum>
+
 <group name="Quic" tile="quic">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
@@ -267,9 +268,9 @@ metric introduced.
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
 
-    <counter name="StreamOpened" enum="QuicStreamType" summary="Number of streams opened." />
-    <counter name="StreamClosed" enum="QuicStreamType" summary="Number of streams closed." />
-    <gauge name="StreamActive" enum="QuicStreamType" summary="Number of active streams." />
+    <counter name="StreamOpened" summary="Number of streams opened." />
+    <counter name="StreamClosed" enum="QuicStreamCloseType" summary="Number of streams closed." />
+    <gauge name="StreamActive" summary="Number of active streams." />
 
     <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />

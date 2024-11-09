@@ -4055,7 +4055,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
     if( FD_UNLIKELY( stream == used_sentinel ) ) break;
 
-    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
+    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_STREAM_NOTIFY_CONN );
   }
 
   /* remove send streams */
@@ -4065,7 +4065,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
     if( FD_UNLIKELY( stream == send_sentinel ) ) break;
 
-    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
+    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_STREAM_NOTIFY_CONN );
   }
 
   ulong tombstone_hi = conn->rx_hi_stream_id;
@@ -4623,7 +4623,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
               stream->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
             } else {
               /* fd_quic_tx_stream_free also notifies the user */
-              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
+              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
             }
           }
         }
@@ -4956,13 +4956,13 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                 /* if no data to send, check whether fin bits are set */
                 if( ( stream->state & fin_state_mask ) == fin_state_mask ) {
                   /* fd_quic_tx_stream_free also notifies the user */
-                  fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
+                  fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
                 }
               }
             } else if( tx_tail == stream->tx_buf.tail &&
                 ( stream->state & fin_state_mask ) == fin_state_mask ) {
               /* fd_quic_tx_stream_free also notifies the user */
-              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
+              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
             }
 
             /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
@@ -5176,15 +5176,13 @@ fd_quic_frame_handle_ack_frame(
 
 static ulong
 fd_quic_frame_handle_reset_stream_frame(
-    void * context,
+    void *                         vp_context,
     fd_quic_reset_stream_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  /* ack-eliciting */
+    uchar const *                  p,
+    ulong                          p_sz ) {
+  (void)data; (void)p; (void)p_sz;
+  fd_quic_frame_context_t * context = vp_context;
+  context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
   /* TODO implement */
   return FD_QUIC_PARSE_FAIL;
 }
@@ -5257,7 +5255,7 @@ fd_quic_stream_rx_reclaim( fd_quic_t *      quic,
     fd_quic_stream_map_t * entry = fd_quic_stream_map_query( stream_map, sid, NULL );
     if( entry ) {
       if( entry->stream ) {
-        fd_quic_rx_stream_free( quic, entry, entry->stream, FD_QUIC_NOTIFY_DROP );
+        fd_quic_rx_stream_free( quic, entry, entry->stream, FD_QUIC_STREAM_NOTIFY_DROP );
       }
       fd_quic_stream_map_remove( stream_map, entry );
     }
@@ -5493,7 +5491,7 @@ fd_quic_frame_handle_stream_frame(
     conn->rx_tot_data  += delivered;
 
     if( data->fin_opt ) {
-      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_NOTIFY_END );
+      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_STREAM_NOTIFY_END );
       return data_sz;
     }
 
@@ -5514,7 +5512,7 @@ fd_quic_frame_handle_stream_frame(
       pkt->ack_flag |= ACK_FLAG_CANCEL;
     } else if( offset == exp_offset && data->length == 0 && data->fin_opt ) {
       /* fin stream in zero-length packet */
-      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_NOTIFY_END );
+      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_STREAM_NOTIFY_END );
       return data_sz;
     }
   }

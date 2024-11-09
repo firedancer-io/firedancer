@@ -247,7 +247,7 @@ typedef void
    TODO will only one notify max be served?
    TODO will stream be deallocated immediately after callback?
 
-   notify_type is in FD_QUIC_NOTIFY_{END,RESET,ABORT} */
+   notify_type is one of FD_QUIC_NOTIFY_{...} */
 typedef void
 (* fd_quic_cb_stream_notify_t)( fd_quic_stream_t * stream,
                                 void *             stream_ctx,
@@ -310,7 +310,7 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* TODO: evaluate performance impact of metrics */
 
 union fd_quic_metrics {
-  ulong  ul[ 42 ];
+  ulong  ul[ 46 ];
   struct {
     /* Network metrics */
     ulong net_rx_pkt_cnt;  /* number of IP packets received */
@@ -338,8 +338,7 @@ union fd_quic_metrics {
 
     /* Stream metrics */
     ulong stream_opened_cnt;        /* number of streams opened */
-    ulong stream_closed_cnt;        /* number of streams closed */
-       /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
+    ulong stream_closed_cnt[5];     /* indexed by FD_QUIC_STREAM_NOTIFY_{...} */
     ulong stream_active_cnt;        /* number of active streams */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
