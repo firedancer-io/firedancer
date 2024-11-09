@@ -37,25 +37,39 @@
    "<NULL>".
    Do NOT use this marco in a long loop or a recursive function.
    */
-#define FD_BASE58_ENC_32_ALLOCA( x ) __extension__({                     \
-  char *_out = (char *)fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );  \
-  if( FD_UNLIKELY( x == NULL ) ) {                                       \
-    strcpy(_out, "<NULL>");                                              \
-  } else {                                                               \
-    fd_base58_encode_32( (uchar const *)(x), NULL, _out );               \
-  }                                                                      \
-  _out;                                                                  \
+
+static inline char *
+fd_base58_enc_32_fmt( char *        out,
+                      uchar const * in ) {
+  if( FD_UNLIKELY( !in ) ) {
+    strcpy( out, "<NULL>");
+  } else {
+    fd_base58_encode_32( in, NULL, out );
+  }
+  return out;
+}
+
+#define FD_BASE58_ENC_32_ALLOCA( x ) __extension__({                   \
+  char * _out = fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );       \
+  fd_base58_enc_32_fmt( _out, (uchar const *)(x) );                    \
 })
 
-#define FD_BASE58_ENC_64_ALLOCA( x ) __extension__({                    \
-  char *_out = (char *)fd_alloca_check( 1UL, FD_BASE58_ENCODED_64_SZ ); \
-  if( FD_UNLIKELY( x == NULL ) ) {                                      \
-    strcpy(_out, "<NULL>");                                             \
-  } else {                                                              \
-    fd_base58_encode_64( (uchar const *)(x), NULL, _out );              \
-  }                                                                     \
-  _out;                                                                 \
+static inline char *
+fd_base58_enc_64_fmt( char *        out,
+                      uchar const * in ) {
+  if( FD_UNLIKELY( !in ) ) {
+    strcpy( out, "<NULL>");
+  } else {
+    fd_base58_encode_64( in, NULL, out );
+  }
+  return out;
+}
+
+#define FD_BASE58_ENC_64_ALLOCA( x ) __extension__({                   \
+  char * _out = fd_alloca_check( 1UL, FD_BASE58_ENCODED_64_SZ );       \
+  fd_base58_enc_64_fmt( _out, (uchar const *)(x) );                    \
 })
+
 
 /* Forward declarations */
 
