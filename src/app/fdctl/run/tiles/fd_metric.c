@@ -1,7 +1,11 @@
 #include "../../../../disco/tiles.h"
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
+#if defined(__aarch64__)
+#include "generated/metric.arm64_seccomp.h"
+#else
 #include "generated/metric_seccomp.h"
+#endif
 
 #include "../../version.h"
 
@@ -14,7 +18,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
-#include <poll.h>
 #include <stdio.h>
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
