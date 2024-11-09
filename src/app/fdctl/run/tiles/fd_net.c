@@ -5,7 +5,7 @@
    XSK socket configuration.
 
    ### Why does this tile bind to loopback?
-   
+
    The Linux kernel does some short circuiting optimizations
    when sending packets to an IP address that's owned by the
    same host. The optimization is basically to route them over
@@ -203,7 +203,7 @@ net_rx_aio_send( void *                    _ctx,
       proto = DST_PROTO_REPAIR;
       out = ctx->repair_out;
     } else {
-      
+
       FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                    "Only the following ports should be configured to forward packets: "
                    "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
@@ -394,8 +394,8 @@ send_arp_probe( fd_net_ctx_t * ctx,
     /* send the probe */
     fd_aio_pkt_info_t aio_buf = { .buf = arp_buf, .buf_sz = (ushort)arp_len };
     ulong sent_cnt;
-    ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
-    ctx->metrics.tx_dropped_cnt += 1UL-sent_cnt;
+    int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
+    ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
   }
 }
 
@@ -418,8 +418,8 @@ after_frag( fd_net_ctx_t *      ctx,
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
     ulong sent_cnt;
-    ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, 1 );
-    ctx->metrics.tx_dropped_cnt += 1UL-sent_cnt;
+    int aio_err = ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, 1 );
+    ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
   } else {
     /* extract dst ip */
     uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( sig ) );
@@ -471,8 +471,8 @@ after_frag( fd_net_ctx_t *      ctx,
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
 
         ulong sent_cnt;
-        ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
-        ctx->metrics.tx_dropped_cnt += 1UL-sent_cnt;
+        int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
+        ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
         break;
       case FD_IP_RETRY:
         /* refresh tables */
@@ -490,22 +490,22 @@ after_frag( fd_net_ctx_t *      ctx,
 }
 
 /* init_link_session is part of privileged_init.  It only runs on net
-   tile 0.  This function does shared pre-configuration used by all 
-   other net tiles.  This includes installing the XDP program and 
+   tile 0.  This function does shared pre-configuration used by all
+   other net tiles.  This includes installing the XDP program and
    setting up the XSKMAP into which the other net tiles can register
    themselves into.
-   
+
    session, link_session, lo_session get initialized with session
    objects.  tile points to the net tile's config.  if_idx, lo_idx
-   locate the device IDs of the main and loopback interface. 
+   locate the device IDs of the main and loopback interface.
    *xsk_map_fd, *lo_xsk_map_fd are set to the newly created XSKMAP file
    descriptors.
-   
+
    Note that if the main interface is loopback, then the loopback-
    related structures are uninitialized.
-   
+
    Kernel object references:
-     
+
      BPF_LINK file descriptor
       |
       +-> XDP program installation on NIC
@@ -541,7 +541,7 @@ privileged_init( fd_topo_t *      topo,
                   tile->net.xdp_rx_queue_size,
                   tile->net.xdp_tx_queue_size,
                   tile->net.xdp_tx_queue_size ) );
-  if( FD_UNLIKELY( !ctx->xsk[ 0 ] ) )                                                    FD_LOG_ERR(( "fd_xsk_new failed" ));  
+  if( FD_UNLIKELY( !ctx->xsk[ 0 ] ) )                                                    FD_LOG_ERR(( "fd_xsk_new failed" ));
   uint flags = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY;
   if( FD_UNLIKELY( !fd_xsk_init( ctx->xsk[ 0 ], if_idx, (uint)tile->kind_id, flags ) ) ) FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
   if( FD_UNLIKELY( !fd_xsk_activate( ctx->xsk[ 0 ], xsk_map_fd ) ) )                     FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
@@ -563,7 +563,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( strcmp( tile->net.interface, "lo" ) && !tile->kind_id ) ) {
     ctx->xsk_cnt = 2;
 
-    ushort udp_port_candidates[] = { 
+    ushort udp_port_candidates[] = {
       (ushort)tile->net.legacy_transaction_listen_port,
       (ushort)tile->net.quic_transaction_listen_port,
       (ushort)tile->net.shred_listen_port,
@@ -583,7 +583,7 @@ privileged_init( fd_topo_t *      topo,
 
     ctx->prog_link_fds[ 1 ] = lo_fds.prog_link_fd;
     ctx->xsk[ 1 ] =
-        fd_xsk_join( 
+        fd_xsk_join(
         fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
                     FD_NET_MTU,
                     tile->net.xdp_rx_queue_size,
@@ -652,7 +652,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
-  
+
   for( ulong i = 0; i < tile->out_cnt; i++ ) {
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
     if( strcmp( out_link->name, "net_quic" ) == 0 ) {
