@@ -16,7 +16,7 @@
 #include <linux/if_link.h>
 #endif
 
-static FILE * test_pcap;
+FILE * fd_quic_test_pcap;
 
 /* Mac address counter, incremented for each new QUIC */
 static ulong test_mac_addr_seq = 0x0A0000000000;
@@ -72,12 +72,12 @@ fd_quic_test_cb_stream_receive( fd_quic_stream_t * stream,
                  stream->stream_id, quic_ctx, (void const *)data, data_sz, offset, fin ));
 }
 
-static void
+void
 fd_quic_test_cb_tls_keylog( void *       quic_ctx,
                             char const * line ) {
   (void)quic_ctx;
-  if( test_pcap )
-    fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), test_pcap );
+  if( fd_quic_test_pcap )
+    fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), fd_quic_test_pcap );
 }
 
 static ulong
@@ -95,16 +95,16 @@ fd_quic_test_boot( int *    pargc,
 
   if( _pcap ) {
     FD_LOG_NOTICE(( "Logging to --pcap %s", _pcap ));
-    test_pcap = fopen( _pcap, "ab" );
-    FD_TEST( test_pcap );
+    fd_quic_test_pcap = fopen( _pcap, "ab" );
+    FD_TEST( fd_quic_test_pcap );
   }
 }
 
 void
 fd_quic_test_halt( void ) {
-  if( test_pcap ) {
-    FD_TEST( 0==fclose( test_pcap ) );
-    test_pcap = NULL;
+  if( fd_quic_test_pcap ) {
+    FD_TEST( 0==fclose( fd_quic_test_pcap ) );
+    fd_quic_test_pcap = NULL;
   }
 }
 
@@ -247,10 +247,10 @@ fd_quic_virtual_pair_init( fd_quic_virtual_pair_t * pair,
                            fd_quic_t * quic_a,
                            fd_quic_t * quic_b ) {
   memset( pair, 0, sizeof(fd_quic_virtual_pair_t) );
-  if( !test_pcap )
+  if( !fd_quic_test_pcap )
     fd_quic_virtual_pair_direct( pair, quic_a, quic_b );
   else
-    fd_quic_virtual_pair_pcap  ( pair, quic_a, quic_b, test_pcap );
+    fd_quic_virtual_pair_pcap  ( pair, quic_a, quic_b, fd_quic_test_pcap );
 }
 
 void
@@ -261,16 +261,6 @@ fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair ) {
   }
   fd_quic_set_aio_net_tx( pair->quic_a, NULL );
   fd_quic_set_aio_net_tx( pair->quic_b, NULL );
-}
-
-void
-fd_quic_test_keylog( fd_quic_virtual_pair_t const * pair,
-                     char const *                   line ) {
-
-  /* Skip if not capturing packets */
-  if( !pair->quic_a2b.pcapng ) return;
-
-  fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), pair->quic_a2b.pcapng );
 }
 
 fd_quic_udpsock_t *
