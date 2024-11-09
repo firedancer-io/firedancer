@@ -26,7 +26,7 @@
 #error "Target operating system is unsupported by seccomp."
 #endif
 
-#if !defined(__x86_64__)
+#if !defined(__x86_64__) && !defined(__aarch64__)
 #error "Target architecture is unsupported by seccomp."
 #else
 

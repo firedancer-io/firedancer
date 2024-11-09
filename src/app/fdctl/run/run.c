@@ -3,7 +3,11 @@
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
+#if defined(__aarch64__)
+#include "generated/pidns.arm64_seccomp.h"
+#else
 #include "generated/pidns_seccomp.h"
+#endif
 
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_pod_format.h"

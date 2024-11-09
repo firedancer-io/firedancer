@@ -3,7 +3,7 @@
 /* The frontend assets are pre-built and statically compiled into the
    binary here.  To regenerate them, run
 
-    $ git clone https://github.com/firedancer-io/firedancer-frontend.git frontend   
+    $ git clone https://github.com/firedancer-io/firedancer-frontend.git frontend
     $ make frontend
 
    from the repository root. */
@@ -11,7 +11,11 @@
 #include "generated/http_import_dist.h"
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
+#if defined(__aarch64__)
+#include "generated/gui.arm64_seccomp.h"
+#else
 #include "generated/gui_seccomp.h"
+#endif
 
 #include "../../version.h"
 

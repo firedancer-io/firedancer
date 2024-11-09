@@ -13,7 +13,7 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help show-deps run-unit-test run-integration-test cov-report dist-cov-report
+AUX_RULES:=clean distclean help show-deps run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies
 
 all: info bin include lib unit-test fuzz-test
 
