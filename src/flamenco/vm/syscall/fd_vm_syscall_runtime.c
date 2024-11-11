@@ -268,7 +268,9 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
 
   return_data->len = src_sz;
-  fd_memcpy( return_data->data, src, src_sz );
+  if( FD_LIKELY( src_sz!=0UL ) ) {
+    fd_memcpy( return_data->data, src, src_sz );
+  }
   memcpy( &return_data->program_id, program_id, sizeof(fd_pubkey_t) );
 
   *_ret = 0;
