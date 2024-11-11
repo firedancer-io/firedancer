@@ -498,6 +498,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong   out_vaddr,
                           FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
+  *_ret = 0;
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L59 */
@@ -531,7 +532,6 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
 
     fd_memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
 
-    *_ret = 0;
     return FD_VM_SUCCESS;
   } else {
     /* In the case that direct mapping is enabled, the behavior for memcmps
@@ -626,8 +626,8 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
            memory region, that means that if we don't exit now we will have
            an access violation. */
         if( FD_UNLIKELY( m0_region!=4UL || ++m0_region_idx>=vm->input_mem_regions_cnt ) ) {
-          *_ret = 1;
-          return FD_VM_ERR_ABORT;
+          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+          return FD_VM_ERR_SIGSEGV;
         }
         /* Otherwise, query the next input region. */
         m0_haddr = (uchar*)vm->input_mem_regions[ m0_region_idx ].haddr;
@@ -636,8 +636,8 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       }
       if( FD_UNLIKELY( !m1_bytes_in_cur_region ) ) {
         if( FD_UNLIKELY( m1_region!=4UL || ++m1_region_idx>=vm->input_mem_regions_cnt ) ) {
-          *_ret = 1;
-          return FD_VM_ERR_ABORT;
+          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+          return FD_VM_ERR_SIGSEGV;
         }
         m1_haddr = (uchar*)vm->input_mem_regions[ m1_region_idx ].haddr;
         m1_idx = 0UL;
@@ -657,7 +657,6 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       m1_idx++;
     }
     fd_memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
-    *_ret = 0;
     return FD_VM_SUCCESS;
   }
 }
