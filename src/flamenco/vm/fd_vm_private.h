@@ -129,6 +129,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_VM_CU_MEM_OP_UPDATE( vm, sz ) \
   FD_VM_CU_UPDATE( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) )
 
+#define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> 32, 5UL )
+
 /* fd_vm_instr APIs ***************************************************/
 
 /* FIXME: MIGRATE FD_SBPF_INSTR_T STUFF TO THIS API */
@@ -309,9 +311,8 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  uchar              write,           /* 1 if the access is a write, 0 if it is a read */
                  ulong              sentinel,
                  uchar *            is_multi_region ) {
-  ulong vaddr_hi  = vaddr >> 32;
-  ulong region    = fd_ulong_min( vaddr_hi, 5UL );
-  ulong offset    = vaddr & 0xffffffffUL;
+  ulong region = FD_VADDR_TO_REGION( vaddr );
+  ulong offset = vaddr & 0xffffffffUL;
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
@@ -351,7 +352,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
-  ulong region   = fd_ulong_min( vaddr >> 32, 5UL );
+  ulong region   = FD_VADDR_TO_REGION( vaddr );
   ulong offset   = vaddr & 0xffffffffUL;
   if( FD_UNLIKELY( region==4UL ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
