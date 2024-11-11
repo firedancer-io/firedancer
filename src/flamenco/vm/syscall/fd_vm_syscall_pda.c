@@ -36,7 +36,9 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
     fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
-  if ( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) {
+  /* True seed count is seeds_cnt + 1 for the bump seed, if present.
+     https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L725-L727 */
+  if ( seeds_cnt+( !!bump_seed )>FD_VM_PDA_SEEDS_MAX ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
     return FD_VM_ERR_INVAL;
   }
@@ -84,6 +86,45 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   return FD_VM_SUCCESS;
 }
 
+/* Mimics the preflight checks performed in `translate_and_check_program_address_inputs`. These are
+   necessary because CUs will mismatch if we fail at some point during derivation, whereas Agave
+   would terminate early.
+   https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L719-L747 */
+static int
+fd_translate_and_check_program_address_inputs( fd_vm_t * vm, 
+                                               ulong seeds_vaddr, 
+                                               ulong seeds_cnt, 
+                                               ulong program_id_vaddr ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L726-L730 */
+  fd_vm_vec_t const * untranslated_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF, fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
+  if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+    return FD_VM_ERR_INVAL;
+  }
+
+  /* We don't do anything with the results here, just preflight checks.
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L731-L744 */
+  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+    ulong seed_sz = untranslated_seeds[i].len;
+    /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736 */
+    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+      return FD_VM_ERR_INVAL;
+    }
+
+    /* Simply perform load checks on each untranslated seed vaddr 
+       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L737-L742 */
+    FD_VM_MEM_SLICE_HADDR_LD( vm, untranslated_seeds[i].addr, FD_VM_ALIGN_RUST_U8, seed_sz );
+  }
+
+  /* Translate the program id pubkey. Similar to above, these are just preflight checks and nothing
+     needs to be done with the result.
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L745 */
+  FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
+
+  return FD_VM_SUCCESS;
+}
+
 /* fd_vm_syscall_sol_create_program_address is the entrypoint for the sol_create_program_address syscall:
 https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L729
 
@@ -121,8 +162,14 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L766-L772 */
+  int err = fd_translate_and_check_program_address_inputs( vm, seeds_vaddr, seeds_cnt, program_id_vaddr );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+
   fd_pubkey_t derived[1];
-  int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
+  err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
   /* Agave does their translation before the calculation, so if the translation fails we should fail
      the syscall.
      
@@ -169,6 +216,12 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
   /* Costs the same as a create_program_address call.. weird but that is the protocol. */
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L805-L811 */
+  int err = fd_translate_and_check_program_address_inputs( vm, seeds_vaddr, seeds_cnt, program_id_vaddr );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+
   /* Similar to create_program_address but appends a 1 byte nonce that
      decrements from 255 down to 1 until a valid PDA is found.
 
@@ -182,7 +235,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
     bump_seed[0] = (uchar)(255UL - i);
 
     fd_pubkey_t derived[1];
-    int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
+    err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
     if ( FD_LIKELY( err == FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
       fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t) );
@@ -196,9 +249,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
 
       *_ret = 0UL;
       return FD_VM_SUCCESS;
-    } else if ( FD_UNLIKELY( err != FD_VM_ERR_INVALID_PDA ) ) {
-      /* FD_VM_ERR_INVALID_PDA continue the loop, any other error return */
-      return err;
     }
 
     FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
