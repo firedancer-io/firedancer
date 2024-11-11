@@ -661,7 +661,7 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     haddr;                                                                                                      \
 }))
 
-
+/* FIXME: use overlap logic from runtime? */
 #define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, vaddr0, sz0, vaddr1, sz1 ) do {                                    \
   if( FD_UNLIKELY( ((vaddr0> vaddr1) && ((vaddr0-vaddr1)<sz1)) ||                                               \
                    ((vaddr1>=vaddr0) && ((vaddr1-vaddr0)<sz0)) ) ) {                                            \
