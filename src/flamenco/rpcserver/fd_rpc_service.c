@@ -2434,7 +2434,7 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
 }
 
 void
-fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
+fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   fd_valloc_t valloc = args->valloc;
 
   fd_rpc_ctx_t * ctx         = (fd_rpc_ctx_t *)fd_valloc_malloc(valloc, alignof(fd_rpc_ctx_t), sizeof(fd_rpc_ctx_t));
@@ -2444,8 +2444,6 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
 
   ctx->global = gctx;
   gctx->valloc = valloc;
-  gctx->funk = args->funk;
-  gctx->blockstore = args->blockstore;
   gctx->stake_ci = args->stake_ci;
 
   if( !args->offline ) {
@@ -2474,16 +2472,24 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   gctx->perf_samples = fd_perf_sample_deque_join( fd_perf_sample_deque_new( mem ) );
   FD_TEST( gctx->perf_samples );
 
-  fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
-  msg->type = FD_REPLAY_SLOT_TYPE;
-  msg->slot_exec.slot = args->blockstore->smr;
-  msg->slot_exec.root = args->blockstore->smr;
-
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, valloc, &gctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 
   *ctx_p = ctx;
+}
+
+void
+fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
+  fd_rpc_global_ctx_t * gctx = ctx->global;
+
+  gctx->funk = args->funk;
+  gctx->blockstore = args->blockstore;
+
+  fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
+  msg->type = FD_REPLAY_SLOT_TYPE;
+  msg->slot_exec.slot = args->blockstore->smr;
+  msg->slot_exec.root = args->blockstore->smr;
 }
 
 void
@@ -2507,9 +2513,14 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   fd_valloc_free(valloc, ctx);
 }
 
-void
+int
 fd_rpc_ws_poll(fd_rpc_ctx_t * ctx) {
-  fd_webserver_poll(&ctx->global->ws);
+  return fd_webserver_poll(&ctx->global->ws);
+}
+
+int
+fd_rpc_ws_fd(fd_rpc_ctx_t * ctx) {
+  return fd_webserver_fd(&ctx->global->ws);
 }
 
 void

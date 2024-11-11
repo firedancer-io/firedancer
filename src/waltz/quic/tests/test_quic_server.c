@@ -8,6 +8,8 @@ int server_complete = 0;
 /* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 
+extern FILE * fd_quic_test_pcap;
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -36,8 +38,16 @@ main( int argc, char ** argv ) {
   fd_quic_t * quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( quic );
 
+  fd_aio_t const * aio_rx = fd_quic_get_aio_net_rx( quic );
+  if( fd_quic_test_pcap ) {
+    FD_TEST( 1UL==fd_aio_pcapng_start( fd_quic_test_pcap ) );
+    static fd_aio_pcapng_t pcap_rx[1];
+    FD_TEST( fd_aio_pcapng_join( pcap_rx, aio_rx, fd_quic_test_pcap ) );
+    aio_rx = fd_aio_pcapng_get_aio( pcap_rx );
+  }
+
   fd_quic_udpsock_t _udpsock[1];
-  fd_quic_udpsock_t * udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, fd_quic_get_aio_net_rx( quic ) );
+  fd_quic_udpsock_t * udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, aio_rx );
   FD_TEST( udpsock );
 
   /* Transport params:
@@ -63,13 +73,20 @@ main( int argc, char ** argv ) {
   FD_TEST( quic_config );
 
   quic_config->role = FD_QUIC_ROLE_SERVER;
-  quic_config->retry = 1;
+  quic_config->retry = 0;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_config ) );
 
   memcpy( quic_config->link.src_mac_addr, udpsock->self_mac, 6UL );
   quic_config->net.ip_addr         = udpsock->listen_ip;
   quic_config->net.listen_udp_port = udpsock->listen_port;
-  fd_quic_set_aio_net_tx( quic, udpsock->aio );
+
+  fd_aio_t const * aio_tx = udpsock->aio;
+  if( fd_quic_test_pcap ) {
+    static fd_aio_pcapng_t pcap_tx[1];
+    FD_TEST( fd_aio_pcapng_join( pcap_tx, aio_tx, fd_quic_test_pcap ) );
+    aio_tx = fd_aio_pcapng_get_aio( pcap_tx );
+  }
+  fd_quic_set_aio_net_tx( quic, aio_tx );
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );

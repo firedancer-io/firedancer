@@ -303,7 +303,7 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
                           fd_quic_stream_t * stream,
                           void *             stream_ctx,
                           int                event ) {
-  quic->metrics.stream_closed_cnt++;
+  quic->metrics.stream_closed_cnt[ event ]++;
   quic->metrics.stream_active_cnt--;
 
   if( FD_UNLIKELY( !quic->cb.stream_notify ) ) return;

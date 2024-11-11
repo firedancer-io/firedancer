@@ -77,24 +77,20 @@
 | quic_&#8203;connections_&#8203;created | `counter` | The total number of connections that have been created. |
 | quic_&#8203;connections_&#8203;closed | `counter` | Number of connections gracefully closed. |
 | quic_&#8203;connections_&#8203;aborted | `counter` | Number of connections aborted. |
+| quic_&#8203;connections_&#8203;timed_&#8203;out | `counter` | Number of connections timed out. |
 | quic_&#8203;connections_&#8203;retried | `counter` | Number of connections established with retry. |
 | quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots | `counter` | Number of connections that failed to create due to lack of slots. |
 | quic_&#8203;connection_&#8203;error_&#8203;tls_&#8203;fail | `counter` | Number of connections that aborted due to TLS failure. |
 | quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail | `counter` | Number of connections that failed during retry (e.g. invalid token). |
 | quic_&#8203;handshakes_&#8203;created | `counter` | Number of handshake flows created. |
 | quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail | `counter` | Number of handshakes dropped due to alloc fail. |
-| quic_&#8203;stream_&#8203;opened_&#8203;bidi_&#8203;client | `counter` | Number of streams opened. (Bidirectional client) |
-| quic_&#8203;stream_&#8203;opened_&#8203;bidi_&#8203;server | `counter` | Number of streams opened. (Bidirectional server) |
-| quic_&#8203;stream_&#8203;opened_&#8203;uni_&#8203;client | `counter` | Number of streams opened. (Unidirectional client) |
-| quic_&#8203;stream_&#8203;opened_&#8203;uni_&#8203;server | `counter` | Number of streams opened. (Unidirectional server) |
-| quic_&#8203;stream_&#8203;closed_&#8203;bidi_&#8203;client | `counter` | Number of streams closed. (Bidirectional client) |
-| quic_&#8203;stream_&#8203;closed_&#8203;bidi_&#8203;server | `counter` | Number of streams closed. (Bidirectional server) |
-| quic_&#8203;stream_&#8203;closed_&#8203;uni_&#8203;client | `counter` | Number of streams closed. (Unidirectional client) |
-| quic_&#8203;stream_&#8203;closed_&#8203;uni_&#8203;server | `counter` | Number of streams closed. (Unidirectional server) |
-| quic_&#8203;stream_&#8203;active_&#8203;bidi_&#8203;client | `gauge` | Number of active streams. (Bidirectional client) |
-| quic_&#8203;stream_&#8203;active_&#8203;bidi_&#8203;server | `gauge` | Number of active streams. (Bidirectional server) |
-| quic_&#8203;stream_&#8203;active_&#8203;uni_&#8203;client | `gauge` | Number of active streams. (Unidirectional client) |
-| quic_&#8203;stream_&#8203;active_&#8203;uni_&#8203;server | `gauge` | Number of active streams. (Unidirectional server) |
+| quic_&#8203;stream_&#8203;opened | `counter` | Number of streams opened. |
+| quic_&#8203;stream_&#8203;closed_&#8203;end | `counter` | Number of streams closed. (gracefully closed) |
+| quic_&#8203;stream_&#8203;closed_&#8203;peer_&#8203;reset | `counter` | Number of streams closed. (RESET_STREAM event received) |
+| quic_&#8203;stream_&#8203;closed_&#8203;peer_&#8203;stop | `counter` | Number of streams closed. (STOP_SENDING events received) |
+| quic_&#8203;stream_&#8203;closed_&#8203;drop | `counter` | Number of streams closed. (dropped due to excessive concurrency) |
+| quic_&#8203;stream_&#8203;closed_&#8203;conn_&#8203;abort | `counter` | Number of streams closed. (connection abort) |
+| quic_&#8203;stream_&#8203;active | `gauge` | Number of active streams. |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
 | quic_&#8203;received_&#8203;frames_&#8203;unknown | `counter` | Number of QUIC frames received. (Unknown frame type) |

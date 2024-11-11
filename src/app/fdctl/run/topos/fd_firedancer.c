@@ -64,6 +64,8 @@ fd_topo_initialize( config_t * config ) {
 
   ulong replay_tpool_thread_count = config->tiles.replay.tpool_thread_count;
 
+  int enable_rpc = ( config->rpc.port != 0 );
+
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
   /*             topo, name */
@@ -82,9 +84,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "metric_in"    );
 
   fd_topob_wksp( topo, "poh_shred"    );
-
-  fd_topob_wksp( topo, "quic_sign"    );
-  fd_topob_wksp( topo, "sign_quic"    );
 
   fd_topob_wksp( topo, "shred_sign"   );
   fd_topob_wksp( topo, "sign_shred"   );
@@ -138,6 +137,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "poh_slot"   );
   fd_topob_wksp( topo, "eqvoc"      );
 
+  if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
+
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                           burst */
@@ -155,8 +156,6 @@ fd_topo_initialize( config_t * config ) {
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_storei", "shred_storei", 0,        65536UL,                                  4UL*FD_SHRED_STORE_MTU,        4UL+config->tiles.shred.max_pending_shred_sets );
 
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_sign",    "quic_sign",    0,        128UL,                                    130UL,                         1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "sign_quic",    "sign_quic",    0,        128UL,                                    64UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                          1UL );
 
@@ -235,6 +234,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
   FOR(replay_tpool_thread_count-1) fd_topob_tile( topo, "thread",  "thread",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  if( enable_rpc )                 fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
 
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei", 0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
@@ -245,6 +245,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  if( enable_rpc ) {
+    fd_topo_tile_t * rpcserv_tile = &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ];
+    fd_topob_tile_uses( topo, rpcserv_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
@@ -348,13 +352,6 @@ fd_topo_initialize( config_t * config ) {
      so there's at most one fragment in flight at a time anyway.  The
      sign links are also not polled by the mux, instead the tiles will
      read the sign responses out of band in a dedicated spin loop. */
-  for( ulong i=0UL; i<quic_tile_cnt; i++ ) {
-    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "quic_sign",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_out( topo, "quic",     i,                        "quic_sign",      i                                                  );
-    /**/               fd_topob_tile_in(  topo, "quic",     i,           "metric_in", "sign_quic",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_quic",      i                                                  );
-  }
-
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",    i                                                    );
@@ -419,6 +416,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_repair",  0UL                                                  );
 
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "eqvoc",    0UL,          "metric_in", "shred_net",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+
+  if( enable_rpc ) {
+    fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -594,6 +596,15 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->sender.identity_key_path, config->consensus.identity_path, sizeof(tile->sender.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "eqvoc" ) ) ) {
       strncpy( tile->eqvoc.identity_key_path, config->consensus.identity_path, sizeof(tile->eqvoc.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
+      tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
+      tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
+      tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
+      strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
+      tile->rpcserv.rpc_port = config->rpc.port;
+      tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
+      tile->rpcserv.tpu_ip_addr = config->tiles.net.ip_addr;
+      strncpy( tile->rpcserv.identity_key_path, config->consensus.identity_path, sizeof(tile->rpcserv.identity_key_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

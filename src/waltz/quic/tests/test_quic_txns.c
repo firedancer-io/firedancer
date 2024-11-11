@@ -65,7 +65,7 @@ cb_stream_notify( fd_quic_stream_t * stream,
 
   stream = NULL;
 
-  if( notify_type == FD_QUIC_NOTIFY_END ) {
+  if( notify_type == FD_QUIC_STREAM_NOTIFY_END ) {
     sent_cnt++;
   } else {
     FD_LOG_WARNING(( "stream ended in failure: %d", (int)notify_type ));

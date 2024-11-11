@@ -3,8 +3,6 @@
 #include "generated/quic_seccomp.h"
 
 #include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xsk_aio.h"
 #include "../../../../waltz/xdp/fd_xsk.h"
@@ -36,11 +34,15 @@ typedef struct {
 
   fd_stem_context_t * stem;
 
-  uchar identity_public_key[ 32UL ];
   fd_quic_t *      quic;
   const fd_aio_t * quic_rx_aio;
+  fd_aio_t         quic_tx_aio[1];
 
-  fd_keyguard_client_t keyguard_client[1];
+# define ED25519_PRIV_KEY_SZ (32)
+# define ED25519_PUB_KEY_SZ  (32)
+  uchar            tls_priv_key[ ED25519_PRIV_KEY_SZ ];
+  uchar            tls_pub_key [ ED25519_PUB_KEY_SZ  ];
+  fd_sha512_t      sha512[1]; /* used for signing */
 
   uchar buffer[ FD_NET_MTU ];
 
@@ -190,7 +192,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
 
   FD_MCNT_SET(   QUIC, STREAM_OPENED, ctx->quic->metrics.stream_opened_cnt );
-  FD_MCNT_SET(   QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
   FD_MGAUGE_SET( QUIC, STREAM_ACTIVE, ctx->quic->metrics.stream_active_cnt );
 
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
@@ -411,7 +413,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
 
   /* Abort reassembly slot if QUIC stream closes non-gracefully */
 
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+  if( FD_UNLIKELY( type!=FD_QUIC_STREAM_NOTIFY_END ) ) {
     FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
     fd_tpu_reasm_cancel( reasm, slot );
     return;  /* not a successful stream close */
@@ -492,13 +494,7 @@ quic_tx_aio_send( void *                    _ctx,
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-
-  uchar const * public_key = fd_keyload_load( tile->quic.identity_key_path, 1 /* public key only */ );
-  fd_memcpy( ctx->identity_public_key, public_key, 32UL );
+  (void)topo; (void)tile;
 
   /* The fd_quic implementation calls fd_log_wallclock() internally
      which itself calls clock_gettime() which on most kernels is not a
@@ -513,10 +509,13 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-fd_quic_tls_cv_signer( void *        signer_ctx,
-                       uchar         signature[ static 64 ],
-                       uchar const   payload[ static 130] ) {
-  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+quic_tls_cv_sign( void *      signer_ctx,
+                  uchar       signature[ static 64 ],
+                  uchar const payload[ static 130 ] ) {
+  fd_quic_ctx_t * ctx = signer_ctx;
+  fd_sha512_t * sha512 = fd_sha512_join( ctx->sha512 );
+  fd_ed25519_sign( signature, payload, 130UL, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
+  fd_sha512_leave( sha512 );
 }
 
 static void
@@ -524,16 +523,14 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt<2UL ||
-                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ].name, "sign_quic" ) ) )
+  if( FD_UNLIKELY( tile->in_cnt<1UL ||
+                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt!=3UL ||
+  if( FD_UNLIKELY( tile->out_cnt!=2UL ||
                    strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ 2UL ] ].name, "quic_sign" ) ) )
+                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_net" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
@@ -548,15 +545,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* End privileged allocs */
 
-  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ];
-  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ 2UL ] ];
-  FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
-                                                            sign_out->mcache,
-                                                            sign_out->dcache,
-                                                            sign_in->mcache,
-                                                            sign_in->dcache ) ) );
+  FD_TEST( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )==ED25519_PRIV_KEY_SZ );
+  fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( ctx->sha512 ) );
+  fd_ed25519_public_from_private( ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
+  fd_sha512_leave( sha512 );
 
-  fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
+  fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
   fd_quic_limits_t limits = quic_limits( tile );
@@ -578,10 +572,10 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
-  fd_memcpy( quic->config.identity_public_key, ctx->identity_public_key, 32UL );
+  fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
 
-  quic->config.sign         = fd_quic_tls_cv_signer;
-  quic->config.sign_ctx     = ctx->keyguard_client;
+  quic->config.sign         = quic_tls_cv_sign;
+  quic->config.sign_ctx     = ctx;
 
   quic->cb.conn_new         = quic_conn_new;
   quic->cb.conn_hs_complete = NULL;

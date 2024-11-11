@@ -1225,7 +1225,6 @@ fd_quic_send_retry( fd_quic_t *               quic,
         quic->config.net.listen_udp_port,
         dst_udp_port,
         1 ) == FD_QUIC_FAILED ) ) {
-    quic->metrics.conn_err_retry_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   };
   return 0UL;
@@ -2126,20 +2125,20 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
     /* long_packet_type is 2 bits, so only four possibilities */
     switch( long_packet_type ) {
-      case FD_QUIC_PKTTYPE_V1_INITIAL:
+      case FD_QUIC_PKT_TYPE_INITIAL:
         rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
         if( FD_UNLIKELY( !conn ) ) {
           /* FIXME not really a fail - Could be a retry */
           return FD_QUIC_PARSE_FAIL;
         }
         break;
-      case FD_QUIC_PKTTYPE_V1_HANDSHAKE:
+      case FD_QUIC_PKT_TYPE_HANDSHAKE:
         rc = fd_quic_handle_v1_handshake( quic, conn, pkt, cur_ptr, cur_sz );
         break;
-      case FD_QUIC_PKTTYPE_V1_RETRY:
+      case FD_QUIC_PKT_TYPE_RETRY:
         rc = fd_quic_handle_v1_retry( quic, conn, pkt, cur_ptr, cur_sz );
         break;
-      case FD_QUIC_PKTTYPE_V1_ZERO_RTT:
+      case FD_QUIC_PKT_TYPE_ZERO_RTT:
         rc = fd_quic_handle_v1_zero_rtt( quic, conn, pkt, cur_ptr, cur_sz );
         break;
     }
@@ -2680,17 +2679,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                                context.pkt->enc_level,
                                                crypto_data,
                                                rcv_sz );
-    if( provide_rc == FD_QUIC_TLS_FAILED ) {
-      /* if TLS fails, abort connection */
-      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_CRYPTO_BUFFER_EXCEEDED, __LINE__ );
-
-      return FD_QUIC_PARSE_FAIL;
-    }
-
-    int process_rc = fd_quic_tls_process( conn->tls_hs );
-    if( process_rc == FD_QUIC_TLS_FAILED ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_process error at" )); )
-
+    if( provide_rc == FD_QUIC_FAILED ) {
       /* if TLS fails, ABORT connection */
 
       /* if TLS returns an error, we present that as reason:
@@ -3947,17 +3936,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
     case FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE:
       {
         if( conn->tls_hs ) {
-          /* call process on TLS */
-          int process_rc = fd_quic_tls_process( conn->tls_hs );
-          if( process_rc == FD_QUIC_TLS_FAILED ) {
-            /* mark as DEAD, and allow it to be cleaned up */
-            conn->state = FD_QUIC_CONN_STATE_DEAD;
-            fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
-            quic->metrics.conn_aborted_cnt++;
-            quic->metrics.conn_err_tls_fail_cnt++;
-            return;
-          }
-
           /* if we're the server, we send "handshake-done" frame */
           if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
             conn->handshake_done_send = 1;
@@ -4077,7 +4055,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
     if( FD_UNLIKELY( stream == used_sentinel ) ) break;
 
-    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
+    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_STREAM_NOTIFY_CONN );
   }
 
   /* remove send streams */
@@ -4087,7 +4065,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
     if( FD_UNLIKELY( stream == send_sentinel ) ) break;
 
-    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
+    fd_quic_tx_stream_free( quic, conn, stream, FD_QUIC_STREAM_NOTIFY_CONN );
   }
 
   ulong tombstone_hi = conn->rx_hi_stream_id;
@@ -4232,10 +4210,10 @@ fd_quic_connect( fd_quic_t *  quic,
   }
   quic->metrics.hs_created_cnt++;
 
-  /* run process tls immediately */
-  int process_rc = fd_quic_tls_process( tls_hs );
-  if( FD_UNLIKELY( process_rc == FD_QUIC_TLS_FAILED ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_process error at: %s %d", __FILE__, __LINE__ )) );
+  /* Initiate the handshake */
+  int process_rc = fd_quic_tls_provide_data( tls_hs, FD_TLS_LEVEL_INITIAL, NULL, 0UL );
+  if( FD_UNLIKELY( process_rc == FD_QUIC_FAILED ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Initial fd_quic_tls_provide_data failed" )) );
 
     /* We haven't sent any data to the peer yet,
        so simply clean up and fail */
@@ -4645,7 +4623,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
               stream->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
             } else {
               /* fd_quic_tx_stream_free also notifies the user */
-              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
+              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
             }
           }
         }
@@ -4978,13 +4956,13 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                 /* if no data to send, check whether fin bits are set */
                 if( ( stream->state & fin_state_mask ) == fin_state_mask ) {
                   /* fd_quic_tx_stream_free also notifies the user */
-                  fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
+                  fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
                 }
               }
             } else if( tx_tail == stream->tx_buf.tail &&
                 ( stream->state & fin_state_mask ) == fin_state_mask ) {
               /* fd_quic_tx_stream_free also notifies the user */
-              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
+              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
             }
 
             /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
@@ -5198,15 +5176,13 @@ fd_quic_frame_handle_ack_frame(
 
 static ulong
 fd_quic_frame_handle_reset_stream_frame(
-    void * context,
+    void *                         vp_context,
     fd_quic_reset_stream_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  /* ack-eliciting */
+    uchar const *                  p,
+    ulong                          p_sz ) {
+  (void)data; (void)p; (void)p_sz;
+  fd_quic_frame_context_t * context = vp_context;
+  context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
   /* TODO implement */
   return FD_QUIC_PARSE_FAIL;
 }
@@ -5279,7 +5255,7 @@ fd_quic_stream_rx_reclaim( fd_quic_t *      quic,
     fd_quic_stream_map_t * entry = fd_quic_stream_map_query( stream_map, sid, NULL );
     if( entry ) {
       if( entry->stream ) {
-        fd_quic_rx_stream_free( quic, entry, entry->stream, FD_QUIC_NOTIFY_DROP );
+        fd_quic_rx_stream_free( quic, entry, entry->stream, FD_QUIC_STREAM_NOTIFY_DROP );
       }
       fd_quic_stream_map_remove( stream_map, entry );
     }
@@ -5515,7 +5491,7 @@ fd_quic_frame_handle_stream_frame(
     conn->rx_tot_data  += delivered;
 
     if( data->fin_opt ) {
-      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_NOTIFY_END );
+      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_STREAM_NOTIFY_END );
       return data_sz;
     }
 
@@ -5536,7 +5512,7 @@ fd_quic_frame_handle_stream_frame(
       pkt->ack_flag |= ACK_FLAG_CANCEL;
     } else if( offset == exp_offset && data->length == 0 && data->fin_opt ) {
       /* fin stream in zero-length packet */
-      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_NOTIFY_END );
+      fd_quic_rx_stream_free( quic, stream_entry, stream, FD_QUIC_STREAM_NOTIFY_END );
       return data_sz;
     }
   }

@@ -402,7 +402,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
+    cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ] +
+                              resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ];
     cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
                             + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
                             + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
@@ -1401,10 +1402,15 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     for( ulong i=gui->summary.slot_optimistically_confirmed; i>=_slot; i-- ) {
       fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
       if( FD_UNLIKELY( slot->slot==ULONG_MAX ) ) break;
-      FD_TEST( slot->slot==i );
-      slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
-      fd_gui_printf_slot( gui, i );
-      fd_http_server_ws_broadcast( gui->http );
+      if( FD_LIKELY( slot->slot==i ) ) {
+        /* It's possible for the optimistically confirmed slot to skip
+           backwards between two slots that we haven't yet replayed.  In
+           that case we don't need to change anything, since they will
+           get marked properly when they get completed. */
+        slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
+        fd_gui_printf_slot( gui, i );
+        fd_http_server_ws_broadcast( gui->http );
+      }
     }
   }
 

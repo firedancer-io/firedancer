@@ -78,8 +78,6 @@ local link_hashes = {
 	[0xdb6a44] = "poh_shred",
 	[0xb8e9a5] = "crds_shred",
 	[0x6e5d41] = "shred_store",
-	[0x863a9a] = "quic_sign",
-	[0x9b7f2f] = "sign_quic",
 	[0xc650c9] = "shred_sign",
 	[0xd408b5] = "sign_shred"       
 }

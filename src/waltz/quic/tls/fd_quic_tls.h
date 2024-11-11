@@ -35,19 +35,13 @@
      // hostname may be null for servers
      fd_quic_tls_hs_t * hs = fd_quic_tls_hs_new( quic_tls, conn_id, conn_id_sz, is_server, hostname );
 
-     // if an error occurs, hs will be null
-     //   TODO how to report errors?
-     //   via quic_tls?  fd_quic_tls_get_error( quic_tls )?
-
      // delete a handshake object
      //   NULL is allowed here
      fd_quic_tls_hs_delete( hs );
 
-     // call fd_quic_tls_process whenever the state changes
-     //   clients should call immediately to get a blob to frame
-     //   and send to the server
-     //   clients and servers should call after calling
-     //     fd_quic_tls_provide_data
+     // call fd_quic_tls_provide_data whenever the peer sends TLS
+     // handshake data.  The peer bootstraps the conversation with a
+     // zero byte input.
 
 */
 
@@ -145,7 +139,6 @@ struct fd_quic_tls_hs {
   int             state;
 # define FD_QUIC_TLS_HS_STATE_DEAD         0
 # define FD_QUIC_TLS_HS_STATE_NEED_INPUT   1
-# define FD_QUIC_TLS_HS_STATE_NEED_SERVICE 2
 # define FD_QUIC_TLS_HS_STATE_COMPLETE     3
 
   /* user defined context supplied in callbacks */
@@ -234,12 +227,12 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );
    args
      hs             the fd_quic_tls_hs_t object to operate on
      enc_level      the encryption level specified in the quic packet
-     data           the data from the quic CRYPT frame
-     data_sz        the length of the data from the quic CRYPT frame
+     data           the data from the quic CRYPTO frame
+     data_sz        the length of the data from the quic CRYPTO frame
 
    returns
-     FD_QUIC_TLS_SUCCESS
-     FD_QUIC_TLS_FAILED
+     FD_QUIC_SUCCESS
+     FD_QUIC_FAILED
    */
 int
 fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
@@ -285,15 +278,6 @@ fd_quic_tls_get_next_hs_data( fd_quic_tls_hs_t * self, fd_quic_tls_hs_data_t * h
 void
 fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
 
-
-/* process a handshake
-   parses and handles incoming data (delivered via fd_quic_tls_provide_data)
-   generates new data to send to peer
-   makes callbacks for notification of the following:
-       secret_cb              a secret is available
-       handshake_complete_cb  the handshake is complete - stream handling can begin */
-int
-fd_quic_tls_process( fd_quic_tls_hs_t * self );
 
 #endif /* HEADER_fd_src_waltz_quic_tls_fd_quic_tls_h */
 

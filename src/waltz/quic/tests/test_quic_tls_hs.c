@@ -126,11 +126,11 @@ main( int     argc,
   // server needs first packet with dst conn id in order to generate keys
   //   What happens when dst conn id changes?
 
-  /* Ignore broken pipe signals */
-  signal( SIGPIPE, SIG_IGN );
-
   // start client handshake
   // client fd_quic_tls_hs_t is primed upon creation
+
+  int provide_rc = fd_quic_tls_provide_data( hs_client, FD_TLS_LEVEL_INITIAL, NULL, 0UL );
+  FD_TEST( provide_rc==FD_QUIC_SUCCESS );
 
   FD_LOG_INFO(( "entering main handshake loop" ));
 
@@ -159,7 +159,7 @@ main( int     argc,
       // ... then decrypt and forward
 
       int provide_rc = fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data, hs_data->data_sz );
-      FD_TEST( provide_rc!=FD_QUIC_TLS_FAILED );
+      FD_TEST( provide_rc!=FD_QUIC_FAILED );
 
       // remove hs_data from head of list
       //tls_client->hs_data = hs_data->next;
@@ -182,24 +182,10 @@ main( int     argc,
       FD_LOG_DEBUG(( "provide quic data server->client" ));
 
       // here we need encrypt/decrypt
-      FD_TEST( fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz )!=FD_QUIC_TLS_FAILED );
+      FD_TEST( fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz )!=FD_QUIC_FAILED );
 
       // remove hs_data from head of list
       fd_quic_tls_pop_hs_data( hs_server, hs_data->enc_level );
-    }
-
-    int process_rc = fd_quic_tls_process( hs_client );
-    FD_LOG_DEBUG(( "fd_quic_tls_process(client) returned %d", process_rc ));
-    if( process_rc != FD_QUIC_TLS_SUCCESS ) {
-      FD_LOG_ERR(( "process failed. alert: %u-%s reason: %d-%s",
-                   hs_client->alert, fd_tls_alert_cstr( hs_client->alert ),
-                   hs_client->hs.base.reason, fd_tls_reason_cstr( hs_client->hs.base.reason ) ));
-    }
-
-    process_rc = fd_quic_tls_process( hs_server );
-    FD_LOG_DEBUG(( "fd_quic_tls_process(server) returned %d", (int)process_rc ));
-    if( process_rc != FD_QUIC_TLS_SUCCESS ) {
-      FD_LOG_ERR(( "process failed. alert: %u", hs_client->alert ));
     }
 
     /* check for hs data here */
