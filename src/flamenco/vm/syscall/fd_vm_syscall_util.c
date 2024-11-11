@@ -357,7 +357,7 @@ fd_vm_memmove( fd_vm_t * vm,
 
     /* Find the correct src and dst haddrs to start operating from. If the src or dst vaddrs
        belong to the input data region (4), keep track of region statistics to memmove in chunks. */
-    ulong   dst_region                  = fd_ulong_min( dst_vaddr >> 32, 5UL );
+    ulong   dst_region                  = FD_VADDR_TO_REGION( dst_vaddr );
     uchar   dst_is_input_mem_region     = ( dst_region==4UL );
     ulong   dst_offset                  = dst_vaddr & 0xffffffffUL;
     ulong   dst_region_idx              = 0UL;
@@ -375,7 +375,7 @@ fd_vm_memmove( fd_vm_t * vm,
       dst_bytes_rem_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->region_st_sz[ dst_region ], dst_offset ) );
     }
 
-    ulong   src_region                  = fd_ulong_min( src_vaddr >> 32, 5UL );
+    ulong   src_region                  = FD_VADDR_TO_REGION( src_vaddr );
     uchar   src_is_input_mem_region     = ( src_region==4UL );
     ulong   src_offset                  = src_vaddr & 0xffffffffUL;
     ulong   src_region_idx              = 0UL;
@@ -582,7 +582,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
        the current region are bound by the size of the remaining bytes in the 
        region. */
 
-    ulong   m0_region              = m0_vaddr >> 32;
+    ulong   m0_region              = FD_VADDR_TO_REGION( m0_vaddr );
     ulong   m0_offset              = m0_vaddr & 0xffffffffUL;
     ulong   m0_region_idx          = 0UL;
     ulong   m0_bytes_in_cur_region = sz;
@@ -600,7 +600,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       m0_haddr               = (uchar *)FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8 );
     }
 
-    ulong   m1_region              = m1_vaddr >> 32;
+    ulong   m1_region              = FD_VADDR_TO_REGION( m1_vaddr );
     ulong   m1_offset              = m1_vaddr & 0xffffffffUL;
     ulong   m1_region_idx          = 0UL;
     ulong   m1_bytes_in_cur_region = sz;
@@ -681,7 +681,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  ulong   region = fd_ulong_min( dst_vaddr >> 32, 5UL );
+  ulong   region = FD_VADDR_TO_REGION( dst_vaddr );
   ulong   offset = dst_vaddr & 0xffffffffUL;
   uchar * haddr;
 
