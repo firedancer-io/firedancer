@@ -1,0 +1,3 @@
+command script import contrib/quic/lldb/fd_quic.py
+breakpoint set --auto-continue true --name fd_quic_conn_error --breakpoint-name fd_quic_conn_error_enter
+breakpoint command add fd_quic_conn_error_enter -s python -F fd_quic.trace_conn_error
