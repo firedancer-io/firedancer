@@ -27,6 +27,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   int enable_alt_bn128_syscall             = 0;
   int enable_alt_bn128_compression_syscall = 0;
   int enable_last_restart_slot_syscall     = 0;
+  int enable_get_epoch_stake_syscall       = 0;
 
   int disable_fees_sysvar                  = 0;
 
@@ -38,6 +39,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
     enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_syscall );
     enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_compression_syscall );
     enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar );
+    enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot_ctx, enable_get_epoch_stake_syscall );
 
     disable_fees_sysvar                  = !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
 
@@ -138,6 +140,10 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   if( enable_alt_bn128_compression_syscall )
     REGISTER( "sol_alt_bn128_compression",           fd_vm_syscall_sol_alt_bn128_compression );
+
+  if ( enable_get_epoch_stake_syscall ) {
+    REGISTER( "sol_get_epoch_stake",                 fd_vm_syscall_sol_get_epoch_stake );
+  }
 
 # undef REGISTER
 

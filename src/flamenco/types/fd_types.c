@@ -4276,7 +4276,7 @@ void fd_stakes_decode_unsafe( fd_stakes_t * self, fd_bincode_decode_ctx_t * ctx 
     fd_delegation_pair_decode_unsafe( &node->elem, ctx );
     fd_delegation_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
   }
-  fd_bincode_uint64_decode_unsafe( &self->unused, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
   fd_bincode_uint64_decode_unsafe( &self->epoch, ctx );
   fd_stake_history_decode_unsafe( &self->stake_history, ctx );
 }
@@ -4297,7 +4297,7 @@ int fd_stakes_encode( fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx ) 
     err = fd_bincode_uint64_encode( stake_delegations_len, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode( self->unused, ctx );
+  err = fd_bincode_uint64_encode( self->total_stake, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->epoch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -4308,7 +4308,7 @@ int fd_stakes_encode( fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx ) 
 enum {
   fd_stakes_vote_accounts_TAG = (0 << 6) | FD_ARCHIVE_META_STRUCT,
   fd_stakes_stake_delegations_TAG = (1 << 6) | FD_ARCHIVE_META_MAP,
-  fd_stakes_unused_TAG = (2 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_stakes_total_stake_TAG = (2 << 6) | FD_ARCHIVE_META_ULONG,
   fd_stakes_epoch_TAG = (3 << 6) | FD_ARCHIVE_META_ULONG,
   fd_stakes_stake_history_TAG = (4 << 6) | FD_ARCHIVE_META_STRUCT,
 };
@@ -4355,7 +4355,7 @@ int fd_stakes_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   break;
   }
-  case (ushort)fd_stakes_unused_TAG: {
+  case (ushort)fd_stakes_total_stake_TAG: {
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   break;
@@ -4410,8 +4410,8 @@ void fd_stakes_decode_archival_unsafe( fd_stakes_t * self, fd_bincode_decode_ctx
   }
   break;
   }
-  case (ushort)fd_stakes_unused_TAG: {
-  fd_bincode_uint64_decode_unsafe( &self->unused, ctx );
+  case (ushort)fd_stakes_total_stake_TAG: {
+  fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
   break;
   }
   case (ushort)fd_stakes_epoch_TAG: {
@@ -4459,9 +4459,9 @@ int fd_stakes_encode_archival( fd_stakes_t const * self, fd_bincode_encode_ctx_t
   }
   err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)fd_stakes_unused_TAG, ctx );
+  err = fd_bincode_uint16_encode( (ushort)fd_stakes_total_stake_TAG, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->unused, ctx );
+  err = fd_bincode_uint64_encode( self->total_stake, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( (ushort)fd_stakes_epoch_TAG, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -4493,7 +4493,7 @@ int fd_stakes_decode_offsets( fd_stakes_off_t * self, fd_bincode_decode_ctx_t * 
     err = fd_delegation_pair_decode_preflight( ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  self->unused_off = (uint)( (ulong)ctx->data - (ulong)data );
+  self->total_stake_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->epoch_off = (uint)( (ulong)ctx->data - (ulong)data );
@@ -4531,7 +4531,7 @@ void fd_stakes_walk( void * w, fd_stakes_t const * self, fd_types_walk_fn_t fun,
       fd_delegation_pair_walk(w, &n->elem, fun, "stake_delegations", level );
     }
   }
-  fun( w, &self->unused, "unused", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->epoch, "epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_stake_history_walk( w, &self->stake_history, fun, "stake_history", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stakes", level-- );

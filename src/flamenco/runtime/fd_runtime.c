@@ -295,7 +295,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       .stake_delegations_pool = sacc_pool,
       .stake_delegations_root = sacc_root,
       .epoch = 0,
-      .unused = 0,
+      .total_stake = 0,
       .vote_accounts = (fd_vote_accounts_t){
           .vote_accounts_pool = vacc_pool,
           .vote_accounts_root = vacc_root},
@@ -3931,6 +3931,7 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
 FD_SCRATCH_SCOPE_BEGIN {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
+  stakes->total_stake = 0UL;
 
   // TODO: is this size correct if the same stake account is in both the slot and epoch cache? Is this possible?
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
@@ -4006,6 +4007,7 @@ FD_SCRATCH_SCOPE_BEGIN {
     } else {
       epoch_cache_node->elem.stake = n->elem.stake;
     }
+    stakes->total_stake = fd_ulong_sat_add( stakes->total_stake, epoch_cache_node->elem.stake );
   }
 
   fd_bincode_destroy_ctx_t destroy_slot = {.valloc = slot_ctx->valloc};

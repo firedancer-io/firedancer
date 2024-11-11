@@ -738,7 +738,7 @@ struct __attribute__((aligned(8UL))) fd_stakes {
   fd_vote_accounts_t vote_accounts;
   fd_delegation_pair_t_mapnode_t * stake_delegations_pool;
   fd_delegation_pair_t_mapnode_t * stake_delegations_root;
-  ulong unused;
+  ulong total_stake;
   ulong epoch;
   fd_stake_history_t stake_history;
 };
@@ -749,7 +749,7 @@ typedef struct fd_stakes fd_stakes_t;
 struct __attribute__((aligned(8UL))) fd_stakes_off {
   uint vote_accounts_off;
   uint stake_delegations_off;
-  uint unused_off;
+  uint total_stake_off;
   uint epoch_off;
   uint stake_history_off;
 };

@@ -1933,7 +1933,7 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
 }
 
 // ??
-static ulong
+ulong
 query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
   fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
   key.elem.key                                  = *pubkey;

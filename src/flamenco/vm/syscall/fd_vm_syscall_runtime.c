@@ -6,6 +6,7 @@
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
 #include "../../runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
+#include "../../runtime/program/fd_vote_program.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 
 int
@@ -462,5 +463,71 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
   /* Return false if we didn't find a sibling instruction
      https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1534 */
   *ret = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+/* fd_vm_syscall_sol_get_epoch_stake */
+int
+fd_vm_syscall_sol_get_epoch_stake(
+    void * _vm,
+    ulong var_vaddr,
+    FD_PARAM_UNUSED ulong   r2,
+    FD_PARAM_UNUSED ulong   r3,
+    FD_PARAM_UNUSED ulong   r4,
+    FD_PARAM_UNUSED ulong   r5,
+    ulong * ret
+) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  /* https://github.com/firedancer-io/agave/blob/a68325a4264f4907067bd2f48526944347c606d4/programs/bpf_loader/src/syscalls/mod.rs#L2047 */
+  if ( var_vaddr == 0UL ) {
+    /* Consume base compute cost
+       https://github.com/firedancer-io/agave/blob/a68325a4264f4907067bd2f48526944347c606d4/programs/bpf_loader/src/syscalls/mod.rs#L2056 */
+    FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
+
+    fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
+    if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+
+    /* 
+    Return the total stake in this epoch
+
+    https://github.com/firedancer-io/agave/blob/a68325a4264f4907067bd2f48526944347c606d4/programs/bpf_loader/src/syscalls/mod.rs#L2048 */
+    ulong epoch_total_stake = instr_ctx->epoch_ctx->epoch_bank.stakes.total_stake;
+
+    /* 
+    Get the epoch stakes used to calculate the leader schedule for the current epoch.
+    
+    https://github.com/firedancer-io/agave/blob/a68325a4264f4907067bd2f48526944347c606d4/runtime/src/bank.rs#L6269 */
+    /* FIXME: get total epoch stake */
+
+    *ret = epoch_total_stake;
+    return FD_VM_SUCCESS;
+  }
+
+  /* Charge compute units: syscall_base + floor(PUBKEY_BYTES/cpi_bytes_per_unit) + mem_op_base
+
+    https://github.com/firedancer-io/agave/blob/a68325a4264f4907067bd2f48526944347c606d4/programs/bpf_loader/src/syscalls/mod.rs#L2073 */
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( 
+                          fd_ulong_sat_add(
+                            FD_VM_SYSCALL_BASE_COST,
+                            FD_PUBKEY_FOOTPRINT / FD_VM_CPI_BYTES_PER_UNIT ),
+                          FD_VM_MEM_OP_BASE_COST ) );
+
+  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+
+  /* Look up the amount of stake this vote account has, and return this.
+
+     https://github.com/firedancer-io/agave/blob/a68325a4264f4907067bd2f48526944347c606d4/programs/bpf_loader/src/syscalls/mod.rs#L2097 */
+  fd_pubkey_t const * vote_pubkey = FD_VM_MEM_HADDR_LD( 
+        vm,
+        var_vaddr,
+        FD_VM_ALIGN_RUST_PUBKEY,
+        FD_PUBKEY_FOOTPRINT );
+
+  ulong vote_account_stake = query_pubkey_stake(
+    vote_pubkey, &instr_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts );
+
+  *ret = vote_account_stake;
   return FD_VM_SUCCESS;
 }

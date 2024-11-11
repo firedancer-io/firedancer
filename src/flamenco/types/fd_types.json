@@ -329,7 +329,7 @@
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
         { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
-        { "name": "unused", "type": "ulong" },
+        { "name": "total_stake", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
       ],

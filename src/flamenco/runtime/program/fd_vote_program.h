@@ -77,6 +77,12 @@ void
 fd_vote_store_account( fd_exec_slot_ctx_t *    slot_ctx,
                        fd_borrowed_account_t * vote_account );
 
+/* Queries the delegated stake amount for the given vote account pubkey,
+   given the vote accounts map. */
+ulong 
+query_pubkey_stake( fd_pubkey_t const * pubkey,
+                    fd_vote_accounts_t const * vote_accounts );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h */

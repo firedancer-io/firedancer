@@ -781,6 +781,10 @@ FD_VM_SYSCALL_DECL( sol_curve_group_op );
 
 FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
 
+/* syscall sol_get_epoch_stake */
+
+FD_VM_SYSCALL_DECL( sol_get_epoch_stake );
+
 int
 fd_vm_derive_pda( fd_vm_t *           vm,
                   fd_pubkey_t const * program_id,
