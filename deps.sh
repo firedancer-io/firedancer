@@ -83,6 +83,10 @@ checkout_repo () {
   # Skip if dir already exists
   if [[ -d "$PREFIX/git/$1" ]]; then
     echo "[~] Skipping $1 fetch as \"$PREFIX/git/$1\" already exists"
+  elif [[ -z "$3" ]]; then
+    echo "[+] Cloning $1 from $2"
+    git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" && cd "$1" && git reset --hard "$4"
+    echo
   else
     echo "[+] Cloning $1 from $2"
     git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" --branch "$3" --depth=1
@@ -135,6 +139,7 @@ fetch () {
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
     checkout_repo luajit    https://github.com/LuaJIT/LuaJIT          "v2.0.5"
+    checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "efa579c"
   fi
 }
 
@@ -336,6 +341,16 @@ install_lz4 () {
   echo "[+] Successfully installed lz4"
 }
 
+install_s2n () {
+  cd "$PREFIX/git/s2n"
+
+  echo "[+] Installing s2n-bignum to $PREFIX"
+  make -C x86
+  cp x86/libs2nbignum.a "$PREFIX/lib"
+  cp include/* "$PREFIX/include"
+  echo "[+] Successfully installed s2n-bignum"
+}
+
 install_secp256k1 () {
   cd "$PREFIX/git/secp256k1"
 
@@ -521,6 +536,7 @@ install () {
   if [[ $DEVMODE == 1 ]]; then
     ( install_snappy    )
     ( install_rocksdb   )
+    ( install_s2n       )
   fi
 
   # Merge lib64 with lib
