@@ -292,7 +292,11 @@ check () {
         echo "[+] Installing rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         source "$HOME/.cargo/env"
-        rustup toolchain add 1.75.0
+        rust_toolchain=$(grep "channel" agave/rust-toolchain.toml | awk '{print $NF}' | tr -d '"')
+        if [[ ! $(rustup toolchain list | grep $rust_toolchain) ]]; then
+          echo "[+] Updating rustup toolchain"
+          rustup toolchain add $rust_toolchain
+        fi
         ;;
       *)
         echo "[-] Skipping rustup install"
