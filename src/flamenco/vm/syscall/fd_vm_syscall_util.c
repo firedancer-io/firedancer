@@ -339,29 +339,12 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L41 */
+/* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L145 */
 int
-fd_vm_syscall_sol_memmove( /**/            void *  _vm,
-                           /**/            ulong   dst_vaddr,
-                           /**/            ulong   src_vaddr,
-                           /**/            ulong   sz,
-                           FD_PARAM_UNUSED ulong   r4,
-                           FD_PARAM_UNUSED ulong   r5,
-                           /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-  *_ret = 0;
-
-  /* FIXME: confirm exact handling matches Solana for the NULL, sz==0
-     and/or dst==src cases (see other mem syscalls ... they don't all
-     fault in the same way though in principle that shouldn't break
-     consensus).  Except for fixing the overflow risk from wrapping
-     ranges (the below is computed as though the ranges are in exact
-     math and don't overlap), the below handling matches the original
-     implementation. */
-  /* FIXME: use overlap logic from runtime? */
-
-  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
-
+fd_vm_memmove( fd_vm_t * vm,
+               ulong     dst_vaddr,
+               ulong     src_vaddr,
+               ulong     sz ) {
   if( FD_UNLIKELY( !sz ) ) {
     return FD_VM_SUCCESS;
   }
@@ -468,6 +451,24 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L41 */
+int
+fd_vm_syscall_sol_memmove( /**/            void *  _vm,
+                           /**/            ulong   dst_vaddr,
+                           /**/            ulong   src_vaddr,
+                           /**/            ulong   sz,
+                           FD_PARAM_UNUSED ulong   r4,
+                           FD_PARAM_UNUSED ulong   r5,
+                           /**/            ulong * _ret ) {
+  *_ret = 0;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
+
+  /* No overlap check for memmove. */
+  return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L18 */
 int
 fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
@@ -477,13 +478,16 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   r4,
                           FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t*)_vm;
+  *_ret = 0;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   /* Exact same as memmove, except also check overlap.
      https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/mem_ops.rs#L31 */
   FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, src_vaddr, sz, dst_vaddr, sz );
 
-  return fd_vm_syscall_sol_memmove( _vm, dst_vaddr, src_vaddr, sz, r4, r5, _ret );
+  return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
 }
 
 int
