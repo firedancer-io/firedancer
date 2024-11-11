@@ -36,9 +36,8 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
     fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
-  if ( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
-    return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( seeds_cnt+( !!bump_seed )>FD_VM_PDA_SEEDS_MAX ) ) {
+    return FD_VM_ERR_INVALID_PDA;
   }
 
   fd_sha256_init( vm->sha );
@@ -178,12 +177,19 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
      CALLS TO SHA TO SUPPORT THIS)*/
 
   uchar bump_seed[1];
-  for ( ulong i=0UL; i<255UL; i++ ) {
+
+  /* Agave performs preflight checks on the seed lengths and translation before doing any
+     derivation and deducting CUs, whereas we do it on the fly in a single iteration. 
+     To maintain CU conformance at a fuzzing level, we should perform the CU deduction only if 
+     our adjacent preflight checks do not fail. If they do at some point in the derivation,
+     no extra CUs will be charged. */
+  ulong owed_cus = 0UL;
+  for( ulong i=0UL; i<255UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
     fd_pubkey_t derived[1];
     int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
-    if ( FD_LIKELY( err == FD_VM_SUCCESS ) ) {
+    if( FD_LIKELY( err==FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
       fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t) );
       uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL );
@@ -194,16 +200,18 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
       memcpy( out_haddr, derived, sizeof(fd_pubkey_t) );
       *out_bump_seed_haddr = (uchar)*bump_seed;
 
+      FD_VM_CU_UPDATE( vm, owed_cus );
+
       *_ret = 0UL;
       return FD_VM_SUCCESS;
-    } else if ( FD_UNLIKELY( err != FD_VM_ERR_INVALID_PDA ) ) {
-      /* FD_VM_ERR_INVALID_PDA continue the loop, any other error return */
+    } else if( FD_UNLIKELY( err!=FD_VM_ERR_INVALID_PDA ) ) {
       return err;
     }
 
-    FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
-
+    owed_cus = fd_ulong_sat_add( owed_cus, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
   }
+
+  FD_VM_CU_UPDATE( vm, owed_cus );
 
   *_ret = 1UL;
   return FD_VM_SUCCESS;
