@@ -276,6 +276,12 @@ metric introduced.
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
 
     <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
+    <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent in service</summary>
+    </histogram>
+    <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent receiving packets</summary>
+    </histogram>
 </group>
 
 <group name="Verify" tile="verify">
