@@ -310,7 +310,7 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* TODO: evaluate performance impact of metrics */
 
 union fd_quic_metrics {
-  ulong  ul[ 46 ];
+  ulong  ul[ 120 ];
   struct {
     /* Network metrics */
     ulong net_rx_pkt_cnt;  /* number of IP packets received */
@@ -342,6 +342,10 @@ union fd_quic_metrics {
     ulong stream_active_cnt;        /* number of active streams */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
+
+    /* Performance metrics */
+    fd_histf_t service_duration[ 1 ]; /* time spent in service */
+    fd_histf_t receive_duration[ 1 ]; /* time spent in RX calls */
   };
 };
 typedef union fd_quic_metrics fd_quic_metrics_t;

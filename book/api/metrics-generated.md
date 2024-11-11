@@ -115,6 +115,8 @@
 | quic_&#8203;received_&#8203;frames_&#8203;handshake_&#8203;done | `counter` | Number of QUIC frames received. (HANDSHAKE_DONE frame) |
 | quic_&#8203;received_&#8203;frames_&#8203;ping | `counter` | Number of QUIC frames received. (PING frame) |
 | quic_&#8203;received_&#8203;frames_&#8203;padding | `counter` | Number of QUIC frames received. (PADDING frame) |
+| quic_&#8203;service_&#8203;duration_&#8203;seconds | `histogram` | Duration spent in service |
+| quic_&#8203;receive_&#8203;duration_&#8203;seconds | `histogram` | Duration spent receiving packets |
 
 ## Verify Tile
 | Metric | Type | Description |
