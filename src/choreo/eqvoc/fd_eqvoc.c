@@ -21,11 +21,14 @@ fd_eqvoc_new( void * shmem, ulong key_max, ulong seed ) {
   void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(), fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_eqvoc_align() );
 
-  eqvoc->key_max = key_max;
   fd_eqvoc_pool_new( pool, key_max );
   fd_eqvoc_map_new( map, key_max, seed );
   fd_sha512_new( sha512 );
   (void)bmtree_mem; /* does not require `new` */
+
+  eqvoc->min_slot      = FD_SLOT_NULL;
+  eqvoc->key_max       = key_max;
+  eqvoc->shred_version = 0;
 
   return shmem;
 }

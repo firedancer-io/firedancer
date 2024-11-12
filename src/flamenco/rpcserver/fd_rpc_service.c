@@ -1368,7 +1368,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_web_reply_sprintf(ws, "null");
       continue;
     }
-    fd_blockstore_txn_map_t elem;
+    fd_txn_map_t elem;
     uchar flags;
     if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, NULL, &flags, NULL ) ) {
       fd_web_reply_sprintf(ws, "null");
@@ -1624,7 +1624,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
-  fd_blockstore_txn_map_t elem;
+  fd_txn_map_t elem;
   long blk_ts;
   uchar blk_flags;
   uchar txn_data_raw[FD_TXN_MTU];

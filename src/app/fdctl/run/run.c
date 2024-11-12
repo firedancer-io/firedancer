@@ -537,7 +537,7 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("txn_max"), VAL("alloc_max") );
+    fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("txn_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
