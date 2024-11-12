@@ -274,7 +274,6 @@ fd_snapshot_http_follow_redirect( fd_snapshot_http_t *      this,
 
 static int
 fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
-
   long now      = fd_log_wallclock();
   long deadline = this->req_deadline;
 
@@ -370,8 +369,9 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
   /* Find content-length */
 
   this->content_len = ULONG_MAX;
+  const ulong target_len = sizeof("content-length:")-1;
   for( ulong i = 0; i < header_cnt; ++i ) {
-    if( strncasecmp( headers[i].name, "content-length:", sizeof("content-length:")-1 ) == 0 ) {
+    if( headers[i].name_len==target_len && strncasecmp( headers[i].name, "content-length:", target_len ) == 0 ) {
       this->content_len = strtoul( headers[i].value, NULL, 10 );
       break;
     }
