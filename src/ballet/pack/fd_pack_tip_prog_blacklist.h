@@ -106,6 +106,7 @@
 #define MAP_PERFECT_19 ( _9ttgPBBhRYFuQccdR1DSnb7hydsWANoDsV3P9kaGMCEh ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
+#undef PERFECT_HASH
 
 /* fd_pack_tip_prog_check_blacklist checks if a transaction that uses the
    specified account address should be allowed to execute, assuming
