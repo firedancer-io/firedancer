@@ -358,6 +358,11 @@
    569,424 or more prior slots. */
 #define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
 
+#define IN_KIND_BANK  (0)
+#define IN_KIND_PACK  (1)
+#define IN_KIND_STAKE (2)
+
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -421,6 +426,22 @@ typedef struct {
      our 1st, rather than just strictly 400ms. */
   ulong expect_sequential_leader_slot;
 
+  /* There's a race condition ... let's say two banks A and B, bank A
+     processes some transactions, then releases the account locks, and
+     sends the microblock to PoH to be stamped.  Pack now re-packs the
+     same accounts with a new microblock, sends to bank B, bank B
+     executes and sends the microblock to PoH, and this all happens fast
+     enough that PoH picks the 2nd block to stamp before the 1st.  The
+     accounts database changes now are misordered with respect to PoH so
+     replay could fail.
+
+     To prevent this race, we order all microblocks and only process
+     them in PoH in the order they are produced by pack.  This is a
+     little bit over-strict, we just need to ensure that microblocks
+     with conflicting accounts execute in order, but this is easiest to
+     implement for now. */
+  ulong expect_microblock_idx;
+
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
      Mixing in requires incrementing the hashcnt, so we need to ensure
@@ -457,9 +478,6 @@ typedef struct {
      we have no known next leader slot. */
   ulong next_leader_slot;
 
-  ulong bank_cnt;
-  ulong * bank_busy[ 64UL ];
-
   /* If an in progress frag should be skipped */
   int skip_frag;
 
@@ -478,10 +496,7 @@ typedef struct {
 
   fd_sha256_t * sha256;
 
-  ulong stake_in_idx;
   fd_stake_ci_t * stake_ci;
-
-  ulong pack_in_idx;
 
   fd_pubkey_t identity_key;
 
@@ -494,9 +509,8 @@ typedef struct {
   uchar _txns[ USHORT_MAX ];
   fd_microblock_trailer_t _microblock_trailer[ 1 ];
 
-  fd_poh_in_ctx_t bank_in[ 32 ];
-  fd_poh_in_ctx_t stake_in;
-  fd_poh_in_ctx_t pack_in;
+  int in_kind[ 64 ];
+  fd_poh_in_ctx_t in[ 64 ];
 
   fd_poh_out_ctx_t shred_out[ 1 ];
   fd_poh_out_ctx_t pack_out[ 1 ];
@@ -976,6 +990,7 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->current_leader_bank     = bank;
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
+  ctx->expect_microblock_idx   = 0UL;
 
   /* We are about to start publishing to the shred tile for this slot
      so update the highwater mark so we never republish in this slot
@@ -1515,6 +1530,28 @@ metrics_write( fd_poh_ctx_t * ctx ) {
   FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
+static int
+before_frag( fd_poh_ctx_t * ctx,
+             ulong          in_idx,
+             ulong          seq,
+             ulong          sig ) {
+  (void)in_idx;
+  (void)seq;
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK ) ) {
+    ulong microblock_idx = fd_disco_bank_sig_microblock_idx( sig );
+    FD_TEST( microblock_idx>=ctx->expect_microblock_idx );
+
+    /* Return the fragment to stem so we can process it later, if it's
+       not next in the sequence. */
+    if( FD_UNLIKELY( microblock_idx>ctx->expect_microblock_idx ) ) return -1;
+
+    ctx->expect_microblock_idx++;
+  }
+
+  return 0;
+}
+
 static inline void
 during_frag( fd_poh_ctx_t * ctx,
              ulong          in_idx,
@@ -1527,21 +1564,35 @@ during_frag( fd_poh_ctx_t * ctx,
 
   ctx->skip_frag = 0;
 
-  if( FD_UNLIKELY( in_idx==ctx->stake_in_idx ) ) {
-    if( FD_UNLIKELY( chunk<ctx->stake_in.chunk0 || chunk>ctx->stake_in.wmark ) )
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-            ctx->stake_in.chunk0, ctx->stake_in.wmark ));
+            ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in.mem, chunk );
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
     return;
   }
 
-  int is_frag_for_prior_leader_slot = 0;
-  if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
-                  fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-    ulong slot = fd_disco_poh_sig_slot( sig );
+  ulong pkt_type;
+  ulong slot;
+  switch( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_BANK: {
+      pkt_type = POH_PKT_TYPE_MICROBLOCK;
+      slot = fd_disco_bank_sig_slot( sig );
+      break;
+    }
+    case IN_KIND_PACK: {
+      pkt_type = fd_disco_poh_sig_pkt_type( sig );
+      slot = fd_disco_poh_sig_slot( sig );
+      break;
+    }
+    default:
+      FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
+  }
 
+  int is_frag_for_prior_leader_slot = 0;
+  if( FD_LIKELY( pkt_type==POH_PKT_TYPE_DONE_PACKING || pkt_type==POH_PKT_TYPE_MICROBLOCK ) ) {
     /* The following sequence is possible...
     
         1. We become leader in slot 10
@@ -1559,15 +1610,15 @@ during_frag( fd_poh_ctx_t * ctx,
     is_frag_for_prior_leader_slot = slot<ctx->highwater_leader_slot;
   }
 
-  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     /* We now know the real amount of microblocks published, so set an
        exact bound for once we receive them. */
     ctx->skip_frag = 1;
-    if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) {
+    if( pkt_type==POH_PKT_TYPE_DONE_PACKING ) {
       if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
 
       FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
-      fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->pack_in.mem, chunk );
+      fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                     ctx->slot,
                     ctx->microblocks_lower_bound,
@@ -1576,30 +1627,13 @@ during_frag( fd_poh_ctx_t * ctx,
     }
     return;
   } else {
-    if( FD_UNLIKELY( chunk<ctx->bank_in[ in_idx ].chunk0 || chunk>ctx->bank_in[ in_idx ].wmark || sz>USHORT_MAX ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->bank_in[ in_idx ].chunk0, ctx->bank_in[ in_idx ].wmark ));
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>USHORT_MAX ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->bank_in[ in_idx ].mem, chunk );
+    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
     fd_memcpy( ctx->_txns, src, sz-sizeof(fd_microblock_trailer_t) );
     fd_memcpy( ctx->_microblock_trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
-
-    FD_TEST( ctx->_microblock_trailer->bank_idx<ctx->bank_cnt );
-
-    /* Indicate to pack tile we are done processing the transactions so
-       it can pack new microblocks using these accounts.  This has to be
-       done before filtering the frag, otherwise we would not notify
-       pack that accounts are unlocked in certain cases.
-
-       TODO: This is way too late to do this.  Ideally we would release
-       the accounts right after we execute and commit the results to the
-       accounts database.  It has to happen before because otherwise
-       there's a race where the bank releases the accounts, they get
-       reused in another bank, and that bank sends to PoH and gets its
-       microblock pulled first -- so the bank commit and poh mixin order
-       is not the same.  Ideally we would resolve this a bit more
-       cleverly and without holding the account locks this much longer. */
-    fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
 
     ctx->skip_frag = is_frag_for_prior_leader_slot;
   }
@@ -1608,7 +1642,6 @@ during_frag( fd_poh_ctx_t * ctx,
 static void
 publish_microblock( fd_poh_ctx_t *      ctx,
                     fd_stem_context_t * stem,
-                    ulong               sig,
                     ulong               slot,
                     ulong               hashcnt_delta,
                     ulong               txn_cnt ) {
@@ -1644,7 +1677,8 @@ publish_microblock( fd_poh_ctx_t *      ctx,
      publish the microblock. */
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)+payload_sz;
-  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ulong new_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  fd_stem_publish( stem, ctx->shred_out->idx, new_sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
 }
 
@@ -1664,7 +1698,7 @@ after_frag( fd_poh_ctx_t *      ctx,
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
-  if( FD_UNLIKELY( in_idx==ctx->stake_in_idx ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     /* It might seem like we do not need to do state transitions in and
        out of being the leader here, since leader schedule updates are
@@ -1706,7 +1740,7 @@ after_frag( fd_poh_ctx_t *      ctx,
     fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
 
-  ulong target_slot = fd_disco_poh_sig_slot( sig );
+  ulong target_slot = fd_disco_bank_sig_slot( sig );
 
   if( FD_UNLIKELY( target_slot!=ctx->next_leader_slot || target_slot!=ctx->slot ) ) {
     FD_LOG_ERR(( "packed too early or late target_slot=%lu, current_slot=%lu. highwater_leader_slot=%lu",
@@ -1776,7 +1810,7 @@ after_frag( fd_poh_ctx_t *      ctx,
     }
   }
 
-  publish_microblock( ctx, stem, sig, target_slot, hashcnt_delta, txn_cnt );
+  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
 }
 
 static void
@@ -1919,17 +1953,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->microblocks_lower_bound = 0UL;
 
-  ctx->bank_cnt     = tile->in_cnt-2UL;
-  ctx->stake_in_idx = tile->in_cnt-2UL;
-  ctx->pack_in_idx  = tile->in_cnt-1UL;
-
-  FD_TEST( ctx->bank_cnt<=sizeof(ctx->bank_busy)/sizeof(ctx->bank_busy[0]) );
-  for( ulong i=0UL; i<ctx->bank_cnt; i++ ) {
-    ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
-    FD_TEST( busy_obj_id!=ULONG_MAX );
-    ctx->bank_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-    if( FD_UNLIKELY( !ctx->bank_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
-  }
 
   ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
   FD_TEST( poh_shred_obj_id!=ULONG_MAX );
@@ -1984,22 +2007,24 @@ unprivileged_init( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH_TILE, SLOT_DONE_DELAY_SECONDS  ),
                                                      FD_MHIST_SECONDS_MAX( POH_TILE, SLOT_DONE_DELAY_SECONDS  ) ) );
 
-  for( ulong i=0; i<tile->in_cnt-1; i++ ) {
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    ctx->bank_in[ i ].mem    = link_wksp->wksp;
-    ctx->bank_in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->bank_in[i].mem, link->dcache );
-    ctx->bank_in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->bank_in[i].mem, link->dcache, link->mtu );
+    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+
+    if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_STAKE;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "pack_bank" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_PACK;
+    } else if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_BANK;
+    } else {
+      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+    }
   }
-
-  ctx->stake_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache );
-  ctx->stake_in.wmark  = fd_dcache_compact_wmark ( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].mtu );
-
-  ctx->pack_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache );
-  ctx->pack_in.wmark  = fd_dcache_compact_wmark ( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].mtu );
 
   *ctx->shred_out = out1( topo, tile, "poh_shred" );
   *ctx->pack_out  = out1( topo, tile, "poh_pack" );
@@ -2025,6 +2050,7 @@ unprivileged_init( fd_topo_t *      topo,
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 

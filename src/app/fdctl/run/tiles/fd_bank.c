@@ -18,6 +18,9 @@ typedef struct {
   uchar * txn_sidecar_mem;
 
   void const * _bank;
+  ulong _microblock_idx;
+
+  ulong * busy_fseq;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -110,6 +113,7 @@ during_frag( fd_bank_ctx_t * ctx,
   fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
   ctx->_bank = trailer->bank;
+  ctx->_microblock_idx = trailer->microblock_idx;
 }
 
 static void
@@ -244,13 +248,17 @@ after_frag( fd_bank_ctx_t *     ctx,
   pre_balance_info        = NULL;
   load_and_execute_output = NULL;
 
+  /* Indicate to pack tile we are done processing the transactions so
+     it can pack new microblocks using these accounts.  This has to be
+     done after commiting the transactions to poh otherwise there is a
+     race. */
+  fd_fseq_update( ctx->busy_fseq, seq );
+
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the bank tile because
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
-  trailer->bank_idx      = ctx->kind_id;
-  trailer->bank_busy_seq = seq;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -263,12 +271,14 @@ after_frag( fd_bank_ctx_t *     ctx,
     PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
+  ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx );
+
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -292,6 +302,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->kind_id = tile->kind_id;
   ctx->blake3 = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
   ctx->bmtree = NONNULL( bmtree );
+
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
+  FD_TEST( busy_obj_id!=ULONG_MAX );
+  ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+  if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
