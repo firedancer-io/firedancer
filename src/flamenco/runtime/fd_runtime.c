@@ -1337,7 +1337,7 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
   /* Look up solana-side transaction status details */
   fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
   uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
-  fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
+  fd_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
   if ( txn_map_entry != NULL ) {
     void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
 
@@ -1690,8 +1690,8 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
 
   fd_blockstore_t * blockstore      = slot_ctx->blockstore;
   fd_wksp_t * blockstore_wksp       = fd_blockstore_wksp( blockstore );
-  fd_alloc_t * blockstore_alloc     = fd_wksp_laddr_fast( blockstore_wksp, blockstore->alloc_gaddr );
-  fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( blockstore_wksp, blockstore->txn_map_gaddr );
+  fd_alloc_t * blockstore_alloc     = blockstore->alloc;
+  fd_txn_map_t * txn_map = blockstore->txn_map;
 
   /* Get the total size of all logs */
   ulong tot_meta_sz = 2*sizeof(ulong);
@@ -1725,10 +1725,10 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
 
       /* Update all the signatures */
       char const * sig_p = (char const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
-      fd_blockstore_txn_key_t sig;
+      fd_txn_key_t sig;
       for( uchar i=0U; i<txn_ctx->txn_descriptor->signature_cnt; i++ ) {
-        fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
-        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
+        fd_memcpy( &sig, sig_p, sizeof(fd_txn_key_t) );
+        fd_txn_map_t * txn_map_entry = fd_txn_map_query( txn_map, &sig, NULL );
         if( FD_LIKELY( txn_map_entry ) ) {
           txn_map_entry->meta_gaddr = meta_gaddr;
           txn_map_entry->meta_sz    = meta_sz;

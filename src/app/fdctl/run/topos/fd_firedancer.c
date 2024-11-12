@@ -38,7 +38,7 @@ setup_topo_blockstore( fd_topo_t *  topo,
 
   /* DO NOT MODIFY LOOSE WITHOUT CHANGING HOW BLOCKSTORE ALLOCATES INTERNAL STRUCTURES */
 
-  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, txn_max, alloc_max );
+  ulong blockstore_footprint = fd_blockstore_footprint( shred_max, block_max, txn_max ) + alloc_max;
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_footprint,  "obj.%lu.loose", obj->id ) );
 
   return obj;

@@ -779,7 +779,7 @@ fd_block_to_json( fd_webserver_t * ws,
           EMIT_SIMPLE(",{");
 
         uchar const * sig_p = raw + ((fd_txn_t *)txn_out)->signature_off;
-        fd_blockstore_txn_map_t elem;
+        fd_txn_map_t elem;
         uchar flags;
         if( !fd_blockstore_txn_query_volatile( blockstore, sig_p, &elem, NULL, &flags, NULL ) ) {
           const void * meta = fd_wksp_laddr_fast( blockstore_wksp, elem.meta_gaddr );

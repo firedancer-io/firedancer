@@ -62,7 +62,7 @@ name = \"fd1\"
         cluster_version = \"2.0.3\"
     [tiles.store_int]
         blockstore_shred_max = 1024
-        blockstore_block_max = 200
+        blockstore_block_max = 300
         blockstore_txn_max = 1024
         blockstore_alloc_max = 100000000
     [tiles.pack]

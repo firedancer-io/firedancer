@@ -438,10 +438,10 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
     if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
+      fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
       ulong last_txn_off = ULONG_MAX;
       for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
-        fd_blockstore_txn_key_t sig;
+        fd_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof(sig) );
         if( txns[j].txn_off != last_txn_off ) {
           last_txn_off = txns[j].txn_off;
@@ -657,13 +657,13 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   if( txnstatus && FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
     uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-    fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
+    fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
 
     /* Compute the total size of the logs */
     ulong tot_meta_sz = 2*sizeof(ulong);
     for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
       if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
-        fd_blockstore_txn_key_t sig;
+        fd_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
         ulong sz;
         void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
@@ -673,7 +673,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         }
       }
     }
-    fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
+    fd_alloc_t * alloc = blockstore->alloc;
     uchar * cur_laddr = fd_alloc_malloc( alloc, 1, tot_meta_sz );
     if( cur_laddr == NULL ) {
       fd_blockstore_end_write(blockstore);
@@ -686,10 +686,10 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     cur_laddr += 2*sizeof(ulong);
 
     /* Copy over the logs */
-    fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
+    fd_txn_map_t * txn_map = blockstore->txn_map;
     ulong meta_gaddr = 0;
     ulong meta_sz = 0;
-    fd_blockstore_txn_key_t sig = { 0 };
+    fd_txn_key_t sig = { 0 };
     for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
       if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
         fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
@@ -706,7 +706,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
           cur_laddr += sz;
         }
       }
-      fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
+      fd_txn_map_t * txn_map_entry = fd_txn_map_query( txn_map, &sig, NULL );
       if( FD_UNLIKELY( !txn_map_entry ) ) {
         char sig_str[ FD_BASE58_ENCODED_64_SZ ];
         fd_base58_encode_64( fd_type_pun_const( sig.v ), NULL, sig_str );
