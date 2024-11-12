@@ -265,7 +265,7 @@ while true; do
                         --minified-rocksdb $MISMATCH_DIR/rocksdb \
                         --start-slot $PREVIOUS_ROOTED_SLOT \
                         --end-slot $MINIMIZED_END_SLOT \
-                        --page-cnt $FUNK_PAGES \
+                        --page-cnt $PAGES \
                         --copy-txn-status 1 >> $LOG 2>&1
                     status=$?
 
