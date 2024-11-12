@@ -456,7 +456,8 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
 static inline int
 fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
   return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
-         fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
+         fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key) |
+         fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key);
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to

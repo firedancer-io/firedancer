@@ -70,7 +70,7 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #define MAP_PERFECT_NAME fd_native_program_fn_lookup_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T fd_native_prog_info_t
-#define MAP_PERFECT_HASH_C 13U
+#define MAP_PERFECT_HASH_C 478U
 #define MAP_PERFECT_KEY key.uc
 #define MAP_PERFECT_KEY_T fd_pubkey_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -96,6 +96,7 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_10      ( ED25519_SV_PROG_ID      ), .fn = fd_noop_instr_execute
 #define MAP_PERFECT_11      ( KECCAK_SECP_PROG_ID     ), .fn = fd_noop_instr_execute
+#define MAP_PERFECT_12      ( SECP256R1_PROG_ID       ), .fn = fd_noop_instr_execute
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -298,6 +299,12 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     } else if( !memcmp( program_id, &fd_solana_keccak_secp_256k_program_id, sizeof(fd_pubkey_t) )) {
       err = fd_precompile_secp256k1_verify( txn_ctx, instr );
+      if( FD_UNLIKELY( err ) ) {
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
+        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+      }
+    } else if( !memcmp( program_id, &fd_solana_secp256r1_program_id, sizeof(fd_pubkey_t) )) {
+      err = fd_precompile_secp256r1_verify( txn_ctx, instr );
       if( FD_UNLIKELY( err ) ) {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
@@ -1442,7 +1449,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_solana_bpf_loader_upgradeable_program_id,
     fd_solana_compute_budget_program_id,
     fd_solana_keccak_secp_256k_program_id,
-    fd_solana_ed25519_sig_verify_program_id,
+    fd_solana_secp256r1_program_id,
     fd_solana_zk_elgamal_proof_program_id,
     fd_solana_ed25519_sig_verify_program_id,
     fd_solana_spl_native_mint_id,

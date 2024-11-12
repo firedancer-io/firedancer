@@ -1,6 +1,5 @@
 #include "fd_system_ids.h"
 
-
 static inline void
 assert_eq( char const * base58,
            fd_pubkey_t   key     ) {
@@ -41,6 +40,7 @@ old_fd_pubkey_is_pending_reserved( fd_pubkey_t const * acct ) {
   if (memcmp(acct->key, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_zk_elgamal_proof_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_zk_token_proof_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_sysvar_epoch_rewards_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
@@ -80,6 +80,7 @@ main( int     argc,
   assert_eq( "LoaderV411111111111111111111111111111111111", fd_solana_bpf_loader_v4_program_id          );
   assert_eq( "Ed25519SigVerify111111111111111111111111111", fd_solana_ed25519_sig_verify_program_id     );
   assert_eq( "KeccakSecp256k11111111111111111111111111111", fd_solana_keccak_secp_256k_program_id       );
+  assert_eq( "Secp256r1SigVerify1111111111111111111111111", fd_solana_secp256r1_program_id              );
   assert_eq( "ComputeBudget111111111111111111111111111111", fd_solana_compute_budget_program_id         );
   assert_eq( "AddressLookupTab1e1111111111111111111111111", fd_solana_address_lookup_table_program_id   );
   assert_eq( "So11111111111111111111111111111111111111112", fd_solana_spl_native_mint_id                );
@@ -87,7 +88,7 @@ main( int     argc,
   assert_eq( "ZkE1Gama1Proof11111111111111111111111111111", fd_solana_zk_elgamal_proof_program_id       );
   assert_eq( "ZkTokenProof1111111111111111111111111111111", fd_solana_zk_token_proof_program_id         );
 
-  char const * const test_pubkeys[ 36 ] = {
+  char const * const test_pubkeys[ 37 ] = {
     "Sysvar1111111111111111111111111111111111111",
     "SysvarRecentB1ockHashes11111111111111111111",
     "SysvarC1ock11111111111111111111111111111111",
@@ -114,6 +115,7 @@ main( int     argc,
     "LoaderV411111111111111111111111111111111111",
     "Ed25519SigVerify111111111111111111111111111",
     "KeccakSecp256k11111111111111111111111111111",
+    "Secp256r1SigVerify1111111111111111111111111",
     "ComputeBudget111111111111111111111111111111",
     "ZkE1Gama1Proof11111111111111111111111111111",
     "ZkTokenProof1111111111111111111111111111111",
@@ -125,7 +127,7 @@ main( int     argc,
     "11111111111111111111111111111112",
     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
   };
-  for( ulong j=0UL; j<36UL; j++ ) {
+  for( ulong j=0UL; j<37UL; j++ ) {
     fd_pubkey_t decoded[ 1 ];
     FD_TEST( fd_base58_decode_32( test_pubkeys[ j ], decoded->uc ) );
     FD_TEST( fd_pubkey_is_active_reserved_key( decoded ) == old_fd_pubkey_is_active_reserved( decoded ) );
