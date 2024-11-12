@@ -446,6 +446,10 @@ typedef struct {
      our next leader slot starts. */
   long reset_slot_start_ns;
 
+  /* The timestamp in nanoseconds of when we got the bank for the
+     current leader slot. */
+  long leader_bank_start_ns;
+
   /* The hashcnt corresponding to the start of the current reset slot. */
   ulong reset_slot;
 
@@ -1045,6 +1049,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+ctx->slot );
   }
 
+  ctx->leader_bank_start_ns = fd_log_wallclock(); /* safe to call from Rust */
   if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==(completed_bank_slot+1UL) ) ) {
     /* If we are being reset onto a slot, it means some block was fully
        processed, so we reset to build on top of it.  Typically we want
@@ -1058,7 +1063,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
        the reset slot start time instead. */
     ctx->reset_slot_start_ns = ctx->reset_slot_start_ns + (long)((double)((completed_bank_slot+1UL)-ctx->reset_slot)*ctx->slot_duration_ns);
   } else {
-    ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
+    ctx->reset_slot_start_ns = ctx->leader_bank_start_ns;
   }
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
@@ -1387,7 +1392,20 @@ after_credit( fd_poh_ctx_t *      ctx,
      count to the current system clock, and clamp it to the allowed
      range. */
   long now = fd_log_wallclock();
-  ulong target_hashcnt = (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns) - (ctx->slot-ctx->reset_slot)*ctx->hashcnt_per_slot;
+  ulong target_hashcnt;
+  if( FD_LIKELY( !is_leader ) ) {
+    target_hashcnt = (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns) - (ctx->slot-ctx->reset_slot)*ctx->hashcnt_per_slot;
+  } else {
+    /* We might have gotten very behind on hashes, but if we are leader
+       we want to catch up gradually over the remainder of our leader
+       slot, not all at once right now.  This helps keep the tile from
+       being oversubscribed and taking a long time to process incoming
+       microblocks. */
+    long expected_slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(ctx->slot-ctx->reset_slot)*ctx->slot_duration_ns);
+    double actual_slot_duration_ns = ctx->slot_duration_ns<(double)(ctx->leader_bank_start_ns - expected_slot_start_ns) ? 0.0 : ctx->slot_duration_ns - (double)(ctx->leader_bank_start_ns - expected_slot_start_ns);
+    double actual_hashcnt_duration_ns = actual_slot_duration_ns / (double)ctx->hashcnt_per_slot;
+    target_hashcnt = fd_ulong_if( actual_hashcnt_duration_ns==0.0, restricted_hashcnt, (ulong)((double)(now - ctx->leader_bank_start_ns) / actual_hashcnt_duration_ns) );
+  }
   /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
   target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );
 
