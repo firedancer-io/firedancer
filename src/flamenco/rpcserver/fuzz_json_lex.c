@@ -5,9 +5,14 @@
 #include "../../util/fd_util.h"
 #include "json_lex.h"
 
+# define SMAX (1L<<20UL)
+# define FMAX (1UL)
+uchar scratch_mem [ SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
+ulong scratch_fmem[ FMAX ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
+
 struct json_lex_state *lex_state = NULL;
 
-void free_lex_state(void) { free(lex_state); }
+void free_lex_state( void ) { free(lex_state); }
 
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
   /* Set up shell without signal handlers */
@@ -25,14 +30,13 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
 int
 LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
+  fd_scratch_attach( scratch_mem, scratch_fmem, SMAX, FMAX );
   json_lex_state_new(lex_state, (const char *)data, size);
-
   for (;;) {
     long token_type = json_lex_next_token(lex_state);
 
     if (token_type == JSON_TOKEN_END || token_type == JSON_TOKEN_ERROR) {
-      json_lex_state_delete(lex_state);
-      return 0;
+      break;
     }
 
     ulong sz_out;
@@ -42,11 +46,13 @@ LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
       // Access the first and last byte of the state
       const char a __attribute__((unused)) = out[0];
 
-      // A asan hit here would mean that json_lex_get_text claims that we can
+      // An ASAN hit here would mean that json_lex_get_text claims that we can
       // read further than we can.
       const char b __attribute__((unused)) = out[sz_out - 1];
     }
   }
 
+  json_lex_state_delete(lex_state);
+  fd_scratch_detach( NULL );
   return 0;
 }
