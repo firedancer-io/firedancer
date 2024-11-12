@@ -3111,7 +3111,8 @@ fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
     fd_txn_instr_t const *txn_instr = &txn_descriptor->instr[i];
     fd_pubkey_t *program_id = &txn_ctx->accounts[txn_instr->program_id];
     if (memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) == 0 ||
-        memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) == 0)
+        memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) == 0 ||
+        memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) == 0)
     {
       if (txn_instr->data_sz == 0)
       {

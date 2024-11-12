@@ -29,6 +29,7 @@ const fd_pubkey_t fd_solana_bpf_loader_upgradeable_program_id = { .uc = { BPF_UP
 const fd_pubkey_t fd_solana_bpf_loader_v4_program_id          = { .uc = { LOADER_V4_PROG_ID        } };
 const fd_pubkey_t fd_solana_ed25519_sig_verify_program_id     = { .uc = { ED25519_SV_PROG_ID       } };
 const fd_pubkey_t fd_solana_keccak_secp_256k_program_id       = { .uc = { KECCAK_SECP_PROG_ID      } };
+const fd_pubkey_t fd_solana_secp256r1_program_id              = { .uc = { SECP256R1_PROG_ID        } };
 const fd_pubkey_t fd_solana_compute_budget_program_id         = { .uc = { COMPUTE_BUDGET_PROG_ID   } };
 const fd_pubkey_t fd_solana_address_lookup_table_program_id   = { .uc = { ADDR_LUT_PROG_ID         } };
 const fd_pubkey_t fd_solana_spl_native_mint_id                = { .uc = { NATIVE_MINT_ID           } };
@@ -83,7 +84,7 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
 #define MAP_PERFECT_NAME fd_pubkey_pending_reserved_keys_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T fd_pubkey_t
-#define MAP_PERFECT_HASH_C 68U
+#define MAP_PERFECT_HASH_C 146U
 #define MAP_PERFECT_KEY uc
 #define MAP_PERFECT_KEY_T fd_pubkey_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -107,6 +108,7 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
 #define MAP_PERFECT_7       ( SYSVAR_EPOCH_REWARDS_ID ),
 #define MAP_PERFECT_8       ( SYSVAR_LAST_RESTART_ID  ),
 #define MAP_PERFECT_9       ( SYSVAR_PROG_ID          ),
+#define MAP_PERFECT_10      ( SECP256R1_PROG_ID       ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH

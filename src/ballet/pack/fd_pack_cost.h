@@ -35,14 +35,14 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_NAME      fd_pack_builtin
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T         fd_pack_builtin_prog_cost_t
-#define MAP_PERFECT_HASH_C    3770250927U
+#define MAP_PERFECT_HASH_C    478U
 #define MAP_PERFECT_KEY       program_id
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
 #define MAP_PERFECT_COMPLEX_KEY 1
 #define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
 
-#define PERFECT_HASH( u ) (((3770250927U*(u))>>28)&0xFU)
+#define PERFECT_HASH( u ) (((478U*(u))>>28)&0xFU)
 
 #define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
@@ -64,6 +64,7 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_9  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        2000UL
 #define MAP_PERFECT_10 ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=         720UL
 #define MAP_PERFECT_11 ( ED25519_SV_PROG_ID      ), .cost_per_instr=         720UL
+#define MAP_PERFECT_12 ( SECP256R1_PROG_ID       ), .cost_per_instr=         720UL
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -143,6 +144,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   fd_pack_builtin_prog_cost_t const * vote_row               = ROW( VOTE_PROG_ID           );
   fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
   fd_pack_builtin_prog_cost_t const * keccak_precompile_row  = ROW( KECCAK_SECP_PROG_ID    );
+  fd_pack_builtin_prog_cost_t const * secp256r1_precomp_row  = ROW( SECP256R1_PROG_ID      );
 #undef ROW
 
   /* We need to be mindful of overflow here, but it's not terrible.
@@ -179,7 +181,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
         return 0UL;
-    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) ) ) {
+    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) | (in_tbl==secp256r1_precomp_row) ) ) {
       /* First byte is # of signatures.  Branchless tail reading here is
          probably okay, but this seems safer. */
       precompile_sig_cnt += (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;

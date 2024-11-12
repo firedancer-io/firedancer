@@ -105,9 +105,11 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     char data[1] = {1};
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_secp256r1_program_id.key, data, 1 );
   } else {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, "", 0 );
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, "", 0 );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_secp256r1_program_id.key, "", 0 );
   }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */

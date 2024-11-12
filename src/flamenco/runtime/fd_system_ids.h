@@ -33,6 +33,7 @@ extern const fd_pubkey_t fd_solana_bpf_loader_upgradeable_program_id;
 extern const fd_pubkey_t fd_solana_bpf_loader_v4_program_id;
 extern const fd_pubkey_t fd_solana_ed25519_sig_verify_program_id;
 extern const fd_pubkey_t fd_solana_keccak_secp_256k_program_id;
+extern const fd_pubkey_t fd_solana_secp256r1_program_id;
 extern const fd_pubkey_t fd_solana_compute_budget_program_id;
 extern const fd_pubkey_t fd_solana_address_lookup_table_program_id;
 extern const fd_pubkey_t fd_solana_spl_native_mint_id;
