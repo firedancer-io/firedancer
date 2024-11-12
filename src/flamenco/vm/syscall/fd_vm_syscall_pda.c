@@ -36,6 +36,21 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
     fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
+  /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr. 
+     Weirdly they do two checks for seeds cnt - one before PDA derivation, and one during. The first check will
+     fail the preflight checks, and the second should just continue execution. We can't put this check one level up
+     because it's only done after haddr conversion / alignment / size checks, which is done by the above line. We
+     also can't rely on just the second check because we need execution to halt. 
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
+  if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+    return FD_VM_ERR_INVAL;
+  }
+
+  /* This check does NOT halt execution within `fd_vm_syscall_sol_try_find_program_address`. This means
+     that if the user provides 16 seeds (excluding the bump) in the `try_find_program_address` syscall, 
+     this same check below will be hit 255 times and deduct that many CUs. Very strange... 
+     https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L725-L727 */
   if( FD_UNLIKELY( seeds_cnt+( !!bump_seed )>FD_VM_PDA_SEEDS_MAX ) ) {
     return FD_VM_ERR_INVALID_PDA;
   }
@@ -44,21 +59,24 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   for ( ulong i=0UL; i<seeds_cnt; i++ ) {
     ulong seed_sz = seeds_haddr[i].len;
 
+    /* Another preflight check 
+       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736 */
     if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
       return FD_VM_ERR_INVAL;
     }
 
     /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
-       returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. */
+       returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. 
+       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L737-L742 */
     if ( FD_UNLIKELY( seed_sz==0 ) ) {
       continue;
     }
-
     void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_haddr[i].addr, FD_VM_ALIGN_RUST_U8, seed_sz );
     fd_sha256_append( vm->sha, seed_haddr, seed_sz );
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L738-L747 */
   if( bump_seed ) {
     fd_sha256_append( vm->sha, bump_seed, 1UL );
   }
