@@ -3659,7 +3659,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
         uchar sb = conn->spin_bit;
 
         /* one_rtt has a short header */
-        one_rtt.h0           = fd_quic_one_rtt_h0( sb, key_phase, pkt_num_len );
+        one_rtt.h0           = fd_quic_one_rtt_h0( sb, !!key_phase_tx, pkt_num_len );
         one_rtt.pkt_num_bits = 4 * 8;      /* actual number of bits to encode */
 
         /* destination */
