@@ -570,12 +570,6 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L264-L270 */
-
-  if( FD_UNLIKELY( args->lamports == 0UL ) ) {
-    return 0;
-  }
-
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L283-L290 */
 
   fd_pubkey_t address_from_seed[1];
