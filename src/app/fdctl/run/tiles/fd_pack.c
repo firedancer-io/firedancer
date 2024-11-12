@@ -482,6 +482,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
       trailer->bank = ctx->leader_bank;
+      trailer->microblock_idx = ctx->slot_microblock_cnt;
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
@@ -589,7 +590,7 @@ during_frag( fd_pack_ctx_t * ctx,
   case IN_KIND_BANK: {
     FD_TEST( ctx->use_consumed_cus );
       /* For a previous slot */
-    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) return;
+    if( FD_UNLIKELY( fd_disco_bank_sig_slot( sig )!=ctx->leader_slot ) ) return;
 
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_microblock_trailer_t)
           || sz>sizeof(fd_microblock_trailer_t)+sizeof(fd_txn_p_t)*MAX_TXN_PER_MICROBLOCK ) )
@@ -705,7 +706,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   }
   case IN_KIND_BANK: {
     /* For a previous slot */
-    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) return;
+    if( FD_UNLIKELY( fd_disco_bank_sig_slot( sig )!=ctx->leader_slot ) ) return;
 
     fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
     ctx->pending_rebate_cnt = 0UL;

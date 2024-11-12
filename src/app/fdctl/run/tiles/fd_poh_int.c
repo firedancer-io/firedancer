@@ -239,12 +239,19 @@ during_frag( fd_poh_ctx_t * ctx,
     fd_poh_tile_init_stakes( ctx->poh_tile_ctx, dcache_entry );
     return;
   }
+
+  ulong pkt_type;
+  ulong slot;
+  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
+    pkt_type = fd_disco_poh_sig_pkt_type( sig );
+    slot = fd_disco_poh_sig_slot( sig );
+  } else {
+    pkt_type = POH_PKT_TYPE_MICROBLOCK;
+    slot = fd_disco_bank_sig_slot( sig );
+  }
   
   int is_frag_for_prior_leader_slot = 0;
-  if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
-                  fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-    ulong slot = fd_disco_poh_sig_slot( sig );
-
+  if( FD_LIKELY( pkt_type==POH_PKT_TYPE_DONE_PACKING || pkt_type==POH_PKT_TYPE_MICROBLOCK ) ) {
     /* The following sequence is possible...
     
         1. We become leader in slot 10
@@ -290,10 +297,6 @@ during_frag( fd_poh_ctx_t * ctx,
     FD_TEST( raw_sz<=1024*USHORT_MAX );
     fd_memcpy( ctx->_txns, src, raw_sz-sizeof(fd_microblock_trailer_t) );
     fd_memcpy( ctx->_microblock_trailer, src+(sz * sizeof(fd_txn_p_t)), sizeof(fd_microblock_trailer_t) );
-    if( ctx->_microblock_trailer->bank_idx>=ctx->bank_cnt ) {
-      FD_LOG_ERR(("bad bank idx - bank_idx: %lu, bank_cnt: %lu ",  ctx->_microblock_trailer->bank_idx, ctx->bank_cnt));
-    }
-    FD_TEST( ctx->_microblock_trailer->bank_idx<ctx->bank_cnt );
 
     ctx->filter_frag = is_frag_for_prior_leader_slot;
   }

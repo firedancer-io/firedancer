@@ -550,7 +550,14 @@ stem_run1( ulong                        in_cnt,
     ulong sig = fd_frag_meta_sse0_sig( seq_sig ); (void)sig;
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
-    if( FD_UNLIKELY( filter ) ) {
+    if( FD_UNLIKELY( filter<0 ) ) {
+      metric_regime_ticks[1] += housekeeping_ticks;
+      metric_regime_ticks[4] += prefrag_ticks;
+      long next = fd_tickcount();
+      metric_regime_ticks[7] += (ulong)(next - now);
+      now = next;
+      continue;
+    } else if( FD_UNLIKELY( filter>0 ) ) {
       this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ]++;
       this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
 

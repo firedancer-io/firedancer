@@ -360,6 +360,8 @@ during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz ) {
+  (void)seq;
+
   /* Incoming packet from store tile. Format:
    * Parent slot (ulong - 8 bytes)
    * Updated block hash/PoH hash (fd_hash_t - 32 bytes)
@@ -420,9 +422,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
       dst_poh += (sz - sizeof(fd_microblock_bank_trailer_t));
       fd_microblock_bank_trailer_t * t = (fd_microblock_bank_trailer_t *)src;
       ctx->parent_slot = (ulong)t->bank;
-      fd_microblock_trailer_t * mblk_trailer = (fd_microblock_trailer_t *)dst_poh;
-      mblk_trailer->bank_busy_seq = seq;
-      mblk_trailer->bank_idx = bank_idx;
     } else {
       FD_LOG_WARNING(("OTHER PACKET TYPE: %lu", fd_disco_poh_sig_pkt_type( sig )));
       ctx->skip_frag = 1;
@@ -869,9 +868,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   /* do a replay */
   ulong        txn_cnt    = ctx->txn_cnt;
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
-  fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
-  microblock_trailer->bank_idx                 = bank_idx;
-  microblock_trailer->bank_busy_seq            = seq;
 
   ulong epoch_ctx_idx = fd_epoch_forks_get_epoch_ctx( ctx->epoch_forks, ctx->ghost, curr_slot, &ctx->parent_slot );
   ctx->epoch_ctx = ctx->epoch_forks->forks[ epoch_ctx_idx ].epoch_ctx;

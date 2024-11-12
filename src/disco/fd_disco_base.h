@@ -100,6 +100,15 @@ FD_FN_CONST static inline ulong fd_disco_poh_sig_slot( ulong sig ) { return (sig
 FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 2) & 0x3FUL; }
 
 FD_FN_CONST static inline ulong
+fd_disco_bank_sig( ulong slot,
+                   ulong microblock_idx ) {
+  return (slot << 32) | microblock_idx;
+}
+
+FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (sig >> 32); }
+FD_FN_CONST static inline ulong fd_disco_bank_sig_microblock_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
+
+FD_FN_CONST static inline ulong
 fd_disco_replay_sig( ulong slot,
                      ulong flags ) {
    /* The low byte of the signature field is the flags for replay message.
