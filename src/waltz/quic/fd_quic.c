@@ -1254,16 +1254,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   uint const enc_level = fd_quic_enc_level_initial_id;
 
-  /* Save the original destination conn ID for later.  In QUIC, peers
-     choose their own "conn ID" (more like a peer ID) and indirectly
-     instruct the other peer to be addressed as such via the dest conn
-     ID field.  However, when the client sends the first packet, it
-     doesn't know the preferred dest conn ID to pick for the server
-     Thus, the client picks a random dest conn ID -- which is referred
-     to as "original dest conn ID". */
-
-  fd_quic_conn_id_t orig_dst_conn_id = *conn_id;
-
   /* Parse initial packet */
 
   fd_quic_initial_t initial[1] = {0};
@@ -1305,6 +1295,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
      If not, allocate one. */
 
   if( FD_UNLIKELY( !conn ) ) {
+
+    fd_quic_conn_id_t odcid = *conn_id;
+
     if( quic->config.role==FD_QUIC_ROLE_SERVER ) {
       /* According to RFC 9000 Section 14.1, INITIAL packets less than a certain length
          must be discarded, and the connection may be closed.  (Mitigates UDP
@@ -1375,9 +1368,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Send orig conn ID back to client (server only) */
 
       tp->original_destination_connection_id_present = 1;
-      tp->original_destination_connection_id_len     = orig_dst_conn_id.sz;
+      tp->original_destination_connection_id_len     = odcid.sz;
       fd_memcpy( tp->original_destination_connection_id,
-          orig_dst_conn_id.conn_id,
+          odcid.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
       /* Repeat the conn ID we picked in transport params (this is done
@@ -1406,7 +1399,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         if( initial->token_len == 0 ) {
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
-                &orig_dst_conn_id, &new_conn_id,
+                &odcid, &new_conn_id,
                 dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
           }
@@ -1418,7 +1411,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            i.e. retry src conn id, ip, port */
 
         fd_quic_conn_id_t retry_src_conn_id;
-        int retry_ok = fd_quic_retry_server_verify( pkt, initial, &orig_dst_conn_id, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
+        int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
@@ -1451,10 +1444,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                   original_destination_connection_id to S1, retry_source_connection_id
                   to S2, and initial_source_connection_id to S3.  */
         tp->original_destination_connection_id_present = 1;
-        tp->original_destination_connection_id_len     = orig_dst_conn_id.sz;
+        tp->original_destination_connection_id_len     = odcid.sz;
         memcpy( tp->original_destination_connection_id,
-                orig_dst_conn_id.conn_id,
-                orig_dst_conn_id.sz );
+                odcid.conn_id,
+                odcid.sz );
 
         /* Client echoes back the SCID we sent via Retry.  Safe to trust because we signed the Retry Token
            (Length and content validated in fd_quic_retry_server_verify) */
@@ -1480,9 +1473,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         FD_DEBUG( FD_LOG_WARNING( ( "failed to allocate QUIC conn" ) ) );
         return FD_QUIC_PARSE_FAIL;
       }
-
-      /* keep orig_dst_conn_id */
-      conn->orig_dst_conn_id = orig_dst_conn_id;
 
       /* set the value for the caller */
       *p_conn = conn;
@@ -4164,11 +4154,6 @@ fd_quic_connect( fd_quic_t *  quic,
   state->next_ephem_udp_port = next_ephem;
 
   conn->host.udp_port = src_port;
-
-  /* save original destination connection id */
-
-  fd_memcpy( conn->orig_dst_conn_id.conn_id, &peer_conn_id.conn_id, peer_conn_id.sz );
-  conn->orig_dst_conn_id.sz = peer_conn_id.sz;
 
   /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
       Take template from state and mutate certain params in-place.

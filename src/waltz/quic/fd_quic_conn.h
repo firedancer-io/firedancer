@@ -71,11 +71,6 @@ struct fd_quic_conn {
 
   ulong              our_conn_id;
 
-  /* Save original destination connection id
-     This will be used when we receive a retransmitted initial packet
-     Also used when retransmitting the first initial packet */
-  fd_quic_conn_id_t  orig_dst_conn_id;
-
   /* Save original retry_source_connection_id
    * This is used by clients to compare against the retry_source_connection_id
    * in the transport parameters as specified in rfc 9000 7.3 */
