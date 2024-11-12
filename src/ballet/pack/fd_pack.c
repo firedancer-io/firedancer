@@ -181,7 +181,7 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_PERFECT_NAME      fd_pack_unwritable
 #define MAP_PERFECT_LG_TBL_SZ 5
 #define MAP_PERFECT_T         fd_acct_addr_t
-#define MAP_PERFECT_HASH_C    1402126759U
+#define MAP_PERFECT_HASH_C    1227063708U
 #define MAP_PERFECT_KEY       b
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -227,10 +227,10 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_PERFECT_25 ( ADDR_LUT_PROG_ID         ),
 #define MAP_PERFECT_26 ( NATIVE_MINT_ID           ),
 #define MAP_PERFECT_27 ( TOKEN_PROG_ID            ),
-#define MAP_PERFECT_28 ( SYSVAR_PROG_ID           ),
+#define MAP_PERFECT_28 ( SECP256R1_PROG_ID        ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
-
+#undef PERFECT_HASH
 
 /* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
 #define COMPARE_WORSE(x,y) ( ((ulong)((x)->rewards)*(ulong)((y)->compute_est)) < ((ulong)((y)->rewards)*(ulong)((x)->compute_est)) )
