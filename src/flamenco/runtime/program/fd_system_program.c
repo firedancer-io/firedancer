@@ -563,19 +563,17 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   ulong const from_base_idx = 1UL;
   ulong const to_idx        = 2UL;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L264-L270 */
-
-  if( FD_UNLIKELY( args->lamports == 0UL ) ) {
-    return 0;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L272-L282 */
-
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx ) ) ) {
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ from_base_idx ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L264-L270 */
+
+  if( FD_UNLIKELY( args->lamports == 0UL ) ) {
+    return 0;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L283-L290 */
