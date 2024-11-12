@@ -1,4 +1,4 @@
-name: Publish to ClusterFuzz
+name: Publish to ARFuzz
 on:
   workflow_call:
   workflow_dispatch:
@@ -44,3 +44,60 @@ jobs:
           path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat_stubbed.so
           name: libfd_exec_sol_compat_stubbed
           retention-days: 14
+
+  ARfuzz-publish:
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        machine:
+          - linux_clang_haswell
+          - linux_clang_icelake
+        include:
+          - machine: linux_clang_haswell
+            artifact_dir: build/linux/clang/haswell
+            qualifier: modern
+          - machine: linux_clang_icelake
+            artifact_dir: build/linux/clang/icelake
+            qualifier: highend
+    runs-on:
+      ubuntu-latest
+      #group: github-v1
+    env:
+      MACHINE: ${{ matrix.machine }}
+      EXTRAS: fuzz asan ubsan
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # - uses: ./.github/actions/hugepages #commented out for testing
+      - uses: ./.github/actions/deps
+
+      - run: sudo apt update && sudo apt install -y zip
+
+      - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
+        name: Build fuzz tests
+        with:
+          command: make -j -Otarget fuzz-test
+
+      - name: List compiled binary directory structure
+        run: |
+          ls ${{ matrix.artifact_dir }}/fuzz-test
+          ls ${{ matrix.artifact_dir }}/lib
+      
+      - uses: actions/upload-artifact@v4
+        name: Zip and upload to GitHub Artifacts
+        id: artifact-zip-m1
+        with:
+          path: ${{ matrix.artifact_dir }}
+          retention-days: 10
+
+      - name: dispatch AR fuzz bundler
+        run: |
+          curl -L \
+          -X POST \
+          https://api.github.com/repos/asymmetric-research/FuzzCorp-bundler/dispatches \
+          -H 'Accept: application/vnd.github.everest-preview+json' \
+          -H "Authorization: Bearer ${{ secrets.PAT }}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          --data '{"event_type": "fd_main", "client_payload":{"artifact_id": "${{steps.artifact-zip-m1.outputs.artifact-id }}", "bundle_type": "${{ matrix.qualifier }}"}}'
