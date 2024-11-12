@@ -340,6 +340,7 @@ fd_precompile_secp256k1_verify( fd_exec_txn_ctx_t *    txn_ctx,
   Secp256r1
 */
 
+#ifdef FD_HAS_S2NBIGNUM
 int
 fd_precompile_secp256r1_verify( fd_exec_txn_ctx_t *    txn_ctx,
                                 fd_txn_instr_t const * instr ) {
@@ -424,3 +425,10 @@ fd_precompile_secp256r1_verify( fd_exec_txn_ctx_t *    txn_ctx,
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+#else
+int
+fd_precompile_secp256r1_verify( FD_PARAM_UNUSED fd_exec_txn_ctx_t *    txn_ctx,
+                                FD_PARAM_UNUSED fd_txn_instr_t const * instr ) {
+  return FD_EXECUTOR_INSTR_ERR_FATAL;
+}
+#endif
