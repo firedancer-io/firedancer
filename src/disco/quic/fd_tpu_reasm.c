@@ -190,12 +190,11 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   }
 
   /* Acquire mcache line */
-  ulong            depth    = reasm->depth;
-  fd_frag_meta_t * meta     = mcache + fd_mcache_line_idx( seq, depth );
+  ulong  depth          = reasm->depth;
 
   /* Detect which slot this message belongs to */
-  uint *           pub_slot       = fd_tpu_reasm_pub_slots_laddr( reasm ) + fd_mcache_line_idx( seq, depth );
-  uint             freed_slot_idx = *pub_slot;
+  uint * pub_slot       = fd_tpu_reasm_pub_slots_laddr( reasm ) + fd_mcache_line_idx( seq, depth );
+  uint   freed_slot_idx = *pub_slot;
 
   if( FD_UNLIKELY( freed_slot_idx >= reasm->slot_cnt ) ) {
     /* mcache corruption */
@@ -228,6 +227,12 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   ulong ctl    = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
   ulong tsorig = slot->tsorig;
 
+# if FD_HAS_AVX
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig, tspub );
+# elif FD_HAS_SSE
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig, tspub );
+# else
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
   FD_COMPILER_MFENCE();
   meta->seq    = fd_seq_dec( seq, 1UL );
   FD_COMPILER_MFENCE();
@@ -239,6 +244,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   FD_COMPILER_MFENCE();
   meta->seq    = seq;
   FD_COMPILER_MFENCE();
+# endif
 
   return FD_TPU_REASM_SUCCESS;
 }
