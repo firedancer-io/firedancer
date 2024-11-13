@@ -814,7 +814,6 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
 
     /* If block_map is full, evict the minimum slot before SMR. */
 
-    FD_LOG_NOTICE(( "slot %lu key_cnt %lu key_max %lu", shred->slot, fd_block_map_key_cnt( block_map ), fd_block_map_key_max( block_map) ));
     if( FD_UNLIKELY( fd_block_map_key_cnt( block_map ) == fd_block_map_key_max( block_map ) ) ) {
       fd_blockstore_evict( blockstore );
     }
