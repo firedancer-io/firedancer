@@ -40,7 +40,7 @@ uint
 fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
                            fd_exec_test_input_data_region_t const * test_input,
                            ulong                                    test_input_count,
-                           fd_valloc_t                              valloc );
+                           fd_spad_t *                              spad );
 
 ulong
 load_from_vm_input_regions( fd_vm_input_region_t const *        input,

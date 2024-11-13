@@ -4,8 +4,6 @@
 #include "../../fd_flamenco_base.h"
 #include "../../vm/fd_vm.h"
 
-#define MAX_PERMITTED_DATA_INCREASE (10240UL)
-#define FD_BPF_ALIGN_OF_U128        (8UL    )
 #define FD_NON_DUP_MARKER           (0xFF   )
 
 FD_PROTOTYPES_BEGIN

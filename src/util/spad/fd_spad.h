@@ -29,6 +29,7 @@
    sanitization. */
 
 #include "../bits/fd_bits.h"
+#include "../valloc/fd_valloc.h" // For valloc wrapper interface
 
 /* FD_SPAD_{ALIGN,FOOTPRINT} give the alignment and footprint of a
    fd_spad_t.  ALIGN is an integer power of 2.  FOOTPRINT is a multiple
@@ -529,6 +530,18 @@ fd_spad_private_frame_end_debug( fd_spad_t ** _spad ) {
   do
 
 #define FD_SPAD_FRAME_END_DEBUG while(0); } while(0)
+
+/* fd_valloc virtual function table for spad */
+extern const fd_valloc_vtable_t fd_spad_vtable;
+
+/* Returns an fd_valloc handle to the fd_spad join.
+   Valid for lifetime of the current spad frame. Handle invalid if spad
+   frame changes or spad detaches. */
+FD_FN_PURE static inline fd_valloc_t
+fd_spad_virtual( fd_spad_t * spad ) {
+  fd_valloc_t valloc = { spad, &fd_spad_vtable };
+  return valloc;
+}
 
 FD_PROTOTYPES_END
 
