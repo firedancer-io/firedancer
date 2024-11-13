@@ -286,7 +286,7 @@ test_0cu_exit( void ) {
   FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_SIGCOST );
 
   fd_vm_delete( fd_vm_leave( vm ) );
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
@@ -1010,7 +1010,7 @@ main( int     argc,
   free( text );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
 
   test_static_syscalls_list();
 

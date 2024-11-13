@@ -58,7 +58,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = data,
       .dataend = &data[ instr->data_sz ],
-      .valloc  = ctx->valloc,
+      .valloc  = fd_spad_virtual( ctx->spad ),
     };
 
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
