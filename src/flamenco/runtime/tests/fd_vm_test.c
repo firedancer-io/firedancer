@@ -234,7 +234,7 @@ do{
   fd_vm_init(
     vm,
     instr_ctx,
-    FD_VM_HEAP_MAX,
+    input->vm_ctx.heap_max,
     input->has_instr_ctx ? input->instr_ctx.cu_avail : 0,
     rodata,
     rodata_sz,
