@@ -13,3 +13,4 @@ dump/test-vectors/syscall/fixtures/try_find_program_address/d3e7db89c3cce9108a14
 dump/test-vectors/syscall/fixtures/try_find_program_address/ec866785e8574e21ea478482374422e091ce794a_5898.fix
 dump/test-vectors/syscall/fixtures/try_find_program_address/f461b693c74ee0419f3bcf1db6c43f6fb7dc2ad3_6888.fix
 dump/test-vectors/syscall/fixtures/try_find_program_address/fee80a4e7a81c0388760a08e54bfec4fca9794d8_6452.fix
+dump/test-vectors/syscall/fixtures/try_find_program_address/d6a5add962547812679d386de1133f182a327230_2273084.fix

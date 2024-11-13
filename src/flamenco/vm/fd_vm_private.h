@@ -544,26 +544,38 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     (void const *)_haddr;                                                                                   \
   }))
 
+static inline void *
+FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int *err ) {
+  fd_vm_t const * _vm       = (vm);
+  uchar           _is_multi = 0;
+  ulong           _vaddr    = (vaddr);
+  ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi );
+  int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));
+  if ( FD_UNLIKELY( sz > LONG_MAX ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );
+    *err = FD_VM_ERR_SIGSEGV;
+    return 0;
+  }
+  if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {
+    FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+    *err = FD_VM_ERR_SIGSEGV;
+    return 0;
+  }
+  if ( FD_UNLIKELY( _sigbus ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );
+    *err = FD_VM_ERR_SIGSEGV;
+    return 0;
+  }
+  return (void *)_haddr;
+}
+
 #define FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                         \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
-    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
-      FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    (void *)_haddr;                                                                                         \
-  }))
+    int _err = 0;                                                                                           \
+    void * ret = FD_VM_MEM_HADDR_ST_( vm, vaddr, align, sz, &_err );                                        \
+    if ( FD_UNLIKELY( 0 != _err ))                                                                          \
+      return _err;                                                                                          \
+    ret;                                                                                                    \
+}))
 
 #define FD_VM_MEM_HADDR_ST_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                               \
     fd_vm_t const * _vm       = (vm);                                                                       \
