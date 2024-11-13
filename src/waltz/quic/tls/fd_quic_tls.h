@@ -106,17 +106,11 @@ struct fd_quic_tls_hs_data {
   ushort      next_idx; /* next in linked list, ~0 for end */
 };
 
-struct __attribute__((aligned(128))) fd_quic_tls {
+struct fd_quic_tls {
   /* callbacks */
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
   fd_quic_tls_cb_peer_params_t         peer_params_cb;
-
-  ulong                                max_concur_handshakes;
-
-  /* array of (max_concur_handshakes) pre-allocated handshakes */
-  fd_quic_tls_hs_t *                   handshakes;
-  uchar *                              used_handshakes;
 
   /* ssl related */
   fd_tls_t tls;
@@ -143,6 +137,8 @@ struct fd_quic_tls_hs {
 
   /* user defined context supplied in callbacks */
   void *          context;
+
+  ulong           next; /* alloc pool linked list */
 
   /* handshake data
      this is data that must be sent to the peer
@@ -184,17 +180,11 @@ struct fd_quic_tls_hs {
   fd_quic_transport_params_t self_transport_params;
 };
 
-ulong
-fd_quic_tls_align( void );
-
-ulong
-fd_quic_tls_footprint( ulong handshake_cnt );
-
 /* fd_quic_tls_new formats an unused memory region for use as an
    fd_quic_tls_t object and joins the caller to it */
 
 fd_quic_tls_t *
-fd_quic_tls_new( void *              mem,
+fd_quic_tls_new( fd_quic_tls_t *     mem,
                  fd_quic_tls_cfg_t * cfg );
 
 /* fd_quic_delete unformats a memory region used as an fd_quic_tls_t.
@@ -204,17 +194,14 @@ fd_quic_tls_new( void *              mem,
 void *
 fd_quic_tls_delete( fd_quic_tls_t * self );
 
-/* create a quic-tls handshake object for managing
-   the handshakes for a single connection */
 fd_quic_tls_hs_t *
-fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
-                    void *          context,
-                    int             is_server,
-                    char const *    hostname,
+fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
+                    fd_quic_tls_t *    quic_tls,
+                    void *             context,
+                    int                is_server,
+                    char const *       hostname,
                     fd_quic_transport_params_t const * self_transport_params );
 
-/* fd_quic_tls_hs_delete frees a handshake object and its resources.
-   Fine if hs is NULL. */
 void
 fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );
 
@@ -251,7 +238,6 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
 
    the hd_data and data therein are invalidated by the following
      fd_quic_tls_pop_hs_data
-     fd_quic_tls_delete
      fd_quic_tls_hs_delete
 
    args

@@ -14,6 +14,11 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 
+/* Handshake allocator pool */
+#define POOL_NAME fd_quic_tls_hs_pool
+#define POOL_T    fd_quic_tls_hs_t
+#include "../../util/tmpl/fd_pool.c"
+
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
    encryption.  Only intended for testing. */
 #ifndef FD_QUIC_DISABLE_CRYPTO
@@ -54,10 +59,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
 
-  /* Pointer to TLS state (part of quic memory region) */
-
-  fd_quic_tls_t * tls;
-
   /* transport_params: Template for QUIC-TLS transport params extension.
      Contains a mix of mutable and immutable fields.  Immutable fields
      are set on join.  Mutable fields may be modified during packet
@@ -75,6 +76,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   uint                    free_conn_list; /* free list of unused connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
+  fd_quic_tls_t           tls[1];
+  fd_quic_tls_hs_t *      hs_pool;
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
   fd_rng_t                _rng[1];        /* random number generator */
   fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */

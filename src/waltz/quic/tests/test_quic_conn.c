@@ -428,7 +428,7 @@ main( int argc, char ** argv ) {
               server_quic->config.net.listen_udp_port,
               server_quic->config.sni );
 
-          if( !client_quic ) {
+          if( !client_conn ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));
           }
 

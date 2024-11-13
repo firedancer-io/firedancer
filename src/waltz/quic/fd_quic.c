@@ -20,12 +20,10 @@
 #include "tls/fd_quic_tls.h"
 
 #include <assert.h>
-#include <errno.h>
 #include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
 
-#include "../../ballet/x509/fd_x509_mock.h"
 #include "../../ballet/hex/fd_hex.h"
 
 /* Declare map type for stream_id -> stream* */
@@ -36,7 +34,6 @@
 #define MAP_KEY_INVAL(key)    ((key)==MAP_KEY_NULL)
 #define MAP_QUERY_OPT         1
 #include "../../util/tmpl/fd_map_dynamic.c"
-
 
 /* FD_QUIC_PING_ENABLE
  *
@@ -71,7 +68,7 @@ struct fd_quic_layout {
   ulong conn_footprint;  /* sizeof a conn                    */
   ulong conn_map_off;    /* offset of conn map mem region    */
   int   lg_slot_cnt;     /* see conn_map_new                 */
-  ulong tls_off;         /* offset of fd_quic_tls_t          */
+  ulong hs_pool_off;     /* offset of the handshake pool     */
   ulong stream_pool_off; /* offset of the stream pool        */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
@@ -127,12 +124,12 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   if( FD_UNLIKELY( !conn_map_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_conn_map_footprint" )); return 0UL; }
   offs                    += conn_map_footprint;
 
-  /* allocate space for fd_quic_tls_t */
-  offs                 = fd_ulong_align_up( offs, fd_quic_tls_align() );
-  layout->tls_off      = offs;
-  ulong tls_footprint  = fd_quic_tls_footprint( limits->handshake_cnt );
-  if( FD_UNLIKELY( !tls_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_tls_footprint" )); return 0UL; }
-  offs                += tls_footprint;
+  /* allocate space for handshake pool */
+  offs                 = fd_ulong_align_up( offs, fd_quic_tls_hs_pool_align() );
+  layout->hs_pool_off  = offs;
+  ulong hs_pool_fp     = fd_quic_tls_hs_pool_footprint( limits->handshake_cnt );
+  if( FD_UNLIKELY( !hs_pool_fp ) ) { FD_LOG_WARNING(( "invalid fd_quic_tls_hs_pool_footprint" )); return 0UL; }
+  offs                += hs_pool_fp;
 
   /* allocate space for stream pool */
   offs                    = fd_ulong_align_up( offs, fd_quic_stream_pool_align() );
@@ -458,12 +455,20 @@ fd_quic_init( fd_quic_t * quic ) {
     .cert_public_key       = quic->config.identity_public_key,
   };
 
-  ulong tls_laddr = (ulong)quic + layout.tls_off;
-  state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
-  if( FD_UNLIKELY( !state->tls ) ) {
+  /* State: Initialize handshake pool */
+
+  if( FD_UNLIKELY( !fd_quic_tls_new( state->tls, &tls_cfg ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_tls_new failed" ) ) );
     return NULL;
   }
+
+  ulong  hs_pool_laddr       = (ulong)quic + layout.hs_pool_off;
+  fd_quic_tls_hs_t * hs_pool = fd_quic_tls_hs_pool_join( fd_quic_tls_hs_pool_new( (void *)hs_pool_laddr, limits->handshake_cnt ) );
+  if( FD_UNLIKELY( !hs_pool ) ) {
+    FD_LOG_WARNING(( "fd_quic_tls_hs_pool_new failed" ));
+    return NULL;
+  }
+  state->hs_pool = hs_pool;
 
   ulong stream_pool_cnt = limits->stream_pool_cnt;
   ulong tx_buf_sz       = limits->tx_buf_sz;
@@ -914,7 +919,8 @@ fd_quic_fini( fd_quic_t * quic ) {
 
   /* Deinit TLS */
 
-  fd_quic_tls_delete( state->tls ); state->tls = NULL;
+  fd_quic_tls_hs_pool_delete( fd_quic_tls_hs_pool_leave( state->hs_pool ) ); state->hs_pool = NULL;
+  fd_quic_tls_delete( state->tls );
 
   /* Delete conn ID map */
 
@@ -1482,20 +1488,21 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       /* Create a TLS handshake */
 
+      if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+        quic->metrics.conn_aborted_cnt++;
+        quic->metrics.hs_err_alloc_fail_cnt++;
+        FD_DEBUG( FD_LOG_WARNING(( "zero fd_quic_tls_hs_pool_free" )) );
+        return FD_QUIC_PARSE_FAIL;
+      }
       fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+          fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
           state->tls,
           (void*)conn,
           1 /*is_server*/,
           quic->config.sni,
           tp );
-      if( FD_UNLIKELY( !tls_hs ) ) {
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
-        quic->metrics.conn_aborted_cnt++;
-        quic->metrics.hs_err_alloc_fail_cnt++;
-        FD_DEBUG( FD_LOG_WARNING(( "fd_quic_tls_hs_new failed" )) );
-        return FD_QUIC_PARSE_FAIL;
-      }
       conn->tls_hs = tls_hs;
       quic->metrics.hs_created_cnt++;
 
@@ -4088,6 +4095,9 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   /* free tls-hs */
   fd_quic_tls_hs_delete( conn->tls_hs );
+  if( conn->tls_hs ) {
+    fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
+  }
   conn->tls_hs = NULL;
 
   /* remove connection from service queue */
@@ -4121,6 +4131,13 @@ fd_quic_connect( fd_quic_t *  quic,
                  char const * sni ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "zero fd_quic_tls_hs_pool_free" )) );
+    quic->metrics.hs_err_alloc_fail_cnt++;
+    return NULL;
+  }
+
   state->now = fd_quic_now( quic );
 
   fd_rng_t * rng = state->_rng;
@@ -4180,19 +4197,15 @@ fd_quic_connect( fd_quic_t *  quic,
   tp->initial_source_connection_id_present = 1;
   tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
 
-  /* Create a TLS handshake */
+  /* Create a TLS handshake (free>0 validated above) */
 
   fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
       state->tls,
       (void*)conn,
       0 /*is_server*/,
       sni,
       tp );
-  if( FD_UNLIKELY( !tls_hs ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )) );
-    quic->metrics.hs_err_alloc_fail_cnt++;
-    goto fail_conn;
-  }
   quic->metrics.hs_created_cnt++;
 
   /* Initiate the handshake */
@@ -4221,10 +4234,7 @@ fd_quic_connect( fd_quic_t *  quic,
 fail_tls_hs:
   /* shut down tls_hs */
   fd_quic_tls_hs_delete( tls_hs );
-
-fail_conn:
-  quic->metrics.conn_aborted_cnt++;
-  conn->state  = FD_QUIC_CONN_STATE_DEAD;
+  fd_quic_tls_hs_pool_ele_release( state->hs_pool, tls_hs );
 
   return NULL;
 }
@@ -4746,19 +4756,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
-    fd_quic_tls_hs_data_t * hs_data   = NULL;
-
-    hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
-    while( hs_data ) {
-      fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
-      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
-    }
-
     conn->handshake_done_ackd = 1;
     conn->handshake_done_send = 0;
     conn->hs_data_empty       = 1;
-
+    fd_quic_state_t * state = fd_quic_get_state( conn->quic );
     fd_quic_tls_hs_delete( conn->tls_hs );
+    fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
     conn->tls_hs = NULL;
   }
 
@@ -5897,7 +5900,9 @@ fd_quic_frame_handle_handshake_done_frame(
   fd_quic_cb_conn_hs_complete( conn->quic, conn );
 
   /* Deallocate tls_hs once completed */
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
   fd_quic_tls_hs_delete( conn->tls_hs );
+  fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
   conn->tls_hs = NULL;
 
   return 0;

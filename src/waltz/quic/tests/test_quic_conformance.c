@@ -424,6 +424,7 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
   fd_quic_transport_params_t tp[1] = {0};
   fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
       state->tls,
       (void*)conn,
       1 /*is_server*/,

@@ -1,9 +1,6 @@
 #include "fd_quic_tls.h"
-#include "../fd_quic_private.h"
-#include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../ballet/ed25519/fd_x25519.h"
 #include "../../../ballet/x509/fd_x509_mock.h"
-#include "../../../util/fd_util.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -62,51 +59,16 @@ fd_quic_tls_tp_peer( void *        handshake,
 
 /* fd_quic_tls lifecycle API ******************************************/
 
-ulong
-fd_quic_tls_align( void ) {
-  return alignof( fd_quic_tls_t );
-}
-
-/* fd_quic_tls_layout_t describes the memory layout on an fd_quic_tls_t */
-struct fd_quic_tls_layout {
-  ulong handshakes_off;
-  ulong handshakes_used_off;
-};
-typedef struct fd_quic_tls_layout fd_quic_tls_layout_t;
-
-ulong
-fd_quic_tls_footprint_ext( ulong handshake_cnt,
-                           fd_quic_tls_layout_t * layout ) {
-
-  ulong off  = sizeof( fd_quic_tls_t );
-
-        off  = fd_ulong_align_up( off, alignof( fd_quic_tls_hs_t ) );
-  layout->handshakes_off = off;
-        off += handshake_cnt * sizeof( fd_quic_tls_hs_t );
-
-        /* no align required */
-  layout->handshakes_used_off = off;
-        off += handshake_cnt; /* used handshakes */
-
-  return off;
-}
-
-ulong
-fd_quic_tls_footprint( ulong handshake_cnt ) {
-  fd_quic_tls_layout_t layout;
-  return fd_quic_tls_footprint_ext( handshake_cnt, &layout );
-}
-
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
                   uchar const   cert_public_key[ static 32 ] );
 
 fd_quic_tls_t *
-fd_quic_tls_new( void *              mem,
+fd_quic_tls_new( fd_quic_tls_t *     self,
                  fd_quic_tls_cfg_t * cfg ) {
 
-  if( FD_UNLIKELY( !mem ) ) {
+  if( FD_UNLIKELY( !self ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
@@ -114,23 +76,6 @@ fd_quic_tls_new( void *              mem,
     FD_LOG_WARNING(( "NULL cfg" ));
     return NULL;
   }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof( fd_quic_tls_t ) ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  ulong handshake_cnt = cfg->max_concur_handshakes;
-
-  fd_quic_tls_layout_t layout = {0};
-  ulong footprint = fd_quic_tls_footprint_ext( handshake_cnt, &layout );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "invalid footprint for config" ));
-    return NULL;
-  }
-
-  fd_quic_tls_t * self = (fd_quic_tls_t *)mem;
-
   if( FD_UNLIKELY( (!cfg->secret_cb            ) |
                    (!cfg->handshake_complete_cb) |
                    (!cfg->peer_params_cb       ) ) ) {
@@ -141,19 +86,6 @@ fd_quic_tls_new( void *              mem,
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
   self->peer_params_cb        = cfg->peer_params_cb;
-  self->max_concur_handshakes = cfg->max_concur_handshakes;
-
-  ulong handshakes_laddr = (ulong)mem + layout.handshakes_off;
-  fd_quic_tls_hs_t * handshakes = (fd_quic_tls_hs_t *)(handshakes_laddr);
-  self->handshakes = handshakes;
-
-  /* FIXME use a bitmap instead of an array */
-  ulong used_handshakes_laddr = (ulong)mem + layout.handshakes_used_off;
-  uchar * used_handshakes = (uchar *)(used_handshakes_laddr);
-  self->used_handshakes = used_handshakes;
-
-  // set all to free
-  fd_memset( used_handshakes, 0, (ulong)self->max_concur_handshakes );
 
   /* Initialize fd_tls */
   fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key );
@@ -209,45 +141,16 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
     FD_LOG_WARNING(( "NULL self" ));
     return NULL;
   }
-
-  // free up all used handshakes
-  ulong              hs_sz   = (ulong)self->max_concur_handshakes;
-  fd_quic_tls_hs_t * hs      = self->handshakes;
-  uchar *            hs_used = self->used_handshakes;
-  for( ulong j = 0; j < hs_sz; ++j ) {
-    if( hs_used[j] ) fd_quic_tls_hs_delete( hs + j );
-  }
-
-  /* Clear secret data */
-  fd_memset( &self->tls, 0, sizeof(fd_tls_t) );
-
   return self;
 }
 
 fd_quic_tls_hs_t *
-fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
-                    void *          context,
-                    int             is_server,
-                    char const *    hostname,
+fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
+                    fd_quic_tls_t *    quic_tls,
+                    void *             context,
+                    int                is_server,
+                    char const *       hostname,
                     fd_quic_transport_params_t const * self_transport_params ) {
-  // find a free handshake
-  ulong hs_idx = 0;
-  ulong hs_sz  = (ulong)quic_tls->max_concur_handshakes;
-  uchar * hs_used = quic_tls->used_handshakes;
-  while( hs_idx < hs_sz && hs_used[hs_idx] ) hs_idx++;
-
-  // no room
-  if( hs_idx == hs_sz ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "tls_hs alloc fail" )) );
-    return NULL;
-  }
-
-  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs alloc %lu", hs_idx )) );
-
-  // self is the handshake at hs_idx
-  fd_quic_tls_hs_t * self = quic_tls->handshakes + hs_idx;
-  FD_TEST( fd_ulong_is_aligned( (ulong)self, alignof(fd_quic_tls_hs_t) ) );
-
   // clear the handshake bits
   fd_memset( self, 0, sizeof(fd_quic_tls_hs_t) );
 
@@ -295,8 +198,6 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   /* Set QUIC transport params */
   self->self_transport_params = *self_transport_params;
 
-  /* Mark handshake as used */
-  hs_used[hs_idx] = 1;
   return self;
 }
 
@@ -306,22 +207,10 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
 
   self->state = FD_QUIC_TLS_HS_STATE_DEAD;
 
-  fd_quic_tls_t * quic_tls = self->quic_tls;
-
-  // find index into array
-  ulong hs_idx = (ulong)( self - quic_tls->handshakes );
-  FD_DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )) );
-  if( quic_tls->used_handshakes[hs_idx] != 1 ) {
-    return;
-  }
-
   if( self->is_server )
     fd_tls_estate_srv_delete( &self->hs.srv );
   else
     fd_tls_estate_cli_delete( &self->hs.cli );
-
-  // set used at the given index to zero to free
-  quic_tls->used_handshakes[hs_idx] = 0;
 }
 
 int
