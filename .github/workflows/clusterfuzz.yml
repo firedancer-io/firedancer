@@ -90,6 +90,7 @@ jobs:
         id: artifact-zip-m1
         with:
           path: ${{ matrix.artifact_dir }}
+          name: "artifact-${{ matrix.machine }}-${{github.run_id}}"
           retention-days: 10
 
       - name: dispatch AR fuzz bundler
