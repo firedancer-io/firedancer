@@ -197,6 +197,19 @@ fd_tpu_reasm_leave( fd_tpu_reasm_t * reasm );
 void *
 fd_tpu_reasm_delete( void * shreasm );
 
+/* fd_tpu_reasm_{chunk0,wmark} returns the chunk index of the {lowest,
+   highest} possible chunk value that fd_tpu_reasm_publish will write to
+   an mcache. */
+
+FD_FN_CONST ulong
+fd_tpu_reasm_chunk0( fd_tpu_reasm_t const * reasm,
+                     void const *           base );
+
+
+FD_FN_CONST ulong
+fd_tpu_reasm_wmark( fd_tpu_reasm_t const * reasm,
+                    void const *           base );
+
 /* Accessor API */
 
 /* fd_tpu_reasm_prepare starts a new stream reassembly.  If more than

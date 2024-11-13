@@ -59,6 +59,12 @@ slot_get_data( fd_tpu_reasm_t * reasm,
   return fd_tpu_reasm_chunks_laddr( reasm ) + (slot_idx * FD_TPU_REASM_MTU);
 }
 
+FD_FN_PURE static inline uchar const *
+slot_get_data_const( fd_tpu_reasm_t const * reasm,
+                     ulong                  slot_idx ) {
+  return fd_tpu_reasm_chunks_laddr_const( reasm ) + (slot_idx * FD_TPU_REASM_MTU);
+}
+
 static FD_FN_UNUSED void
 slot_begin( fd_tpu_reasm_slot_t * slot ) {
   memset( slot, 0, sizeof(fd_tpu_reasm_slot_t) );

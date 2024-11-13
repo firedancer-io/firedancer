@@ -184,8 +184,8 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( link->is_reasm ) ) {
       fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->reasm_obj_id ].wksp_id ];
       ctx->in[i].mem = link_wksp->wksp;
-      ctx->in[i].chunk0 = fd_laddr_to_chunk( ctx->in[i].mem, link->reasm );
-      ctx->in[i].wmark  = ctx->in[i].chunk0 + (link->depth+link->burst-1) * FD_TPU_REASM_CHUNK_MTU;
+      ctx->in[i].chunk0 = fd_tpu_reasm_chunk0( link->reasm, link->reasm );
+      ctx->in[i].wmark  = fd_tpu_reasm_wmark ( link->reasm, link->reasm );
     } else {
       fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
       ctx->in[i].mem = link_wksp->wksp;
