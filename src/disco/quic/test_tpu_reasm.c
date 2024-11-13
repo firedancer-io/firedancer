@@ -129,6 +129,18 @@ main( int     argc,
   FD_TEST( reasm->pub_slots_off + (depth    * sizeof(uint))                <= sizeof(tpu_reasm_mem) );
   FD_TEST( reasm->chunks_off    + (slot_cnt * FD_TPU_REASM_MTU)            <= sizeof(tpu_reasm_mem) );
 
+  do {
+    void * base   = (void *)( (ulong)reasm - (4UL<<FD_CHUNK_LG_SZ) );
+    ulong  chunk0 = fd_tpu_reasm_chunk0( reasm, base );
+    ulong  wmark  = fd_tpu_reasm_wmark ( reasm, base );
+    FD_TEST( chunk0<wmark );
+
+    FD_TEST( chunk0 == (reasm->chunks_off>>FD_CHUNK_LG_SZ) + 4UL );
+    FD_TEST( wmark-chunk0 == (slot_cnt-1UL)*FD_TPU_REASM_CHUNK_MTU );
+    FD_TEST( fd_chunk_to_laddr( base, chunk0 ) == chunks );
+    FD_TEST( fd_chunk_to_laddr( base, wmark  ) == chunks+((slot_cnt-1UL)*FD_TPU_REASM_MTU) );
+  } while(0);
+
   /* Confirm that the data regions of slots don't overlap */
 
   memset( (uchar *)( (ulong)reasm + reasm->chunks_off ), 0, slot_cnt * FD_TPU_REASM_MTU );
