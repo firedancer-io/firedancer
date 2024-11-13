@@ -60,8 +60,6 @@ my_transport_params( void *        context,
   FD_TEST( 0==memcmp( quic_tp, test_tp, quic_tp_sz ) );
 }
 
-static uchar test_quic_tls_mem[ 288144UL ] __attribute__((aligned(128)));
-
 int
 main( int     argc,
       char ** argv ) {
@@ -90,36 +88,29 @@ main( int     argc,
   fd_quic_dump_transport_params( tmp_tp, stdout );
   fflush( stdout );
 
-  ulong tls_align     = fd_quic_tls_align();
-  ulong tls_footprint = fd_quic_tls_footprint( cfg.max_concur_handshakes );
-
-  FD_LOG_INFO(( "fd_quic_tls_t align:     %lu bytes", tls_align     ));
-  FD_LOG_INFO(( "fd_quic_tls_t footprint: %lu bytes", tls_footprint ));
-  FD_TEST( tls_footprint<=sizeof(test_quic_tls_mem) );
-
-  fd_quic_tls_t * quic_tls = fd_quic_tls_new( test_quic_tls_mem, &cfg );
+  fd_quic_tls_t _quic_tls[1];
+  fd_quic_tls_t * quic_tls = fd_quic_tls_new( _quic_tls, &cfg );
   FD_TEST( quic_tls );
 
-  my_quic_tls_t tls_client[1] = {0};
-  my_quic_tls_t tls_server[1] = {0};
+  my_quic_tls_t    tls_client[1] = {0};
+  fd_quic_tls_hs_t hs_client[1];
+  FD_TEST( fd_quic_tls_hs_new(
+      hs_client,
+      quic_tls,
+      tls_client,
+      0 /* is_server */,
+      "localhost",
+      tmp_tp ) );
 
-  //uchar   cli_dst_conn_id[1] = {0};
-  //ulong  cli_dst_conn_id_sz = 0;
-  fd_quic_tls_hs_t * hs_client = fd_quic_tls_hs_new( quic_tls,
-                                                     tls_client,
-                                                     0 /* is_server */,
-                                                     "localhost",
-                                                     tmp_tp );
-  FD_TEST( hs_client );
-
-  //uchar   svr_dst_conn_id[1] = {0};
-  //ulong  svr_dst_conn_id_sz = 0;
-  fd_quic_tls_hs_t * hs_server = fd_quic_tls_hs_new( quic_tls,
-                                                     tls_server,
-                                                     1 /* is_server */,
-                                                     "localhost",
-                                                     tmp_tp );
-  FD_TEST( hs_server );
+  my_quic_tls_t    tls_server[1] = {0};
+  fd_quic_tls_hs_t hs_server[1];
+  FD_TEST( fd_quic_tls_hs_new(
+      hs_server,
+      quic_tls,
+      tls_server,
+      1 /* is_server */,
+      "localhost",
+      tmp_tp ) );
 
   // generate initial secrets for client
 
