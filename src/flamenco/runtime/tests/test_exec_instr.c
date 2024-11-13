@@ -69,9 +69,9 @@ main( int     argc,
   ulong   scratch_fmem[ 64UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   uchar * scratch_smem = malloc( 1 << 30 ); // 1 GB
 
-  ulong   spad_mem_max = fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) );
+  ulong   spad_mem_max = FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ;
   uchar * spad_mem     = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, spad_mem_max, 3 ); /* 1342191744 B */
-  
+
   fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<30, 64UL );
 
   // Setup usage tracking
