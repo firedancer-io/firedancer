@@ -209,8 +209,19 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
     int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
     if( FD_LIKELY( err==FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
-      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t) );
-      uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL );
+      int err = 0;
+      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST_( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t), &err );
+      if( FD_UNLIKELY( 0 != err ) ) {
+        FD_VM_CU_UPDATE( vm, owed_cus );
+        *_ret = 0UL;
+        return err;
+      }
+      uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST_( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL, &err );
+      if( FD_UNLIKELY( 0 != err ) ) {
+        FD_VM_CU_UPDATE( vm, owed_cus );
+        *_ret = 0UL;
+        return err;
+      }
 
       /* Do the overlap check, which is only included for this syscall */
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, out_vaddr, 32UL, out_bump_seed_vaddr, 1UL );
