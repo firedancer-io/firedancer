@@ -165,7 +165,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     }
   }
 
-  if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
+  if( !vm->direct_mapping ) {
     /* Get the account data */
     /* Update the account data, if the account data can be changed */
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
@@ -380,7 +380,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
                                        uchar                       instr_acc_idx,
                                        fd_pubkey_t const *         pubkey ) {
 
-  if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
+  if( !vm->direct_mapping ) {
     /* Look up the borrowed account from the instruction context, which will contain
       the callee's changes. */
     fd_borrowed_account_t * callee_acc_rec = NULL;
@@ -585,8 +585,21 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Translate instruction ********************************************/
   /* translate_instruction is the first thing that agave does
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1089 */
+
+  /* Translating the CPI instruction
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L420-L424 */
   VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
     FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
+
+  /* Translate the program ID */
+  fd_pubkey_t const * program_id = (fd_pubkey_t *)VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, cpi_instruction );
+
+  /* Translate CPI account metas *************************************************/
+  VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
+    FD_VM_MEM_SLICE_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
+                              VM_SYSCALL_CPI_ACC_META_ALIGN,
+                              fd_ulong_sat_mul( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_ACC_META_SIZE ) );
+
   /* Agave consumes CU in translate_instruction
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
@@ -612,12 +625,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     }
   }
 
-  /* Translate CPI account metas *************************************************/
-  VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
-    FD_VM_MEM_SLICE_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
-                              VM_SYSCALL_CPI_ACC_META_ALIGN,
-                              fd_ulong_sat_mul( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_ACC_META_SIZE ) );
-
   /* Translate instruction data *************************************************/
 
   uchar const * data = FD_VM_MEM_SLICE_HADDR_LD( 
@@ -627,7 +634,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Authorized program check *************************************************/
 
-  fd_pubkey_t const * program_id = (fd_pubkey_t *)VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, cpi_instruction );
   if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
     return FD_VM_ERR_PERM;
   }
@@ -660,13 +666,18 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Translate account infos ******************************************/
+  /* Direct mapping check 
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/cpi.rs#L805-L814 */
+  ulong acc_info_total_sz = fd_ulong_sat_mul( acct_info_cnt, VM_SYSCALL_CPI_ACC_INFO_SIZE );
+  if( FD_UNLIKELY( vm->direct_mapping && fd_ulong_sat_add( acct_infos_va, acc_info_total_sz ) >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_POINTER );
+    return FD_VM_ERR_SYSCALL_INVALID_POINTER;
+  }
+
   /* This is the equivalent of translate_slice in translate_account_infos:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L816 */
-  VM_SYSCALL_CPI_ACC_INFO_T * acc_infos =
-    FD_VM_MEM_SLICE_HADDR_ST( vm, 
-                              acct_infos_va,
-                              VM_SYSCALL_CPI_ACC_INFO_ALIGN,
-                              fd_ulong_sat_mul( acct_info_cnt, VM_SYSCALL_CPI_ACC_INFO_SIZE ) );
+  VM_SYSCALL_CPI_ACC_INFO_T * acc_infos = FD_VM_MEM_SLICE_HADDR_ST( vm, acct_infos_va, VM_SYSCALL_CPI_ACC_INFO_ALIGN, acc_info_total_sz );
+
   /* Right after translating, Agave checks the number of account infos:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L822 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
@@ -723,7 +734,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Update all account permissions before updating the account data updates.
      We have inlined the anza function update_caller_account_perms here.
      TODO: consider factoring this out */
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
+  if( vm->direct_mapping ) {
     for( ulong i=0UL; i<vm->instr_ctx->instr->acct_cnt; i++ ) {
       /* https://github.com/firedancer-io/solana/blob/508f325e19c0fd8e16683ea047d7c1a85f127e74/programs/bpf_loader/src/syscalls/cpi.rs#L939-L943 */
       /* Anza only even attemps to update the account permissions if it is a
