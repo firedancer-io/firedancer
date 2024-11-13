@@ -3,7 +3,7 @@ on:
   workflow_call:
   workflow_dispatch:
 jobs:
-  solfuzz-publish:
+  solfuzz-build-and-publish:
     timeout-minutes: 30
     runs-on:
       group: github-v1
@@ -16,7 +16,6 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/deps
 
       - run: sudo apt update && sudo apt install -y zip
@@ -24,11 +23,10 @@ jobs:
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build fuzz tests
         with:
-          command: make -j -Otarget fuzz-test lib
+          command: make -j -Otarget lib
 
       - name: List Artifacts
         run: |
-          ls ${{ env.OBJ_DIR }}/fuzz-test
           ls ${{ env.OBJ_DIR }}/lib
 
       - name: upload so artifact
@@ -45,23 +43,23 @@ jobs:
           name: libfd_exec_sol_compat_stubbed
           retention-days: 14
 
+
   ARfuzz-publish:
     timeout-minutes: 30
     strategy:
       matrix:
         machine:
           - linux_clang_haswell
-          - linux_clang_icelake
+          # - linux_clang_icelake # turn off icelake for now
         include:
           - machine: linux_clang_haswell
             artifact_dir: build/linux/clang/haswell
             qualifier: modern
-          - machine: linux_clang_icelake
-            artifact_dir: build/linux/clang/icelake
-            qualifier: highend
+          # - machine: linux_clang_icelake
+          #   artifact_dir: build/linux/clang/icelake
+          #   qualifier: highend
     runs-on:
-      ubuntu-latest
-      #group: github-v1
+      group: github-v1
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
@@ -70,13 +68,12 @@ jobs:
         with:
           submodules: recursive
 
-      # - uses: ./.github/actions/hugepages #commented out for testing
       - uses: ./.github/actions/deps
 
       - run: sudo apt update && sudo apt install -y zip
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
-        name: Build fuzz tests
+        name: Build M1 fuzz tests
         with:
           command: make -j -Otarget fuzz-test
 
@@ -93,6 +90,13 @@ jobs:
           name: "artifact-${{ matrix.machine }}-${{github.run_id}}"
           retention-days: 10
 
+      - name: Get commit hash
+        id: get_commit_hash
+        shell: bash
+        run: |
+          echo "commit_hash=$(git rev-parse HEAD 2>/dev/null)" >> $GITHUB_OUTPUT
+
+
       - name: dispatch AR fuzz bundler
         run: |
           curl -L \
@@ -101,4 +105,4 @@ jobs:
           -H 'Accept: application/vnd.github.everest-preview+json' \
           -H "Authorization: Bearer ${{ secrets.PAT }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          --data '{"event_type": "fd_main", "client_payload":{"artifact_id": "${{steps.artifact-zip-m1.outputs.artifact-id }}", "bundle_type": "${{ matrix.qualifier }}"}}'
+          --data '{"event_type": "fd_main", "client_payload":{"artifact_id": "${{steps.artifact-zip-m1.outputs.artifact-id }}", "bundle_type": "${{ matrix.qualifier }}", "hash":"${{ steps.get_commit_hash.outputs.commit_hash }}", "run_id":"${{ github.run_id}}", "name":"artifact-${{ matrix.machine }}-${{github.run_id}}"}}'
