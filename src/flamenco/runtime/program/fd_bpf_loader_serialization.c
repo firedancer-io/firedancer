@@ -1,5 +1,6 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_account.h"
+#include "../fd_runtime.h"
 
 /* As a general note, copy_account_data implies that direct mapping is not being
    used/is inactive. This file is responsible for serializing and deserializing
@@ -157,7 +158,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L429-L459 */
   ulong serialized_size = 0UL;
-  serialized_size += sizeof(ulong);
+  serialized_size += sizeof(ulong); // acct_cnt
   /* First pass is to calculate size of buffer to allocate */
   for( ushort i=0; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
@@ -194,7 +195,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
                   +  ctx.instr->data_sz
                   +  sizeof(fd_pubkey_t); // program id
 
-  uchar * serialized_params            = fd_valloc_malloc( ctx.valloc, FD_BPF_ALIGN_OF_U128, fd_ulong_align_up( serialized_size, 16UL ) );
+  uchar * serialized_params            = fd_spad_alloc( ctx.txn_ctx->spad, FD_BPF_ALIGN_OF_U128, fd_ulong_align_up( serialized_size, FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) );
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -415,8 +416,6 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
     }
   }
 
-  fd_valloc_free( ctx.valloc, buffer );
-
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -469,8 +468,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
                    + ctx.instr->data_sz   // instruction data
                    + sizeof(fd_pubkey_t); // program id
 
-  uchar * serialized_params = fd_valloc_malloc( ctx.valloc, 1UL, serialized_size );
-  uchar * serialized_params_start = serialized_params;
+  uchar * serialized_params            = fd_spad_alloc( ctx.txn_ctx->spad, 1UL, serialized_size );
+  uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
@@ -614,8 +613,6 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
   if( FD_UNLIKELY( input_cursor>input+input_sz ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
-
-  fd_valloc_free( ctx.valloc, input );
 
   return 0;
 }

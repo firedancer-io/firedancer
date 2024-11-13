@@ -64,7 +64,8 @@ void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
-                                         ulong                slot );
+                                         ulong                slot,
+                                         fd_valloc_t          valloc );
 
 struct fd_commission_split {
   ulong voter_portion;
@@ -80,7 +81,8 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 
 void
 fd_vote_store_account( fd_exec_slot_ctx_t *    slot_ctx,
-                       fd_borrowed_account_t * vote_account );
+                       fd_borrowed_account_t * vote_account,
+                       fd_spad_t *             spad );
 
 FD_PROTOTYPES_END
 

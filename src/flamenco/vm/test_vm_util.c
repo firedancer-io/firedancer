@@ -17,8 +17,6 @@ test_vm_minimal_exec_instr_ctx(
     return NULL;
   }
 
-  ctx->valloc = valloc;
-
   /* Keep slot_ctx and epoch_ctx initialization simple. We only want features ATM.
      Feel free to change this to use actual init semantics (*_new and *_join),
      but remember to update the cleanup function below :) */
@@ -46,9 +44,10 @@ test_vm_minimal_exec_instr_ctx(
 
 void
 test_vm_exec_instr_ctx_delete(
-    fd_exec_instr_ctx_t * ctx ) {
+    fd_exec_instr_ctx_t * ctx,
+    fd_valloc_t           valloc
+) {
 
-  fd_valloc_t valloc = ctx->valloc;
   fd_exec_slot_ctx_t  * slot_ctx  = (fd_exec_slot_ctx_t *)ctx->slot_ctx;
   fd_exec_epoch_ctx_t * epoch_ctx = slot_ctx->epoch_ctx;
   fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;

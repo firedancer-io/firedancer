@@ -616,7 +616,7 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_bincode_decode_ctx_t decode =
     { .data    = data,
       .dataend = data + ctx->instr->data_sz,
-      .valloc  = fd_scratch_virtual() };
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
   /* Fail if the number of bytes consumed by deserialize exceeds 1232 */
   if( fd_system_program_instruction_decode( &instruction, &decode ) ||
       (ulong)data + 1232UL < (ulong)decode.data )
@@ -693,7 +693,7 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
   }
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx->valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = fd_spad_virtual( ctx->txn_ctx->spad ) };
   fd_system_program_instruction_destroy( &instruction, &destroy );
   return result;
 }

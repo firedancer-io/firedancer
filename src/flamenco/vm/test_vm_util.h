@@ -16,7 +16,8 @@ test_vm_minimal_exec_instr_ctx(
 
 void
 test_vm_exec_instr_ctx_delete(
-   fd_exec_instr_ctx_t * ctx
+   fd_exec_instr_ctx_t * ctx,
+   fd_valloc_t           valloc
 );
 
 #endif

@@ -110,3 +110,28 @@ fd_spad_publish_debug( fd_spad_t * spad,
      tracking that state */
   fd_spad_publish( spad, sz );
 }
+
+/* fd_valloc virtual function table for spad */
+void *
+fd_spad_valloc_malloc( void * _self,
+                               ulong  align,
+                               ulong  sz ) {
+  fd_spad_t * spad = _self;
+  void * rv = fd_spad_alloc( spad, align, sz );
+  if( FD_UNLIKELY( fd_spad_mem_used( spad )>fd_spad_mem_max( spad ) ) ) {
+    FD_LOG_ERR(( "spad overflow mem_used=%lu mem_max=%lu", fd_spad_mem_used( spad ), fd_spad_mem_max( spad ) ));
+  }
+  return rv;
+}
+
+void
+fd_spad_valloc_free( void * _self,
+                             void * _addr ) {
+  (void)_self; (void)_addr;
+}
+
+const fd_valloc_vtable_t
+fd_spad_vtable = {
+  .malloc = fd_spad_valloc_malloc,
+  .free   = fd_spad_valloc_free
+};

@@ -28,7 +28,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_bincode_decode_ctx_t decode =
-    { .valloc  = ctx->valloc,
+    { .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ),
       .data    = ctx->instr->data,
       .dataend = ctx->instr->data + ctx->instr->data_sz };
 
@@ -63,7 +63,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
   fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-    .valloc  = ctx->valloc,
+    .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ),
     .data    = config_acc_rec->const_data,
     .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
   };
@@ -253,10 +253,12 @@ fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
      See DEFAULT_COMPUTE_UNITS */
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
+  FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
   int ret = _process_config_instr( ctx );
   return ret;
 
   } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }

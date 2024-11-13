@@ -1185,6 +1185,7 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
+  FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_exec_instr_ctx_t * parent = NULL;
     if( txn_ctx->instr_stack_sz ) {
@@ -1203,7 +1204,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .txn_ctx   = txn_ctx,
       .epoch_ctx = txn_ctx->epoch_ctx,
       .slot_ctx  = txn_ctx->slot_ctx,
-      .valloc    = fd_scratch_virtual(),
       .acc_mgr   = txn_ctx->acc_mgr,
       .funk_txn  = txn_ctx->funk_txn,
       .parent    = parent,
@@ -1267,6 +1267,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     return exec_result;
   } FD_SCRATCH_SCOPE_END;
+  } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
 
 void
@@ -1471,45 +1472,6 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       elem->cu_consumed += est_cost;
-    }
-  }
-
-  return 0;
-}
-
-/* Stuff to be done after multithreading ends */
-int
-fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
-                         int exec_txn_err ) {
-  if( exec_txn_err != 0 ) {
-    for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-      void * acc_rec_data = fd_borrowed_account_destroy( acc_rec );
-      if( acc_rec_data != NULL ) {
-        fd_valloc_free( txn_ctx->valloc, acc_rec_data );
-      }
-    }
-
-    // fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0 );
-    return 0;
-  }
-
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
-      continue;
-    }
-
-    fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-
-    int ret = fd_acc_mgr_save_non_tpool( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc_rec );
-    if( ret != FD_ACC_MGR_SUCCESS ) {
-      FD_LOG_ERR(( "failed to save edits to accounts" ));
-      return -1;
-    }
-
-    void * borrow_account_data = fd_borrowed_account_destroy( acc_rec );
-    if( borrow_account_data != NULL ) {
-      fd_valloc_free( txn_ctx->valloc, borrow_account_data );
     }
   }
 
@@ -1851,10 +1813,8 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad ) {
     fd_base58_encode_64( signature, &out_size, encoded_signature );
 
     if( txn_ctx->capture_ctx->dump_proto_sig_filter ) {
-      ulong filter_strlen = (ulong) strlen(txn_ctx->capture_ctx->dump_proto_sig_filter);
-
       // Terminate early if the signature does not match
-      if( memcmp( txn_ctx->capture_ctx->dump_proto_sig_filter, encoded_signature, filter_strlen < out_size ? filter_strlen : out_size ) ) {
+      if( strcmp( txn_ctx->capture_ctx->dump_proto_sig_filter, encoded_signature ) ) {
         return;
       }
     }
