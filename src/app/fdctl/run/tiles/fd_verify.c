@@ -61,8 +61,16 @@ during_frag( fd_verify_ctx_t * ctx,
   (void)seq;
   (void)sig;
 
-  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
+  if( FD_UNLIKELY( sz>FD_TPU_MTU ) ) FD_LOG_ERR(( "transaction corrupt, sz %lu", sz ));
+  
+  /* Normally if we got an invalid chunk here it would indicate
+     corruption and we should abort, but for the verify tile, overruns
+     are expected in rare cases and the chunk field is not read
+     atomically so it might be torn.  Just let the stem loop mark the
+     frag as overrun and continue without aborting.  No need to
+     increment an error counter, since the stem overrun counter will
+     track this. */
+  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark ) ) return;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -79,10 +87,12 @@ after_frag( fd_verify_ctx_t *   ctx,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
-  (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)chunk;
+
+  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
+  }
 
   /* At this point, the payload only contains the serialized txn.
      Beyond end of txn, but within bounds of msg layout, add a trailer
