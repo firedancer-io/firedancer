@@ -15,6 +15,7 @@
    IMPORTANT!  THIS IS AN INVALIDATING OPERATION */
 
 #define FD_POD_IMPL(type,TYPE)                                                  \
+__attribute__ ((format (printf, 3, 4)))                                         \
 static inline ulong                                                             \
 fd_pod_insertf_##type( uchar      * FD_RESTRICT pod,                            \
                        type                     val,                            \
@@ -144,6 +145,7 @@ FD_POD_IMPL( double, DOUBLE )
 
 #undef FD_POD_IMPL
 
+__attribute__ ((format (printf, 3, 4)))
 static inline char const *
 fd_pod_queryf_cstr( uchar const * FD_RESTRICT pod,
                     char const  * FD_RESTRICT def,
