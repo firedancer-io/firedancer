@@ -27,4 +27,4 @@ As these third-party audits are completed and issues are sufficiently addressed,
 
 ## Audit Contest
 
-Leading up to the mainnet launch of Firedancer v0.1, an [audit contest on Immunefi](https://immunefi.com/boost/firedancer-boost/) was held from 10 July 2024 to 21 August 2024.
+Leading up to the mainnet launch of Firedancer v0.1, an [audit contest on Immunefi](https://github.com/immunefi-team/Bounty_Boosts/tree/main/Firedancer%20v0.1) was held from 10 July 2024 to 21 August 2024.
