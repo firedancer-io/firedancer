@@ -6,15 +6,21 @@
 #include "../fd_quic_common.h"
 
 static inline uint
-fd_quic_varint_min_sz( ulong val ) {
-  val = fd_ulong_min( val, 0x3fffffffffffffffUL );
+fd_quic_varint_min_sz_unsafe( ulong val ) {
   int sz_class = fd_uint_find_msb( (uint)fd_ulong_find_msb( val|0x3fUL ) + 2 ) - 2;
   return 1U<<sz_class;
 }
 
 static inline uint
+fd_quic_varint_min_sz( ulong val ) {
+  return fd_quic_varint_min_sz_unsafe( fd_ulong_min( val, 0x3fffffffffffffffUL ) );
+}
+
+static inline uint
 fd_quic_varint_encode( uchar out[8],
                        ulong val ) {
+  /* max out at 0x3fffffffffffffffUL */
+  val = fd_ulong_min( val, 0x3fffffffffffffffUL );
 
   /* input byte pattern:
      - sz 1: aa 00 00 00 00 00 00 00
@@ -22,7 +28,7 @@ fd_quic_varint_encode( uchar out[8],
      - sz 4: aa bb cc dd 00 00 00 00
      - sz 8: aa bb cc dd ee ff ff gg */
 
-  uint sz = fd_quic_varint_min_sz( val );
+  uint sz = fd_quic_varint_min_sz_unsafe( val );
 
   /* shifted byte pattern
      - sz 1: 00 00 00 00 00 00 00 aa
