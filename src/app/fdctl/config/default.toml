@@ -861,7 +861,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 65536
+        max_concurrent_connections = 131072
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
@@ -879,7 +879,7 @@ dynamic_port_range = "8900-9000"
         #
         # Increasing this number causes server-side performance to get
         # worse.
-        max_concurrent_streams_per_connection = 16
+        max_concurrent_streams_per_connection = 512
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -891,14 +891,14 @@ dynamic_port_range = "8900-9000"
         # Higher values reduce TPU packet loss over unreliable networks.
         # If this parameter is set too low, packet loss can cause some
         # large transactions to get dropped.  Must be 2 or larger.
-        txn_reassembly_count = 16384
+        txn_reassembly_count = 4194304
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The handshake process is
         # very expensive. So we allow only a limited number of
         # handshakes to occur concurrently.
         #
-        max_concurrent_handshakes = 512
+        max_concurrent_handshakes = 4096
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the
@@ -914,7 +914,7 @@ dynamic_port_range = "8900-9000"
         #
         # An idle connection will be terminated if it remains idle
         # longer than this threshold.
-        idle_timeout_millis = 60000
+        idle_timeout_millis = 10000
 
         # Max delay for outgoing ACKs.
         ack_delay_millis = 50
