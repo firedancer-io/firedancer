@@ -1028,8 +1028,12 @@ dynamic_port_range = "8900-9000"
     [tiles.metric]
         # The address to listen on.  By default metrics are only
         # accessible from the local machine.  If you wish to expose them
-        # to the network, you can change the listen address although it
-        # is not recommended for security reasons.
+        # to the network, you can change the listen address.
+        #
+        # The Firedancer team makes a best effort to secure the metrics
+        # endpoint but exposing it to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.
         prometheus_listen_address = "127.0.0.1"
 
         # The port to listen on for HTTP request for Prometheus metrics.
@@ -1053,8 +1057,13 @@ dynamic_port_range = "8900-9000"
 
         # The address to listen on.  By default, if enabled, the GUI
         # will only be accessible from the local machine.  If you wish
-        # to expose it to the network, you can change the listen address
-        # although this is not recommended for security reasons.
+        # to expose it to the network, you can change the listen
+        # address.
+        #
+        # The Firedancer team makes a best effort to secure the GUI
+        # endpoint but exposing it to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.
         gui_listen_address = "127.0.0.1"
 
         # The port to listen on.
