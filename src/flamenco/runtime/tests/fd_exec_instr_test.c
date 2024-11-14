@@ -315,6 +315,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->return_data.len         = 0;
   txn_ctx->spad                    = runner->spad;
 
+  txn_ctx->has_program_id          = 1;
+
   /* Set up instruction context */
 
   fd_instr_info_t * info = fd_valloc_malloc( fd_scratch_virtual(), 8UL, sizeof(fd_instr_info_t) );

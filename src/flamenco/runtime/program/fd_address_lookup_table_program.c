@@ -926,15 +926,12 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_LUT, lut_acct ) {
 
   int err;
-  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, ACC_IDX_LUT, &err ) ) ) {
+  err = fd_account_set_data_length( ctx, ACC_IDX_LUT, 0UL );
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
   err = fd_account_set_lamports( ctx, ACC_IDX_LUT, 0UL );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
-  }
-  err = fd_account_set_data_length( ctx, ACC_IDX_LUT, 0UL );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

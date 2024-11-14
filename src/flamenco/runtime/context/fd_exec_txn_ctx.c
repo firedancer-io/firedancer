@@ -236,6 +236,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * txn_ctx,
 
   txn_ctx->exec_err      = 0;
   txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
+  
+  txn_ctx->has_program_id = 0;
 }
 
 void
