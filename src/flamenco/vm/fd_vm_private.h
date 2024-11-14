@@ -97,6 +97,7 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 #define FD_VM_SBPF_ENABLE_ELF_VADDR                   (4UL)
 
 #define FD_VM_SBPF_HAS( vm, feature )   ((vm)->sbpf_version >= (feature))
+#define FD_VM_OFFSET_MASK (0xffffffffUL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -336,7 +337,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  ulong              sentinel,
                  uchar *            is_multi_region ) {
   ulong region = FD_VADDR_TO_REGION( vaddr );
-  ulong offset = vaddr & 0xffffffffUL;
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
@@ -377,7 +378,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
   ulong region   = FD_VADDR_TO_REGION( vaddr );
-  ulong offset   = vaddr & 0xffffffffUL;
+  ulong offset   = vaddr & FD_VM_OFFSET_MASK;
   if( FD_UNLIKELY( region==4UL ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
   }
@@ -391,7 +392,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
 
 static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * dst ) {
 
-  ulong offset              = vaddr & 0xffffffffUL;
+  ulong offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   uint  bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                               (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -448,7 +449,7 @@ FD_FN_PURE static inline ulong fd_vm_mem_ld_8( fd_vm_t const * vm, ulong vaddr, 
    the case where the store spans multiple input memory regions. */
 
 static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * src ) {
-  ulong   offset              = vaddr & 0xffffffffUL;
+  ulong   offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong   region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   ulong   bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                                  (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );

@@ -664,7 +664,7 @@ interp_exec:
 
     ulong region = vaddr >> 32;
     ulong align  = vaddr & 7UL;
-    pc = ((vaddr & 0xffffffffUL)/8UL) - text_word_off;
+    pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
 
     /* Note: BRANCH_END will implicitly handle a pc that fell outside
        the text section (below via unsigned wraparoud or above) as

@@ -595,7 +595,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
       }
     
       /* Find the account meta corresponding to the vaddr */
-      ulong vaddr_offset = vm->segv_store_vaddr & 0xFFFFFFFFUL;
+      ulong vaddr_offset = vm->segv_store_vaddr & FD_VM_OFFSET_MASK;
       ulong acc_region_addl_off = is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
 
       for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
