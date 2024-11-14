@@ -7,6 +7,9 @@ MAKEFLAGS += --no-builtin-variables
 .SECONDARY:
 .SECONDEXPANSION:
 
+export CC
+export CXX
+
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"

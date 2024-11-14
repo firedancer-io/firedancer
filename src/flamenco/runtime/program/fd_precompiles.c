@@ -340,7 +340,7 @@ fd_precompile_secp256k1_verify( fd_exec_txn_ctx_t *    txn_ctx,
   Secp256r1
 */
 
-#ifdef FD_HAS_S2NBIGNUM
+#if FD_HAS_S2N_BIGNUM
 int
 fd_precompile_secp256r1_verify( fd_exec_txn_ctx_t *    txn_ctx,
                                 fd_txn_instr_t const * instr ) {
