@@ -24,13 +24,6 @@ metric introduced.
     <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
 </enum>
 
-<enum name="TpuReasm">
-    <int value="0" name="Success" label="Success" />
-    <int value="1" name="ErrorOversize" label="Oversize message" />
-    <int value="2" name="ErrorSkip" label="Out-of-order data within QUIC stream" />
-    <int value="3" name="ErrorState" label="Unexpected slot state" />
-</enum>
-
 <enum name="PackTxnInsertReturn">
   <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
   <int value="-11" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
@@ -176,13 +169,9 @@ metric introduced.
 </group>
 
 <group name="QuicTile" tile="quic">
-    <counter name="NonQuicReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a non-QUIC UDP transaction." />
-    <counter name="NonQuicReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a non-QUIC UDP transaction." />
-    <counter name="ReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a QUIC transaction." />
-    <counter name="ReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a QUIC transaction." />
-
-    <counter name="ReassemblyNotifyAborted" summary="Reassembly slot was aborted before it was notified." />
-    <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
+    <counter name="TxnsOverrun" summary="Count of transactions overrun before reassembled (too small txn_reassembly_count)." />
+    <counter name="TxnsReceivedUdp" summary="Count of transactions received via TPU/UDP." />
+    <counter name="TxnsReceivedQuic" summary="Count of transactions received via TPU/QUIC." />
 
     <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
 
@@ -256,6 +245,7 @@ metric introduced.
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
     <counter name="SentPackets" summary="Number of IP packets sent." />
     <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
+
     <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
     <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
     <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
@@ -263,8 +253,11 @@ metric introduced.
     <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
     <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
     <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
-    <counter name="ConnectionErrorTlsFail" summary="Number of connections that aborted due to TLS failure." />
     <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
+
+    <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
+    <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
+
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
 
@@ -274,6 +267,7 @@ metric introduced.
 
     <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+    <counter name="StreamStaleEvents" summary="Number of stream frames dropped due to stale stream ID." />
 
     <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
     <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">

@@ -95,8 +95,11 @@ struct fd_gui_txn_waterfall {
   struct {
     ulong net_overrun;
     ulong quic_overrun;
-    ulong quic_quic_invalid;
-    ulong quic_udp_invalid;
+    ulong quic_frag_drop;
+    ulong quic_frag_drop_g;
+    ulong quic_aborted;
+    ulong tpu_quic_invalid;
+    ulong tpu_udp_invalid;
     ulong verify_overrun;
     ulong verify_parse;
     ulong verify_failed;
@@ -194,7 +197,7 @@ struct fd_gui {
     fd_pubkey_t identity_key[ 1 ];
     char identity_key_base58[ FD_BASE58_ENCODED_32_SZ+1 ];
 
-    char const * version;        
+    char const * version;
     char const * cluster;
 
     ulong vote_distance;

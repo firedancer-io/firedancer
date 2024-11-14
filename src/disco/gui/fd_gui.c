@@ -68,7 +68,7 @@ fd_gui_new( void *             shmem,
   gui->summary.startup_full_snapshot_slot             = 0;
   gui->summary.startup_incremental_snapshot_slot      = 0;
   gui->summary.startup_waiting_for_supermajority_slot = ULONG_MAX;
-  
+
   gui->summary.balance                       = 0UL;
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
@@ -417,7 +417,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
   cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_DEDUP_FAILURE ) ];
 
-  
+
   cur->out.verify_overrun   = 0UL;
   cur->out.verify_duplicate = 0UL;
   cur->out.verify_parse     = 0UL;
@@ -440,25 +440,25 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
 
   cur->out.quic_overrun      = 0UL;
-  cur->out.quic_quic_invalid = 0UL;
-  cur->out.quic_udp_invalid  = 0UL;
+  cur->out.quic_frag_drop    = 0UL;
+  cur->out.quic_frag_drop_g  = 0UL;
+  cur->out.quic_aborted      = 0UL;
+  cur->out.tpu_quic_invalid  = 0UL;
+  cur->out.tpu_udp_invalid   = 0UL;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    cur->out.quic_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL ) ];
-    cur->out.quic_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE ) ];
-    cur->out.quic_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH_ERROR_OVERSIZE ) ];
-    cur->out.quic_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH_ERROR_SKIP ) ];
-    cur->out.quic_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH_ERROR_STATE ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, QUIC_PACKET_TOO_SMALL     ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC,      PKT_CRYPTO_FAILED         ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC,      PKT_NO_CONN               ) ];
 
-    cur->out.quic_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, QUIC_PACKET_TOO_SMALL ) ];
-    cur->out.quic_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_PUBLISH_ERROR_OVERSIZE ) ];
-    cur->out.quic_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_PUBLISH_ERROR_SKIP ) ];
-    cur->out.quic_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_PUBLISH_ERROR_STATE ) ];
-    cur->out.quic_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED ) ];
-
-    cur->out.quic_overrun      += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_NOTIFY_CLOBBERED ) ];
+    cur->out.quic_frag_drop_g += quic_metrics[ MIDX( COUNTER, QUIC_TILE, TXNS_OVERRUN             ) ];
+    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC,      STREAM_CLOSED_DROP       ) ];
+    cur->out.quic_aborted     += quic_metrics[ MIDX( COUNTER, QUIC,      STREAM_CLOSED_CONN_ABORT ) ];
+    cur->out.quic_aborted     += quic_metrics[ MIDX( COUNTER, QUIC,      STREAM_CLOSED_PEER_RESET ) ];
 
     for( ulong j=0UL; j<gui->summary.net_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
@@ -478,14 +478,19 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   }
 
   cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
-  cur->in.quic     = cur->out.quic_quic_invalid+cur->out.quic_overrun+cur->out.net_overrun;
-  cur->in.udp      = cur->out.quic_udp_invalid;
+  cur->in.quic     = cur->out.tpu_quic_invalid +
+                     cur->out.quic_overrun +
+                     cur->out.quic_frag_drop +
+                     cur->out.quic_frag_drop_g +
+                     cur->out.quic_aborted +
+                     cur->out.net_overrun;
+  cur->in.udp      = cur->out.tpu_udp_invalid;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_PUBLISH_SUCCESS ) ];
-    cur->in.udp  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH_SUCCESS ) ];
+    cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC_TILE, TXNS_RECEIVED_QUIC ) ];
+    cur->in.udp  += quic_metrics[ MIDX( COUNTER, QUIC_TILE, TXNS_RECEIVED_UDP  ) ];
   }
 
   /* TODO: We can get network packet drops between the device and the
@@ -583,7 +588,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
-  
+
   FD_TEST( peer_cnt<=40200UL );
 
   ulong added_cnt = 0UL;

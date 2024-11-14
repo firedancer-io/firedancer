@@ -68,11 +68,9 @@ typedef struct {
   fd_wksp_t * verify_out_mem;
 
   struct {
-    ulong legacy_reasm_append [ FD_METRICS_COUNTER_QUIC_TILE_NON_QUIC_REASSEMBLY_APPEND_CNT ];
-    ulong legacy_reasm_publish[ FD_METRICS_COUNTER_QUIC_TILE_NON_QUIC_REASSEMBLY_PUBLISH_CNT ];
-
-    ulong reasm_append [ FD_METRICS_COUNTER_QUIC_TILE_REASSEMBLY_APPEND_CNT ];
-    ulong reasm_publish[ FD_METRICS_COUNTER_QUIC_TILE_REASSEMBLY_PUBLISH_CNT ];
+    ulong txns_received_udp;
+    ulong txns_received_quic;
+    ulong txns_overrun;
   } metrics;
 } fd_quic_ctx_t;
 
@@ -127,16 +125,15 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   fd_tpu_reasm_slot_t * slot   = fd_tpu_reasm_prepare( ctx->reasm, tsorig );
 
   int add_err = fd_tpu_reasm_append( ctx->reasm, slot, packet, packet_sz, 0UL );
-  ctx->metrics.legacy_reasm_append[ add_err ]++;
-  if( FD_UNLIKELY( add_err!=FD_TPU_REASM_SUCCESS ) ) return;
+  if( FD_UNLIKELY( add_err!=FD_TPU_REASM_SUCCESS ) ) return; /* unreachable */
 
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   void * base  = ctx->verify_out_mem;
   ulong  seq   = stem->seqs[0];
 
   int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, stem->mcaches[0], base, seq, tspub );
-  ctx->metrics.legacy_reasm_publish[ pub_err ]++;
-  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
+  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return; /* unreachable */
+  ctx->metrics.txns_received_udp++;
 
   fd_stem_advance( stem, 0UL );
 }
@@ -167,10 +164,9 @@ before_credit( fd_quic_ctx_t *     ctx,
 
 static inline void
 metrics_write( fd_quic_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( QUIC_TILE, NON_QUIC_REASSEMBLY_APPEND,  ctx->metrics.legacy_reasm_append );
-  FD_MCNT_ENUM_COPY( QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH, ctx->metrics.legacy_reasm_publish );
-  FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_APPEND,           ctx->metrics.reasm_append );
-  FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_PUBLISH,          ctx->metrics.reasm_publish );
+  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_UDP,  ctx->metrics.txns_received_udp );
+  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_QUIC, ctx->metrics.txns_received_quic );
+  FD_MCNT_SET( QUIC_TILE, TXNS_OVERRUN,       ctx->metrics.txns_overrun );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -185,8 +181,10 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTIONS_RETRIED, ctx->quic->metrics.conn_retry_cnt );
 
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
-  FD_MCNT_SET(   QUIC, CONNECTION_ERROR_TLS_FAIL,   ctx->quic->metrics.conn_err_tls_fail_cnt );
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
+
+  FD_MCNT_SET(   QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_SET(   QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
@@ -197,6 +195,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
+  FD_MCNT_SET(  QUIC, STREAM_STALE_EVENTS,    ctx->quic->metrics.stream_stale_event_cnt );
 
   FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES, ctx->quic->metrics.frame_rx_cnt );
 
@@ -361,7 +360,6 @@ quic_stream_receive( fd_quic_stream_t * stream,
   fd_quic_ctx_t *       quic_ctx = quic->cb.quic_ctx;
   fd_tpu_reasm_t *      reasm    = quic_ctx->reasm;
   fd_tpu_reasm_slot_t * slot     = stream_ctx;
-  fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
 
   /* Check if reassembly slot is still valid */
 
@@ -375,8 +373,7 @@ quic_stream_receive( fd_quic_stream_t * stream,
 
   /* Append data into chunk, we know this is valid */
 
-  int add_err = fd_tpu_reasm_append( reasm, slot, data, data_sz, offset );
-  ctx->metrics.reasm_append[ add_err ]++;
+  fd_tpu_reasm_append( reasm, slot, data, data_sz, offset );
 }
 
 /* quic_stream_notify is called back by the QUIC implementation when a
@@ -410,14 +407,13 @@ quic_stream_notify( fd_quic_stream_t * stream,
 
   if( FD_UNLIKELY( ( slot->conn_id   != conn_id   ) |
                    ( slot->stream_id != stream_id ) ) ) {
-    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_CLOBBERED, 1UL );
+    ctx->metrics.txns_overrun++;
     return;  /* clobbered */
   }
 
   /* Abort reassembly slot if QUIC stream closes non-gracefully */
 
   if( FD_UNLIKELY( type!=FD_QUIC_STREAM_NOTIFY_END ) ) {
-    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
     fd_tpu_reasm_cancel( reasm, slot );
     return;  /* not a successful stream close */
   }
@@ -427,8 +423,8 @@ quic_stream_notify( fd_quic_stream_t * stream,
   ulong  seq   = stem->seqs[0];
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
-  ctx->metrics.reasm_publish[ pub_err ]++;
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
+  ctx->metrics.txns_received_quic++;
 
   fd_stem_advance( stem, 0UL );
 }

@@ -48,24 +48,9 @@
 ## Quic Tile
 | Metric | Type | Description |
 |--------|------|-------------|
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;success | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Success) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;oversize | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;skip | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;state | `counter` | Result of fragment reassembly for a non-QUIC UDP transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;success | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Success) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a non-QUIC UDP transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;success | `counter` | Result of fragment reassembly for a QUIC transaction. (Success) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;oversize | `counter` | Result of fragment reassembly for a QUIC transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;skip | `counter` | Result of fragment reassembly for a QUIC transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;append_&#8203;error_&#8203;state | `counter` | Result of fragment reassembly for a QUIC transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;success | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Success) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;oversize | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Oversize message) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;skip | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Out-of-order data within QUIC stream) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;publish_&#8203;error_&#8203;state | `counter` | Result of publishing reassmbled fragment for a QUIC transaction. (Unexpected slot state) |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;aborted | `counter` | Reassembly slot was aborted before it was notified. |
-| quic_&#8203;tile_&#8203;reassembly_&#8203;notify_&#8203;clobbered | `counter` | Reassembly slot was clobbered before it was notified. |
+| quic_&#8203;tile_&#8203;txns_&#8203;overrun | `counter` | Count of transactions overrun before reassembled (too small txn_reassembly_count). |
+| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;udp | `counter` | Count of transactions received via TPU/UDP. |
+| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic | `counter` | Count of transactions received via TPU/QUIC. |
 | quic_&#8203;tile_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;large | `counter` | Count of packets received on the non-QUIC port that were too large to be a valid transaction. |
@@ -80,8 +65,9 @@
 | quic_&#8203;connections_&#8203;timed_&#8203;out | `counter` | Number of connections timed out. |
 | quic_&#8203;connections_&#8203;retried | `counter` | Number of connections established with retry. |
 | quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots | `counter` | Number of connections that failed to create due to lack of slots. |
-| quic_&#8203;connection_&#8203;error_&#8203;tls_&#8203;fail | `counter` | Number of connections that aborted due to TLS failure. |
 | quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail | `counter` | Number of connections that failed during retry (e.g. invalid token). |
+| quic_&#8203;pkt_&#8203;crypto_&#8203;failed | `counter` | Number of packets that failed decryption. |
+| quic_&#8203;pkt_&#8203;no_&#8203;conn | `counter` | Number of packets with an unknown connection ID. |
 | quic_&#8203;handshakes_&#8203;created | `counter` | Number of handshake flows created. |
 | quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail | `counter` | Number of handshakes dropped due to alloc fail. |
 | quic_&#8203;stream_&#8203;opened | `counter` | Number of streams opened. |
@@ -93,6 +79,7 @@
 | quic_&#8203;stream_&#8203;active | `gauge` | Number of active streams. |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
+| quic_&#8203;stream_&#8203;stale_&#8203;events | `counter` | Number of stream frames dropped due to stale stream ID. |
 | quic_&#8203;received_&#8203;frames_&#8203;unknown | `counter` | Number of QUIC frames received. (Unknown frame type) |
 | quic_&#8203;received_&#8203;frames_&#8203;ack | `counter` | Number of QUIC frames received. (ACK frame) |
 | quic_&#8203;received_&#8203;frames_&#8203;reset_&#8203;stream | `counter` | Number of QUIC frames received. (RESET_STREAM frame) |
