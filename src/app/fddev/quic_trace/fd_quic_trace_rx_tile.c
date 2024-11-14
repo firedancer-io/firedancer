@@ -49,100 +49,115 @@ static int
 bounds_check_conn( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
   long conn_off = (long)((ulong)conn-(ulong)quic);
-  return conn_off >= (long)quic->layout.conn_map_off && conn_off < (long)quic->layout.hs_pool_off;
+  return conn_off >= (long)quic->layout.conns_off && conn_off < (long)quic->layout.conn_map_off;
 }
 
+#define _TRACE_QUIC_PKT(NAME,name,IS_INITIAL,IS_HANDSHAKE)                                     \
+  static void                                                                                  \
+  fd_quic_trace_##name( void *  _ctx FD_FN_UNUSED,                                             \
+                        uchar * data,                                                          \
+                        ulong   data_sz,                                                       \
+                        uint    ip4_saddr,                                                     \
+                        ushort  udp_sport ) {                                                  \
+    fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;                                        \
+    fd_quic_t *          quic     = ctx->quic;                                                 \
+    fd_quic_state_t *    state    = fd_quic_get_state( quic );                                 \
+    fd_quic_conn_map_t * conn_map = translate_ptr( state->conn_map );                          \
+                                                                                               \
+    if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return;                                \
+                                                                                               \
+    fd_quic_##name##_t name[1] = {0};                                                          \
+    ulong rc = fd_quic_decode_##name( name, data, data_sz );                                   \
+    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {                                            \
+      FD_LOG_DEBUG(( "fd_quic_decode_" #name " failed" ));                                     \
+      return;                                                                                  \
+    }                                                                                          \
+    ulong len = (ulong)( name->pkt_num_pnoff + name->len );                                    \
+    if( FD_UNLIKELY( len > data_sz ) ) {                                                       \
+      FD_LOG_DEBUG(( "Bogus " #name " packet length" ));                                       \
+      return;                                                                                  \
+    }                                                                                          \
+                                                                                               \
+    _IF##IS_INITIAL(                                                                           \
+    fd_quic_crypto_keys_t _keys[1];                                                            \
+    )                                                                                          \
+    fd_quic_crypto_keys_t const * keys = NULL;                                                 \
+    if( name->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) {                                        \
+      ulong dst_conn_id = fd_ulong_load_8( name->dst_conn_id );                                \
+      fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL ); \
+      if( conn_entry ) {                                                                       \
+        fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );                             \
+        if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {                                   \
+          keys = translate_ptr( &conn->keys[0][0] );                                           \
+        }                                                                                      \
+      }                                                                                        \
+    }                                                                                          \
+    if( !keys ) {                                                                              \
+      _IF##IS_INITIAL(                                                                         \
+        /* Set secrets->initial_secret */                                                      \
+        fd_quic_crypto_secrets_t secrets[1];                                                   \
+        fd_quic_gen_initial_secrets(                                                           \
+            secrets,                                                                           \
+            initial->dst_conn_id, initial->dst_conn_id_len,                                    \
+            /* is_client */ 0 );                                                               \
+                                                                                               \
+        /* Derive secrets->secret[0][0] */                                                     \
+        fd_tls_hkdf_expand_label(                                                              \
+            secrets->secret[0][0], FD_QUIC_SECRET_SZ,                                          \
+            secrets->initial_secret,                                                           \
+            FD_QUIC_CRYPTO_LABEL_CLIENT_IN,                                                    \
+            FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,                                                \
+            NULL, 0UL );                                                                       \
+                                                                                               \
+        /* Derive decryption key */                                                            \
+        fd_quic_gen_keys( _keys, secrets->secret[0][0] );                                      \
+        keys = _keys;                                                                          \
+      )                                                                                        \
+      _IF##IS_HANDSHAKE(                                                                       \
+        return;                                                                                \
+      )                                                                                        \
+    }                                                                                          \
+                                                                                               \
+    ulong pktnum_off = name->pkt_num_pnoff;                                                    \
+    int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );               \
+    if( hdr_err!=FD_QUIC_SUCCESS ) return;                                                     \
+                                                                                               \
+    ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] )+1u;                                  \
+    ulong pktnum_comp = fd_quic_pktnum_decode( data+9UL, pktnum_sz );                          \
+    ulong pktnum      = pktnum_comp;                                                           \
+                                                                                               \
+    int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pktnum_off, pktnum, keys );         \
+    if( crypt_err!=FD_QUIC_SUCCESS ) return;                                                   \
+                                                                                               \
+    ulong hdr_sz  = pktnum_off + pktnum_sz;                                                    \
+    ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;                                            \
+    if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;                                               \
+                                                                                               \
+    uchar conn_id_truncated[16] = {0};                                                         \
+    fd_memcpy( conn_id_truncated, name->dst_conn_id, name->dst_conn_id_len );                  \
+    fd_quic_trace_frame_ctx_t frame_ctx = {                                                    \
+      .conn_id  = fd_ulong_load_8( conn_id_truncated ),                                        \
+      .pkt_num  = pktnum,                                                                      \
+      .src_ip   = ip4_saddr,                                                                   \
+      .src_port = udp_sport,                                                                   \
+      .pkt_type = FD_QUIC_PKT_TYPE_INITIAL                                                     \
+    };                                                                                         \
+    fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );                          \
+  }
+
+#define _IF1(...) __VA_ARGS__
+#define _IF0(...)
+_TRACE_QUIC_PKT(INITIAL,initial,1,0)
+_TRACE_QUIC_PKT(HANDSHAKE,handshake,0,1)
+/* as the server, we shouldn't be receiving RETRY packets */
+/* we don't support 0-RTT packets */
+
 static void
-fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
-                       uchar * data,
-                       ulong   data_sz,
-                       uint    ip4_saddr,
-                       ushort  udp_sport ) {
-  fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
-  fd_quic_t *          quic     = ctx->quic;
-  fd_quic_state_t *    state    = fd_quic_get_state( quic );
-  fd_quic_conn_map_t * conn_map = translate_ptr( state->conn_map );
-
-  if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return;
-
-  fd_quic_initial_t initial[1] = {0};
-  ulong rc = fd_quic_decode_initial( initial, data, data_sz );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    FD_LOG_DEBUG(( "fd_quic_decode_initial failed" ));
-    return;
-  }
-  ulong len = (ulong)( initial->pkt_num_pnoff + initial->len );
-  if( FD_UNLIKELY( len > data_sz ) ) {
-    FD_LOG_DEBUG(( "Bogus initial packet length" ));
-    return;
-  }
-
-  fd_quic_crypto_keys_t _keys[1];
-  fd_quic_crypto_keys_t const * keys = NULL;
-  if( initial->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) {
-    ulong dst_conn_id = fd_ulong_load_8( initial->dst_conn_id );
-    fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
-    if( conn_entry ) {
-      fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
-      if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = translate_ptr( &conn->keys[0][0] );
-      }
-    }
-  }
-  if( !keys ) {
-    /* Set secrets->initial_secret */
-    fd_quic_crypto_secrets_t secrets[1];
-    fd_quic_gen_initial_secrets(
-        secrets,
-        initial->dst_conn_id, initial->dst_conn_id_len,
-        /* is_client */ 0 );
-
-    /* Derive secrets->secret[0][0] */
-    fd_tls_hkdf_expand_label(
-        secrets->secret[0][0], FD_QUIC_SECRET_SZ,
-        secrets->initial_secret,
-        FD_QUIC_CRYPTO_LABEL_CLIENT_IN,
-        FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,
-        NULL, 0UL );
-
-    /* Derive decryption key */
-    fd_quic_gen_keys( _keys, secrets->secret[0][0] );
-    keys = _keys;
-  }
-
-  ulong pktnum_off = initial->pkt_num_pnoff;
-  int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );
-  if( hdr_err!=FD_QUIC_SUCCESS ) return;
-
-  ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] )+1u;
-  ulong pktnum_comp = fd_quic_pktnum_decode( data+9UL, pktnum_sz );
-  ulong pktnum      = pktnum_comp;  /* don't bother decompressing since initial pktnum is usually low */
-
-  int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pktnum_off, pktnum, keys );
-  if( crypt_err!=FD_QUIC_SUCCESS ) return;
-
-  ulong hdr_sz  = pktnum_off + pktnum_sz;
-  ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
-  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
-
-  uchar conn_id_truncated[16] = {0};
-  fd_memcpy( conn_id_truncated, initial->dst_conn_id, initial->dst_conn_id_len );
-  fd_quic_trace_frame_ctx_t frame_ctx = {
-    .conn_id  = fd_ulong_load_8( conn_id_truncated ),
-    .pkt_num  = pktnum,
-    .src_ip   = ip4_saddr,
-    .src_port = udp_sport,
-    .pkt_type = FD_QUIC_PKT_TYPE_INITIAL
-  };
-  fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
-}
-
-static void
-fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
-                    uchar * data,
-                    ulong   data_sz,
-                    uint    ip4_saddr,
-                    ushort  udp_sport ) {
+fd_quic_trace_1rtt( fd_quic_trace_ctx_t * _ctx,
+                    uchar *               data,
+                    ulong                 data_sz,
+                    uint                  ip4_saddr,
+                    ushort                udp_sport ) {
   fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
   fd_quic_t *          quic     = ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
@@ -180,21 +195,37 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
     .src_port = udp_sport,
     .pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT
   };
-  fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
+
+  if( _ctx->dump ) {
+    fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
+                                   state->now,
+                                   data,
+                                   data_sz,
+                                   "ingress",
+                                   ip4_saddr,
+                                   udp_sport );
+  } else {
+    fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
+  }
+
+  (void)ip4_saddr; (void)conn;
 }
 
 static void
-fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
+fd_quic_trace_pkt( void *          ctx,
                    uchar *         data,
                    ulong           data_sz,
                    uint            ip4_saddr,
                    ushort          udp_sport ) {
   /* FIXME: for now, only handle 1-RTT */
   int is_long = fd_quic_h0_hdr_form( data[0] );
-  if( !is_long ) {
+  if( is_long ) {
     switch( fd_quic_h0_long_packet_type( data[0] ) ) {
     case FD_QUIC_PKT_TYPE_INITIAL:
       fd_quic_trace_initial( ctx, data, data_sz, ip4_saddr, udp_sport );
+      break;
+    case FD_QUIC_PKT_TYPE_HANDSHAKE:
+      fd_quic_trace_handshake( ctx, data, data_sz, ip4_saddr, udp_sport );
       break;
     }
   } else {
@@ -239,12 +270,12 @@ after_frag( void * _ctx FD_FN_UNUSED,
 
   uint   ip4_saddr = fd_uint_load_4( ip4_hdr->saddr_c );
   ushort udp_sport = fd_ushort_bswap( udp_hdr->net_sport );
-  fd_quic_trace_pkt( ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport );
+  fd_quic_trace_pkt( _ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport );
 }
 
 
 #define STEM_BURST (1UL)
-#define STEM_CALLBACK_CONTEXT_TYPE  void
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_trace_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN 1
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
@@ -252,7 +283,7 @@ after_frag( void * _ctx FD_FN_UNUSED,
 #include "../../../disco/stem/fd_stem.c"
 
 void
-fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
+fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache, int dump ) {
   fd_frag_meta_t const * in_mcache_tbl[1] = { in_mcache };
 
   uchar   fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
@@ -263,6 +294,8 @@ fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
   FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_tickcount(), 0UL ) ) );
 
   uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
+
+  fd_quic_trace_ctx_t ctx[1] = {{ .dump = dump }};
 
   stem_run1( /* in_cnt     */ 1UL,
              /* in_mcache  */ in_mcache_tbl,
@@ -276,7 +309,7 @@ fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ NULL );
+             /* ctx        */ ctx );
 
   fd_fseq_delete( fd_fseq_leave( fseq ) );
 }
