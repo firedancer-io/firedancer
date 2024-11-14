@@ -1136,7 +1136,13 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
 
 void
 fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
-  conn->rx_max_data = rx_max_data;
+  /* cannot reduce max_data, and cannot increase beyond max varint */
+  if( rx_max_data > conn->rx_max_data && rx_max_data < (1UL<<62)-1UL ) {
+    conn->rx_max_data    = rx_max_data;
+    conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  }
 }
 
 /* packet processing */
@@ -5479,14 +5485,6 @@ fd_quic_frame_handle_stream_frame(
         exp_offset,
         data->fin_opt
     );
-
-    /* send a max data update
-       must do this before the stream-fin flags are checked */
-    conn->rx_max_data   += delivered;
-    conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
-    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-
-    //fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
 
     /* update data received */
     stream->rx_tot_data = exp_offset + delivered;
