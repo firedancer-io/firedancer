@@ -134,21 +134,22 @@ struct fd_gui_tile_timers {
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 
-struct fd_gui_tile_prime_metric {
-  ulong net_in_bytes;
-  ulong quic_conns;
-  ulong verify_drop_numerator;
-  ulong verify_drop_denominator;
-  ulong dedup_drop_numerator;
-  ulong dedup_drop_denominator;
-  ulong pack_fill_numerator;
-  ulong pack_fill_denominator;
-  ulong bank_txn;
-  ulong net_out_bytes;
-  long  ts_nanos;
+struct fd_gui_tile_stats {
+  long  sample_time_nanos;
+
+  ulong net_in_rx_bytes;      /* Number of bytes received by the net tile*/
+  ulong quic_conn_cnt;        /* Number of active QUIC connections */
+  ulong verify_drop_cnt;      /* Number of transactions dropped by verify tiles */
+  ulong verify_total_cnt;     /* Number of transactions received by verify tiles */
+  ulong dedup_drop_cnt;       /* Number of transactions dropped by dedup tile */
+  ulong dedup_total_cnt;      /* Number of transactions received by dedup tile */
+  ulong pack_buffer_cnt;      /* Number of buffered transactions in the pack tile */
+  ulong pack_buffer_capacity; /* Total size of the pack transaction buffer */
+  ulong bank_txn_exec_cnt;    /* Number of transactions processed by the bank tile */
+  ulong net_out_tx_bytes;     /* Number of bytes sent by the net tile */
 };
 
-typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
+typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 
 #define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
 #define FD_GUI_SLOT_LEADER_STARTED   (1UL)
@@ -175,8 +176,8 @@ struct fd_gui_slot {
   fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
 
-  fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
-  fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
+  fd_gui_tile_stats_t tile_stats_begin[ 1 ];
+  fd_gui_tile_stats_t tile_stats_end[ 1 ];
 
   ulong tile_timers_history_idx;
 };
@@ -253,8 +254,8 @@ struct fd_gui {
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
 
-    fd_gui_tile_prime_metric_t tile_prime_metric_ref[ 1 ];
-    fd_gui_tile_prime_metric_t tile_prime_metric_cur[ 1 ];
+    fd_gui_tile_stats_t tile_stats_reference[ 1 ];
+    fd_gui_tile_stats_t tile_stats_current[ 1 ];
 
     ulong                tile_timers_snap_idx;
     ulong                tile_timers_snap_idx_slot_start;

@@ -1052,7 +1052,7 @@ dynamic_port_range = "8900-9000"
         #   account_indexes = ["program-id"]
         #
         # In your configuration above.
-        enabled = false
+        enabled = true
 
         # The address to listen on.  By default, if enabled, the GUI
         # will only be accessible from the local machine.  If you wish
