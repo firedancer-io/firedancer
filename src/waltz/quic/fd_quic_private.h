@@ -9,6 +9,7 @@
 #include "fd_quic_pkt_meta.h"
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
+#include "fd_quic_pretty_print.h"
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -49,6 +50,7 @@ struct fd_quic_svc_queue {
 };
 
 typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
+
 
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
@@ -103,6 +105,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* last arp/routing tables update */
   ulong ip_table_upd;
 
+  /* state for QUIC sampling */
+  fd_quic_pretty_print_t quic_pretty_print;
+
   /* secret for generating RETRY tokens */
   uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ];
   uchar retry_iv    [FD_QUIC_RETRY_IV_SZ];
@@ -128,6 +133,9 @@ struct fd_quic_pkt {
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
+
+  uchar const *      cur_quic_pkt;    /* pointer to the current QUIC packet */
+  ulong              cur_quic_pkt_sz; /* bound on the max size of the QUIC packet */
 };
 
 struct fd_quic_frame_ctx {

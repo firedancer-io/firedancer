@@ -181,6 +181,14 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
     .pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT
   };
   fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
+
+  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
+                                 state->now,
+                                 data,
+                                 data_sz,
+                                 "inress" );
+
+  (void)ip4_saddr; (void)conn;
 }
 
 static void

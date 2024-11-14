@@ -156,3 +156,25 @@ void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn ) {
   return conn->context;
 }
+
+char const *
+fd_quic_conn_reason_name( uint reason ) {
+  /* define mapping from reason code to name as a c-string */
+  static char const * fd_quic_conn_reason_names[] = {
+#   define COMMA ,
+#   define _(NAME,CODE,DESC) \
+    [CODE] = #NAME
+    FD_QUIC_REASON_CODES(_,COMMA)
+#   undef _
+#   undef COMMA
+  };
+
+# define ELEMENTS ( sizeof(fd_quic_conn_reason_names) / sizeof(fd_quic_conn_reason_names[0]) )
+
+  if( FD_UNLIKELY( reason >= ELEMENTS ) ) return "N/A";
+
+  char const * name = fd_quic_conn_reason_names[reason];
+
+  return name ? name : "N/A";
+}
+
