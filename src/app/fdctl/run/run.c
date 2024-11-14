@@ -523,25 +523,25 @@ fdctl_obj_new( fd_topo_t const *     topo,
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     /* No need to do anything, tiles don't have a new. */
   } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
-    fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL );
+    FD_TEST( fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
-    fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL );
+    FD_TEST( fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
-    fd_cnc_new( laddr, 0UL, 0, fd_tickcount() );
+    FD_TEST( fd_cnc_new( laddr, 0UL, 0, fd_tickcount() ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    fd_tpu_reasm_new( laddr, VAL("depth"), VAL("burst"), 0UL );
+    FD_TEST( fd_tpu_reasm_new( laddr, VAL("depth"), VAL("burst"), 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
-    fd_fseq_new( laddr, ULONG_MAX );
+    FD_TEST( fd_fseq_new( laddr, ULONG_MAX ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
-    fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") );
+    FD_TEST( fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("txn_max") );
+    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") );
+    FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
+    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") ) );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }

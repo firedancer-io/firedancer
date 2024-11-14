@@ -21,6 +21,12 @@
         funk_file = ""
         cluster_version =  "1.18.0"
 
+    [tiles.store_int]
+        blockstore_shred_max = 16384
+        blockstore_block_max = 512
+        blockstore_txn_max = 1048576
+        blockstore_alloc_max = 10737418240
+
     [tiles.pack]
         use_consumed_cus = false
 

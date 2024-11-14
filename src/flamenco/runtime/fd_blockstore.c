@@ -95,12 +95,12 @@ fd_blockstore_new( void * shmem,
   void * alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, fd_blockstore_align() );
 
-  fd_buf_shred_pool_new( shred_pool, shred_max );
-  fd_buf_shred_map_new( shred_map, shred_max, seed );
-  fd_block_map_new( block_map, block_max, seed );
-  fd_slot_deque_new( slot_deque, block_max );
-  fd_txn_map_new( txn_map, txn_max, seed );
-  fd_alloc_new( alloc, wksp_tag );
+  FD_TEST( fd_buf_shred_pool_new( shred_pool, shred_max ) );
+  FD_TEST( fd_buf_shred_map_new( shred_map, shred_max, seed ) );
+  FD_TEST( fd_block_map_new( block_map, block_max, seed ) );
+  FD_TEST( fd_slot_deque_new( slot_deque, block_max ) );
+  FD_TEST( fd_txn_map_new( txn_map, txn_max, seed ) );
+  FD_TEST( fd_alloc_new( alloc, wksp_tag ) );
 
   blockstore->blockstore_gaddr = fd_wksp_gaddr_fast( wksp, blockstore );
   blockstore->wksp_tag         = wksp_tag;
