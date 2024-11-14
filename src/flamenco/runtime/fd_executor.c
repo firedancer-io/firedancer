@@ -370,8 +370,11 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->slot_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_ctx->slot_bank.slot, NULL );
 
+  uchar accounts_found[txn_ctx->accounts_cnt];
   for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_borrowed_account_t * acct = NULL;
+    /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/account_loader.rs#L220 */
+    accounts_found[i] = 1;
 
     int   err      = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
     ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
@@ -385,6 +388,18 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && acct->const_meta->info.rent_epoch<=epoch ) {
       txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
       acct->starting_lamports = acct->meta->info.lamports;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L222-L277 */
+    int is_sysvar_instruction = !memcmp( acct->pubkey->key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) );
+    int account_exists = fd_acc_exists( acct->const_meta );
+    /* In agave, the only way for the account_found to be set to false, the following conditions must be met
+         1. account is not sysvar instruction
+         2. account is not a fee payer (for loop does not include the fee payer)
+         3. account is an instruction account or writable account (this is already checked for later in this function)
+         4. account does not exist in loaded account shared data */
+    if ( !is_sysvar_instruction && !account_exists ) {
+      accounts_found[i] = 0;
     }
 
     err = accumulate_and_check_loaded_account_data_size( acc_size,
@@ -401,12 +416,13 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort      program_owners_cnt = 0;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L297-L358 */
+  /* At this point, we can set has_program_id to be 0 as the program_indices vector is of length 0 */
+  txn_ctx->has_program_id = 0;
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
-
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L304-306 */
     fd_borrowed_account_t * program_account = NULL;
-    int err = fd_txn_borrowed_account_view_idx( txn_ctx, instr->program_id, &program_account );
+    int err = fd_txn_borrowed_account_view_idx_allow_dead( txn_ctx, instr->program_id, &program_account );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -414,6 +430,11 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L307-309 */
     if( FD_UNLIKELY( !memcmp( program_account->pubkey->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
       continue;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L311-L314 */
+    if( FD_UNLIKELY( !accounts_found[instr->program_id] ) ) {
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L317-320 */
@@ -465,6 +486,10 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_account_meta_t * meta = (fd_account_meta_t *)program_account->const_meta;
       meta->info.executable = 1;
     }
+
+    /* At this point, program_indices will no longer have 0 length, so we are set this flag to 1 */
+    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L321 */
+    txn_ctx->has_program_id = 1;
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L322-325 */
     if( !memcmp( program_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -1030,6 +1055,11 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
 int
 fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
                      fd_instr_info_t *       instr ) {
+  /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L253-L255 */
+  /* Agave looks into the program_indices that was generated in load_transaction_accounts, if the vector has nothing, it throw a UnsupportedProgramId */
+  if( FD_UNLIKELY( !txn_ctx->has_program_id ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L256-L286 */
   if( txn_ctx->instr_stack_sz ) {
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L261-L285 */
