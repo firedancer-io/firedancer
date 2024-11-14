@@ -14,6 +14,8 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
+#include "fd_quic_trace.c"
+
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
 #include "templ/fd_quic_parse_util.h"
@@ -1604,6 +1606,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
+
+  fd_quic_trace_v1_frames( frame_ptr, frame_sz );
+
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
                                   conn,
@@ -1763,6 +1768,9 @@ fd_quic_handle_v1_handshake(
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
+
+  fd_quic_trace_v1_frames( frame_ptr, frame_sz );
+
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
                                   conn,
@@ -2032,6 +2040,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   ulong         payload_sz  = tot_sz - pn_offset - pkt_number_sz; /* includes auth tag */
   if( FD_UNLIKELY( payload_sz<FD_QUIC_CRYPTO_TAG_SZ ) ) return FD_QUIC_PARSE_FAIL;
   ulong         frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
+
+  fd_quic_trace_v1_frames( frame_ptr, frame_sz );
+
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
                                   conn,
@@ -5694,7 +5705,7 @@ fd_quic_frame_handle_new_conn_id_frame(
 
   /* FIXME implement */
 
-  return FD_QUIC_SUCCESS;
+  return 0;
 }
 
 static ulong
