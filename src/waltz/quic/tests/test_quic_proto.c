@@ -108,16 +108,16 @@ test_varint_encode( void ) {
   FD_TEST( buf[0]==0xff && buf[1]==0xff && buf[2]==0xff && buf[3]==0xff &&
            buf[4]==0xff && buf[5]==0xff && buf[6]==0xff && buf[7]==0xff );
 
-  /* Truncate oversize numbers */
+  /* Saturate oversize numbers */
   v.i = 0x4000000000000000UL;
   FD_TEST( fd_quic_encode_varint_test( buf, sizeof(buf), &v )==8UL );
-  FD_TEST( buf[0]==0xc0 && buf[1]==0x00 && buf[2]==0x00 && buf[3]==0x00 &&
-           buf[4]==0x00 && buf[5]==0x00 && buf[6]==0x00 && buf[7]==0x00 );
+  FD_TEST( buf[0]==0xff && buf[1]==0xff && buf[2]==0xff && buf[3]==0xff &&
+           buf[4]==0xff && buf[5]==0xff && buf[6]==0xff && buf[7]==0xff );
 
   v.i = 0x8000000000000000UL;
   FD_TEST( fd_quic_encode_varint_test( buf, sizeof(buf), &v )==8UL );
-  FD_TEST( buf[0]==0xc0 && buf[1]==0x00 && buf[2]==0x00 && buf[3]==0x00 &&
-           buf[4]==0x00 && buf[5]==0x00 && buf[6]==0x00 && buf[7]==0x00 );
+  FD_TEST( buf[0]==0xff && buf[1]==0xff && buf[2]==0xff && buf[3]==0xff &&
+           buf[4]==0xff && buf[5]==0xff && buf[6]==0xff && buf[7]==0xff );
 
   v.i = 0xffffffffffffffffUL;
   FD_TEST( fd_quic_encode_varint_test( buf, sizeof(buf), &v )==8UL );
