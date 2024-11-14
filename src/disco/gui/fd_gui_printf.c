@@ -60,7 +60,7 @@ jsonp_long( fd_gui_t *   gui,
   else                   fd_http_server_printf( gui->http, "%ld,", value );
 }
 
-static void 
+static void
 jsonp_double( fd_gui_t *   gui,
               char const * key,
               double       value ) {
@@ -374,7 +374,7 @@ fd_gui_printf_tiles( fd_gui_t * gui ) {
           /* bench tiles not reported */
           continue;
         }
-        
+
         jsonp_open_object( gui, NULL );
           jsonp_string( gui, "kind", tile->name );
           jsonp_ulong( gui, "kind_id", tile->kind_id );
@@ -489,8 +489,11 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
     jsonp_open_object( gui, "out" );
       jsonp_ulong( gui, "net_overrun",       cur->out.net_overrun       - prev->out.net_overrun );
       jsonp_ulong( gui, "quic_overrun",      cur->out.quic_overrun      - prev->out.quic_overrun );
-      jsonp_ulong( gui, "quic_quic_invalid", cur->out.quic_quic_invalid - prev->out.quic_quic_invalid );
-      jsonp_ulong( gui, "quic_udp_invalid",  cur->out.quic_udp_invalid  - prev->out.quic_udp_invalid );
+      jsonp_ulong( gui, "quic_frag_drop",    cur->out.quic_frag_drop    - prev->out.quic_frag_drop );
+      jsonp_ulong( gui, "quic_frag_drop_g",  cur->out.quic_frag_drop_g  - prev->out.quic_frag_drop_g );
+      jsonp_ulong( gui, "quic_aborted",      cur->out.quic_aborted      - prev->out.quic_aborted );
+      jsonp_ulong( gui, "tpu_quic_invalid",  cur->out.tpu_quic_invalid  - prev->out.tpu_quic_invalid );
+      jsonp_ulong( gui, "tpu_udp_invalid",   cur->out.tpu_udp_invalid   - prev->out.tpu_udp_invalid );
       jsonp_ulong( gui, "verify_overrun",    cur->out.verify_overrun    - prev->out.verify_overrun );
       jsonp_ulong( gui, "verify_parse",      cur->out.verify_parse      - prev->out.verify_parse );
       jsonp_ulong( gui, "verify_failed",     cur->out.verify_failed     - prev->out.verify_failed );
@@ -666,7 +669,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
   ulong info_idx = ULONG_MAX;
   ulong vote_idxs[ 40200 ] = {0};
   ulong vote_idx_cnt = 0UL;
-  
+
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
     if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ i ].pubkey->uc, identity_pubkey, 32 ) ) ) {
       gossip_idx = i;
@@ -730,7 +733,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
 
       jsonp_close_object( gui );
     }
-  
+
     jsonp_open_array( gui, "vote" );
       for( ulong i=0UL; i<vote_idx_cnt; i++ ) {
         jsonp_open_object( gui, NULL );

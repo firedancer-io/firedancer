@@ -326,8 +326,11 @@ union fd_quic_metrics {
     ulong conn_timeout_cnt;        /* number of conns timed out */
     ulong conn_retry_cnt;          /* number of conns established with retry */
     ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
-    ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+
+    /* Packet metrics */
+    ulong pkt_decrypt_fail_cnt;    /* number of packets that failed decryption */
+    ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
@@ -342,6 +345,7 @@ union fd_quic_metrics {
     ulong stream_active_cnt;        /* number of active streams */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
+    ulong stream_stale_event_cnt;   /* number of stream events on stale stream IDs */
 
     /* Performance metrics */
     fd_histf_t service_duration[ 1 ]; /* time spent in service */
