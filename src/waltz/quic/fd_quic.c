@@ -1534,7 +1534,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                              /* length of payload + num packet bytes */
 
   ulong   pkt_number       = (ulong)ULONG_MAX;
-  ulong   pkt_number_sz    = (ulong)ULONG_MAX;
   ulong   tot_sz           = (ulong)ULONG_MAX;
 
 # if !FD_QUIC_DISABLE_CRYPTO
@@ -1560,8 +1559,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
        since the packet integrity is checked in fd_quic_crypto_decrypt? */
 
     /* number of bytes in the packet header */
-    pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-    tot_sz        = pn_offset + body_sz; /* total including header and payload */
+    uint pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
+    /**/ tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
@@ -1705,7 +1704,6 @@ fd_quic_handle_v1_handshake(
                                                /* length of payload + num packet bytes */
 
   ulong    pkt_number       = (ulong)-1;
-  ulong    pkt_number_sz    = (ulong)-1;
   ulong    tot_sz           = (ulong)-1;
 
 # if !FD_QUIC_DISABLE_CRYPTO
@@ -1722,8 +1720,8 @@ fd_quic_handle_v1_handshake(
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
   /* number of bytes in the packet header */
-  pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-  tot_sz        = pn_offset + body_sz; /* total including header and payload */
+  uint pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
+  /**/ tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
   pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
@@ -1951,7 +1949,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   ulong pn_offset        = one_rtt->pkt_num_pnoff;
 
   ulong pkt_number       = ULONG_MAX;
-  ulong pkt_number_sz    = ULONG_MAX;
 
 # if !FD_QUIC_DISABLE_CRYPTO
     /* this decrypts the header */
@@ -1971,7 +1968,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     uint first = (uint)cur_ptr[0];
 
     /* number of bytes in the packet header */
-    pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
+    uint pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
