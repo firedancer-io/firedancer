@@ -1500,6 +1500,7 @@ after_credit( fd_poh_ctx_t *      ctx,
     /* We ticked while not leader and are now leader... transition
        the state machine. */
     publish_plugin_slot_start( ctx, ctx->next_leader_slot, ctx->reset_slot );
+    FD_LOG_INFO(( "fd_poh_ticked_into_leader(slot=%lu, reset_slot=%lu)", ctx->next_leader_slot, ctx->reset_slot ));
   }
 
   if( FD_UNLIKELY( is_leader && ctx->slot>ctx->next_leader_slot ) ) {
@@ -1507,6 +1508,7 @@ after_credit( fd_poh_ctx_t *      ctx,
        the state machine. */
     FD_TEST( !max_remaining_microblocks );
     publish_plugin_slot_end( ctx, ctx->next_leader_slot, ctx->cus_used );
+    FD_LOG_INFO(( "fd_poh_ticked_outof_leader(slot=%lu)", ctx->next_leader_slot ));
 
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
@@ -1519,6 +1521,7 @@ after_credit( fd_poh_ctx_t *      ctx,
       /* We finished a leader slot, and are immediately leader for the
          following slot... transition. */
       publish_plugin_slot_start( ctx, ctx->next_leader_slot, ctx->next_leader_slot-1UL );
+      FD_LOG_INFO(( "fd_poh_ticked_into_leader(slot=%lu, reset_slot=%lu)", ctx->next_leader_slot, ctx->next_leader_slot-1UL ));
     }
   }
 }
