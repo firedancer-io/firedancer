@@ -879,7 +879,7 @@ dynamic_port_range = "8900-9000"
         #
         # Increasing this number causes server-side performance to get
         # worse.
-        max_concurrent_streams_per_connection = 16
+        max_concurrent_streams_per_connection = 128
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -891,7 +891,7 @@ dynamic_port_range = "8900-9000"
         # Higher values reduce TPU packet loss over unreliable networks.
         # If this parameter is set too low, packet loss can cause some
         # large transactions to get dropped.  Must be 2 or larger.
-        txn_reassembly_count = 16384
+        txn_reassembly_count = 65536
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The handshake process is
@@ -914,7 +914,7 @@ dynamic_port_range = "8900-9000"
         #
         # An idle connection will be terminated if it remains idle
         # longer than this threshold.
-        idle_timeout_millis = 60000
+        idle_timeout_millis = 10000
 
         # Max delay for outgoing ACKs.
         ack_delay_millis = 50
@@ -1040,7 +1040,7 @@ dynamic_port_range = "8900-9000"
     # endpoint to clients to view it.
     [tiles.gui]
         # If the GUI is enabled.
-        # 
+        #
         # Names and icons of peer validators will not be displayed in
         # the GUI unless the program-id index is enabled, which can be
         # done by setting
