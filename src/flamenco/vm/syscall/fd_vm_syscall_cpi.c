@@ -454,10 +454,10 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
  */
 static inline int
-fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
+fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_exec_slot_ctx_t const * slot_ctx ) {
   return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key) |
-         fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key);
+         ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key) && FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ) );
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to
@@ -483,7 +483,7 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
                     || (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix)
                         && (instruction_data_len != 0 && instruction_data[0] == 7)) /* is_set_authority_checked_instruction() */
                     || (instruction_data_len != 0 && instruction_data[0] == 5))) /* is_close_instruction */
-            || fd_vm_syscall_cpi_is_precompile(program_id));
+            || fd_vm_syscall_cpi_is_precompile(program_id, slot_ctx));
 }
 
 /**********************************************************************

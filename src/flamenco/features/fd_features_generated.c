@@ -1229,6 +1229,12 @@ fd_feature_id_t const ids[] = {
     .name       = "partitioned_epoch_rewards_superfeature",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index      = offsetof(fd_features_t, enable_secp256r1_precompile)>>3,
+    .id         = {"\x0d\x06\x71\xf0\x4f\xe3\x38\x2c\x46\xac\x54\x4a\xad\x9b\x98\x50\xa8\xa0\x26\x18\x41\x58\x58\xbf\xe8\xf0\xca\x6c\x04\x32\x18\x93"},
+                  /* sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi */
+    .name       = "enable_secp256r1_precompile",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 
@@ -1443,6 +1449,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x0b9047b5bb9ef961: return &ids[ 200 ];
   case 0xa5a66405d0ab6309: return &ids[ 201 ];
   case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
+  case 0x2c38e34ff071060d: return &ids[ 203 ];
   default: break;
   }
 
@@ -1654,5 +1661,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, zk_elgamal_proof_program_enabled     
 FD_STATIC_ASSERT( offsetof( fd_features_t, move_stake_and_move_lamports_ixs                        )>>3==200UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_legacy_vote_ixs                               )>>3==201UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, partitioned_epoch_rewards_superfeature                  )>>3==202UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_secp256r1_precompile                             )>>3==203UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
