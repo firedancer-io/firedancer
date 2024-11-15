@@ -20,18 +20,19 @@
 #include "../../version.h"
 
 #include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/gui/fd_gui.h"
 #include "../../../../disco/plugin/fd_plugin.h"
-#include "../../../../ballet/base58/fd_base58.h"
 #include "../../../../ballet/http/fd_http_server.h"
 
-#include <errno.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
 #include <poll.h>
 #include <stdio.h>
+
+#if FD_HAS_ZSTD
+#include <zstd.h>
+#endif
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -177,12 +178,12 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip" );
 
-  for( ulong i=0UL; i<sizeof(STATIC_FILES)/sizeof(STATIC_FILES[0]); i++ ) {
-    if( !strcmp( request->path, STATIC_FILES[ i ].name ) ||
-        (!strcmp( STATIC_FILES[ i ].name, "/index.html" ) && is_vite_page) ) {
+  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+    if( !strcmp( request->path, f->name ) ||
+        (!strcmp( f->name, "/index.html" ) && is_vite_page) ) {
       char const * content_type = NULL;
 
-      char const * ext = strrchr( STATIC_FILES[ i ].name, '.' );
+      char const * ext = strrchr( f->name, '.' );
       if( FD_LIKELY( ext ) ) {
         if( !strcmp( ext, ".html" ) ) content_type = "text/html; charset=utf-8";
         else if( !strcmp( ext, ".css" ) ) content_type = "text/css";
@@ -195,8 +196,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
       char const * cache_control = NULL;
       if( FD_LIKELY( !strncmp( request->path, "/assets", 7 ) ) ) cache_control = "public, max-age=31536000, immutable";
 
-      const uchar * data = STATIC_FILES[ i ].data;
-      ulong data_len = *(STATIC_FILES[ i ].data_len);
+      const uchar * data = f->data;
+      ulong data_len = *(f->data_len);
 
       int accepts_zstd = 0;
       if( FD_LIKELY( request->headers.accept_encoding ) ) {
@@ -204,10 +205,10 @@ gui_http_request( fd_http_server_request_t const * request ) {
       }
 
       char const * content_encoding = NULL;
-      if( FD_LIKELY( accepts_zstd && STATIC_FILES[ i ].zstd_data ) ) {
+      if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
         content_encoding = "zstd";
-        data = STATIC_FILES[ i ].zstd_data;
-        data_len = *(STATIC_FILES[ i ].zstd_data_len);
+        data = f->zstd_data;
+        data_len = f->zstd_data_len;
       }
 
       return (fd_http_server_response_t){
@@ -268,6 +269,30 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key = fd_keyload_load( tile->gui.identity_key_path, /* pubkey only: */ 1 );
+
+# if FD_HAS_ZSTD
+  /* zstd compress files */
+  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+    char const * ext = strrchr( f->name, '.' );
+    if( !ext ) continue;
+    if( !strcmp( ext, ".html" ) ||
+        !strcmp( ext, ".css"  ) ||
+        !strcmp( ext, ".js"   ) ||
+        !strcmp( ext, ".svg"  ) ) {}
+    else continue;
+
+    ulong   zstd_bufsz = *f->data_len;
+    uchar * zstd_buf   = malloc( zstd_bufsz );
+    if( FD_UNLIKELY( !zstd_buf ) ) FD_LOG_ERR(( "Out of memory" ));
+    ulong zstd_sz = ZSTD_compress( zstd_buf, zstd_bufsz, f->data, *f->data_len, 19 );
+    if( ZSTD_isError( zstd_sz ) ) {
+      free( zstd_buf );
+      continue;
+    }
+    f->zstd_data     = zstd_buf;
+    f->zstd_data_len = zstd_sz;
+  }
+# endif /* FD_HAS_ZSTD */
 }
 
 static void
