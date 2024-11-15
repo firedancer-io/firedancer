@@ -956,26 +956,13 @@ dynamic_port_range = "8900-9000"
     # them in an optimal way to generate the most fees per compute
     # resource used to execute them.
     [tiles.pack]
-        # The pack tile may process transactions faster than the Agave
-        # bank stage that sits downstream of it.  If this happens,
-        # the pack tile will accumulate a buffer of transactions that
-        # need to be forwarded, up to this limit after which the least
-        # profitable transactions will be dropped.
-        #
-        # If a lot of memory is available, it may be more sensible to
-        # continue to queue inbound transactions rather than drop them,
-        # for two reasons,
-        #
-        #  (1) If transactions were received in a burst, we may be able
-        #      to handle them later while idle and earn more rewards.
-        #
-        #  (2) If many highly profitable transactions are received in a
-        #      burst, we may drop some when later they would be better
-        #      to execute than what is available.
-        #
-        # This option specifies how many transactions will be buffered
-        # in the pack tile.
-        max_pending_transactions = 4096
+        # The pack tile receives transactions while it is waiting to
+        # become leader and stores them for future execution.  This
+        # option determines the maximum number of transactions that
+        # will be stored before those with the lowest estimated
+        # profitability get dropped.  The maximum allowed, and default
+        # value is 65534 and it is not recommended to change this.
+        max_pending_transactions = 65534
 
         # When a transaction consumes fewer CUs than it requests, the
         # bank and pack tiles work together to adjust the block limits
