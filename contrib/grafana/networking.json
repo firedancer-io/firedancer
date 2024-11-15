@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 7,
+  "id": 3649,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -38,8 +38,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "UDP packet rate handled by all QUIC tiles.\nPositive numbers indicate incoming packets (RX), negative numbers indicate outgoing packets (TX)",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -82,8 +83,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -91,13 +91,12 @@
               }
             ]
           },
-          "unit": "pps",
-          "unitScale": true
+          "unit": "pps"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
+        "h": 10,
         "w": 12,
         "x": 0,
         "y": 1
@@ -121,10 +120,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_received_packets{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_received_packets{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "RX pps",
           "range": true,
@@ -133,10 +132,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "-sum(rate(quic_sent_packets{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "-sum(rate(quic_sent_packets{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "TX pps",
@@ -150,8 +149,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "UDP line rate received and sent by all QUIC tiles. \nThis includes network headers (Ethernet, IPv4, UDP header, QUIC header, QUIC payload)",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -194,8 +194,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -203,14 +202,13 @@
               }
             ]
           },
-          "unit": "bps",
-          "unitScale": true
+          "unit": "bps"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 8,
+        "h": 10,
+        "w": 9,
         "x": 12,
         "y": 1
       },
@@ -233,10 +231,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_received_bytes{hostname=~\"$hostname\"}[$__rate_interval]))*8",
+          "expr": "sum(rate(quic_received_bytes{instance=~\"$instance\"}[$__rate_interval]))*8",
           "instant": false,
           "legendFormat": "RX bitrate",
           "range": true,
@@ -245,10 +243,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "-sum(rate(quic_sent_bytes{hostname=~\"$hostname\"}[$__rate_interval]))*8",
+          "expr": "-sum(rate(quic_sent_bytes{instance=~\"$instance\"}[$__rate_interval]))*8",
           "hide": false,
           "instant": false,
           "legendFormat": "TX bitrate",
@@ -262,7 +260,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
       "description": "",
       "fieldConfig": {
@@ -270,13 +268,13 @@
           "color": {
             "mode": "thresholds"
           },
+          "decimals": 3,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -284,14 +282,14 @@
               }
             ]
           },
-          "unitScale": true
+          "unit": "short"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 20,
+        "w": 3,
+        "x": 21,
         "y": 1
       },
       "id": 12,
@@ -312,16 +310,16 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.3",
+      "pluginVersion": "10.4.7",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_stream_opened_bidi_client{hostname=~\"$hostname\"}[$__range]))",
+          "expr": "sum(increase(quic_stream_closed_end{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -334,8 +332,157 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 21,
+        "y": 4
+      },
+      "id": 19,
+      "maxDataPoints": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(increase(quic_stream_closed_conn_abort{instance=~\"$instance\"}[$__range])) + sum(increase(quic_stream_closed_drop{instance=~\"$instance\"}[$__range])) +  + sum(increase(quic_stream_closed_peer_reset{instance=~\"$instance\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "QUIC Streams Failed",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "yellow",
+                "value": 0.6
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 7
+      },
+      "id": 20,
+      "maxDataPoints": 1,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "10.4.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(increase(quic_stream_closed_end{instance=~\"$instance\"}[$__range])) / sum(increase(quic_stream_opened{instance=~\"$instance\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Stream Complete Rate",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Sum of QUIC connection counts across all QUIC tiles",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -380,8 +527,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -389,16 +535,15 @@
               }
             ]
           },
-          "unit": "conns",
-          "unitScale": true
+          "unit": "conns"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 9,
         "x": 0,
-        "y": 10
+        "y": 11
       },
       "id": 3,
       "options": {
@@ -421,10 +566,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(quic_connections_active{hostname=~\"$hostname\"})",
+          "expr": "sum(quic_connections_active{instance=~\"$instance\"})",
           "instant": false,
           "legendFormat": "Conns",
           "range": true,
@@ -437,8 +582,79 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "Cumulative number of connections created in the current Grafana time range",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 11
+      },
+      "id": 15,
+      "maxDataPoints": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(increase(quic_connections_created{instance=~\"$instance\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "QUIC Conns Created",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Number of frames per second for each QUIC frame type.\n\n'stream' frames carry Solana transactions. \n'ping' frames do keep-alive to avoid connection timeouts.\nEverything else is metadata.\n\nUse shift+left click to hide certain frame types.\n",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -481,8 +697,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -490,16 +705,15 @@
               }
             ]
           },
-          "unit": "mps",
-          "unitScale": true
+          "unit": "mps"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 12,
         "x": 12,
-        "y": 10
+        "y": 11
       },
       "id": 4,
       "options": {
@@ -522,11 +736,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum by (frame_type) (rate(label_replace({__name__=~\"quic_received_frames_.*\",hostname=~\"$hostname\"},\"frame_type\",\"$1\",\"__name__\",\"quic_received_frames_(.*)\")[1m:15s])) != 0",
+          "expr": "sum by (frame_type) (rate(label_replace({__name__=~\"quic_received_frames_.*\",instance=~\"$instance\"},\"frame_type\",\"$1\",\"__name__\",\"quic_received_frames_(.*)\")[60s:30s])) != 0",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -539,121 +753,149 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "Cumulative number of connections killed by QUIC tiles, in the current Grafana time range.\n\nTypical reasons include:\n- TLS handshake failure\n- Internal allocation failure\n\nDoes not include timeouts",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 38,
-            "gradientMode": "hue",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "mode": "thresholds"
           },
           "mappings": [],
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          },
-          "unit": "ops",
-          "unitScale": true
+          }
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 5,
-        "x": 0,
-        "y": 18
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 14
       },
-      "id": 11,
+      "id": 16,
+      "maxDataPoints": 1,
       "options": {
-        "legend": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
           "calcs": [
-            "mean"
+            "lastNotNull"
           ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "10.4.7",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connections_created{hostname=~\"$hostname\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "Created",
-          "range": true,
+          "exemplar": false,
+          "expr": "sum(increase(quic_connections_aborted{instance=~\"$instance\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(quic_connections_aborted{hostname=~\"$hostname\"}[$__rate_interval]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "Aborted",
-          "range": true,
-          "refId": "B"
         }
       ],
-      "title": "QUIC Conn Churn",
-      "type": "timeseries"
+      "title": "QUIC Conns Aborted",
+      "type": "stat"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "Cumulative number of connections gracefully closed. AKA normal client disconnects.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 17
+      },
+      "id": 17,
+      "maxDataPoints": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(increase(quic_connections_closed{instance=~\"$instance\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "QUIC Conns Gracef. Closed",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "QUIC stream events per second\n(Each QUIC stream corresponds to one Solana transaction)\n\n- Success: Txn received and passed on to the block production pipeline\n- Dropped: Txn dropped due to excessive concurrency by the peer. (see `tiles.quic.max_concurrent_streams_per_connection` config option) \n- Conn Abort: Txn dropped because the connection closed",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -696,8 +938,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -705,17 +946,17 @@
               }
             ]
           },
-          "unitScale": true
+          "unit": "reqps"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 5,
-        "x": 5,
-        "y": 18
+        "h": 13,
+        "w": 12,
+        "x": 0,
+        "y": 20
       },
-      "id": 14,
+      "id": 18,
       "options": {
         "legend": {
           "calcs": [],
@@ -732,50 +973,52 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connection_error_no_slots{hostname=~\"$hostname\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "Alloc Fail",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(quic_connection_error_tls_fail{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_stream_closed_end{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
-          "legendFormat": "TLS Fail",
+          "legendFormat": "Success",
           "range": true,
           "refId": "B"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connection_error_retry_fail{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_stream_closed_drop{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
-          "legendFormat": "Retry Fail",
+          "legendFormat": "Dropped",
           "range": true,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_stream_closed_conn_abort{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Conn Abort",
+          "range": true,
+          "refId": "A"
         }
       ],
-      "title": "QUIC Conn Rejects",
+      "title": "QUIC Streams",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
+      "description": "Handshake events per second\n\n- Alloc Fail: Handshake object pool is full (indicates connection attempt spam) \n- Created: Handshake object allocated",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -818,8 +1061,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -827,15 +1069,15 @@
               }
             ]
           },
-          "unitScale": true
+          "unit": "ops"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 5,
-        "x": 10,
-        "y": 18
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 20
       },
       "id": 13,
       "options": {
@@ -854,22 +1096,22 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_handshake_error_alloc_fail{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_handshake_error_alloc_fail{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
-          "legendFormat": "Failed",
+          "legendFormat": "Alloc Fail",
           "range": true,
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_handshakes_created{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_handshakes_created{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Created",
@@ -881,12 +1123,482 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Connections rejected per second\n\n- Alloc Fail: Aborted because the connection table was full\n- TLS Fail: Aborted because the TLS 1.3 handshake failed\n- Retry Fail: Client send an expired or invalid retry token (QUIC Retry are comparable to TCP SYN cookies)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 20
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connection_error_no_slots{instance=~\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "Alloc Fail",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connection_error_tls_fail{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "TLS Fail",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connection_error_retry_fail{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Retry Fail",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "QUIC Conn Rejects",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Connection events per second.\n\n- Created: Connection objects created (tracked before the handshake succeeds)\n- Aborted: Connections killed by the validator\n- Graceful Closed: Connections gracefully closed by the peer\n- Timeout: Connections garbage-collected by the validator because no data was seen for the duration of the idle timeout",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "hue",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 7,
+        "x": 12,
+        "y": 26
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connections_created{instance=~\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "Created",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connections_aborted{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Aborted",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connections_closed{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Graceful Closed",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_connections_timed_out{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Timeout",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "QUIC Conn Churn",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "yellow",
+                "value": 0.6
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 19,
+        "y": 26
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "1 - sum(increase(quic_stream_closed_end{instance=~\"$instance\"}[$__rate_interval])) / sum(increase(quic_stream_opened{instance=~\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Stream Drop Rate",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "id": 21,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 0,
+            "y": 34
+          },
+          "id": 22,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(quic_tile_reassembly_append_error_oversize {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_append_error_skip     {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_append_error_state    {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_publish_error_oversize{instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_publish_error_skip    {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_publish_error_state   {instance=~\"$instance\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Reassembly Errors",
+          "type": "timeseries"
+        }
+      ],
+      "title": "TPU Reassembly",
+      "type": "row"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 34
       },
       "id": 8,
       "panels": [],
@@ -896,7 +1608,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -940,8 +1652,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -949,8 +1660,7 @@
               }
             ]
           },
-          "unit": "pps",
-          "unitScale": true
+          "unit": "pps"
         },
         "overrides": []
       },
@@ -958,7 +1668,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 35
       },
       "id": 9,
       "options": {
@@ -979,10 +1689,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(net_tile_received_packets{hostname=~\"$hostname\"}[$__rate_interval])) - sum(rate(quic_received_packets{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "sum(rate(net_tile_received_packets{instance=~\"$instance\"}[$__rate_interval])) - sum(rate(quic_received_packets{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "RX pps",
           "range": true,
@@ -991,10 +1701,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "-sum(rate(quic_sent_packets{hostname=~\"$hostname\"}[$__rate_interval]))",
+          "expr": "-sum(rate(net_tile_sent_packets{instance=~\"$instance\"}[$__rate_interval])) + sum(rate(quic_sent_packets{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "TX pps",
@@ -1008,7 +1718,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1052,8 +1762,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1061,8 +1770,7 @@
               }
             ]
           },
-          "unit": "bps",
-          "unitScale": true
+          "unit": "bps"
         },
         "overrides": []
       },
@@ -1070,7 +1778,7 @@
         "h": 9,
         "w": 8,
         "x": 12,
-        "y": 26
+        "y": 35
       },
       "id": 10,
       "options": {
@@ -1091,10 +1799,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "(sum(rate(net_tile_received_bytes{hostname=~\"$hostname\"}[$__rate_interval])) - sum(rate(quic_received_bytes{hostname=~\"$hostname\"}[$__rate_interval])))*8",
+          "expr": "(sum(rate(net_tile_received_bytes{instance=~\"$instance\"}[$__rate_interval])) - sum(rate(quic_received_bytes{instance=~\"$instance\"}[$__rate_interval])))*8",
           "instant": false,
           "legendFormat": "RX bitrate",
           "range": true,
@@ -1103,10 +1811,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "-sum(rate(quic_sent_bytes{hostname=~\"$hostname\"}[$__rate_interval]))*8",
+          "expr": "-sum(rate(net_tile_sent_bytes{instance=~\"$instance\"}[$__rate_interval]))*8",
           "hide": false,
           "instant": false,
           "legendFormat": "TX bitrate",
@@ -1120,9 +1828,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
-      "description": "",
+      "description": "Number of packets dropped in the current Grafana time interval",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1133,16 +1841,14 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          },
-          "unitScale": true
+          }
         },
         "overrides": []
       },
@@ -1150,7 +1856,7 @@
         "h": 3,
         "w": 4,
         "x": 20,
-        "y": 26
+        "y": 35
       },
       "id": 5,
       "maxDataPoints": 1,
@@ -1164,26 +1870,40 @@
             "lastNotNull"
           ],
           "fields": "",
-          "values": false
+          "values": true
         },
         "showPercentChange": false,
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.3.3",
+      "pluginVersion": "10.4.7",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(net_tile_xdp_rx_dropped_other{hostname=~\"$hostname\"}[$__range]) + increase(net_tile_xdp_rx_dropped_ring_full{hostname=~\"$hostname\"}[$__range])",
+          "expr": "sum(increase(net_tile_xdp_rx_dropped_other{instance=~\"$instance\"}[$__range]) + increase(net_tile_xdp_rx_dropped_ring_full{instance=~\"$instance\"}[$__range]))",
           "instant": true,
-          "legendFormat": "__auto",
+          "legendFormat": "RX",
           "range": false,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(increase(net_tile_tx_dropped{instance=~\"$instance\"}[$__range]))",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "TX",
+          "range": false,
+          "refId": "B"
         }
       ],
       "title": "Dropped Packets",
@@ -1192,7 +1912,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "${datasource}"
       },
       "description": "",
       "fieldConfig": {
@@ -1237,8 +1957,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1246,8 +1965,7 @@
               }
             ]
           },
-          "unit": "pps",
-          "unitScale": true
+          "unit": "pps"
         },
         "overrides": []
       },
@@ -1255,7 +1973,7 @@
         "h": 6,
         "w": 4,
         "x": 20,
-        "y": 29
+        "y": 38
       },
       "id": 6,
       "options": {
@@ -1275,11 +1993,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(net_tile_xdp_rx_dropped_other{hostname=~\"$hostname\"}[$__rate_interval]) + rate(net_tile_xdp_rx_dropped_ring_full{hostname=~\"$hostname\"}[$__rate_interval])",
+          "expr": "sum(rate(net_tile_xdp_rx_dropped_other{instance=~\"$instance\"}[$__rate_interval])) + sum(rate(net_tile_xdp_rx_dropped_ring_full{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "RX",
           "range": true,
@@ -1288,11 +2006,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "-rate(net_tile_tx_dropped{hostname=~\"$hostname\"}[$__rate_interval])",
+          "expr": "-sum(rate(net_tile_tx_dropped{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "TX",
@@ -1304,11 +2022,28 @@
       "type": "timeseries"
     }
   ],
-  "refresh": false,
   "schemaVersion": 39,
   "tags": [],
   "templating": {
     "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "red",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
       {
         "allValue": ".*",
         "current": {
@@ -1318,20 +2053,20 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "PBFA97CFB590B2093"
+          "uid": "${datasource}"
         },
-        "definition": "label_values(quic_connections_active,hostname)",
+        "definition": "label_values(quic_connections_active,instance)",
         "hide": 0,
         "includeAll": true,
         "multi": false,
-        "name": "hostname",
+        "name": "instance",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(quic_connections_active,hostname)",
+          "query": "label_values(quic_connections_active,instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
-        "refresh": 1,
+        "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
         "sort": 0,
@@ -1347,6 +2082,6 @@
   "timezone": "utc",
   "title": "Firedancer Networking",
   "uid": "fb867872-560e-46ec-b867-3b8907951824",
-  "version": 23,
+  "version": 13,
   "weekStart": ""
 }
