@@ -7,6 +7,7 @@
 #include "../../runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
+#include "../../runtime/fd_system_ids.h"
 
 int
 fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
@@ -172,6 +173,78 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   }
 
   *_ret = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L167-L232 */
+int
+fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
+                              /**/            ulong   sysvar_id_vaddr,
+                              /**/            ulong   out_vaddr,
+                              /**/            ulong   offset,
+                              /**/            ulong   sz,
+                              FD_PARAM_UNUSED ulong   r5,
+                              /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  /* sysvar_id_cost seems to just always be 32 / 250 = 0...
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L190-L197 */
+  ulong sysvar_buf_cost = sz / FD_VM_CPI_BYTES_PER_UNIT;
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, fd_ulong_max( sysvar_buf_cost, FD_VM_MEM_OP_BASE_COST ) ) );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L199-L200 */
+  const fd_pubkey_t * sysvar_id = FD_VM_MEM_HADDR_LD( vm, sysvar_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L202-L203 */
+  void * out_haddr = FD_VM_MEM_SLICE_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L205-L208 */
+  ulong offset_length;
+  int err = fd_int_if( __builtin_uaddl_overflow( offset, sz, &offset_length ), FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW, FD_EXECUTOR_INSTR_SUCCESS );
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+    return FD_VM_ERR_ABORT;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L210-L213 
+     We don't need this, we already checked we can store in out_vaddr with requested sz. */
+  
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L215-L221 */
+  if( FD_UNLIKELY( memcmp( sysvar_id->uc, fd_sysvar_clock_id.uc,             FD_PUBKEY_FOOTPRINT ) &&
+                   memcmp( sysvar_id->uc, fd_sysvar_epoch_schedule_id.uc,    FD_PUBKEY_FOOTPRINT ) &&
+                   memcmp( sysvar_id->uc, fd_sysvar_epoch_rewards_id.uc,     FD_PUBKEY_FOOTPRINT ) &&
+                   memcmp( sysvar_id->uc, fd_sysvar_rent_id.uc,              FD_PUBKEY_FOOTPRINT ) &&
+                   memcmp( sysvar_id->uc, fd_sysvar_slot_hashes_id.uc,       FD_PUBKEY_FOOTPRINT ) &&
+                   memcmp( sysvar_id->uc, fd_sysvar_stake_history_id.uc,     FD_PUBKEY_FOOTPRINT ) &&
+                   memcmp( sysvar_id->uc, fd_sysvar_last_restart_slot_id.uc, FD_PUBKEY_FOOTPRINT ) ) ) {
+    *_ret = 2UL;
+    return FD_VM_SUCCESS;
+  }
+
+  FD_BORROWED_ACCOUNT_DECL( sysvar_account );
+  err = fd_acc_mgr_view( vm->instr_ctx->slot_ctx->acc_mgr, vm->instr_ctx->slot_ctx->funk_txn, sysvar_id, sysvar_account );
+  if( FD_UNLIKELY( err ) ) {
+    *_ret = 2UL;
+    return FD_VM_SUCCESS;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L223-L228
+     Note the length check is at the very end to fail after performing sufficient checks. */
+  const uchar * sysvar_buf     = sysvar_account->const_data;
+  ulong         sysvar_buf_len = sysvar_account->const_meta->dlen;
+
+  if( FD_UNLIKELY( offset_length>sysvar_buf_len ) ) {
+    *_ret = 1UL;
+    return FD_VM_SUCCESS;
+  }
+
+  if( FD_UNLIKELY( sz==0UL ) ) {
+    *_ret = 0UL;
+    return FD_VM_SUCCESS;
+  }
+
+  fd_memcpy( out_haddr, sysvar_buf + offset, sz );
+  *_ret = 0;
   return FD_VM_SUCCESS;
 }
 
