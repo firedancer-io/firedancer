@@ -26,7 +26,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_quic_retry_integrity_tag_{sign,verify} implement the RFC 9001
    "Retry Integrity Tag" AEAD scheme.
 
-   This is a standard and mandatory step in the QUIC retry proces, both
+   This is a standard and mandatory step in the QUIC retry process, both
    on the server (sign) and client (verify) side.  Confusingly, all
    inputs to these functions are either public constants (e.g. the
    hardcoded encryption key) or sent in plain text over the wire.  Thus,
@@ -43,7 +43,7 @@ FD_PROTOTYPES_BEGIN
 
    fd_quic_retry_integrity_tag_decrypt checks whether a Retry Integrity
    Tag matches the byte range at retry_pseudo_pkt.  It returns
-   FD_QUIC_SUCCESS if the integrity tag is vaild, and FD_QUIC_FAILURE
+   FD_QUIC_SUCCESS if the integrity tag is valid, and FD_QUIC_FAILURE
    otherwise. */
 
 static inline void

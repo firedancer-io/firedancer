@@ -390,9 +390,9 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
    the connection to be freed during a later fd_quic_service call.
-   reason is a RFC 9000 QUIC error code.  error_line is a implementation
-   defined error code for internal use (usually the source line of code
-   in fd_quic.c) */
+   reason is an RFC 9000 QUIC error code.  error_line is an
+   implementation defined error code for internal use (usually the
+   source line of code in fd_quic.c) */
 
 void
 fd_quic_conn_error( fd_quic_conn_t * conn,
