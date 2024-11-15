@@ -3,11 +3,8 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
-#include "rpc_client/fd_rpc_client.h"
 
 #include "../../disco/topo/fd_topob.h"
-#include "../../disco/keyguard/fd_keyload.h"
-#include "../../util/net/fd_ip4.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
 #include <unistd.h>

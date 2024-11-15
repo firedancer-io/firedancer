@@ -2,9 +2,6 @@
 
 #include "generated/monitor_seccomp.h"
 #include "helper.h"
-#include "../run/run.h"
-#include "../../../disco/tiles.h"
-#include "../../../disco/fd_disco.h"
 
 #include <stdio.h>
 #include <signal.h>
@@ -156,7 +153,7 @@ link_snap( link_snap_t * snap_cur,
       if( FD_LIKELY( topo->tiles[ tile_idx ].in_link_poll[ in_idx ] ) ) {
         in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
       }
-      
+
       fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
       ulong producer_id = fd_topo_find_link_producer( topo, link );
       FD_TEST( producer_id!=ULONG_MAX );
@@ -345,7 +342,7 @@ run_monitor( config_t * const config,
       PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nvcsw,           prv->nvcsw  );
       PRINT( " | " ); printf_err_bool( &buf, &buf_sz, cur->in_backp,        prv->in_backp   );
       PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->backp_cnt,       prv->backp_cnt  );
-  
+
       ulong cur_hkeep_ticks      = cur->regime_ticks[0]+cur->regime_ticks[1]+cur->regime_ticks[2];
       ulong prv_hkeep_ticks      = prv->regime_ticks[0]+prv->regime_ticks[1]+prv->regime_ticks[2];
 

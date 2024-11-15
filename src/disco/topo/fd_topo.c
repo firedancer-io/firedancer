@@ -1,6 +1,5 @@
 #include "fd_topo.h"
 
-#include "../fd_disco_base.h"
 #include "../metrics/fd_metrics.h"
 #include "../quic/fd_tpu.h"
 #include "../../util/wksp/fd_wksp_private.h"

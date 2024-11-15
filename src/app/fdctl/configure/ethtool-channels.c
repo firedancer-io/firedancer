@@ -1,7 +1,6 @@
 #include "configure.h"
 
 #include <stdio.h>
-#include <ctype.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>

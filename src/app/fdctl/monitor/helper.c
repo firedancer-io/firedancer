@@ -2,8 +2,6 @@
 
 #include <stdio.h>
 
-#include "../../../disco/fd_disco.h"
-
 #define PRINT( ... ) do {                                                        \
     int n = snprintf( *buf, *buf_sz, __VA_ARGS__ );                              \
     if( FD_UNLIKELY( n<0 ) ) FD_LOG_ERR(( "snprintf failed" ));                  \

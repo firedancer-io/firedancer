@@ -9,7 +9,6 @@
 #include "generated/pidns_seccomp.h"
 #endif
 
-#include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_pod_format.h"
 #include "../../../waltz/xdp/fd_xdp1.h"
 #include "../../../flamenco/runtime/fd_blockstore.h"

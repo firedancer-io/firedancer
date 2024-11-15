@@ -1,8 +1,6 @@
 #include "configure.h"
 
 #include <sys/stat.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 void
 configure_cmd_args( int *    pargc,

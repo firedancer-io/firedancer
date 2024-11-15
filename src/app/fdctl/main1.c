@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 #define FD_UNALIGNED_ACCESS_STYLE 0
-#include "../../util/bits/fd_bits.h"
 
 #include "fdctl.h"
 

@@ -5,7 +5,6 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
-#include "../../util/wksp/fd_wksp_private.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -13,8 +12,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/wait.h>
-
-#include "../../util/tile/fd_tile_private.h"
 
 void
 dev_cmd_args( int *    pargc,

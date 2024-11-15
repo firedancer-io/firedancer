@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 #include "fddev.h"
-#include "../../util/net/fd_pcap.h"
 
 #include <stdio.h>
 #include <unistd.h>

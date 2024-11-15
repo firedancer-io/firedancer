@@ -1,8 +1,7 @@
 /* _GNU_SOURCE for recvmmsg and sendmmsg */
 #define _GNU_SOURCE
 
-#include "../../../disco/tiles.h"
-#include "../../../waltz/xdp/fd_xsk_aio.h"
+#include "../../../disco/topo/fd_topo.h"
 #include "../../../waltz/quic/fd_quic.h"
 #include "../../../waltz/tls/test_tls_helper.h"
 
