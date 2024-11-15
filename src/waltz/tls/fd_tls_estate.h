@@ -125,6 +125,10 @@ FD_PROTOTYPES_END
      Finished" verify data. */
 
 struct fd_tls_estate_srv {
+  /* TLS base (hs) handles are deliberately placed at the start.
+   Allows for type punning between fd_quic_tls_hs_t and
+   fd_tls_estate_{srv,cli}_t.  DO NOT MOVE.
+   Type of handshake object depends on is_server. */
   fd_tls_estate_base_t base;
 
   uchar  server_cert_rpk : 1;  /* 0: X.509  1: raw public key */
@@ -181,6 +185,10 @@ FD_PROTOTYPES_END
    Thus, estate_cli is not optimized for memory use. */
 
 struct fd_tls_estate_cli {
+  /* TLS handshake handles are deliberately placed at the start.
+   Allows for type punning between fd_quic_tls_hs_t and
+   fd_tls_estate_{srv,cli}_t.  DO NOT MOVE.
+   Type of handshake object depends on is_server. */
   fd_tls_estate_base_t base;
 
   uchar server_pubkey   [ 32 ];

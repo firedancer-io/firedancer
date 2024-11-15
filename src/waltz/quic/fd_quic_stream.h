@@ -153,8 +153,6 @@ struct fd_quic_stream {
     (stream)->next = (stream)->prev = stream;                   \
   } while(0)
 
-
-
 /* stream map for use in fd_map_dynamic map */
 struct fd_quic_stream_map {
   ulong              stream_id; /* key */

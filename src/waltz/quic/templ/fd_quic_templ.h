@@ -195,7 +195,7 @@ FD_TEMPL_DEF_STRUCT_END(retry_hdr)
    }
    Figure 19: 1-RTT Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(one_rtt)
-  FD_TEMPL_MBR_ELEM       ( h0,               uchar                 )
+  FD_TEMPL_MBR_ELEM       ( h0,              uchar                  )
   FD_TEMPL_MBR_ELEM_HIDDEN( dst_conn_id_len, uint                   )
   FD_TEMPL_MBR_ELEM_VAR   ( dst_conn_id,     0,160, dst_conn_id_len )
 
