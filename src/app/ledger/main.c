@@ -164,8 +164,17 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", ledger_args->rocksdb_list[ 0UL ], err ));
     }
     fd_rocksdb_root_iter_new( &iter );
-    if( fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, ledger_args->slot_ctx->valloc ) ) {
-      FD_LOG_ERR(( "unable to seek to first slot" ));
+
+    int block_found = -1;
+    while ( block_found!=0 && start_slot<=ledger_args->end_slot ) {
+      block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, ledger_args->slot_ctx->valloc );
+      if ( block_found!=0 ) {
+        start_slot++;
+      }
+    }
+
+    if( FD_UNLIKELY( block_found!=0 ) ) {
+      FD_LOG_ERR(( "unable to seek to any slot" ));
     }
   }
 
