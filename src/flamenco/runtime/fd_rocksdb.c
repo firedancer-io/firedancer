@@ -673,7 +673,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         }
       }
     }
-    fd_alloc_t * alloc = blockstore->alloc;
+    fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
     uchar * cur_laddr = fd_alloc_malloc( alloc, 1, tot_meta_sz );
     if( cur_laddr == NULL ) {
       fd_blockstore_end_write(blockstore);
@@ -686,7 +686,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     cur_laddr += 2*sizeof(ulong);
 
     /* Copy over the logs */
-    fd_txn_map_t * txn_map = blockstore->txn_map;
+    fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
     ulong meta_gaddr = 0;
     ulong meta_sz = 0;
     fd_txn_key_t sig = { 0 };
