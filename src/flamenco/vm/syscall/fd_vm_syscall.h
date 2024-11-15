@@ -213,7 +213,7 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
 FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
-/* syscall(FIXME) "sol_log_data"
+/* syscall(7317b434) "sol_log_data"
    Write the base64 encoded cnt data slices to the log.
 
    Inputs:
@@ -244,7 +244,7 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
 FD_VM_SYSCALL_DECL( sol_log_data );
 
-/* syscall(FIXME) "sol_alloc_free"
+/* syscall(83f00e8f) "sol_alloc_free_"
    DEPRECATED ... dynamic heap allocation support
 
    Inputs:
@@ -286,7 +286,7 @@ FD_VM_SYSCALL_DECL( sol_log_data );
 
 FD_VM_SYSCALL_DECL( sol_alloc_free );
 
-/* syscall(FIXME) "sol_memcpy"
+/* syscall(717cc4a3) "sol_memcpy_"
    Copy sz bytes from src to dst.  src and dst should not overlap.
 
    Inputs:
@@ -316,7 +316,7 @@ FD_VM_SYSCALL_DECL( sol_alloc_free );
 
 FD_VM_SYSCALL_DECL( sol_memcpy );
 
-/* syscall(FIXME) "sol_memcmp"
+/* syscall(5fdcde31) "sol_memcmp_"
    Compare sz bytes at m0 to m1
 
    Inputs:
@@ -348,7 +348,7 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
 
 FD_VM_SYSCALL_DECL( sol_memcmp );
 
-/* syscall(FIXME) "sol_memset"
+/* syscall(3770fb22) "sol_memset_"
    Set sz bytes at dst to the byte value c.
 
    Inputs:
@@ -372,7 +372,7 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
 
 FD_VM_SYSCALL_DECL( sol_memset );
 
-/* syscall(FIXME) "sol_memmove"
+/* syscall(434371f8) "sol_memmove_"
    Copy sz bytes from src to dst.  src and dst can overlap.
 
    Inputs:
@@ -399,11 +399,11 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 
 /* fd_vm_syscall_runtime **********************************************/
 
-/* syscall(FIXME) "sol_get_clock_sysvar"
-   syscall(FIXME) "sol_get_epoch_schedule_sysvar"
-   syscall(FIXME) "sol_get_fees_sysvar"
-   syscall(FIXME) "sol_get_rent_sysvar"
-   syscall(FIXME) "sol_get_last_restart_slot_sysvar"
+/* syscall(d56b5fe9) "sol_get_clock_sysvar"
+   syscall(23a29a61) "sol_get_epoch_schedule_sysvar"
+   syscall(3b97b73c) "sol_get_fees_sysvar"
+   syscall(bf7188f6) "sol_get_rent_sysvar"
+   syscall(77f9b9d0) "sol_get_last_restart_slot_sysvar"
    Get various sysvar values
 
    Inputs:
@@ -441,7 +441,42 @@ FD_VM_SYSCALL_DECL( sol_get_fees_sysvar              );
 FD_VM_SYSCALL_DECL( sol_get_rent_sysvar              );
 FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
 
-/* syscall(FIXME) "sol_get_stack_height"
+/* syscall(13c1b505) "sol_get_sysvar"
+
+   Get a slice of a sysvar account's data.
+
+   Inputs:
+
+     r1 - sysvar_id_vaddr, sysvar pubkey VM pointer
+     r2 - out_vaddr, byte VM pointer
+     r3 - offset, ulong
+     r4 - sz, num bytes to store
+     r5 - ignored
+
+   Return:
+
+     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     *_ret unchanged.  vm->cu unchanged.
+
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
+
+     FD_VM_ERR_SIGSEGV: bad sysvar_id_vaddr, bad out_vaddr, requested
+     slice outside of sysvar data buffer. _ret unchanged. vm->cu unchanged.
+
+     FD_VM_ERR_ABORT: offset+sz overflow.  *_ret unchanged.
+
+     FD_VM_SUCCESS: success. vm->cu decremented and vm->cu>0.
+      - *_ret = 2 if sysvar id is not in {clock,schedule,rewards,rent,slot hashes,stake history,last restart slot}
+                  OR sysvar account does not exist.
+      - *_ret = 1 if [offset,offset+sz) is outside of sysvar data buffer. 
+      = *_ret = 0 if success.
+
+     On return, sz bytes of appropriate offset sysvar data will be copied into 
+     haddr belonging to out_vaddr. */
+FD_VM_SYSCALL_DECL( sol_get_sysvar );
+
+/* syscall(85532d94) "sol_get_stack_height"
 
    Inputs:
 
@@ -467,7 +502,7 @@ FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
 
 FD_VM_SYSCALL_DECL( sol_get_stack_height );
 
-/* syscall(FIXME) "sol_get_return_data"
+/* syscall(5d2245e4) "sol_get_return_data"
    Get the return data and program id associated with it.
 
    Inputs:
@@ -510,7 +545,7 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
 
 FD_VM_SYSCALL_DECL( sol_get_return_data );
 
-/* syscall(FIXME) "sol_set_return_data"
+/* syscall(a226d3eb) "sol_set_return_data"
    Set the return data.  The return data will be associated with the
    caller's program ID.
 
@@ -680,7 +715,7 @@ FD_VM_SYSCALL_DECL( cpi_rust );
 #define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_INPUT_EL_SZ (192UL) /* size of G1 + G2 */
 #define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_OUTPUT_SZ   ( 32UL) /* size of pairing syscall result, i.e. 0 or 1 as 256-bit int ¯\_(ツ)_/¯ */
 
-/* syscall(FIXME) sol_alt_bn128_group_op computes operations on the Alt_BN128 curve,
+/* syscall(ae0c318b) sol_alt_bn128_group_op computes operations on the Alt_BN128 curve,
    including point addition in G1, scalar multiplication in G1, and pairing.
    See SIMD-0129.
 
@@ -688,7 +723,7 @@ FD_VM_SYSCALL_DECL( cpi_rust );
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
 
-/* syscall(FIXME) sol_alt_bn128_compression allows to compress or decompress points
+/* syscall(334fd5ed) sol_alt_bn128_compression allows to compress or decompress points
    in G1 or G2 groups over the Alt_BN128 curve.
    See SIMD-0129.
 
@@ -696,9 +731,9 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 
-/* syscall(FIXME) "sol_blake3"
-   syscall(FIXME) "sol_keccak256"
-   syscall(FIXME) "sol_sha256"
+/* syscall(174c5122) "sol_blake3"
+   syscall(d7793abb) "sol_keccak256"
+   syscall(11f49d86) "sol_sha256"
 
    Inputs:
 
@@ -730,7 +765,7 @@ FD_VM_SYSCALL_DECL( sol_blake3    );
 FD_VM_SYSCALL_DECL( sol_keccak256 );
 FD_VM_SYSCALL_DECL( sol_sha256    );
 
-/* syscall(FIXME) sol_poseidon computes the Poseidon hash on an array of input values.
+/* syscall(c4947c21) sol_poseidon computes the Poseidon hash on an array of input values.
    See SIMD-0129.
 
    FIXME: DOCUMENT */
@@ -739,7 +774,7 @@ FD_VM_SYSCALL_DECL( sol_sha256    );
 
 FD_VM_SYSCALL_DECL( sol_poseidon ); /* Light protocol flavor */
 
-/* syscall(FIXME) "sol_secp256k1_recover"
+/* syscall(17e40350) "sol_secp256k1_recover"
 
    FIXME: BELT SAND AND DOCUMENT */
 
@@ -763,19 +798,19 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ  (32UL) /* point (compressed) */
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ (32UL) /* scalar */
 
-/* syscall(FIXME) sol_curve_validate_point
+/* syscall(aa2607ca) sol_curve_validate_point
 
    FIXME: BELT SAND AND DOCUMENT */
 
 FD_VM_SYSCALL_DECL( sol_curve_validate_point  );
 
-/* syscall(FIXME) sol_curve_validate_point
+/* syscall(dd1c41a6) sol_curve_validate_point
 
    FIXME: BELT SAND AND DOCUMENT */
 
 FD_VM_SYSCALL_DECL( sol_curve_group_op );
 
-/* syscall(FIXME) sol_curve_validate_point
+/* syscall(60a40880) sol_curve_validate_point
 
    FIXME: BELT SAND AND DOCUMENT */
 
