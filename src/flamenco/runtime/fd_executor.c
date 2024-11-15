@@ -303,7 +303,7 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
-    } else if( !memcmp( program_id, &fd_solana_secp256r1_program_id, sizeof(fd_pubkey_t) )) {
+    } else if( !memcmp( program_id, &fd_solana_secp256r1_program_id, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile ) ) {
       err = fd_precompile_secp256r1_verify( txn_ctx, instr );
       if( FD_UNLIKELY( err ) ) {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
