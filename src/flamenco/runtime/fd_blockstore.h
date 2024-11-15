@@ -310,12 +310,12 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore {
 
   /* Owned */
 
-  fd_buf_shred_t *     shred_pool; /* memory pool for buffering shreds before block assembly */
-  fd_buf_shred_map_t * shred_map;  /* map of (slot, shred_idx)->shred */
-  fd_block_map_t *     block_map;  /* map of slot->(slot_meta, block) */
-  ulong *              slot_deque; /* deque of slot numbers */
-  fd_txn_map_t *       txn_map;
-  fd_alloc_t *         alloc;
+  ulong shred_pool_gaddr; /* memory pool for buffering shreds before block assembly */
+  ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
+  ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
+  ulong slot_deque_gaddr; /* deque of slot numbers */
+  ulong txn_map_gaddr;
+  ulong alloc_gaddr;
 };
 typedef struct fd_blockstore fd_blockstore_t;
 
@@ -399,8 +399,8 @@ fd_blockstore_seed( fd_blockstore_t * blockstore ) {
    pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_buf_shred_t *
-fd_blockstore_buf_shred_pool( fd_blockstore_t * blockstore ) {
-  return blockstore->shred_pool;
+fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shred_pool_gaddr );
 }
 
 /* fd_blockstore_buf_shred_map returns a pointer in the caller's address
@@ -409,16 +409,22 @@ fd_blockstore_buf_shred_pool( fd_blockstore_t * blockstore ) {
    of the local join. */
 
 FD_FN_PURE static inline fd_buf_shred_map_t *
-fd_blockstore_buf_shred_map( fd_blockstore_t * blockstore ) {
-  return blockstore->shred_map;
+fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shred_map_gaddr );
 }
 
 /* fd_block_map returns a pointer in the caller's address space to the
    fd_block_map_t in the blockstore wksp.  Assumes blockstore is local
    join.  Lifetime of the returned pointer is that of the local join. */
+
 FD_FN_PURE static inline fd_block_map_t *
 fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
-  return blockstore->block_map;
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->block_map_gaddr );
+}
+
+FD_FN_PURE static inline ulong *
+fd_blockstore_slot_deque( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->slot_deque_gaddr );
 }
 
 /* fd_txn_map returns a pointer in the caller's address space to the blockstore's
@@ -426,8 +432,8 @@ fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
    local join. */
 
 FD_FN_PURE static inline fd_txn_map_t *
-fd_txn_map( fd_blockstore_t * blockstore ) {
-  return blockstore->txn_map;
+fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->txn_map_gaddr );
 }
 
 /* fd_blockstore_alloc returns a pointer in the caller's address space to
@@ -435,7 +441,7 @@ fd_txn_map( fd_blockstore_t * blockstore ) {
 
 FD_FN_PURE static inline fd_alloc_t * /* Lifetime is that of the local join */
 fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
-  return blockstore->alloc;
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->alloc_gaddr );
 }
 
 /* fd_blockstore_block_data_laddr returns a local pointer to the block's data. The returned pointer

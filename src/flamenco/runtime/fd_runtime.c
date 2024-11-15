@@ -1690,8 +1690,8 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
 
   fd_blockstore_t * blockstore      = slot_ctx->blockstore;
   fd_wksp_t * blockstore_wksp       = fd_blockstore_wksp( blockstore );
-  fd_alloc_t * blockstore_alloc     = blockstore->alloc;
-  fd_txn_map_t * txn_map = blockstore->txn_map;
+  fd_alloc_t * blockstore_alloc     = fd_blockstore_alloc( blockstore );
+  fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
 
   /* Get the total size of all logs */
   ulong tot_meta_sz = 2*sizeof(ulong);

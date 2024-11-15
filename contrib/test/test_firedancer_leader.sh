@@ -73,6 +73,7 @@ name = \"fd1\"
     level_logfile = \"NOTICE\"
     level_flush = \"ERR\"
 [rpc]
+    port = 8123
     extended_tx_metadata_storage = true
 [consensus]
     expected_shred_version = $SHRED_VERS
