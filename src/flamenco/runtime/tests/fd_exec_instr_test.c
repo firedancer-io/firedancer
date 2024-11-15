@@ -245,11 +245,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   ctx->slot_ctx   = slot_ctx;
   ctx->txn_ctx    = txn_ctx;
-  txn_ctx->valloc = slot_ctx->valloc;
-
-  /* Initial variables */
-  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
 
   /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -284,37 +279,17 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
+  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  memset( txn_descriptor, 0, fd_txn_footprint( 1UL, 0UL ) );
+  fd_rawtxn_b_t txn_raw[1];
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
-  txn_ctx->epoch_ctx               = epoch_ctx;
-  txn_ctx->slot_ctx                = slot_ctx;
   txn_ctx->funk_txn                = funk_txn;
-  txn_ctx->acc_mgr                 = acc_mgr;
   txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
-  txn_ctx->compute_unit_price      = 0;
   txn_ctx->compute_meter           = test_ctx->cu_avail;
-  txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
-  txn_ctx->custom_err              = UINT_MAX;
-  txn_ctx->instr_stack_sz          = 0;
-  txn_ctx->executable_cnt          = 0;
-  txn_ctx->paid_fees               = 0;
-  txn_ctx->num_instructions        = 0;
-  txn_ctx->dirty_vote_acc          = 0;
-  txn_ctx->dirty_stake_acc         = 0;
-  txn_ctx->failed_instr            = NULL;
-  txn_ctx->instr_err_idx           = INT_MAX;
-  txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
-  txn_ctx->accounts_resize_delta   = 0;
-  txn_ctx->instr_info_cnt          = 0;
-  txn_ctx->instr_trace_length      = 0;
-  txn_ctx->exec_err                = 0;
-  txn_ctx->exec_err_kind           = FD_EXECUTOR_ERR_KIND_EBPF;
-
-  memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
-  memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  txn_ctx->return_data.len         = 0;
   txn_ctx->spad                    = runner->spad;
-
   txn_ctx->has_program_id          = 1;
 
   /* Set up instruction context */
@@ -337,18 +312,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     return 0;
   }
 
-  fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
-  fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
-  txn_ctx->accounts_cnt = test_ctx->accounts_count;
-  for ( uint i = 0; i < test_ctx->accounts_count; i++ ) {
-    memcpy( &(txn_ctx->accounts[i]), test_ctx->accounts[i].address, sizeof(fd_pubkey_t) );
-  }
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(1, 0) );
-  fd_memset(txn_descriptor, 0, fd_txn_footprint(1, 0) );
-  txn_descriptor->acct_addr_cnt = (ushort) test_ctx->accounts_count;
-  txn_descriptor->addr_table_adtl_cnt = 0;
-  txn_ctx->txn_descriptor = txn_descriptor;
-
   /* Precompiles are allowed to read data from all instructions.
      We need to at least set pointers to the current instruction.
      Note: for simplicity we point the entire raw tx data to the
@@ -361,7 +324,13 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Load accounts into database */
 
   assert( acc_mgr->funk );
+
+  fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
+  fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
+  txn_ctx->accounts_cnt = test_ctx->accounts_count;
+
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
+    memcpy(  &(txn_ctx->accounts[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
       return 0;
     }
@@ -483,17 +452,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
-  /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  /* Override epoch bank rent setting */
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( rent ) {
-    if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
-        ( rent->exemption_threshold     <      0.0 ) |
-        ( rent->exemption_threshold     >    999.0 ) |
-        ( rent->lamports_per_uint8_year > UINT_MAX ) |
-        ( rent->burn_percent            >      100 ) )
-      return 0;
-
-    /* Override epoch bank settings */
     epoch_bank->rent = *rent;
   }
 
@@ -549,8 +510,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   //  FIXME: Specifically for CPI syscalls, flag guard this?
   fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
 
-  /* The remaining checks enforce that the program is one of the accounts and
-    owned by native loader. */
+  /* The remaining checks enforce that the program is in the accounts list. */
   bool found_program_id = false;
   for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
     if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
@@ -560,7 +520,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
   }
 
-  /* Aborting is only important for instr execution */
+  /* Early returning only happens in instruction execution. */
   if( !is_syscall && !found_program_id ) {
     FD_LOG_NOTICE(( " Unable to find program_id in accounts" ));
     return 0;
