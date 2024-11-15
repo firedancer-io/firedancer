@@ -2,7 +2,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fdctl/configure/configure.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>

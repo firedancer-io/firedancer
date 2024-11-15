@@ -7,8 +7,6 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/net/fd_ip4.h"
 
-#include "../../util/tile/fd_tile_private.h"
-
 void
 load_cmd_perm( args_t *         args,
                   fd_caps_ctx_t *  caps,

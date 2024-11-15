@@ -4,7 +4,6 @@
 #include "../metrics/fd_metrics.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../util/tile/fd_tile_private.h"
-#include "../../util/shmem/fd_shmem_private.h"
 
 #include <unistd.h>
 #include <signal.h>
@@ -197,7 +196,7 @@ fd_topo_install_xdp( fd_topo_t * topo ) {
   FD_TEST( net0_tile_idx!=ULONG_MAX );
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
 
-  ushort udp_port_candidates[] = { 
+  ushort udp_port_candidates[] = {
     (ushort)net0_tile->net.legacy_transaction_listen_port,
     (ushort)net0_tile->net.quic_transaction_listen_port,
     (ushort)net0_tile->net.shred_listen_port,

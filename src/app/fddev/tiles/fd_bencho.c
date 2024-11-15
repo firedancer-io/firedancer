@@ -1,5 +1,4 @@
-#include "../../../disco/tiles.h"
-
+#include "../../../disco/topo/fd_topo.h"
 #include "../rpc_client/fd_rpc_client.h"
 #include "../rpc_client/fd_rpc_client_private.h"
 
@@ -93,7 +92,7 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
     ctx->blockhash_deadline = fd_log_wallclock() + 400L * 1000L * 1000L; /* 400 millis til we fetch new blockhash */
     fd_memcpy( fd_chunk_to_laddr( ctx->mem, ctx->out_chunk ), response->result.latest_block_hash.block_hash, 32 );
-    fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );    
+    fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, 32, ctx->out_chunk0, ctx->out_wmark );
 
     fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
@@ -138,7 +137,7 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
 
     if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
       FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
-    
+
     ulong txns = response->result.transaction_count.transaction_count;
     if( FD_LIKELY( ctx->txncount_measured1 ) )
       FD_LOG_NOTICE(( "%lu txn/s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 )));
