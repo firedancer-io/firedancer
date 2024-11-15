@@ -91,7 +91,7 @@ main( int     argc,
   for( uint const * x = _syscalls; *x; x++ )
     fd_sbpf_syscalls_insert( syscalls, *x );
 
-  int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, 1 );
+  int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, 1, 1 );
 
   FD_LOG_HEXDUMP_NOTICE(( "Output rodata segment", prog->rodata, prog->rodata_sz ));
 

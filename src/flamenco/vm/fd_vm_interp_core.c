@@ -25,10 +25,11 @@
 
   /* Unpack the VM state */
 
-  ulong pc        = vm->pc;
-  ulong ic        = vm->ic;
-  ulong cu        = vm->cu;
-  ulong frame_cnt = vm->frame_cnt;
+  ulong pc           = vm->pc;
+  ulong ic           = vm->ic;
+  ulong cu           = vm->cu;
+  ulong frame_cnt    = vm->frame_cnt;
+  ulong sbpf_version = vm->sbpf_version;
 
   /* FD_VM_INTERP_INSTR_EXEC loads the first word of the instruction at
      pc, parses it, fetches the associated register values and then
@@ -190,7 +191,10 @@
   shadow[ frame_cnt ].r9 = reg[9];                                                                          \
   shadow[ frame_cnt ].pc = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  reg[10] += vm->stack_frame_size
+  if ( sbpf_version < FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES ) {                                              \
+    reg[11] += vm->stack_frame_size;                                                                        \
+  }                                                                                                         \
+  reg[10] = reg[11]
 
   /* We subtract the heap cost in the BPF loader */
 
@@ -670,7 +674,10 @@ interp_exec:
        the text section (below via unsigned wraparoud or above) as
        sigtext */
 
-    /* FIXME: when static_syscalls are enabled, check that the call destination is valid */
+    if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
+      if ( fd_sbpf_calldests_test( vm->calldests, pc ) ) goto sigjump;
+    }
+
     /* FIXME: sigbus for misaligned? */
 
     if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigcall; /* Note: untaken branches don't consume BTB */
@@ -698,7 +705,10 @@ interp_exec:
     reg[8]   = shadow[ frame_cnt ].r8;
     reg[9]   = shadow[ frame_cnt ].r9;
     pc       = shadow[ frame_cnt ].pc;
-    reg[10] -= vm->stack_frame_size;
+    reg[10]  = reg[11];
+    if ( sbpf_version < FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES ) {
+      reg[10] -= vm->stack_frame_size;
+    }
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x97) /* FD_SBPF_OP_MOD64_IMM */
@@ -854,6 +864,7 @@ interp_exec:
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
   cu -= fd_ulong_min( ic_correction, cu )
 
+sigjump:     err = FD_VM_ERR_INVAL_JUMP; FD_VM_INTERP_FAULT; /* cu current */  goto interp_halt;
 sigtext:     err = FD_VM_ERR_SIGTEXT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigsplit:    err = FD_VM_ERR_SIGSPLIT; FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigcall:     err = FD_VM_ERR_SIGCALL;  /* ic current */      /* cu current */  goto interp_halt;

@@ -1227,7 +1227,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       void const *         _bin,
                       ulong                elf_sz,
                       fd_sbpf_syscalls_t * syscalls,
-                      int                  elf_deploy_checks ) {
+                      int                  elf_deploy_checks,
+                      int                  sbpf_version_header ) {
   fd_sbpf_loader_seterr( 0, 0 );
 
   int err;
@@ -1249,6 +1250,12 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
     .dynsym_cnt = 0U,
     .elf_deploy_checks = elf_deploy_checks
   };
+
+  /* Read the SBPF version from the header */
+  prog->sbpf_version = FD_SBPF_VERSION_1;
+  if ( sbpf_version_header ) {
+    prog->sbpf_version = elf->ehdr.e_version;
+  }
 
   /* Find dynamic section */
   if( FD_UNLIKELY( (err=fd_sbpf_find_dynamic( &loader, elf, elf_sz, &prog->info ))!=0 ) )

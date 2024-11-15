@@ -1,3 +1,4 @@
+#include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
@@ -169,6 +170,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_SH64  ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
 # define FD_INVALID     ((uchar)8) /* The opcode is invalid */
 # define FD_CHECK_CALLX ((uchar)9) /* Validation should check that callx has valid register number */
+# define FD_CHECK_ADD   ((uchar)10) /* Validation should check that the instruction is a valid ADD instruction */
+# define FD_CHECK_CALL_IMM ((uchar)11) /* Validation should check that callimm jumps to a valid program counter */
 
   static uchar const validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -204,7 +207,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_VALID,      /* 0x7a */ FD_CHECK_ST,   /* 0x7b */ FD_CHECK_ST,
     /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_INVALID,    /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
-    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_VALID,      /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
+    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_CHECK_CALL_IMM, /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
     /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_CHECK_CALLX,/* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
@@ -253,10 +256,39 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
     return FD_VM_ERR_EMPTY;
 
+  /* Keep track of the first and last instruction of the current function */
+  ulong calldests_iter = fd_sbpf_calldests_const_iter_init( vm->calldests );
+  ulong function_start_instruction = calldests_iter;
+  ulong function_end_instruction = fd_ulong_sat_sub( vm->text_cnt, 1UL );
+
   /* FIXME: CLEAN UP LONG / ULONG TYPE CONVERSION */
   ulong const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
   for( ulong i=0UL; i<text_cnt; i++ ) {
+
+    /* If we are at the beginning of a function, update the last instruction tracker */
+    if ( FD_UNLIKELY( function_start_instruction == i ) ) {
+      calldests_iter = fd_sbpf_calldests_const_iter_next( vm->calldests, calldests_iter );
+      ulong next_function_start = text_cnt;
+      if ( !fd_sbpf_calldests_const_iter_done( calldests_iter ) ) {
+        next_function_start = calldests_iter;
+      }
+      function_end_instruction = fd_ulong_sat_sub( next_function_start, 1UL );
+    }
+
+    /* https://github.com/solana-labs/rbpf/blob/69a52ec6a341bb7374d387173b5e6dc56218fe0c/src/verifier.rs#L238-L248 */
+    if ( ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) ) {
+
+      /* If we are at the start of a function, check that the function ends in a JA or RETURN */
+      if ( function_start_instruction == i ) {
+        /* Ensure that the last instruction is either a JA or RETURN */
+        uchar last_instr_opcode = fd_sbpf_instr( text[ function_end_instruction ] ).opcode.raw;
+        if ( !( last_instr_opcode == 0x05 || last_instr_opcode == 0x9D ) ) {
+          return FD_VM_ERR_INVALID_FUNCTION;
+        }
+      }
+    }
+
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
 
     uchar validation_code = validation_map[ instr.opcode.raw ];
@@ -268,6 +300,19 @@ fd_vm_validate( fd_vm_t const * vm ) {
       long jmp_dst = (long)i + (long)instr.offset + 1L;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
+
+      if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
+        /* Check the jump offset is to a code location inside the same function */
+        if ( jmp_dst < (long)function_start_instruction || jmp_dst > (long)function_end_instruction ) {
+          return FD_VM_ERR_JUMP_OUT_OF_CODE;
+        }
+
+        /* Check that the jump does not jump to the middle of a LDDW instruction */
+        if ( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==0 ) ) {
+          return FD_VM_ERR_JUMP_TO_MIDDLE_OF_LDDW;
+        }
+      }
+
       break;
     }
 
@@ -318,13 +363,50 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
+    case FD_CHECK_CALL_IMM: {
+      /* Check that the destination is a valid calldest */
+      if ( vm->sbpf_version == FD_SBPF_VERSION_STATIC_SYCALLS ) {
+        if ( FD_UNLIKELY( fd_sbpf_calldests_test( vm->calldests, instr.imm ) ) ) {
+          return FD_VM_ERR_INVALID_FUNCTION;
+        }
+      }
+      break;
+    }
+
     case FD_INVALID: default: return FD_VM_ERR_INVALID_OPCODE;
     }
 
     if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG; /* FIXME: MAGIC NUMBER */
 
-    int is_invalid_dst_reg = instr.dst_reg > ((validation_code == FD_CHECK_ST) ? 10 : 9); /* FIXME: MAGIC NUMBER */
-    if( FD_UNLIKELY( is_invalid_dst_reg ) ) return FD_VM_ERR_INVALID_DST_REG;
+    /* Check that the destination register is valid
+       https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L185 */
+    if ( FD_UNLIKELY( instr.dst_reg == 10 ) ) {
+      /* Disallow loads into R10
+         https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L188 */
+      if ( validation_code != FD_CHECK_ST ) {
+        return FD_VM_ERR_INVALID_R10_WRITE;
+      }
+      /* Allow stores into vmaddr(R10)
+         https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L186 */
+    }
+
+    /* Disallow all accesses to R11 unless it is an ADD and dynamic stack frames are enabled
+       https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/verifier.rs#L187 */
+    if ( FD_UNLIKELY( instr.dst_reg == 11 ) ) {
+      if ( ! ( vm->sbpf_version >= FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES && instr.opcode.raw == 0x04 ) ) {
+        return FD_VM_ERR_INVALID_DST_REG;
+      }
+    }
+
+    /* All other distination registers are invalid */
+    if ( FD_UNLIKELY( instr.dst_reg > 11 ) ) {
+      return FD_VM_ERR_INVALID_DST_REG;
+    }
+
+    /* If we have just finished an instruction, advance the start instruction tracker */
+    if ( FD_UNLIKELY( function_end_instruction == i ) ) {
+      function_start_instruction = fd_ulong_sat_add( function_end_instruction, 1UL );
+    }
   }
 
   return FD_VM_SUCCESS;
@@ -514,7 +596,12 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   /* FIXME: Zero out shadow, stack and heap here? */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+
+  /* https://github.com/solana-labs/rbpf/blob/73f0e76d3abb3b03a317e7f7094911e23f244b52/src/vm.rs#L332 */
+  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START;
+  if ( vm->sbpf_version < FD_SBPF_VERSION_DYNAMIC_STACK_FRAMES ) {
+    vm->reg[10] += FD_VM_STACK_GUARD_SZ;
+  }
 
   /* Set execution state */
   vm->pc        = vm->entry_pc;

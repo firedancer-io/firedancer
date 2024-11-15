@@ -1229,6 +1229,24 @@ fd_feature_id_t const ids[] = {
     .name       = "partitioned_epoch_rewards_superfeature",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index      = offsetof(fd_features_t, sbpf_version_dynamic_frames)>>3,
+    .id         = {"\x6e\x64\x3d\x1c\xc3\x70\xb5\x94\xb7\xdf\xb1\xb0\xc4\x1a\x9a\xdd\xea\x64\xee\x31\x29\x1d\x77\x1d\x29\xdc\xd9\x1e\x9e\x05\xb9\xd4"},
+                  /* 8RvVua5yJVxtumWa76YYfUb7qktRGGAD4nFtBYeHqSDy */
+    .name       = "sbpf_version_dynamic_frames",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, sbpf_version_arithmetic_improvements)>>3,
+    .id         = {"\xee\x68\x0d\x98\x17\xa5\x7c\x51\xd5\x4d\x85\x1e\x2d\x1c\xcd\x01\x64\xc8\x7a\x77\x27\xad\x21\x81\x38\xfc\xa1\x0d\x15\x64\x98\x1b"},
+                  /* H3e4KHE2nctvqdm1DPTw1q5xt858JdaBxene37FberJv */
+    .name       = "sbpf_version_arithmetic_improvements",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, sbpf_version_static_syscalls)>>3,
+    .id         = {"\x38\xc1\x2f\x73\x9c\x5d\xb2\x18\x63\x33\x59\x50\xa2\x94\xa4\x92\x9a\x2b\xe8\x06\xab\x79\x28\x54\x28\x75\x8d\x5f\x23\x8b\x6b\x83"},
+                  /* 4pYgjxhp1EkCLuQc32xh2A38V9QLR3cxB9VvkQJGZQLi */
+    .name       = "sbpf_version_static_syscalls",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 
@@ -1443,6 +1461,9 @@ fd_feature_id_query( ulong prefix ) {
   case 0x0b9047b5bb9ef961: return &ids[ 200 ];
   case 0xa5a66405d0ab6309: return &ids[ 201 ];
   case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
+  case 0x94b570c31c3d646e: return &ids[ 203 ];
+  case 0x517ca517980d68ee: return &ids[ 204 ];
+  case 0x18b25d9c732fc138: return &ids[ 205 ];
   default: break;
   }
 
@@ -1654,5 +1675,8 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, zk_elgamal_proof_program_enabled     
 FD_STATIC_ASSERT( offsetof( fd_features_t, move_stake_and_move_lamports_ixs                        )>>3==200UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_legacy_vote_ixs                               )>>3==201UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, partitioned_epoch_rewards_superfeature                  )>>3==202UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, sbpf_version_dynamic_frames                             )>>3==203UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, sbpf_version_arithmetic_improvements                    )>>3==204UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, sbpf_version_static_syscalls                            )>>3==205UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
