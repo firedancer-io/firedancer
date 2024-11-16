@@ -1,0 +1,1 @@
+LDFLAGS+=-fuse-ld=lld
