@@ -1,13 +1,7 @@
-#include "../../../../disco/tiles.h"
-
+#include "fd_quic_tile.h"
 #include "generated/quic_seccomp.h"
-
 #include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../waltz/quic/fd_quic.h"
-#include "../../../../waltz/xdp/fd_xsk_aio.h"
-#include "../../../../waltz/xdp/fd_xsk.h"
-#include "../../../../waltz/ip/fd_netlink.h"
-#include "../../../../disco/quic/fd_tpu.h"
+#include "../../../../disco/topo/fd_topo.h"
 
 #include <linux/unistd.h>
 #include <sys/random.h>
@@ -29,50 +23,7 @@
    (multiplexer).  An arbitrary number of QUIC tiles can be run.  Each
    UDP flow must stick to one QUIC tile. */
 
-typedef struct {
-  fd_tpu_reasm_t * reasm;
 
-  fd_stem_context_t * stem;
-
-  fd_quic_t *      quic;
-  const fd_aio_t * quic_rx_aio;
-  fd_aio_t         quic_tx_aio[1];
-
-# define ED25519_PRIV_KEY_SZ (32)
-# define ED25519_PUB_KEY_SZ  (32)
-  uchar            tls_priv_key[ ED25519_PRIV_KEY_SZ ];
-  uchar            tls_pub_key [ ED25519_PUB_KEY_SZ  ];
-  fd_sha512_t      sha512[1]; /* used for signing */
-
-  uchar buffer[ FD_NET_MTU ];
-
-  ulong conn_seq; /* current quic connection sequence number */
-
-  ulong round_robin_cnt;
-  ulong round_robin_id;
-
-  fd_wksp_t * in_mem;
-  ulong       in_chunk0;
-  ulong       in_wmark;
-
-  fd_frag_meta_t * net_out_mcache;
-  ulong *          net_out_sync;
-  ulong            net_out_depth;
-  ulong            net_out_seq;
-
-  fd_wksp_t * net_out_mem;
-  ulong       net_out_chunk0;
-  ulong       net_out_wmark;
-  ulong       net_out_chunk;
-
-  fd_wksp_t * verify_out_mem;
-
-  struct {
-    ulong txns_received_udp;
-    ulong txns_received_quic;
-    ulong txns_overrun;
-  } metrics;
-} fd_quic_ctx_t;
 
 FD_FN_CONST static inline fd_quic_limits_t
 quic_limits( fd_topo_tile_t const * tile ) {
@@ -641,6 +592,11 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
+
+  ctx->self = ctx;
+  FD_COMPILER_MFENCE();
+  ctx->magic = FD_QUIC_TILE_CTX_MAGIC;
+  FD_COMPILER_MFENCE();
 }
 
 static ulong
