@@ -1,5 +1,3 @@
-#include "../../../../disco/tiles.h"
-
 /* The frontend assets are pre-built and statically compiled into the
    binary here.  To regenerate them, run
 
@@ -9,6 +7,7 @@
    from the repository root. */
 
 #include "generated/http_import_dist.h"
+#define DIST_COMPRESSION_LEVEL (19)
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #if defined(__aarch64__)
@@ -31,6 +30,7 @@
 #include <stdio.h>
 
 #if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #endif
 
@@ -85,7 +85,30 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( GUI_PARAMS ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  ulong sz = FD_LAYOUT_FINI( l, scratch_align() );
+
+# if FD_HAS_ZSTD
+  sz = fd_ulong_max( sz, ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL ) );
+# endif
+
+  return sz;
+}
+
+/* dist_file_sz returns the sum of static asset file sizes */
+
+static ulong
+dist_file_sz( void ) {
+  ulong tot_sz = 0UL;
+  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+    tot_sz += *(f->data_len);
+  }
+  return tot_sz;
+}
+
+static inline ulong
+loose_footprint( fd_topo_tile_t const * tile FD_FN_UNUSED ) {
+  /* Reserve total size of files for compression buffers */
+  return fd_spad_footprint( dist_file_sz() );
 }
 
 static int
@@ -269,10 +292,26 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key = fd_keyload_load( tile->gui.identity_key_path, /* pubkey only: */ 1 );
+}
 
-# if FD_HAS_ZSTD
-  /* zstd compress files */
-  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+#if FD_HAS_ZSTD
+
+/* pre_compress_files compresses static assets into wksp-provided
+   buffers using Zstandard.  Logs warning and continues if insufficient
+   wksp space is available. */
+
+static void
+pre_compress_files( fd_wksp_t * wksp,
+                    ZSTD_CCtx * cctx ) {
+  ulong glo, ghi;
+  if( FD_UNLIKELY( !fd_wksp_alloc_at_least( wksp, FD_SPAD_ALIGN, loose_footprint( NULL ), 1UL, &glo, &ghi ) ) ) {
+    FD_LOG_WARNING(( "Failed to allocate space for compressing assets" ));
+    return;
+  }
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_wksp_laddr_fast( wksp, glo ), fd_spad_mem_max_max( ghi-glo ) ) );
+  fd_spad_push( spad );
+
+  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
     char const * ext = strrchr( f->name, '.' );
     if( !ext ) continue;
     if( !strcmp( ext, ".html" ) ||
@@ -281,24 +320,43 @@ privileged_init( fd_topo_t *      topo,
         !strcmp( ext, ".svg"  ) ) {}
     else continue;
 
-    ulong   zstd_bufsz = *f->data_len;
-    uchar * zstd_buf   = malloc( zstd_bufsz );
-    if( FD_UNLIKELY( !zstd_buf ) ) FD_LOG_ERR(( "Out of memory" ));
-    ulong zstd_sz = ZSTD_compress( zstd_buf, zstd_bufsz, f->data, *f->data_len, 19 );
+    ulong   zstd_bufsz = fd_spad_alloc_max( spad, 1UL );
+    uchar * zstd_buf   = fd_spad_prepare( spad, 1UL, zstd_bufsz );
+    ulong zstd_sz = ZSTD_compressCCtx( cctx, zstd_buf, zstd_bufsz, f->data, *f->data_len, DIST_COMPRESSION_LEVEL );
     if( ZSTD_isError( zstd_sz ) ) {
-      free( zstd_buf );
-      continue;
+      fd_spad_cancel( spad );
+      FD_LOG_WARNING(( "ZSTD_compressCCtx(%s) failed (%s)", f->name, ZSTD_getErrorName( zstd_sz ) ));
+      break;
     }
     f->zstd_data     = zstd_buf;
     f->zstd_data_len = zstd_sz;
+    fd_spad_publish( spad, zstd_sz );
   }
-# endif /* FD_HAS_ZSTD */
+
+  ulong uncompressed_sz = 0UL;
+  ulong compressed_sz   = 0UL;
+  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
+    uncompressed_sz += *f->data_len;
+    compressed_sz   += fd_ulong_if( !!f->zstd_data_len, f->zstd_data_len, *f->data_len );
+  }
+
+  FD_LOG_INFO(( "Compressed assets (%lu bytes => %lu bytes)", uncompressed_sz, compressed_sz ));
 }
+
+#endif /* FD_HAS_ZSTD */
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+# if FD_HAS_ZSTD
+  /* Temporarily use tile memory to compress dist assets */
+  ZSTD_CCtx * cctx = ZSTD_initStaticCCtx( scratch, topo->objs[ tile->tile_obj_id ].footprint );
+  pre_compress_files( fd_wksp_containing( scratch ), cctx );
+  /* zstd.h: there is no corresponding "free" function */
+  cctx = NULL;
+# endif
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
@@ -375,6 +433,7 @@ fd_topo_run_tile_t fd_tile_gui = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
