@@ -23544,6 +23544,239 @@ ulong fd_gossip_prune_sign_data_size( fd_gossip_prune_sign_data_t const * self )
   return size;
 }
 
+int fd_gossip_socket_addr_old_decode( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_addr_old_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_socket_addr_old_new( self );
+  }
+  fd_gossip_socket_addr_old_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_old_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_old_decode_unsafe( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_ip_addr_decode_unsafe( &self->addr, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+}
+int fd_gossip_socket_addr_old_encode( fd_gossip_socket_addr_old_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip_addr_encode( &self->addr, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->port, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_old_decode_offsets( fd_gossip_socket_addr_old_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_ip_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_old_new(fd_gossip_socket_addr_old_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_socket_addr_old_t) );
+  fd_gossip_ip_addr_new( &self->addr );
+}
+void fd_gossip_socket_addr_old_destroy( fd_gossip_socket_addr_old_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_gossip_ip_addr_destroy( &self->addr, ctx );
+}
+
+ulong fd_gossip_socket_addr_old_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_OLD_FOOTPRINT; }
+ulong fd_gossip_socket_addr_old_align( void ){ return FD_GOSSIP_SOCKET_ADDR_OLD_ALIGN; }
+
+void fd_gossip_socket_addr_old_walk( void * w, fd_gossip_socket_addr_old_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr_old", level++ );
+  fd_gossip_ip_addr_walk( w, &self->addr, fun, "addr", level );
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr_old", level-- );
+}
+ulong fd_gossip_socket_addr_old_size( fd_gossip_socket_addr_old_t const * self ) {
+  ulong size = 0;
+  size += fd_gossip_ip_addr_size( &self->addr );
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_gossip_socket_ip4_addr_decode( fd_gossip_socket_ip4_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_ip4_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_socket_ip4_addr_new( self );
+  }
+  fd_gossip_socket_ip4_addr_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_ip4_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip4_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_ip4_addr_decode_unsafe( fd_gossip_socket_ip4_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_ip4_addr_decode_unsafe( &self->addr, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+}
+int fd_gossip_socket_ip4_addr_encode( fd_gossip_socket_ip4_addr_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip4_addr_encode( &self->addr, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->port, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_ip4_addr_decode_offsets( fd_gossip_socket_ip4_addr_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_ip4_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_ip4_addr_new(fd_gossip_socket_ip4_addr_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_socket_ip4_addr_t) );
+  fd_gossip_ip4_addr_new( &self->addr );
+}
+void fd_gossip_socket_ip4_addr_destroy( fd_gossip_socket_ip4_addr_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_gossip_ip4_addr_destroy( &self->addr, ctx );
+}
+
+ulong fd_gossip_socket_ip4_addr_footprint( void ){ return FD_GOSSIP_SOCKET_IP4_ADDR_FOOTPRINT; }
+ulong fd_gossip_socket_ip4_addr_align( void ){ return FD_GOSSIP_SOCKET_IP4_ADDR_ALIGN; }
+
+void fd_gossip_socket_ip4_addr_walk( void * w, fd_gossip_socket_ip4_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_ip4_addr", level++ );
+  fd_gossip_ip4_addr_walk( w, &self->addr, fun, "addr", level );
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_ip4_addr", level-- );
+}
+ulong fd_gossip_socket_ip4_addr_size( fd_gossip_socket_ip4_addr_t const * self ) {
+  ulong size = 0;
+  size += fd_gossip_ip4_addr_size( &self->addr );
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_gossip_socket_ip6_addr_decode( fd_gossip_socket_ip6_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_ip6_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_socket_ip6_addr_new( self );
+  }
+  fd_gossip_socket_ip6_addr_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_ip6_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip6_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_ip6_addr_decode_unsafe( fd_gossip_socket_ip6_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_ip6_addr_decode_unsafe( &self->addr, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+}
+int fd_gossip_socket_ip6_addr_encode( fd_gossip_socket_ip6_addr_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip6_addr_encode( &self->addr, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->port, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_ip6_addr_decode_offsets( fd_gossip_socket_ip6_addr_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_ip6_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_ip6_addr_new(fd_gossip_socket_ip6_addr_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_socket_ip6_addr_t) );
+  fd_gossip_ip6_addr_new( &self->addr );
+}
+void fd_gossip_socket_ip6_addr_destroy( fd_gossip_socket_ip6_addr_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_gossip_ip6_addr_destroy( &self->addr, ctx );
+}
+
+ulong fd_gossip_socket_ip6_addr_footprint( void ){ return FD_GOSSIP_SOCKET_IP6_ADDR_FOOTPRINT; }
+ulong fd_gossip_socket_ip6_addr_align( void ){ return FD_GOSSIP_SOCKET_IP6_ADDR_ALIGN; }
+
+void fd_gossip_socket_ip6_addr_walk( void * w, fd_gossip_socket_ip6_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_ip6_addr", level++ );
+  fd_gossip_ip6_addr_walk( w, &self->addr, fun, "addr", level );
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_ip6_addr", level-- );
+}
+ulong fd_gossip_socket_ip6_addr_size( fd_gossip_socket_ip6_addr_t const * self ) {
+  ulong size = 0;
+  size += fd_gossip_ip6_addr_size( &self->addr );
+  size += sizeof(ushort);
+  return size;
+}
+
+FD_FN_PURE uchar fd_gossip_socket_addr_is_ip4(fd_gossip_socket_addr_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_socket_addr_is_ip6(fd_gossip_socket_addr_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_gossip_socket_addr_inner_new( fd_gossip_socket_addr_inner_t * self, uint discriminant );
+int fd_gossip_socket_addr_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_socket_ip4_addr_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    err = fd_gossip_socket_ip6_addr_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_gossip_socket_addr_inner_decode_unsafe( fd_gossip_socket_addr_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_socket_ip4_addr_decode_unsafe( &self->ip4, ctx );
+    break;
+  }
+  case 1: {
+    fd_gossip_socket_ip6_addr_decode_unsafe( &self->ip6, ctx );
+    break;
+  }
+  }
+}
 int fd_gossip_socket_addr_decode( fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
   int err = fd_gossip_socket_addr_decode_preflight( ctx );
@@ -23556,58 +23789,108 @@ int fd_gossip_socket_addr_decode( fd_gossip_socket_addr_t * self, fd_bincode_dec
   return FD_BINCODE_SUCCESS;
 }
 int fd_gossip_socket_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  err = fd_gossip_ip_addr_decode_preflight( ctx );
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
+  return fd_gossip_socket_addr_inner_decode_preflight( discriminant, ctx );
 }
 void fd_gossip_socket_addr_decode_unsafe( fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_ip_addr_decode_unsafe( &self->addr, ctx );
-  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_gossip_socket_addr_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
 }
-int fd_gossip_socket_addr_encode( fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_gossip_ip_addr_encode( &self->addr, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( self->port, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
+void fd_gossip_socket_addr_inner_new( fd_gossip_socket_addr_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    fd_gossip_socket_ip4_addr_new( &self->ip4 );
+    break;
+  }
+  case 1: {
+    fd_gossip_socket_ip6_addr_new( &self->ip6 );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
 }
-int fd_gossip_socket_addr_decode_offsets( fd_gossip_socket_addr_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  uchar const * data = ctx->data;
-  int err;
-  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_gossip_ip_addr_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint16_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
+void fd_gossip_socket_addr_new_disc( fd_gossip_socket_addr_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_gossip_socket_addr_inner_new( &self->inner, self->discriminant );
 }
-void fd_gossip_socket_addr_new(fd_gossip_socket_addr_t * self) {
+void fd_gossip_socket_addr_new( fd_gossip_socket_addr_t * self ) {
   fd_memset( self, 0, sizeof(fd_gossip_socket_addr_t) );
-  fd_gossip_ip_addr_new( &self->addr );
+  fd_gossip_socket_addr_new_disc( self, UINT_MAX );
+}
+void fd_gossip_socket_addr_inner_destroy( fd_gossip_socket_addr_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  case 0: {
+    fd_gossip_socket_ip4_addr_destroy( &self->ip4, ctx );
+    break;
+  }
+  case 1: {
+    fd_gossip_socket_ip6_addr_destroy( &self->ip6, ctx );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
 }
 void fd_gossip_socket_addr_destroy( fd_gossip_socket_addr_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_gossip_ip_addr_destroy( &self->addr, ctx );
+  fd_gossip_socket_addr_inner_destroy( &self->inner, self->discriminant, ctx );
 }
 
 ulong fd_gossip_socket_addr_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_FOOTPRINT; }
 ulong fd_gossip_socket_addr_align( void ){ return FD_GOSSIP_SOCKET_ADDR_ALIGN; }
 
 void fd_gossip_socket_addr_walk( void * w, fd_gossip_socket_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr", level++ );
-  fd_gossip_ip_addr_walk( w, &self->addr, fun, "addr", level );
-  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr", level-- );
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_gossip_socket_addr", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "ip4", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_gossip_socket_ip4_addr_walk( w, &self->inner.ip4, fun, "ip4", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "ip6", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_gossip_socket_ip6_addr_walk( w, &self->inner.ip6, fun, "ip6", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_gossip_socket_addr", level-- );
 }
 ulong fd_gossip_socket_addr_size( fd_gossip_socket_addr_t const * self ) {
   ulong size = 0;
-  size += fd_gossip_ip_addr_size( &self->addr );
-  size += sizeof(ushort);
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_socket_ip4_addr_size( &self->inner.ip4 );
+    break;
+  }
+  case 1: {
+    size += fd_gossip_socket_ip6_addr_size( &self->inner.ip6 );
+    break;
+  }
+  }
   return size;
+}
+
+int fd_gossip_socket_addr_inner_encode( fd_gossip_socket_addr_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_socket_ip4_addr_encode( &self->ip4, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_gossip_socket_ip6_addr_encode( &self->ip6, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_encode( fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_gossip_socket_addr_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
 int fd_gossip_contact_info_v1_decode( fd_gossip_contact_info_v1_t * self, fd_bincode_decode_ctx_t * ctx ) {

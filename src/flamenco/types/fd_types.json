@@ -1781,11 +1781,42 @@
       ]
     },
     {
-      "name": "gossip_socket_addr",
+      "name": "gossip_socket_addr_old",
       "type": "struct",
       "fields": [
         { "name": "addr", "type": "gossip_ip_addr" },
         { "name": "port", "type": "ushort" }
+      ]
+    },
+    {
+      "name": "gossip_socket_ip4_addr",
+      "type": "struct",
+      "fields": [
+        { "name": "addr", "type": "gossip_ip4_addr" },
+        { "name": "port", "type": "ushort" }
+      ]
+    },
+    {
+      "name": "gossip_socket_ip6_addr",
+      "type": "struct",
+      "fields": [
+        { "name": "addr", "type": "gossip_ip6_addr" },
+        { "name": "port", "type": "ushort" }
+      ]
+    },
+    {
+      "name": "gossip_socket_addr",
+      "type": "enum",
+      "zerocopy": false,
+      "variants": [
+        {
+          "name": "ip4",
+          "type": "gossip_socket_ip4_addr"
+        },
+        {
+          "name": "ip6",
+          "type": "gossip_socket_ip6_addr"
+        }
       ]
     },
     {
