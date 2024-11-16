@@ -12,8 +12,9 @@
 
 #define trace(...) \
   (__extension__({ \
-    int rtn = snprintf( p, (ulong)(q-p), __VA_ARGS__ ); \
+    int rtn = snprintf( (p), (ulong)((q)-(p)), __VA_ARGS__ ); \
     if( rtn < 0 ) rtn = 0; \
+    if( rtn > (int)((q)-(p)) ) rtn = (int)((q)-(p)); \
     p += rtn; \
     (ulong)rtn; }))
 
@@ -43,7 +44,7 @@
       ulong tmp_len = data->LEN_NAME; \
       if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
       for( ulong j = 0; j < tmp_len; ++j ) { \
-        trace( "0x%2.2x,", data->NAME[j] ); \
+        trace( "0x%2.2x, ", data->NAME[j] ); \
       } \
       trace( " ], " ); \
     } while(0);
@@ -54,7 +55,7 @@
       ulong tmp_len = data->LEN_NAME; \
       if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
       for( ulong j = 0; j < tmp_len; ++j ) { \
-        trace( "0x%2.2x,", data->NAME[j] ); \
+        trace( "0x%2.2x, ", data->NAME[j] ); \
       } \
       trace( " ], " ); \
     } while(0);
