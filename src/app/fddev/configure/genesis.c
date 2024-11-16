@@ -281,7 +281,7 @@ check( config_t * const config ) {
   PARTIALLY_CONFIGURED( "`%s` already exists", genesis_path );
 }
 
-configure_stage_t genesis = {
+configure_stage_t fd_cfg_stage_genesis = {
   .name            = NAME,
   .init            = init,
   .fini            = fini,

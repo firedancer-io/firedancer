@@ -206,7 +206,7 @@ check( config_t * const config ) {
   }
 }
 
-configure_stage_t blockstore = {
+configure_stage_t fd_cfg_stage_blockstore = {
   .name            = NAME,
   .always_recreate = 1,
   .init            = init,

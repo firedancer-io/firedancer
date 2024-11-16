@@ -175,7 +175,7 @@ check( config_t * const config ) {
   CONFIGURE_OK();
 }
 
-configure_stage_t ethtool_gro = {
+configure_stage_t fd_cfg_stage_ethtool_gro = {
   .name            = NAME,
   .always_recreate = 0,
   .enabled         = enabled,

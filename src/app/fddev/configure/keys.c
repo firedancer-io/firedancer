@@ -67,7 +67,7 @@ check( config_t * const config ) {
   CONFIGURE_OK();
 }
 
-configure_stage_t keys = {
+configure_stage_t fd_cfg_stage_keys = {
   .name            = NAME,
   .always_recreate = 0,
   .enabled         = NULL,
