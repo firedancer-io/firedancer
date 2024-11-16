@@ -63,11 +63,11 @@ typedef struct configure_stage {
   configure_result_t (*check)    ( config_t * const config );
 } configure_stage_t;
 
-extern configure_stage_t hugetlbfs;
-extern configure_stage_t sysctl;
-extern configure_stage_t ethtool_channels;
-extern configure_stage_t ethtool_gro;
-extern configure_stage_t workspace;
+extern configure_stage_t fd_cfg_stage_hugetlbfs;
+extern configure_stage_t fd_cfg_stage_sysctl;
+extern configure_stage_t fd_cfg_stage_ethtool_channels;
+extern configure_stage_t fd_cfg_stage_ethtool_gro;
+extern configure_stage_t fd_cfg_stage_workspace;
 
 extern configure_stage_t * STAGES[];
 

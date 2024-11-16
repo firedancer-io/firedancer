@@ -9,25 +9,25 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-extern configure_stage_t _kill;
-extern configure_stage_t netns;
-extern configure_stage_t genesis;
-extern configure_stage_t blockstore;
-extern configure_stage_t keys;
+extern configure_stage_t fd_cfg_stage_kill;
+extern configure_stage_t fd_cfg_stage_netns;
+extern configure_stage_t fd_cfg_stage_genesis;
+extern configure_stage_t fd_cfg_stage_blockstore;
+extern configure_stage_t fd_cfg_stage_keys;
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
-  &_kill,
-  &netns,
-  &hugetlbfs,
-  &sysctl,
-  &ethtool_channels,
-  &ethtool_gro,
-  &keys,
-  &genesis,
+  &fd_cfg_stage_kill,
+  &fd_cfg_stage_netns,
+  &fd_cfg_stage_hugetlbfs,
+  &fd_cfg_stage_sysctl,
+  &fd_cfg_stage_ethtool_channels,
+  &fd_cfg_stage_ethtool_gro,
+  &fd_cfg_stage_keys,
+  &fd_cfg_stage_genesis,
 #ifdef FD_HAS_NO_AGAVE
   NULL,
 #else
-  &blockstore,
+  &fd_cfg_stage_blockstore,
 #endif
   NULL,
 };

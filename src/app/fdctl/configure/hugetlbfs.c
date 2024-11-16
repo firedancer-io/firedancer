@@ -394,7 +394,7 @@ check( config_t * const config ) {
   CONFIGURE_OK();
 }
 
-configure_stage_t hugetlbfs = {
+configure_stage_t fd_cfg_stage_hugetlbfs = {
   .name            = "hugetlbfs",
   .always_recreate = 0,
   .enabled         = NULL,
