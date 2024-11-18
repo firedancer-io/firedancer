@@ -730,17 +730,20 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
 
   /* Build a vote state update based on current tower votes. */
 
-  fd_compact_vote_state_update_t update;
-  fd_tower_to_tower_sync( ctx->tower, vote_bank_hash, &update );
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_compact_vote_state_update_t update;
+    fd_tower_to_tower_sync( ctx->tower, vote_bank_hash, &update );
 
-  /* Send a vote txn. */
+    /* Send a vote txn. */
 
-  fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
-  txn->payload_sz  = fd_voter_txn_generate( ctx->voter,
-                                           &update,
-                                           vote_block_hash,
-                                           txn->_,
-                                           txn->payload );
+    fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
+    txn->payload_sz  = fd_voter_txn_generate( ctx->voter,
+                                              &update,
+                                              vote_block_hash,
+                                              txn->_,
+                                              txn->payload );
+  } FD_SCRATCH_SCOPE_END;
+
   ulong msg_sz     = sizeof( fd_txn_p_t );
   fd_mcache_publish( ctx->sender_out_mcache,
                      ctx->sender_out_depth,
