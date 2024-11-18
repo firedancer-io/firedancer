@@ -293,7 +293,7 @@ FD_TEMPL_DEF_STRUCT_END(retire_conn_id_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(path_challenge_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1a,0x1a )
-  FD_TEMPL_MBR_ELEM_VARINT( data, ulong )
+  FD_TEMPL_MBR_ELEM_FIXED( data, ulong, 8 )
 FD_TEMPL_DEF_STRUCT_END(path_challenge_frame)
 
 
@@ -307,7 +307,7 @@ FD_TEMPL_DEF_STRUCT_END(path_challenge_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(path_response_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1b,0x1b )
-  FD_TEMPL_MBR_ELEM_VARINT( data, ulong )
+  FD_TEMPL_MBR_ELEM_FIXED( data, ulong, 8 )
 FD_TEMPL_DEF_STRUCT_END(path_response_frame)
 
 

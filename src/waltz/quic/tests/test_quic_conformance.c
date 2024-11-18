@@ -476,6 +476,26 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
 }
 
+static __attribute__((noinline)) void
+test_quic_parse_path_challenge( void ) {
+  fd_quic_path_challenge_frame_t path_challenge[1];
+  fd_quic_path_response_frame_t  path_response[1];
+
+  do {
+    uchar data[10] = {0x1a};
+    FD_TEST( fd_quic_decode_path_challenge_frame( path_challenge, data,  1UL )==FD_QUIC_PARSE_FAIL );
+    FD_TEST( fd_quic_decode_path_challenge_frame( path_challenge, data,  8UL )==FD_QUIC_PARSE_FAIL );
+    FD_TEST( fd_quic_decode_path_challenge_frame( path_challenge, data,  9UL )==9UL );
+    FD_TEST( fd_quic_decode_path_challenge_frame( path_challenge, data, 10UL )==9UL );
+
+    data[0] = 0x1b;
+    FD_TEST( fd_quic_decode_path_response_frame( path_response, data,  1UL )==FD_QUIC_PARSE_FAIL );
+    FD_TEST( fd_quic_decode_path_response_frame( path_response, data,  8UL )==FD_QUIC_PARSE_FAIL );
+    FD_TEST( fd_quic_decode_path_response_frame( path_response, data,  9UL )==9UL );
+    FD_TEST( fd_quic_decode_path_response_frame( path_response, data, 10UL )==9UL );
+  } while(0);
+}
+
 /* Test FIN arriving out of place */
 
 int
@@ -535,6 +555,7 @@ main( int     argc,
   test_quic_stream_agave_2_0_3           ( sandbox, rng );
   test_quic_ping_frame                   ( sandbox, rng );
   test_quic_server_alpn_fail             ( sandbox, rng );
+  test_quic_parse_path_challenge();
 
   /* Wind down */
 
