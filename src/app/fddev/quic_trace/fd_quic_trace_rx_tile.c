@@ -11,7 +11,7 @@
 #include "../../../util/net/fd_udp.h"
 
 #define translate_ptr( ctx, ptr ) __extension__({ \
-    ulong rbase = (ulong)( ctx->self );           \
+    ulong rbase = (ulong)( fd_quic_trace_ctx_remote ); \
     ulong rel   = (ulong)(ptr) - rbase;           \
     ulong laddr = (ulong)(ctx) + rel;             \
     (__typeof__(ptr))(laddr);                     \
