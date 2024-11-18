@@ -592,11 +592,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
-
-  ctx->self = ctx;
-  FD_COMPILER_MFENCE();
-  ctx->magic = FD_QUIC_TILE_CTX_MAGIC;
-  FD_COMPILER_MFENCE();
 }
 
 static ulong

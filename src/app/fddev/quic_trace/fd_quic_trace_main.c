@@ -55,16 +55,19 @@ quic_trace_cmd_fn( args_t *         args,
 
   void *                quic_tile_base   = fd_topo_obj_laddr( topo, quic_tile->tile_obj_id );
   fd_quic_ctx_t const * foreign_quic_ctx = quic_tile_base;
-  FD_TEST( foreign_quic_ctx->magic == FD_QUIC_TILE_CTX_MAGIC );
   fd_quic_ctx_t * quic_ctx = &fd_quic_trace_ctx;
   *quic_ctx                = *foreign_quic_ctx;
   fd_quic_trace_ctx_remote =  foreign_quic_ctx;
-  FD_LOG_INFO(( "fd_quic_tile state at %p in tile address space", foreign_quic_ctx->self ));
+
+  ulong quic_raddr = (ulong)foreign_quic_ctx->quic;
+  ulong ctx_raddr  = quic_raddr - fd_ulong_align_up( sizeof(fd_quic_ctx_t), fd_ulong_max( alignof(fd_quic_ctx_t), fd_quic_align() ) );
+
+  FD_LOG_INFO(( "fd_quic_tile state at %p in tile address space", (void *)ctx_raddr ));
   FD_LOG_INFO(( "fd_quic_tile state at %p in local address space", quic_tile_base ));
 
-  quic_ctx->reasm = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->reasm - (ulong)quic_ctx->self );
-  quic_ctx->stem  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->stem  - (ulong)quic_ctx->self );
-  quic_ctx->quic  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->quic  - (ulong)quic_ctx->self );
+  quic_ctx->reasm = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->reasm - ctx_raddr );
+  quic_ctx->stem  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->stem  - ctx_raddr );
+  quic_ctx->quic  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->quic  - ctx_raddr );
 
   fd_topo_link_t * net_quic = &topo->links[ quic_tile->in_link_id[ 0 ] ];
   quic_ctx->in_mem = topo->workspaces[ topo->objs[ net_quic->dcache_obj_id ].wksp_id ].wksp;

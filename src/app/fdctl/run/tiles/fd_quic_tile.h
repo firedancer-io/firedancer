@@ -7,10 +7,7 @@
 
 #define FD_QUIC_TILE_CTX_MAGIC (0xbe66b25100961d68) /* random */
 
-struct fd_quic_ctx {
-  ulong  magic;  /* ==FD_QUIC_TILE_CTX_MAGIC */
-  void * self;   /* points to fd_quic_ctx_t in tile address space */
-
+typedef struct {
   fd_tpu_reasm_t * reasm;
 
   fd_stem_context_t * stem;
@@ -53,8 +50,6 @@ struct fd_quic_ctx {
     ulong txns_received_quic;
     ulong txns_overrun;
   } metrics;
-};
-
-typedef struct fd_quic_ctx fd_quic_ctx_t;
+} fd_quic_ctx_t;
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h */
