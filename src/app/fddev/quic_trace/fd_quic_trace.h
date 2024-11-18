@@ -39,4 +39,12 @@ fd_quic_trace_frames( fd_quic_trace_frame_ctx_t * context,
 
 FD_PROTOTYPES_END
 
+
+#define translate_ptr( ptr ) __extension__({           \
+    ulong rbase = (ulong)( fd_quic_trace_ctx_remote ); \
+    ulong rel   = (ulong)(ptr) - rbase;                \
+    ulong laddr = (ulong)( &fd_quic_trace_ctx ) + rel; \
+    (__typeof__(ptr))(laddr);                          \
+  })
+
 #endif /* HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h */
