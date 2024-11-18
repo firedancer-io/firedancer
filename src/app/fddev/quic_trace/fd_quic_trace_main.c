@@ -16,13 +16,8 @@
 #include "fd_quic_trace.h"
 #include "../fddev.h"
 #include "../../fdctl/run/tiles/fd_quic_tile.h"
+#include "../../../disco/stem/fd_stem.h"
 #include "../../../tango/fseq/fd_fseq.h"
-
-/* Define global variables */
-
-fd_quic_ctx_t         fd_quic_trace_ctx;
-fd_quic_ctx_t const * fd_quic_trace_ctx_remote;
-ulong **              fd_quic_trace_target_fseq;
 
 void
 quic_trace_cmd_args( int *    pargc,
@@ -40,72 +35,67 @@ quic_trace_cmd_fn( args_t *         args,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( topo );
 
-  fd_topo_tile_t * quic_tile = NULL;
-  for( ulong tile_idx=0UL; tile_idx < topo->tile_cnt; tile_idx++ ) {
-    if( 0==strcmp( topo->tiles[ tile_idx ].name, "quic" ) ) {
-      quic_tile = &topo->tiles[ tile_idx ];
-      break;
-    }
-  }
-  if( !quic_tile ) FD_LOG_ERR(( "QUIC tile not found in topology" ));
+  /* Only works with 1 QUIC tile for now */
+  FD_TEST( fd_topo_tile_name_cnt( topo, "quic" )==1UL );
+  fd_topo_tile_t * quic_tile = &topo->tiles[ fd_topo_find_tile( topo, "quic", 0UL ) ];
 
   /* Ugly: fd_quic_ctx_t uses non-relocatable object addressing.
      We need to rebase pointers.  foreign_{...} refer to the original
      objects in shared memory, local_{...} refer to translated copies. */
 
+  fd_quic_trace_tile_ctx_t ctx = {0};
+
   void *                quic_tile_base   = fd_topo_obj_laddr( topo, quic_tile->tile_obj_id );
   fd_quic_ctx_t const * foreign_quic_ctx = quic_tile_base;
   FD_TEST( foreign_quic_ctx->magic == FD_QUIC_TILE_CTX_MAGIC );
-  fd_quic_ctx_t * quic_ctx = &fd_quic_trace_ctx;
-  *quic_ctx                = *foreign_quic_ctx;
-  fd_quic_trace_ctx_remote =  foreign_quic_ctx;
+  ctx.remote_ctx = foreign_quic_ctx;
   FD_LOG_INFO(( "fd_quic_tile state at %p in tile address space", foreign_quic_ctx->self ));
   FD_LOG_INFO(( "fd_quic_tile state at %p in local address space", quic_tile_base ));
 
-  quic_ctx->reasm = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->reasm - (ulong)quic_ctx->self );
-  quic_ctx->stem  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->stem  - (ulong)quic_ctx->self );
-  quic_ctx->quic  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->quic  - (ulong)quic_ctx->self );
+  ulong in_cnt = 0UL;
+  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+    if( !strcmp( topo->links[ i ].name, "net_quic" ) ) in_cnt++;
+  }
 
-  fd_topo_link_t * net_quic = &topo->links[ quic_tile->in_link_id[ 0 ] ];
-  quic_ctx->in_mem = topo->workspaces[ topo->objs[ net_quic->dcache_obj_id ].wksp_id ].wksp;
-  FD_LOG_INFO(( "net->quic link at %p", (void *)quic_ctx->in_mem ));
-
-  /* Join shared memory objects
-     Mostly nops but verifies object magic numbers to ensure that
-     derived pointers are correct. */
-
-  FD_LOG_INFO(( "Joining fd_quic" ));
-  fd_quic_t * quic = fd_quic_join( quic_ctx->quic );
-  if( !quic ) FD_LOG_ERR(( "Failed to join fd_quic" ));
+  fd_frag_meta_t const ** in_mcache = aligned_alloc( alignof( fd_frag_meta_t ), in_cnt * sizeof(fd_frag_meta_t *) );
+  FD_TEST( in_mcache );
+  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+    if( !strcmp( topo->links[ i ].name, "net_quic" ) ) in_mcache[ i ] = topo->links[ i ].mcache;
+  }
 
   /* Locate original fseq objects
      These are monitored to ensure the trace RX tile doesn't skip ahead
      of the quic tile. */
-  fd_quic_trace_target_fseq = malloc( quic_tile->in_cnt * sizeof(ulong) );
-  for( ulong i=0UL; i<quic_tile->in_cnt; i++ ) {
-    fd_quic_trace_target_fseq[ i ] = quic_tile->in_link_fseq[ i ];
+  for( ulong i=0UL; i<in_cnt; i++ ) {
+    ctx.target_fseq[ i ] = quic_tile->in_link_fseq[ i ];
   }
 
-  /* Redirect metadata writes to dummy buffers.
-     Without this hack, stem_run would attempt to write metadata updates
-     into the target topology which is read-only. */
+  ulong * _in_fseq = aligned_alloc( alignof( ulong ), in_cnt * sizeof(ulong) );
+  ulong ** in_fseq = aligned_alloc( 8, in_cnt * sizeof(ulong*) );
+  for( ulong i=0UL; i<in_cnt; i++ ) {
+    in_fseq[ i ] = &_in_fseq[ i ];
+  }
 
-  /* ... redirect metric updates */
-  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( quic_tile->in_cnt, quic_tile->out_cnt ) );
-  if( !metrics ) FD_LOG_ERR(( "out of memory" ));
+  ctx.in_mem[ 0 ] = aligned_alloc( 8, in_cnt * sizeof(fd_wksp_t *) );
+
+  fd_rng_t rng[1];
+  FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
+
+  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( in_cnt, 0UL ) );
+  FD_TEST( metrics );
   fd_metrics_register( metrics );
 
-  /* ... redirect fseq updates */
-  for( ulong i=0UL; i<quic_tile->in_cnt; i++ ) {
-    if( !quic_tile->in_link_poll[ i ] ) continue;
-    void * fseq_mem = aligned_alloc( fd_fseq_align(), fd_fseq_footprint() );
-    if( !fseq_mem ) FD_LOG_ERR(( "out of memory" ));
-    quic_tile->in_link_fseq[ i ] = fd_fseq_join( fd_fseq_new( fseq_mem, ULONG_MAX ) );
-  }
-
-  /* Join net->quic link consumer */
-
-  fd_topo_run_tile_t * rx_tile = &fd_tile_quic_trace_rx;
-  rx_tile->privileged_init( topo, quic_tile );
-  rx_tile->run( topo, quic_tile );
+  quic_trace_run( in_cnt,
+                  in_mcache,
+                  in_fseq,
+                  0UL,
+                  NULL,
+                  0UL,
+                  NULL,
+                  NULL,
+                  1UL,
+                  0L,
+                  rng,
+                  fd_alloca( STEM_SCRATCH_ALIGN, stem_scratch_footprint( in_cnt, 0UL, 0UL ) ),
+                  &ctx );
 }

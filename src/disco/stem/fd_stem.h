@@ -28,6 +28,29 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
+#define STEM_SCRATCH_ALIGN (128UL)
+
+FD_FN_PURE static inline ulong
+stem_scratch_align( void ) {
+  return STEM_SCRATCH_ALIGN;
+}
+
+FD_FN_PURE static inline ulong
+stem_scratch_footprint( ulong in_cnt,
+                        ulong out_cnt,
+                        ulong cons_cnt ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),            (in_cnt+cons_cnt+1UL)*sizeof(ushort) ); /* event_map */
+  return FD_LAYOUT_FINI( l, stem_scratch_align() );
+}
+
 static inline void
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,

@@ -17,55 +17,44 @@
     (__typeof__(ptr))(laddr);                     \
   })
 
-static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  (void)topo; (void)tile;
-}
-
 static int
-before_frag( void * _ctx FD_FN_UNUSED,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig ) {
+before_frag( fd_quic_trace_tile_ctx_t * ctx,
+             ulong                      in_idx,
+             ulong                      seq,
+             ulong                      sig ) {
   (void)sig;
 
   /* Skip non-QUIC packets */
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( proto!=DST_PROTO_TPU_QUIC ) return 1;
 
-  /* Delay receive until fd_quic_tile is caught up */
-  ulong * tgt_fseq = fd_quic_trace_target_fseq[ in_idx ];
-  for(;;) {
-    ulong tgt_seq = fd_fseq_query( tgt_fseq );
-    if( FD_LIKELY( tgt_seq>=seq ) ) break;
-    FD_SPIN_PAUSE();
-  }
+  /* Don't ingress frags until fd_quic_tile is caught up */
+  ulong * tgt_fseq = ctx->target_fseq[ in_idx ];
+  ulong tgt_seq = fd_fseq_query( tgt_fseq );
+  if( FD_UNLIKELY( tgt_seq<seq ) ) return -1;
 
   return 0;
 }
 
 static void
-during_frag( void * _ctx FD_FN_UNUSED,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz ) {
+during_frag( fd_quic_trace_tile_ctx_t * ctx,
+             ulong                      in_idx,
+             ulong                      seq,
+             ulong                      sig,
+             ulong                      chunk,
+             ulong                      sz ) {
   (void)in_idx; (void)seq; (void)sig;
-  fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
-  fd_memcpy( ctx->buffer, (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk ), sz );
+  fd_memcpy( ctx->buffer, (uchar *)fd_chunk_to_laddr( ctx->in_mem[ in_idx ], chunk ), sz );
 }
 
 static void
-fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
-                    uchar * data,
-                    ulong   data_sz,
-                    uint    ip4_saddr ) {
-  fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
-  fd_quic_t *          quic     = ctx->quic;
+fd_quic_trace_1rtt( fd_quic_trace_tile_ctx_t * ctx,
+                    uchar *                    data,
+                    ulong                      data_sz,
+                    uint                       ip4_saddr ) {
+  fd_quic_t *          quic     = ctx->remote_ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
-  fd_quic_conn_map_t * conn_map = translate_ptr( fd_quic_trace_ctx_remote, state->conn_map );
+  fd_quic_conn_map_t * conn_map = translate_ptr( ctx->remote_ctx, state->conn_map );
 
   if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return;
 
@@ -73,7 +62,7 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   ulong dst_conn_id = fd_ulong_load_8( data+1 );
   fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
   if( !conn_entry ) return;
-  fd_quic_conn_t *        conn = translate_ptr( fd_quic_trace_ctx_remote, conn_entry->conn );
+  fd_quic_conn_t *        conn = translate_ptr( ctx->remote_ctx, conn_entry->conn );
   fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_appdata_id ][ 0 ];
 
   ulong pkt_number_off = 9UL;
@@ -93,10 +82,10 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
 }
 
 static void
-fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
-                   uchar *         data,
-                   ulong           data_sz,
-                   uint            ip4_saddr ) {
+fd_quic_trace_pkt( fd_quic_trace_tile_ctx_t * ctx,
+                   uchar *                    data,
+                   ulong                      data_sz,
+                   uint                       ip4_saddr ) {
   /* FIXME: for now, only handle 1-RTT */
   int is_long = fd_quic_h0_hdr_form( data[0] );
   if( is_long ) return;
@@ -104,17 +93,15 @@ fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
 }
 
 static void
-after_frag( void * _ctx FD_FN_UNUSED,
-            ulong  in_idx,
-            ulong  seq,
-            ulong  sig,
-            ulong  chunk,
-            ulong  sz,
-            ulong  tsorig,
-            fd_stem_context_t * stem ) {
+after_frag( fd_quic_trace_tile_ctx_t * ctx,
+            ulong                      in_idx,
+            ulong                      seq,
+            ulong                      sig,
+            ulong                      chunk,
+            ulong                      sz,
+            ulong                      tsorig,
+            fd_stem_context_t *        stem ) {
   (void)in_idx; (void)seq; (void)sig; (void)chunk; (void)sz; (void)tsorig; (void)stem;
-
-  fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
 
   if( sz < FD_QUIC_SHORTEST_PKT ) return;
   if( sz > sizeof(ctx->buffer)  ) return;
@@ -145,15 +132,40 @@ after_frag( void * _ctx FD_FN_UNUSED,
 
 
 #define STEM_BURST (1UL)
-#define STEM_CALLBACK_CONTEXT_TYPE  void
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_trace_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN 1
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #include "../../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_quic_trace_rx = {
-  .name            = "quic-trace-rx",
-  .privileged_init = privileged_init,
-  .run             = stem_run,
-};
+void
+quic_trace_run( ulong                      in_cnt,
+                fd_frag_meta_t const **    in_mcache,
+                ulong **                   in_fseq,
+                ulong                      out_cnt,
+                fd_frag_meta_t **          out_mcache,
+                ulong                      cons_cnt,
+                ulong *                    _cons_out,
+                ulong **                   _cons_fseq,
+                ulong                      burst,
+                long                       lazy,
+                fd_rng_t *                 rng,
+                void *                     scratch,
+                fd_quic_trace_tile_ctx_t * ctx ) {
+  (void)stem_run;
+
+  stem_run1( in_cnt,
+             in_mcache,
+             in_fseq,
+             out_cnt,
+             out_mcache,
+             cons_cnt,
+             _cons_out,
+             _cons_fseq,
+             burst,
+             lazy,
+             rng,
+             scratch,
+             ctx );
+}
