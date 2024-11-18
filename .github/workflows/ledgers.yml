@@ -82,7 +82,7 @@ jobs:
           find cov -type f
           lcov -q $(for x in cov/*.lcov; do echo "-a $x"; done) -o all.cov
       - name: Upload coverage report to CodeCov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         timeout-minutes: 5
         with:
           files: all.cov
