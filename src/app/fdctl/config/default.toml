@@ -689,10 +689,10 @@ dynamic_port_range = "8900-9000"
     # validator is not dropping incoming QUIC transactions from clients.
     #
     # On modern hardware, each verify tile can handle around 20-40K
-    # transactions per second.  Six tiles seems to be enough to handle
+    # transactions per second.  Eight tiles seems to be enough to handle
     # current `mainnet-beta` traffic, unless the validator is under a
     # denial of service or spam attack.
-    verify_tile_count = 6
+    verify_tile_count = 8
 
     # How many bank tiles to run.  Should be set to 4.  Bank tiles
     # execute transactions, so the validator can include the results of
