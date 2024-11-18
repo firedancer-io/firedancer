@@ -3737,42 +3737,46 @@ typedef struct fd_gossip_socket_addr_old_off fd_gossip_socket_addr_old_off_t;
 #define FD_GOSSIP_SOCKET_ADDR_OLD_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_ip4_addr {
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip4 {
   fd_gossip_ip4_addr_t addr;
   ushort port;
 };
-typedef struct fd_gossip_socket_ip4_addr fd_gossip_socket_ip4_addr_t;
-#define FD_GOSSIP_SOCKET_IP4_ADDR_FOOTPRINT sizeof(fd_gossip_socket_ip4_addr_t)
-#define FD_GOSSIP_SOCKET_IP4_ADDR_ALIGN (8UL)
+typedef struct fd_gossip_socket_addr_ip4 fd_gossip_socket_addr_ip4_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP4_FOOTPRINT sizeof(fd_gossip_socket_addr_ip4_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_gossip_socket_ip4_addr_off {
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip4_off {
   uint addr_off;
   uint port_off;
 };
-typedef struct fd_gossip_socket_ip4_addr_off fd_gossip_socket_ip4_addr_off_t;
-#define FD_GOSSIP_SOCKET_IP4_ADDR_OFF_FOOTPRINT sizeof(fd_gossip_socket_ip4_addr_off_t)
-#define FD_GOSSIP_SOCKET_IP4_ADDR_OFF_ALIGN (8UL)
+typedef struct fd_gossip_socket_addr_ip4_off fd_gossip_socket_addr_ip4_off_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP4_OFF_FOOTPRINT sizeof(fd_gossip_socket_addr_ip4_off_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP4_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_ip6_addr {
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip6 {
   fd_gossip_ip6_addr_t addr;
   ushort port;
+  uint flowinfo;
+  uint scope_id;
 };
-typedef struct fd_gossip_socket_ip6_addr fd_gossip_socket_ip6_addr_t;
-#define FD_GOSSIP_SOCKET_IP6_ADDR_FOOTPRINT sizeof(fd_gossip_socket_ip6_addr_t)
-#define FD_GOSSIP_SOCKET_IP6_ADDR_ALIGN (8UL)
+typedef struct fd_gossip_socket_addr_ip6 fd_gossip_socket_addr_ip6_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP6_FOOTPRINT sizeof(fd_gossip_socket_addr_ip6_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_gossip_socket_ip6_addr_off {
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip6_off {
   uint addr_off;
   uint port_off;
+  uint flowinfo_off;
+  uint scope_id_off;
 };
-typedef struct fd_gossip_socket_ip6_addr_off fd_gossip_socket_ip6_addr_off_t;
-#define FD_GOSSIP_SOCKET_IP6_ADDR_OFF_FOOTPRINT sizeof(fd_gossip_socket_ip6_addr_off_t)
-#define FD_GOSSIP_SOCKET_IP6_ADDR_OFF_ALIGN (8UL)
+typedef struct fd_gossip_socket_addr_ip6_off fd_gossip_socket_addr_ip6_off_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP6_OFF_FOOTPRINT sizeof(fd_gossip_socket_addr_ip6_off_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP6_OFF_ALIGN (8UL)
 
 union fd_gossip_socket_addr_inner {
-  fd_gossip_socket_ip4_addr_t ip4;
-  fd_gossip_socket_ip6_addr_t ip6;
+  fd_gossip_socket_addr_ip4_t ip4;
+  fd_gossip_socket_addr_ip6_t ip6;
 };
 typedef union fd_gossip_socket_addr_inner fd_gossip_socket_addr_inner_t;
 
@@ -7253,29 +7257,29 @@ ulong fd_gossip_socket_addr_old_size( fd_gossip_socket_addr_old_t const * self )
 ulong fd_gossip_socket_addr_old_footprint( void );
 ulong fd_gossip_socket_addr_old_align( void );
 
-void fd_gossip_socket_ip4_addr_new( fd_gossip_socket_ip4_addr_t * self );
-int fd_gossip_socket_ip4_addr_decode( fd_gossip_socket_ip4_addr_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_ip4_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_gossip_socket_ip4_addr_decode_unsafe( fd_gossip_socket_ip4_addr_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_ip4_addr_decode_offsets( fd_gossip_socket_ip4_addr_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_ip4_addr_encode( fd_gossip_socket_ip4_addr_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_socket_ip4_addr_destroy( fd_gossip_socket_ip4_addr_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_gossip_socket_ip4_addr_walk( void * w, fd_gossip_socket_ip4_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_gossip_socket_ip4_addr_size( fd_gossip_socket_ip4_addr_t const * self );
-ulong fd_gossip_socket_ip4_addr_footprint( void );
-ulong fd_gossip_socket_ip4_addr_align( void );
+void fd_gossip_socket_addr_ip4_new( fd_gossip_socket_addr_ip4_t * self );
+int fd_gossip_socket_addr_ip4_decode( fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip4_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip4_decode_unsafe( fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip4_decode_offsets( fd_gossip_socket_addr_ip4_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip4_encode( fd_gossip_socket_addr_ip4_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip4_destroy( fd_gossip_socket_addr_ip4_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_socket_addr_ip4_walk( void * w, fd_gossip_socket_addr_ip4_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_socket_addr_ip4_size( fd_gossip_socket_addr_ip4_t const * self );
+ulong fd_gossip_socket_addr_ip4_footprint( void );
+ulong fd_gossip_socket_addr_ip4_align( void );
 
-void fd_gossip_socket_ip6_addr_new( fd_gossip_socket_ip6_addr_t * self );
-int fd_gossip_socket_ip6_addr_decode( fd_gossip_socket_ip6_addr_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_ip6_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_gossip_socket_ip6_addr_decode_unsafe( fd_gossip_socket_ip6_addr_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_ip6_addr_decode_offsets( fd_gossip_socket_ip6_addr_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_ip6_addr_encode( fd_gossip_socket_ip6_addr_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_socket_ip6_addr_destroy( fd_gossip_socket_ip6_addr_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_gossip_socket_ip6_addr_walk( void * w, fd_gossip_socket_ip6_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_gossip_socket_ip6_addr_size( fd_gossip_socket_ip6_addr_t const * self );
-ulong fd_gossip_socket_ip6_addr_footprint( void );
-ulong fd_gossip_socket_ip6_addr_align( void );
+void fd_gossip_socket_addr_ip6_new( fd_gossip_socket_addr_ip6_t * self );
+int fd_gossip_socket_addr_ip6_decode( fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip6_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip6_decode_unsafe( fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip6_decode_offsets( fd_gossip_socket_addr_ip6_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip6_encode( fd_gossip_socket_addr_ip6_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip6_destroy( fd_gossip_socket_addr_ip6_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_socket_addr_ip6_walk( void * w, fd_gossip_socket_addr_ip6_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_socket_addr_ip6_size( fd_gossip_socket_addr_ip6_t const * self );
+ulong fd_gossip_socket_addr_ip6_footprint( void );
+ulong fd_gossip_socket_addr_ip6_align( void );
 
 void fd_gossip_socket_addr_new_disc( fd_gossip_socket_addr_t * self, uint discriminant );
 void fd_gossip_socket_addr_new( fd_gossip_socket_addr_t * self );

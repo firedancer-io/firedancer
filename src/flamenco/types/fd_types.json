@@ -1789,7 +1789,7 @@
       ]
     },
     {
-      "name": "gossip_socket_ip4_addr",
+      "name": "gossip_socket_addr_ip4",
       "type": "struct",
       "fields": [
         { "name": "addr", "type": "gossip_ip4_addr" },
@@ -1797,11 +1797,13 @@
       ]
     },
     {
-      "name": "gossip_socket_ip6_addr",
+      "name": "gossip_socket_addr_ip6",
       "type": "struct",
       "fields": [
         { "name": "addr", "type": "gossip_ip6_addr" },
-        { "name": "port", "type": "ushort" }
+        { "name": "port", "type": "ushort" },
+        { "name": "flowinfo", "type": "uint" },
+        { "name": "scope_id", "type": "uint" }
       ]
     },
     {
@@ -1811,11 +1813,11 @@
       "variants": [
         {
           "name": "ip4",
-          "type": "gossip_socket_ip4_addr"
+          "type": "gossip_socket_addr_ip4"
         },
         {
           "name": "ip6",
-          "type": "gossip_socket_ip6_addr"
+          "type": "gossip_socket_addr_ip6"
         }
       ]
     },
