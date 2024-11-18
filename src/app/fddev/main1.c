@@ -170,12 +170,6 @@ fddev_main( int     argc,
 
   fdctl_boot( &argc, &argv, &config, log_path );
 
-  /* load configuration and command line parsing */
-  if( FD_UNLIKELY( config.is_live_cluster ) )
-    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
-                 "configuration targets a live cluster. Use `fdctl` if this is a "
-                 "production environment" ));
-
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
   config.development.no_clone = config.development.no_clone || no_clone;
@@ -202,6 +196,12 @@ fddev_main( int     argc,
   }
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
+
+  int is_allowed_live = !strcmp( action->name, "flame" ) || !strcmp( action->name, "dump" );
+  if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
+    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
+                 "configuration targets a live cluster. Use `fdctl` if this is a "
+                 "production environment" ));
 
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
