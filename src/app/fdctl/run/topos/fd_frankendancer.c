@@ -375,6 +375,7 @@ fd_topo_initialize( config_t * config ) {
       tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
+      tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
       tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;

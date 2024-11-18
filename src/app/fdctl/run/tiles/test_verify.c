@@ -127,13 +127,13 @@ static void
 setup_verify_ctx( fd_verify_ctx_t * ctx, void ** mem ) {
   fd_memset( ctx, 0, sizeof(fd_verify_ctx_t) );
   /* tcache - note: using aligned_alloc for tests */
-  ulong depth     = VERIFY_TCACHE_DEPTH;
-  ulong map_cnt   = VERIFY_TCACHE_MAP_CNT;
+  ulong depth     = 16UL;
+  ulong map_cnt   = 64UL;
   ulong align     = fd_tcache_align();
   ulong footprint = fd_tcache_footprint( depth, map_cnt );
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "bad depth / map_cnt" ));
   *mem = aligned_alloc( align, footprint ); FD_TEST( *mem );
-  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( *mem, VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( *mem, depth, map_cnt ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
   ctx->tcache_map_cnt = fd_tcache_map_cnt     ( tcache );

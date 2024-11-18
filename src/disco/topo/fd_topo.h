@@ -169,6 +169,10 @@ typedef struct {
 
     struct {
       ulong tcache_depth;
+    } verify;
+
+    struct {
+      ulong tcache_depth;
     } dedup;
 
     struct {

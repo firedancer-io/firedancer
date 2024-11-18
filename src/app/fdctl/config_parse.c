@@ -298,6 +298,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.quic.ack_delay_millis                      );
   CFG_POP      ( bool,   tiles.quic.retry                                 );
 
+  CFG_POP      ( uint,   tiles.verify.signature_cache_size                );
   CFG_POP      ( uint,   tiles.verify.receive_buffer_size                 );
   CFG_POP      ( uint,   tiles.verify.mtu                                 );
 
@@ -455,6 +456,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.quic.max_inflight_quic_packets );
   CFG_HAS_NON_ZERO( tiles.quic.idle_timeout_millis );
 
+  CFG_HAS_NON_ZERO( tiles.verify.signature_cache_size );
   CFG_HAS_NON_ZERO( tiles.verify.receive_buffer_size );
 
   CFG_HAS_NON_ZERO( tiles.dedup.signature_cache_size );
