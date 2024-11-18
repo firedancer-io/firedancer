@@ -22,7 +22,9 @@
 
 fd_quic_ctx_t         fd_quic_trace_ctx;
 fd_quic_ctx_t const * fd_quic_trace_ctx_remote;
+ulong                 fd_quic_trace_ctx_raddr;
 ulong **              fd_quic_trace_target_fseq;
+ulong volatile *      fd_quic_trace_link_metrics;
 
 void
 quic_trace_cmd_args( int *    pargc,
@@ -61,6 +63,7 @@ quic_trace_cmd_fn( args_t *         args,
 
   ulong quic_raddr = (ulong)foreign_quic_ctx->quic;
   ulong ctx_raddr  = quic_raddr - fd_ulong_align_up( sizeof(fd_quic_ctx_t), fd_ulong_max( alignof(fd_quic_ctx_t), fd_quic_align() ) );
+  fd_quic_trace_ctx_raddr = ctx_raddr;
 
   FD_LOG_INFO(( "fd_quic_tile state at %p in tile address space", (void *)ctx_raddr ));
   FD_LOG_INFO(( "fd_quic_tile state at %p in local address space", quic_tile_base ));
@@ -96,6 +99,7 @@ quic_trace_cmd_fn( args_t *         args,
   /* ... redirect metric updates */
   ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( quic_tile->in_cnt, quic_tile->out_cnt ) );
   if( !metrics ) FD_LOG_ERR(( "out of memory" ));
+  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( quic_tile->in_cnt, quic_tile->out_cnt ) );
   fd_metrics_register( metrics );
 
   /* ... redirect fseq updates */
@@ -105,6 +109,8 @@ quic_trace_cmd_fn( args_t *         args,
     if( !fseq_mem ) FD_LOG_ERR(( "out of memory" ));
     quic_tile->in_link_fseq[ i ] = fd_fseq_join( fd_fseq_new( fseq_mem, ULONG_MAX ) );
   }
+
+  fd_quic_trace_link_metrics = fd_metrics_link_in( fd_metrics_base_tl, 0 );
 
   /* Join net->quic link consumer */
 

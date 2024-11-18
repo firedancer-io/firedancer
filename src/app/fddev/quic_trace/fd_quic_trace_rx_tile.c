@@ -13,7 +13,7 @@
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  fd_quic_state_t * state = fd_quic_get_state( (void *)&fd_quic_trace_ctx );
+  fd_quic_state_t * state = fd_quic_get_state( fd_quic_trace_ctx.quic );
   FD_LOG_INFO(( "fd_quic_t conn_map raddr %p", (void *)state->conn_map ));
   FD_LOG_INFO(( "fd_quic_t conn map laddr %p", (void *)translate_ptr( state->conn_map ) ));
   (void)topo; (void)tile;
