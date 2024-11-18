@@ -1,9 +1,7 @@
-#include "../fd_ballet.h"
-
 #include "fd_http_server.h"
 
-#include <malloc.h>
 #include <signal.h>
+#include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
 

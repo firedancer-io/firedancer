@@ -1,5 +1,3 @@
-#include "../fd_ballet.h"
-
 #include "fd_http_server.h"
 #include "fd_http_server_private.h"
 
