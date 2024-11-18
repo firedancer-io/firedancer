@@ -106,15 +106,15 @@ typedef struct fd_quic_state_private fd_quic_state_t;
    (i.e. outlasts joins, until fd_quic_delete) */
 
 struct __attribute__((aligned(16UL))) fd_quic_limits {
-  ulong  conn_cnt;              /* instance-wide, max concurrent conn count              */
-  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count         */
+  ulong  conn_cnt;              /* instance-wide, max concurrent conn count                  */
+  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count             */
 
-  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
-  ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count              */
-  ulong  rx_stream_cnt;         /* per-conn, max concurrent stream count                 */
-  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
+  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min FD_QUIC_MIN_CONN_ID_CNT) */
+  ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count                  */
+  ulong  rx_stream_cnt;         /* per-conn, max concurrent stream count                     */
+  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                       */
 
-  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                        */
+  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                            */
   /* the user consumes rx directly from the network buffer */
 
   ulong  stream_pool_cnt;  /* instance-wide, number of streams in stream pool */
@@ -147,8 +147,8 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong idle_timeout;
 # define FD_QUIC_DEFAULT_IDLE_TIMEOUT (ulong)(1e9) /* 1s */
 
-  /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
-     fd_quic to coalesce packet ACKs. */
+  /* ack_delay: median delay on outgoing ACKs (ns).  Greater delays
+     allow fd_quic to coalesce packet ACKs. */
   ulong ack_delay;
 # define FD_QUIC_DEFAULT_ACK_DELAY (ulong)(50e6) /* 50ms */
 

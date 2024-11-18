@@ -328,7 +328,7 @@ quic_stream_new( fd_quic_stream_t * stream,
 
   /* Wire up with QUIC stream */
 
-  stream->context = slot;
+  fd_quic_stream_set_context( stream, slot );
 
   /* Wind up for next iteration */
 

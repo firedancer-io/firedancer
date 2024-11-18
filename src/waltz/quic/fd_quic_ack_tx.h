@@ -29,7 +29,7 @@
 
 struct __attribute__((aligned(16))) fd_quic_ack {
   fd_quic_range_t pkt_number;  /* Range of packet numbers being ACKed */
-  ulong           ts;          /* timestamp of highest packet number */
+  ulong           ts;          /* timestamp of highest packet number in ns */
   uchar           enc_level;   /* in [0,4) */
   /* FIXME enc_level should technically be pn_space instead */
   uchar           _pad[7];

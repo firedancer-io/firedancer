@@ -57,7 +57,6 @@ struct fd_quic_conn {
   uint               server      : 1;     /* role from self POV: 0=client, 1=server */
   uint               established : 1;     /* used by clients to determine whether to
                                              switch the destination conn id used */
-  uint               transport_params_set : 1;
   uint               called_conn_new : 1; /* whether we need to call conn_final on teardown */
   uint               visited : 1;         /* scratch bit, no strict definition */
 
@@ -68,7 +67,7 @@ struct fd_quic_conn {
   uint               svc_type;  /* FD_QUIC_SVC_{...} or UINT_MAX */
   uint               svc_prev;
   uint               svc_next;
-  ulong              svc_time;  /* service may be delayed until this timestamp */
+  ulong              svc_time;  /* service may be delayed until this timestamp (in ns) */
 
   ulong              our_conn_id;
 
@@ -115,7 +114,9 @@ struct fd_quic_conn {
 
   /* secret members */
   fd_quic_crypto_secrets_t secrets;
-  fd_quic_crypto_keys_t    keys[4][2];  /* a set of keys for each of the encoding levels, and for client/server */
+  fd_quic_crypto_keys_t    keys[FD_QUIC_NUM_ENC_LEVELS][2];  /* A set of keys for each of the encoding levels, and for client/server.
+                                                                keys[ encoding level ][ client/server ] where 0=server 1=client
+                                                                notably opposite to the 'server' in this structure */
   fd_quic_crypto_keys_t    new_keys[2]; /* a set of keys for use during key update */
   uint                     keys_avail;  /* bit set, LSB indexed by encryption level */
   uint                     key_phase;   /* current key phase - represents the current phase of the
@@ -251,14 +252,14 @@ struct fd_quic_conn {
   /* highest peer encryption level */
   uchar                peer_enc_level;
 
-  /* idle timeout arguments */
+  /* idle timeout arguments in ns */
   ulong                idle_timeout;
   ulong                last_activity;
 
   /* rx_limit_pktnum is the newest inflight packet number in which
      the current rx_{sup_stream_id,max_data} values were sent to the
      peer.  (via MAX_STREAMS and MAX_DATA quota frames)
-     FD_QUIC_PKT_NUM_UNUSED indicates that the peer ACked the latest
+     FD_QUIC_PKT_NUM_UNUSED indicates that the peer ACKed the latest
      quota update, and thus is in sync with the server.
      FD_QUIC_PKT_NUM_PENDING indicates that no packet with the current
      rx_{sup_stream_id,max_data} value was sent yet.  Will trigger a

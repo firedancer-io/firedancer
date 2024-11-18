@@ -54,10 +54,7 @@ typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
    lifetime of join. */
 
 struct __attribute__((aligned(16UL))) fd_quic_state_private {
-  /* Flags */
-  ulong flags;
-
-  ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
+  ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive in ns */
 
   /* transport_params: Template for QUIC-TLS transport params extension.
      Contains a mix of mutable and immutable fields.  Immutable fields

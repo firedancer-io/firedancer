@@ -72,12 +72,6 @@ struct fd_quic_stream {
 
 # define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
 
-  uint list_memb; /* list membership */
-# define FD_QUIC_STREAM_LIST_MEMB_NONE   0
-# define FD_QUIC_STREAM_LIST_MEMB_UNUSED 1
-# define FD_QUIC_STREAM_LIST_MEMB_USED   2
-# define FD_QUIC_STREAM_LIST_MEMB_SEND   3
-
   /* flow control */
   ulong  tx_max_stream_data; /* the limit on the number of bytes we are allowed to send
                                   to the peer on this stream

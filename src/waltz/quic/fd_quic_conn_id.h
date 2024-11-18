@@ -8,7 +8,7 @@
 /* TODO move this into more reasonable place */
 #define FD_QUIC_MAX_CONN_ID_SZ 20
 
-/* Firedancer connection ids will sized thus */
+/* Firedancer connection ids are sized thus */
 #define FD_QUIC_CONN_ID_SZ 8
 
 /* pad fd_quic_conn_id struct */

@@ -271,14 +271,15 @@ static void
 fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->context            = NULL;
 
-  stream->tx_buf.head        = 0;
-  stream->tx_buf.tail        = 0;
-  stream->tx_sent            = 0;
+  stream->tx_buf.head        = 0; /* first unused byte of tx_buf */
+  stream->tx_buf.tail        = 0; /* first unacked (used) byte of tx_buf */
+  stream->tx_sent            = 0; /* first unsent byte of tx_buf */
+  memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
 
   stream->stream_flags       = 0;
   /* don't update next here, since it's still in use */
 
-  stream->state              = 0;
+  stream->state              = FD_QUIC_STREAM_STATE_DEAD;
 
   stream->tx_max_stream_data = 0;
   stream->tx_tot_data        = 0;
@@ -399,7 +400,6 @@ fd_quic_init( fd_quic_t * quic ) {
     conn->conn_idx = (uint)j;
 
     conn->svc_type = UINT_MAX;
-    conn->svc_prev = UINT_MAX;
     conn->svc_next = conn->svc_prev = UINT_MAX;
     /* start with minimum supported max datagram */
     /* peers may allow more */
@@ -1004,8 +1004,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
 
   /* stream tx_buf already set */
   stream->conn      = conn;
-  stream->stream_id = next_stream_id;
-  stream->context   = NULL;
 
   /* set the max stream data to the appropriate initial value */
   stream->tx_max_stream_data = conn->tx_initial_max_stream_data_uni;
@@ -1013,8 +1011,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
   /* set state depending on stream type */
   stream->state        = FD_QUIC_STREAM_STATE_RX_FIN;
   stream->stream_flags = 0u;
-
-  memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
 
   /* insert into used streams */
   FD_QUIC_STREAM_LIST_REMOVE( stream );
@@ -1428,7 +1424,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
-        };
+        }
 
         /* From rfc 9000:
 
@@ -2620,7 +2616,6 @@ fd_quic_tls_cb_peer_params( void *        context,
     conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
   }
 
-  conn->transport_params_set = 1;
 }
 
 void
@@ -2638,11 +2633,6 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       return;
 
     case FD_QUIC_CONN_STATE_HANDSHAKE:
-      if( FD_UNLIKELY( !conn->transport_params_set ) ) { /* unreachable */
-        FD_LOG_WARNING(( "Handshake marked as completed but transport params are not set. This is a bug!" ));
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-        return;
-      }
       conn->handshake_complete = 1;
       conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
 
@@ -3061,7 +3051,7 @@ fd_quic_gen_close_frame( fd_quic_conn_t *     conn,
   conn->flags |= FD_QUIC_CONN_FLAGS_CLOSE_SENT;
 
   ulong frame_sz;
-  if( conn->reason != 0u || conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE ) {
+  if( conn->reason != FD_QUIC_CONN_REASON_NO_ERROR || conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE ) {
     fd_quic_conn_close_0_frame_t frame = {
       .error_code           = conn->reason,
       .frame_type           = 0u, /* we do not know the frame in question */
@@ -3815,6 +3805,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     ulong   cipher_text_sz = conn->tx_sz;
     ulong   frames_sz      = (ulong)( payload_ptr - frame_start ); /* including padding */
 
+    /* encrypt for peer (keys at !!(conn->server)) */
     int server = conn->server;
 
     fd_quic_crypto_keys_t * hp_keys  = &conn->keys[enc_level][server];
@@ -4317,16 +4308,21 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->called_conn_new     = 0;
   conn->svc_type            = UINT_MAX;
   conn->svc_time            = LONG_MAX;
-  conn->our_conn_id         = 0;
+  conn->our_conn_id         = our_conn_id;
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,
     .udp_port = fd_ushort_if( server,
                               config->net.listen_udp_port,
                               state->next_ephem_udp_port )
   };
-  fd_memset( &conn->peer[0], 0, sizeof( conn->peer ) );
+
   conn->conn_gen++;
   conn->token_len           = 0;
+
+  /* peer connection id */
+  conn->peer_cids[0]     = *peer_conn_id;
+  conn->peer[0].ip_addr  = dst_ip_addr;
+  conn->peer[0].udp_port = dst_udp_port;
 
   /* start with smallest value we allow, then allow peer to increase */
   conn->tx_max_datagram_sz  = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
@@ -4379,26 +4375,19 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->key_phase_upd        = 0;
 
   conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
-  conn->reason               = 0;
+  conn->reason               = FD_QUIC_CONN_REASON_NO_ERROR;
   conn->app_reason           = 0;
   conn->int_reason           = 0;
   conn->flags                = 0;
   conn->spin_bit             = 0;
   conn->upd_pkt_number       = 0;
 
-  /* initialize connection members */
-  conn->our_conn_id = our_conn_id;
   /* start with minimum supported max datagram */
   /* peers may allow more */
   conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
 
   /* initial source connection id */
   conn->initial_source_conn_id = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
-
-  /* peer connection id */
-  conn->peer_cids[0]     = *peer_conn_id;
-  conn->peer[0].ip_addr  = dst_ip_addr;
-  conn->peer[0].udp_port = dst_udp_port;
 
   fd_quic_ack_gen_init( conn->ack_gen );
   conn->unacked_sz = 0UL;
@@ -4415,14 +4404,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->rtt = (ulong)500e6;
 
   /* highest peer encryption level */
-  conn->peer_enc_level = 0;
+  conn->peer_enc_level = fd_quic_enc_level_initial_id;
 
   /* idle timeout */
   conn->idle_timeout  = config->idle_timeout;
   conn->last_activity = state->now;
-
-  fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
-  fd_memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );
 
   /* transport params */
   fd_quic_transport_params_t * our_tp  = &state->transport_params;
@@ -5424,24 +5410,9 @@ fd_quic_frame_handle_stream_frame(
 
     stream->conn        = conn;
     stream->stream_id   = stream_id;
-    stream->context     = NULL;
-    stream->tx_buf.head = 0; /* first unused byte of tx_buf */
-    stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
-    stream->tx_sent     = 0; /* first unsent byte of tx_buf */
-    memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
 
     /* peer created a stream, we cannot send on it */
     stream->state        = FD_QUIC_STREAM_STATE_TX_FIN;
-    stream->stream_flags = 0u;
-
-    /* flow control */
-    stream->tx_max_stream_data = 0; /* can't send since peer initiated */
-    stream->tx_tot_data        = 0;
-    stream->tx_last_byte       = 0;
-
-    stream->rx_tot_data        = 0;
-
-    stream->upd_pkt_number     = 0;
 
     fd_quic_cb_stream_new( quic, stream );
 
@@ -5699,7 +5670,6 @@ fd_quic_frame_handle_retire_conn_id_frame(
       fd_quic_retire_conn_id_frame_t * data,
       uchar const *                    p,
       ulong                            p_sz ) {
-  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
