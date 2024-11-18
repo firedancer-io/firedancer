@@ -222,6 +222,7 @@ typedef struct {
     } quic;
 
     struct {
+      uint signature_cache_size;
       uint receive_buffer_size;
       uint mtu;
     } verify;

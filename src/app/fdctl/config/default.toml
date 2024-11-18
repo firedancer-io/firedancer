@@ -928,6 +928,12 @@ dynamic_port_range = "8900-9000"
     # transactions, making sure that the data is well-formed, and that
     # it is signed by the appropriate private key.
     [tiles.verify]
+        # The verify tiles have a cache of signatures they have seen
+        # recently, used to discard duplicate transactions before they
+        # get verified to save signature verification resources.  See
+        # [tiles.dedup.signature_cache_size] below for more information.
+        signature_cache_size = 4194302
+
         # The maximum number of messages in-flight between a QUIC tile
         # and associated verify tile, after which earlier messages might
         # start being overwritten, and get dropped so that the system
@@ -949,7 +955,10 @@ dynamic_port_range = "8900-9000"
         # is available, it can make sense to increase this cache size to
         # protect against denial of service from high volumes of
         # transaction spam.
-        signature_cache_size = 4194302
+        #
+        # The default value here, 2^26 - 2 is a good balance, as it fits
+        # in 1GiB of memory using a single gigantic page.
+        signature_cache_size = 33554430
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
