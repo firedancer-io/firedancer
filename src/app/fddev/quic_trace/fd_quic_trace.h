@@ -20,4 +20,23 @@ extern ulong ** fd_quic_trace_target_fseq;
 
 extern fd_topo_run_tile_t fd_tile_quic_trace_rx;
 
+
+struct fd_quic_trace_frame_ctx {
+  ulong  conn_id;
+  uint   src_ip;
+  ushort src_port;
+  ulong  pkt_num;
+};
+
+typedef struct fd_quic_trace_frame_ctx fd_quic_trace_frame_ctx_t;
+
+FD_PROTOTYPES_BEGIN
+
+void
+fd_quic_trace_frames( fd_quic_trace_frame_ctx_t * context,
+                      uchar const * data,
+                      ulong         data_sz );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h */

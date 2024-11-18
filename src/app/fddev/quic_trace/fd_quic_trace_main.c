@@ -105,6 +105,7 @@ quic_trace_cmd_fn( args_t *         args,
 
   /* Join net->quic link consumer */
 
+  FD_LOG_NOTICE(( "quic-trace starting ..." ));
   fd_topo_run_tile_t * rx_tile = &fd_tile_quic_trace_rx;
   rx_tile->privileged_init( topo, quic_tile );
   rx_tile->run( topo, quic_tile );

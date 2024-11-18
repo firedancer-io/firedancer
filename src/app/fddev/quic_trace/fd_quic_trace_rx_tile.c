@@ -61,7 +61,8 @@ static void
 fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
                     uchar * data,
                     ulong   data_sz,
-                    uint    ip4_saddr ) {
+                    uint    ip4_saddr,
+                    ushort  udp_sport ) {
   fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
   fd_quic_t *          quic     = ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
@@ -80,14 +81,22 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pkt_number_off, keys );
   if( hdr_err!=FD_QUIC_SUCCESS ) return;
 
-  ulong pkt_number = fd_quic_pktnum_decode( data+9UL, fd_quic_h0_pkt_num_len( data[0] )+1u );
+  ulong pkt_num_sz = fd_quic_h0_pkt_num_len( data[0] )+1u;
+  ulong pkt_number = fd_quic_pktnum_decode( data+9UL, pkt_num_sz );
   int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pkt_number_off, pkt_number, keys );
   if( crypt_err!=FD_QUIC_SUCCESS ) return;
 
-  static FD_TL ulong trace;
-  if( trace++ % 4096 == 0 ) {
-    FD_LOG_NOTICE(( "ip4=" FD_IP4_ADDR_FMT " conn=%016lx", FD_IP4_ADDR_FMT_ARGS( ip4_saddr ), dst_conn_id ));
-  }
+  ulong hdr_sz  = pkt_number_off + pkt_num_sz;
+  ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
+
+  fd_quic_trace_frame_ctx_t frame_ctx = {
+    .conn_id  = dst_conn_id,
+    .pkt_num  = pkt_number,
+    .src_ip   = ip4_saddr,
+    .src_port = udp_sport,
+  };
+  fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
 
   (void)ip4_saddr; (void)conn;
 }
@@ -96,11 +105,12 @@ static void
 fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
                    uchar *         data,
                    ulong           data_sz,
-                   uint            ip4_saddr ) {
+                   uint            ip4_saddr,
+                   ushort          udp_sport ) {
   /* FIXME: for now, only handle 1-RTT */
   int is_long = fd_quic_h0_hdr_form( data[0] );
   if( is_long ) return;
-  fd_quic_trace_1rtt( ctx, data, data_sz, ip4_saddr );
+  fd_quic_trace_1rtt( ctx, data, data_sz, ip4_saddr, udp_sport );
 }
 
 static void
@@ -139,8 +149,9 @@ after_frag( void * _ctx FD_FN_UNUSED,
   if( FD_UNLIKELY( cur>end ) ) return;
   (void)udp_hdr;
 
-  uint ip4_saddr = fd_uint_load_4( ip4_hdr->saddr_c );
-  fd_quic_trace_pkt( ctx, cur, (ulong)( end-cur ), ip4_saddr );
+  uint   ip4_saddr = fd_uint_load_4( ip4_hdr->saddr_c );
+  ushort udp_sport = fd_ushort_bswap( udp_hdr->net_sport );
+  fd_quic_trace_pkt( ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport );
 }
 
 
