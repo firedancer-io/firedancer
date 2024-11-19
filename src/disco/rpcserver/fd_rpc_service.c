@@ -2,12 +2,12 @@
 #include "fd_methods.h"
 #include "fd_webserver.h"
 #include "base_enc.h"
-#include "../types/fd_types.h"
-#include "../types/fd_solana_block.pb.h"
-#include "../runtime/fd_runtime.h"
-#include "../runtime/fd_acc_mgr.h"
-#include "../runtime/sysvar/fd_sysvar_rent.h"
-#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "keywords.h"
@@ -2557,14 +2557,14 @@ fd_rpc_acct_map_purge( fd_rpc_global_ctx_t * glob ) {
 }
 
 void
-replay_sham_link_during_frag( fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * state, void const * msg, int sz ) {
+fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * state, void const * msg, int sz ) {
   (void)ctx;
   FD_TEST( sz == (int)sizeof(fd_replay_notif_msg_t) );
   fd_memcpy(state, msg, sizeof(fd_replay_notif_msg_t));
 }
 
 void
-replay_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
+fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
   fd_rpc_global_ctx_t * subs = ctx->global;
 
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
@@ -2641,13 +2641,13 @@ replay_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 }
 
 void
-stake_sham_link_during_frag( fd_rpc_ctx_t * ctx, fd_stake_ci_t * state, void const * msg, int sz ) {
+fd_rpc_stake_during_frag( fd_rpc_ctx_t * ctx, fd_stake_ci_t * state, void const * msg, int sz ) {
   (void)ctx; (void)sz;
   fd_stake_ci_stake_msg_init( state, msg );
 }
 
 void
-stake_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state) {
+fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state) {
   (void)ctx;
   fd_stake_ci_stake_msg_fini( state );
 }

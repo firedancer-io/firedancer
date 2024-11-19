@@ -4,17 +4,17 @@
 #include <zstd.h>
 #include <errno.h>
 #include "../../util/fd_util.h"
-#include "../nanopb/pb_decode.h"
+#include "../../flamenco/nanopb/pb_decode.h"
 #include "fd_webserver.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/zstd/fd_zstd.h"
-#include "../types/fd_types.h"
-#include "../types/fd_solana_block.pb.h"
-#include "../runtime/fd_blockstore.h"
-#include "../runtime/fd_executor_err.h"
-#include "../runtime/fd_system_ids.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/fd_executor_err.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "fd_block_to_json.h"
 #include "fd_stub_to_json.h"
 

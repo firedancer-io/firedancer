@@ -1,5 +1,5 @@
 #include "fd_webserver.h"
-#include "../types/fd_types_meta.h"
+#include "../../flamenco/types/fd_types_meta.h"
 
 struct fd_rpc_json;
 typedef struct fd_rpc_json fd_rpc_json_t;
