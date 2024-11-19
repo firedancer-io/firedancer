@@ -107,7 +107,8 @@ fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
   fd_pubkey_t const * pubkey        = prog_acc->pubkey;
   fd_pubkey_t const * owner         = (fd_pubkey_t const *)prog_acc->const_meta->info.owner;
 
-  /* Native programs should be owned by the native loader... */
+  /* Native programs should be owned by the native loader...
+     This will not be the case though once core programs are migrated to BPF. */
   int is_native_program = !memcmp( owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) );
   if( FD_UNLIKELY( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t) ) &&
                    !memcmp( owner,  fd_solana_system_program_id.key,             sizeof(fd_pubkey_t) ) ) ) {

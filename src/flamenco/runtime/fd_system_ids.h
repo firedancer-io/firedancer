@@ -41,6 +41,12 @@ extern const fd_pubkey_t fd_solana_spl_token_id;
 extern const fd_pubkey_t fd_solana_zk_token_proof_program_id;
 extern const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id;
 
+/* Buffer accounts for BPF migrations
+   https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L146-L156 */
+extern const fd_pubkey_t fd_solana_address_lookup_table_program_buffer_address;
+extern const fd_pubkey_t fd_solana_config_program_buffer_address;
+extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
+
 /* fd_pubkey_is_{pending, active}_reserved_key checks to see if the pubkey is
    a reserved account. They return 1 if the pubkey is in the list, and 
    0 otherwise.

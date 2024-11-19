@@ -202,11 +202,14 @@
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4"},
   {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
   {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"},
-  {"name": "enable_secp256r1_precompile","pubkey":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"},
-  {"name": "get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq"},
-  {"name": "disable_sbpf_v0_execution", "pubkey": "XTestFeature1111111111111111111111111111111","comment":"IMPORTANT: NEED REKEY"},
-  {"name": "reenable_sbpf_v0_execution", "pubkey": "TestFeature21111111111111111111111111111111","comment":"for test only"},
-  {"name": "enable_sbpf_v1_deployment_and_execution", "pubkey": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG"},
-  {"name": "enable_sbpf_v2_deployment_and_execution", "pubkey": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP"},
-  {"name": "enable_sbpf_v3_deployment_and_execution", "pubkey": "C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw"}
+  {"name":"enable_secp256r1_precompile","pubkey":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"},
+  {"name":"get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq"},
+  {"name":"disable_sbpf_v0_execution", "pubkey": "XTestFeature1111111111111111111111111111111","comment":"IMPORTANT: NEED REKEY"},
+  {"name":"reenable_sbpf_v0_execution", "pubkey": "TestFeature21111111111111111111111111111111","comment":"for test only"},
+  {"name":"enable_sbpf_v1_deployment_and_execution", "pubkey": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG"},
+  {"name":"enable_sbpf_v2_deployment_and_execution", "pubkey": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP"},
+  {"name":"enable_sbpf_v3_deployment_and_execution", "pubkey": "C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw"},
+  {"name":"migrate_feature_gate_program_to_core_bpf","pubkey":"4eohviozzEeivk1y9UbrnekbAFMDQyJz5JjA9Y6gyvky"},
+  {"name":"migrate_config_program_to_core_bpf","pubkey":"2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV"},
+  {"name":"migrate_address_lookup_table_program_to_core_bpf","pubkey":"C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm"}
 ]
