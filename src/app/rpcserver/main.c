@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -33,6 +34,14 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
   if( args->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
+  }
+
+  char const * blockstore_file = fd_env_strip_cmdline_cstr( argc, argv, "--blockstore-file", NULL, NULL );
+  if( FD_UNLIKELY( !blockstore_file ))
+    FD_LOG_ERR(( "--blockstore-file argument is required" ));
+  args->blockstore_fd = open( blockstore_file, O_RDONLY );
+  if( args->blockstore_fd == -1 ) {
+    FD_LOG_ERR(( "failed to open blockstore file" ));
   }
 
   const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );

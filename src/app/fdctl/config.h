@@ -147,6 +147,17 @@ typedef struct {
   } hugetlbfs;
 
   struct {
+    ulong shred_max;
+    ulong block_max;
+    ulong idx_max;
+    ulong txn_max;
+    ulong alloc_max;
+    char  file[PATH_MAX];
+    char  checkpt[PATH_MAX];
+    char  restore[PATH_MAX];
+  } blockstore;
+
+  struct {
     int sandbox;
     int no_clone;
     int no_agave;
@@ -267,8 +278,6 @@ typedef struct {
     } repair;
 
     struct {
-      char  blockstore_checkpt[ PATH_MAX ];
-      int   blockstore_publish;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       ulong funk_rec_max;
@@ -287,11 +296,6 @@ typedef struct {
     } replay;
 
     struct {
-      ulong blockstore_shred_max;
-      ulong blockstore_block_max;
-      ulong blockstore_txn_max;
-      ulong blockstore_alloc_max;
-      char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];

@@ -1,5 +1,7 @@
 /* Repair tile runs the repair protocol for a Firedancer node. */
 
+#include <fcntl.h>
+#include <unistd.h>
 #define _GNU_SOURCE
 
 #include "../../../../disco/tiles.h"
@@ -35,6 +37,8 @@ struct fd_rpcserv_tile_ctx {
   fd_wksp_t * stake_ci_in_mem;
   ulong       stake_ci_in_chunk0;
   ulong       stake_ci_in_wmark;
+
+  int blockstore_fd;
 };
 typedef struct fd_rpcserv_tile_ctx fd_rpcserv_tile_ctx_t;
 
@@ -161,13 +165,14 @@ privileged_init( fd_topo_t *      topo,
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
   void * alloc_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   void * stake_ci_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
+  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_rpcserv_tile_ctx_t) );
 
   if( FD_UNLIKELY( !strcmp( tile->rpcserv.identity_key_path, "" ) ) )
     FD_LOG_ERR( ( "identity_key_path not set" ) );
   ctx->identity_key[0] = *(fd_pubkey_t const *) fd_type_pun_const( fd_keyload_load( tile->rpcserv.identity_key_path, /* pubkey only: */ 1 ) );
 
   fd_rpcserver_args_t * args = &ctx->args;
-  fd_memset( args, 0, sizeof(args) );
+  fd_memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
   args->offline = 0;
   args->params = RPCSERV_HTTP_PARAMS;
@@ -188,6 +193,7 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
   args->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
   FD_TEST( args->blockstore!=NULL );
+  ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDONLY );
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
   if( FD_UNLIKELY( !alloc_shalloc ) ) {
@@ -199,6 +205,7 @@ privileged_init( fd_topo_t *      topo,
   args->valloc = fd_alloc_virtual( alloc );
 
   fd_rpc_create_ctx( args, &ctx->ctx );
+
 
   /* Wait until after replay tile boots before starting service */
 }
@@ -255,9 +262,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpcserv_tile_ctx_t ), sizeof( fd_rpcserv_tile_ctx_t ) );
+  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_rpcserv_tile_ctx_t) );
 
-  populate_sock_filter_policy_rpcserv( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ) );
+  populate_sock_filter_policy_rpcserv( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ), (uint)ctx->blockstore_fd );
   return sock_filter_policy_rpcserv_instr_cnt;
 }
 
@@ -268,7 +276,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpcserv_tile_ctx_t ), sizeof( fd_rpcserv_tile_ctx_t ) );
+  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_rpcserv_tile_ctx_t) );
 
   if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
@@ -277,6 +286,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_rpc_ws_fd( ctx->ctx ); /* listen socket */
+  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
   return out_cnt;
 }
 

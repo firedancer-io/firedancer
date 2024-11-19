@@ -167,7 +167,6 @@ struct fd_replay_tile_ctx {
   ulong       stake_weights_out_chunk;
 
   char const * blockstore_checkpt;
-  int          blockstore_publish;
   int          tx_metadata_storage;
   char const * funk_checkpt;
   char const * genesis;
@@ -194,7 +193,8 @@ struct fd_replay_tile_ctx {
 
   /* Depends on store_int and is polled in after_credit */
 
-  fd_blockstore_t *     blockstore;
+  fd_blockstore_t * blockstore;
+  int               blockstore_fd; /* file descriptor for archival file */
 
   /* Updated during execution */
 
@@ -544,14 +544,9 @@ typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
 static void
 blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
-  if( FD_LIKELY( ctx->blockstore_publish ) ) {
-    fd_blockstore_start_write( ctx->blockstore );
-    int rc = fd_blockstore_publish( ctx->blockstore, smr );
-    if( rc != FD_BLOCKSTORE_OK ) {
-      FD_LOG_WARNING(( "err %d when publishing blockstore", rc ));
-    }
-    fd_blockstore_end_write( ctx->blockstore );
-  }
+  fd_blockstore_start_write( ctx->blockstore );
+  fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, smr );
+  fd_blockstore_end_write( ctx->blockstore );
 }
 
 static void
@@ -565,11 +560,6 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
   xid.ul[0]                = smr;
   fd_funk_txn_t * txn_map  = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * root_txn = fd_funk_txn_query( &xid, txn_map );
-  if( root_txn==NULL ) {
-    memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
-    xid.ul[0] = smr;
-    root_txn = fd_funk_txn_query( &xid, txn_map );
-  }
 
   for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
     fd_tpool_wait( ctx->tpool, i+1 );
@@ -1039,7 +1029,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-        FD_LOG_ERR(("block finished failed"));
+        FD_LOG_ERR(( "block finished failed" ));
       }
 
       // Notify for updated slot info
@@ -1115,7 +1105,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
         /* Only proceed with voting if we're caught up. */
 
-        FD_LOG_WARNING( ( "still catching up. not voting." ) );
+        FD_LOG_WARNING(( "still catching up. not voting." ));
       } else {
 
         /* Proceed according to how local and cluster are synchronized. */
@@ -1315,7 +1305,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-  fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, &ctx->slot_ctx->slot_bank );
   fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 
@@ -1351,7 +1341,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-    fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+    fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, &ctx->slot_ctx->slot_bank );
     fd_blockstore_end_write( ctx->slot_ctx->blockstore );
   }
   fd_fseq_update( ctx->smr, snapshot_slot );
@@ -1566,14 +1556,23 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
+  memset( ctx, 0, sizeof(fd_replay_tile_ctx_t) );
 
   FD_TEST( sizeof(ulong) == getrandom( &ctx->funk_seed, sizeof(ulong), 0 ) );
   FD_TEST( sizeof(ulong) == getrandom( &ctx->status_cache_seed, sizeof(ulong), 0 ) );
+
+  ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDWR | O_CREAT, 0666 );
+  if ( FD_UNLIKELY( ctx->blockstore_fd == -1 ) ) {
+    FD_LOG_ERR(( "failed to open or create blockstore archival file %s %d %d %s", tile->replay.blockstore_file, ctx->blockstore_fd, errno, strerror(errno) ));
+  }
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
+
+  FD_LOG_NOTICE(("finished unprivileged init"));
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   /**********************************************************************/
@@ -1584,7 +1583,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  memset( ctx, 0, sizeof(fd_replay_tile_ctx_t) );
   void * alloc_shmem         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   void * acc_mgr_shmem       = FD_SCRATCH_ALLOC_APPEND( l, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
@@ -1629,9 +1627,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->blockstore!=NULL );
 
   ulong status_cache_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
-  FD_TEST( status_cache_obj_id!=ULONG_MAX );
-  ctx->status_cache_wksp = topo->workspaces[ topo->objs[ status_cache_obj_id ].wksp_id ].wksp;
-  if( ctx->status_cache_wksp==NULL ) {
+  FD_TEST( status_cache_obj_id != ULONG_MAX );
+  ctx->status_cache_wksp = topo->workspaces[topo->objs[status_cache_obj_id].wksp_id].wksp;
+  if( ctx->status_cache_wksp == NULL ) {
     FD_LOG_ERR(( "no status cache wksp" ));
   }
 
@@ -1689,7 +1687,6 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ctx->blockstore_checkpt = tile->replay.blockstore_checkpt;
-  ctx->blockstore_publish = tile->replay.blockstore_publish;
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
   ctx->funk_checkpt       = tile->replay.funk_checkpt;
   ctx->genesis            = tile->replay.genesis;
@@ -1980,10 +1977,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  populate_sock_filter_policy_replay( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_replay_tile_ctx_t) );
+
+  populate_sock_filter_policy_replay( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
   return sock_filter_policy_replay_instr_cnt;
 }
 
@@ -1992,8 +1992,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_replay_tile_ctx_t) );
 
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
@@ -2001,6 +2004,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
   return out_cnt;
 }
 

@@ -5,7 +5,7 @@
 #                    endpoint, which is over TCP and does not use our
 #                    XDP program.  It uses regular kernel sockets, so
 #                    this is the socket file descriptor.
-unsigned int logfile_fd, unsigned int rpcserv_socket_fd
+unsigned int logfile_fd, unsigned int rpcserv_socket_fd, unsigned int blockstore_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -67,3 +67,9 @@ close: (not (or (eq (arg 0) 2)
 #
 # arg 2 is the timeout.
 poll: (eq (arg 2) 0)
+
+# blockstore: read archival file
+read: (eq (arg 0) blockstore_fd)
+
+# blockstore: lseek archival file
+lseek: (eq (arg 0) blockstore_fd)

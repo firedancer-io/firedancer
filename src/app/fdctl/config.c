@@ -262,7 +262,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("txn_max") ) + VAL("alloc_max");
+    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {

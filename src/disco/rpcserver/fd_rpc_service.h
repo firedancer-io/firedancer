@@ -20,6 +20,7 @@ struct fd_rpcserver_args {
   int                  offline;
   fd_funk_t *          funk;
   fd_blockstore_t *    blockstore;
+  int                  blockstore_fd;
   fd_stake_ci_t *      stake_ci;
   ushort               port;
   fd_http_server_params_t params;
