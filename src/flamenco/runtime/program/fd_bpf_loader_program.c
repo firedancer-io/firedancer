@@ -234,9 +234,9 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int * err ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the funk record here. */
-int
+static int
 deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                uchar * const         programdata,
+                uchar const *         programdata,
                 ulong                 programdata_size ) {
   int deploy_mode    = 1;
   int direct_mapping = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
@@ -361,7 +361,7 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 /* get_state() */
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/sdk/src/transaction_context.rs#L968-L972 */
 int
-fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t *               instr_ctx,
+fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t *                instr_ctx,
                                      fd_borrowed_account_t *             borrowed_acc,
                                      fd_bpf_upgradeable_loader_state_t * state ) {
     /* Check to see if the buffer account is already initialized */
@@ -886,8 +886,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       seeds[ 0UL ]    = (uchar *)new_program_id;
       ulong seed_sz   = sizeof(fd_pubkey_t);
       uchar bump_seed = 0;
-      err = fd_pubkey_find_program_address( instr_ctx, program_id, 1UL, seeds, &seed_sz, derived_address, &bump_seed );
+      err = fd_pubkey_find_program_address( program_id, 1UL, seeds, &seed_sz, derived_address, 
+                                            &bump_seed, &instr_ctx->txn_ctx->custom_err );
       if( FD_UNLIKELY( err ) ) {
+        /* TODO: We should handle these errors more gracefully instead of just killing the client (e.g. excluding the transaction
+           from the block). */
         FD_LOG_ERR(( "Unable to find a viable program address bump seed" )); // Solana panics, error code is undefined
         return err;
       }
@@ -937,7 +940,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* caller_program_id == program_id */
       fd_pubkey_t signers[ 1UL ];
-      err = fd_pubkey_derive_pda( instr_ctx, program_id, 1UL, seeds, &seed_sz, &bump_seed, signers );
+      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &seed_sz, &bump_seed, signers, &instr_ctx->txn_ctx->custom_err );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -956,7 +959,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
 
-      err = deploy_program( instr_ctx, (uchar*)buffer_data, buffer_data_len );
+      err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" )); // custom log
         return err;
@@ -1210,7 +1213,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
-      err = deploy_program( instr_ctx, (uchar*)buffer_data, buffer_data_len );
+      err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
@@ -1936,4 +1939,34 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     return execute( ctx, prog, is_deprecated );
   } FD_SCRATCH_SCOPE_END;
+}
+
+
+/* Public APIs */
+
+int
+fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
+                                     uchar const *        elf,
+                                     ulong                elf_sz ) {
+  /* Set up a dummy instr and txn context */
+  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ) );
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_setup_basic( txn_ctx );
+  txn_ctx->instr_stack_sz = 1;
+  fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr_stack[0];
+  *instr_ctx = (fd_exec_instr_ctx_t) {
+    .instr     = NULL,
+    .txn_ctx   = txn_ctx,
+    .epoch_ctx = txn_ctx->epoch_ctx,
+    .slot_ctx  = txn_ctx->slot_ctx,
+    .valloc    = fd_scratch_virtual(),
+    .acc_mgr   = txn_ctx->acc_mgr,
+    .funk_txn  = txn_ctx->funk_txn,
+    .parent    = NULL,
+    .index     = 0U,
+    .depth     = 0U,
+    .child_cnt = 0U,
+  };
+
+  return deploy_program( instr_ctx, elf, elf_sz );
 }
