@@ -85,6 +85,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       vm_ctx->rodata_text_section_length,
       0, /* entry_pc, not used in validate at the moment */
       NULL, /* calldests */
+      TEST_VM_DEFAULT_SBPF_VERSION,
       NULL, /* syscalls */
       NULL, /* trace */
       NULL, /* sha */
@@ -228,6 +229,7 @@ do{
     rodata_sz, /* text_sz */
     input->vm_ctx.entry_pc,
     calldests,
+    TEST_VM_DEFAULT_SBPF_VERSION,
     syscalls,
     trace, /* trace */
     NULL, /* sha */

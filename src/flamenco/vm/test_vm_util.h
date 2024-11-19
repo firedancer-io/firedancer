@@ -7,6 +7,8 @@
 
 #define TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX (0x7e787d5c6d662d23)
 
+#define TEST_VM_DEFAULT_SBPF_VERSION (1UL)
+
 fd_exec_instr_ctx_t *
 test_vm_minimal_exec_instr_ctx(
    fd_valloc_t valloc

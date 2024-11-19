@@ -29,6 +29,7 @@
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../../../ballet/pack/fd_pack.h"
 #include "fd_vm_test.h"
+#include "../../vm/test_vm_util.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -1585,7 +1586,7 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
 
   do{
 
-    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks ) ) ) {
+    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks, FD_SBPF_MAX_VERSION ) ) ) {
       /* return incomplete effects on execution failures */
       break;
     }
@@ -1745,6 +1746,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     0, // TODO, text_sz
     0, // TODO
     NULL, // TODO
+    TEST_VM_DEFAULT_SBPF_VERSION,
     syscalls,
     NULL, // TODO
     sha,

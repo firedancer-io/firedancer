@@ -18,6 +18,8 @@
 #define FD_SBPF_ERR_INVALID_ELF (1)
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
+#define FD_SBPF_MAX_VERSION (1UL)
+
 /* Program struct *****************************************************/
 
 /* fd_sbpf_calldests is a bit vector of valid call destinations.
@@ -103,6 +105,9 @@ struct fd_sbpf_elf_info {
 
   /* Bitmap of sections to be loaded (LSB => MSB) */
   ulong loaded_sections[ 1024UL ];
+
+  /* SBPF version, SIMD-0161 */
+  uint sbpf_version;
 };
 typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
@@ -148,13 +153,17 @@ FD_PROTOTYPES_BEGIN
    elf_deploy_checks: The Agave ELF loader introduced additional checks
    that would fail on (certain) existing mainnet programs. Since it is
    impossible to retroactively enforce these checks on already deployed programs,
-   a guard flag is used to enable these checks only when deploying programs. */
+   a guard flag is used to enable these checks only when deploying programs.
+
+   sbpf_max_version: determine the max SBPF version allowed, version
+   is retrieved from the ELF header. See SIMD-0161. */
 
 fd_sbpf_elf_info_t *
 fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                bin_sz,
-                  int                  elf_deploy_checks );
+                  int                  elf_deploy_checks,
+                  uint                 sbpf_max_version );
 
 /* fd_sbpf_program_{align,footprint} return the alignment and size
    requirements of the memory region backing the fd_sbpf_program_t

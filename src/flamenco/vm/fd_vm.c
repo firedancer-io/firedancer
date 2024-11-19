@@ -438,6 +438,7 @@ fd_vm_init(
    ulong text_sz,
    ulong entry_pc,
    ulong * calldests,
+   ulong sbpf_version,
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
    fd_sha256_t * sha,
@@ -479,6 +480,7 @@ fd_vm_init(
   vm->text_sz = text_sz;
   vm->entry_pc = entry_pc;
   vm->calldests = calldests;
+  vm->sbpf_version = sbpf_version;
   vm->syscalls = syscalls;
   vm->trace = trace;
   vm->sha = sha;
