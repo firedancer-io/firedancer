@@ -3578,6 +3578,55 @@ int fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a,
 #undef SORT_KEY_T
 #undef SORT_BERFORE
 
+/* fee to be deposited should be > 0
+   Returns 0 if validation succeeds
+   Returns the amount to burn(==fee) on failure */
+FD_FN_PURE
+static ulong fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const *    slot_ctx,
+                                                fd_borrowed_account_t const * collector,
+                                                ulong                         fee ) {
+  if( FD_UNLIKELY( fee<=0UL ) ) {
+    FD_LOG_ERR(( "expected fee(%lu) to be >0UL", fee ));
+  }
+
+  if( FD_UNLIKELY( memcmp( collector->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(collector->const_meta->info.owner) ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
+    FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", _out_key ));
+    return fee;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.23/runtime/src/bank/fee_distribution.rs#L111
+     https://github.com/anza-xyz/agave/blob/v1.18.23/runtime/src/accounts/account_rent_state.rs#L39
+     In agave's fee deposit code, rent state transition check logic is as follows:
+     The transition is NOT allowed iff
+     === BEGIN
+     the post deposit account is rent paying AND the pre deposit account is not rent paying
+     OR
+     the post deposit account is rent paying AND the pre deposit account is rent paying AND !(post_data_size == pre_data_size && post_lamports <= pre_lamports)
+     === END
+     post_data_size == pre_data_size is always true during fee deposit.
+     However, post_lamports > pre_lamports because we are paying a >0 amount.
+     So, the above reduces down to
+     === BEGIN
+     the post deposit account is rent paying AND the pre deposit account is not rent paying
+     OR
+     the post deposit account is rent paying AND the pre deposit account is rent paying AND TRUE
+     === END
+     This is equivalent to checking that the post deposit account is rent paying.
+     An account is rent paying if the post deposit balance is >0 AND it's not rent exempt.
+     We already know that the post deposit balance is >0 because we are paying a >0 amount.
+     So TLDR we just check if the account is rent exempt.
+   */
+  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->const_meta->dlen );
+  if( FD_UNLIKELY( collector->const_meta->info.lamports + fee < minbal ) ) {
+    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
+    FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
+    return fee;
+  }
+
+  return 0UL;
+}
+
 void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
                                                ulong rent_to_be_distributed ) {
 
@@ -3625,6 +3674,9 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
         break;
       }
 
+      /* Not using saturating sub because Agave doesn't.
+         https://github.com/anza-xyz/agave/blob/c88e6df566c5c17d71e9574785755683a8fb033a/runtime/src/bank/fee_distribution.rs#L207
+       */
       leftover_lamports--;
       validator_stakes[i].stake++;
     }
@@ -3640,31 +3692,25 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
         int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, rec );
         if( FD_UNLIKELY(err) ) {
           FD_LOG_WARNING(( "cannot view pubkey %s. fd_acc_mgr_view failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
-          leftover_lamports += rent_to_be_paid;
+          leftover_lamports = fd_ulong_sat_add( leftover_lamports, rent_to_be_paid );
           continue;
         }
 
-        if (validate_fee_collector_account) {
-          if (memcmp(rec->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->const_meta->info.owner)) != 0) {
-            FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", FD_BASE58_ENC_32_ALLOCA( &pubkey ) ));
-            leftover_lamports += rent_to_be_paid;
+        if( FD_LIKELY( validate_fee_collector_account ) ) {
+          ulong burn;
+          if( FD_UNLIKELY( burn=fd_runtime_validate_fee_collector( slot_ctx, rec, rent_to_be_paid ) ) ) {
+            if( FD_UNLIKELY( burn!=rent_to_be_paid ) ) {
+              FD_LOG_ERR(( "expected burn(%lu)==rent_to_be_paid(%lu)", burn, rent_to_be_paid ));
+            }
+            leftover_lamports = fd_ulong_sat_add( leftover_lamports, rent_to_be_paid );
             continue;
           }
-        }
-
-        // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
-
-        ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), rec->const_meta->dlen );
-        if( rec->const_meta->info.lamports + rent_to_be_paid < minbal ) {
-          FD_LOG_WARNING(("cannot pay a rent paying account (%s)", FD_BASE58_ENC_32_ALLOCA( &pubkey ) ));
-          leftover_lamports += rent_to_be_paid;
-          continue;
         }
 
         err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
         if( FD_UNLIKELY(err) ) {
           FD_LOG_WARNING(( "cannot modify pubkey %s. fd_acc_mgr_modify failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
-          leftover_lamports += rent_to_be_paid;
+          leftover_lamports = fd_ulong_sat_add( leftover_lamports, rent_to_be_paid );
           continue;
         }
         rec->meta->info.lamports += rent_to_be_paid;
@@ -3731,45 +3777,42 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
   if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
     fd_sysvar_fees_update(slot_ctx);
 
-  ulong fees = fd_ulong_sat_add (slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
+  ulong fees = 0UL;
+  ulong burn = 0UL;
+  if ( FD_FEATURE_ACTIVE( slot_ctx, reward_full_priority_fee ) ) {
+    ulong half_fee = slot_ctx->slot_bank.collected_execution_fees / 2;
+    fees = fd_ulong_sat_add( slot_ctx->slot_bank.collected_priority_fees, slot_ctx->slot_bank.collected_execution_fees - half_fee );
+    burn = half_fee;
+  } else {
+    ulong total_fees = fd_ulong_sat_add( slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
+    ulong half_fee = total_fees / 2;
+    fees = total_fees - half_fee;
+    burn = half_fee;
+  }
   if( FD_LIKELY( fees ) ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_BORROWED_ACCOUNT_DECL(rec);
 
-    int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->leader, 0, 0UL, rec );
-    if( FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS) ) {
-      FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( slot_ctx->leader ), err));
-      return;
-    }
-
     do {
-      if ( FD_FEATURE_ACTIVE( slot_ctx, validate_fee_collector_account ) ) {
-        if (memcmp(rec->meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->meta->info.owner)) != 0) {
-          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to invalid owner", fees ));
-          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
-          break;
-        }
-
-        uchar not_exempt = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), rec->meta->dlen ) > rec->meta->info.lamports;
-        if( not_exempt ) {
-          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to non-rent-exempt account", fees ));
-          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
-          break;
-        }
+      /* do_create=1 because we might wanna pay fees to a leader
+         account that we've purged due to 0 balance. */
+      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->leader, 1, 0UL, rec );
+      if( FD_UNLIKELY(err) ) {
+        FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( slot_ctx->leader ), err));
+        burn = fd_ulong_sat_add( burn, fees );
+        break;
       }
 
-      ulong fees = 0;
-      ulong burn = 0;
-
-      if ( FD_FEATURE_ACTIVE( slot_ctx, reward_full_priority_fee ) ) {
-        ulong half_fee = slot_ctx->slot_bank.collected_execution_fees / 2;
-        fees = fd_ulong_sat_add(slot_ctx->slot_bank.collected_priority_fees, slot_ctx->slot_bank.collected_execution_fees - half_fee);
-        burn = half_fee;
-      } else {
-        ulong total_fees = fd_ulong_sat_add(slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees);
-        ulong half_fee = total_fees / 2;
-        fees = total_fees - half_fee;
-        burn = half_fee;
+      if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, validate_fee_collector_account ) ) ) {
+        ulong _burn;
+        if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( slot_ctx, rec, fees ) ) ) {
+          if( FD_UNLIKELY( _burn!=fees ) ) {
+            FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
+          }
+          burn = fd_ulong_sat_add( burn, fees );
+          FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fees ));
+          break;
+        }
       }
 
       rec->meta->info.lamports += fees;
@@ -3781,11 +3824,11 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       blk->rewards.post_balance = rec->meta->info.lamports;
       memcpy( blk->rewards.leader.uc, slot_ctx->leader->uc, sizeof(fd_hash_t) );
       fd_blockstore_end_write( slot_ctx->blockstore );
+    } while(0);
 
-      ulong old = slot_ctx->slot_bank.capitalization;
-      slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);
-      FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, slot_ctx->slot_bank.capitalization));
-    } while (false);
+    ulong old = slot_ctx->slot_bank.capitalization;
+    slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);
+    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, slot_ctx->slot_bank.capitalization));
 
     slot_ctx->slot_bank.collected_execution_fees = 0;
     slot_ctx->slot_bank.collected_priority_fees = 0;
