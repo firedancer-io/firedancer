@@ -85,11 +85,9 @@ agave_boot( config_t const * config ) {
   if( !config->consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
   if( strcmp( config->consensus.expected_genesis_hash, "" ) )
     ADD( "--expected-genesis-hash", config->consensus.expected_genesis_hash );
-  if( config->consensus.wait_for_supermajority_at_slot ) {
-    ADDU( "--wait-for-supermajority", config->consensus.wait_for_supermajority_at_slot );
-    if( strcmp( config->consensus.expected_bank_hash, "" ) )
-      ADD( "--expected-bank-hash", config->consensus.expected_bank_hash );
-  }
+  ADDU( "--wait-for-supermajority", config->consensus.wait_for_supermajority_at_slot );
+  if( strcmp( config->consensus.expected_bank_hash, "" ) )
+    ADD( "--expected-bank-hash", config->consensus.expected_bank_hash );
   if( config->consensus.expected_shred_version )
     ADDH( "--expected-shred-version", config->consensus.expected_shred_version );
   if( !config->consensus.wait_for_vote_to_start_leader )
