@@ -382,7 +382,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
    an ACK instantly, ACK_FLAG_CANCEL suppresses the ACK by making this
    function behave like a no-op)  */
 
-void
+int
 fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
                       fd_quic_conn_t *      conn,
                       fd_quic_pkt_t const * pkt );

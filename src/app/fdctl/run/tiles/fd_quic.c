@@ -4,9 +4,6 @@
 
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../waltz/quic/fd_quic.h"
-#include "../../../../waltz/xdp/fd_xsk_aio.h"
-#include "../../../../waltz/xdp/fd_xsk.h"
-#include "../../../../waltz/ip/fd_netlink.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
 #include <linux/unistd.h>
@@ -198,6 +195,8 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(  QUIC, STREAM_STALE_EVENTS,    ctx->quic->metrics.stream_stale_event_cnt );
 
   FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES, ctx->quic->metrics.frame_rx_cnt );
+
+  FD_MCNT_ENUM_COPY( QUIC, ACK_TX, ctx->quic->metrics.ack_tx );
 
   FD_MHIST_COPY( QUIC, SERVICE_DURATION_SECONDS, ctx->quic->metrics.service_duration );
   FD_MHIST_COPY( QUIC, RECEIVE_DURATION_SECONDS, ctx->quic->metrics.receive_duration );

@@ -240,6 +240,14 @@ metric introduced.
   <int value="4" name="ConnAbort" label="connection abort" />
 </enum>
 
+<enum name="QuicAckTx">
+  <int value="0" name="Noop" label="non-ACK-eliciting packet" />
+  <int value="1" name="New" label="new ACK range" />
+  <int value="2" name="Merged" label="merged into existing ACK range" />
+  <int value="3" name="Drop" label="out of buffers" />
+  <int value="4" name="Cancel" label="ACK suppressed by handler" />
+</enum>
+
 <group name="Quic" tile="quic">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
@@ -270,6 +278,9 @@ metric introduced.
     <counter name="StreamStaleEvents" summary="Number of stream frames dropped due to stale stream ID." />
 
     <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
+
+    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
+
     <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent in service</summary>
     </histogram>

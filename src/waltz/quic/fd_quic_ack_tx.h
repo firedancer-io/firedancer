@@ -82,11 +82,18 @@ fd_quic_ack_gen_init( fd_quic_ack_gen_t * ack_gen ) {
 
 /* fd_quic_ack_pkt queues a processed packet for acknowledgement. */
 
-void
+int
 fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
                  ulong               pkt_number,
                  uint                enc_level,
                  ulong               now );
+
+#define FD_QUIC_ACK_TX_NOOP   (0)
+#define FD_QUIC_ACK_TX_NEW    (1)
+#define FD_QUIC_ACK_TX_MERGED (2)
+#define FD_QUIC_ACK_TX_ENOSPC (3)
+#define FD_QUIC_ACK_TX_CANCEL (4)
+#define FD_QUIC_ACK_TX_CNT    (5)
 
 /* fd_quic_ack_queue_ele returns the ack_queue element indexed by a
    sequence number. */
