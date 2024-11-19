@@ -285,6 +285,9 @@ do{
   } else {
     exec_res = fd_vm_exec_notrace( vm );
   }
+
+  /* Agave does not have a SIGCALL error, and instead throws SIGILL */
+  if( exec_res == FD_VM_ERR_SIGCALL ) exec_res = FD_VM_ERR_SIGILL;
   effects->error = -1 * exec_res;
 
   /* Capture outputs */
