@@ -86,11 +86,9 @@ fd_topo_initialize( config_t * config ) {
 
   int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
   int is_agave_auto_affinity = !strcmp( config->layout.agave_affinity, "auto" );
-  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
 
-  if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ||
-                   is_auto_affinity != is_bench_auto_affinity ) ) {
-    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
+  if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ) ) {
+    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [layout.agave_affinity] must both be set to 'auto' or both be set to a specific CPU affinity string." ));
   }
 
   ulong affinity_tile_cnt = 0UL;
