@@ -119,8 +119,10 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   // TODO/FIXME: this check causes issues with some metadata writes
 
   fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-  if( metadata->magic != FD_ACCOUNT_META_MAGIC )
+  if( metadata->magic != FD_ACCOUNT_META_MAGIC ) {
+    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
     return NULL;
+  }
 
   return metadata;
 }
@@ -223,8 +225,10 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
     fd_account_meta_init( ret );
   }
 
-  if( ret->magic != FD_ACCOUNT_META_MAGIC )
-    FD_LOG_ERR(( "bad magic" ));
+  if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
+    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
+    return NULL;
+  }
 
   return ret;
 }
