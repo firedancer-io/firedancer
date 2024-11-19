@@ -211,9 +211,7 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t *       ctx,
 }
 
 void
-fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * txn_ctx,
-                       fd_txn_t      const * txn_descriptor,
-                       fd_rawtxn_b_t const * txn_raw ) {
+fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->compute_unit_limit = 200000;
   txn_ctx->compute_unit_price = 0;
   txn_ctx->compute_meter      = 200000;
@@ -228,10 +226,6 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * txn_ctx,
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
   txn_ctx->accounts_resize_delta = 0;
   txn_ctx->collected_rent     = 0UL;
-
-  txn_ctx->txn_descriptor = txn_descriptor;
-  txn_ctx->_txn_raw->raw = txn_raw->raw;
-  txn_ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
 
   txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
@@ -250,6 +244,16 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * txn_ctx,
   txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
   
   txn_ctx->has_program_id = 0;
+}
+
+void
+fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * txn_ctx,
+                       fd_txn_t      const * txn_descriptor,
+                       fd_rawtxn_b_t const * txn_raw ) {
+  fd_exec_txn_ctx_setup_basic( txn_ctx );
+  txn_ctx->txn_descriptor   = txn_descriptor;
+  txn_ctx->_txn_raw->raw    = txn_raw->raw;
+  txn_ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
 }
 
 void

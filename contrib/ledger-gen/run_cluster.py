@@ -43,7 +43,7 @@ def parse_genesis_output(output):
 
 async def run_genesis(output_dir, solana_source_directory, tick_duration):
     process = await asyncio.create_subprocess_shell(
-        f"{solana_binary('solana-genesis', solana_source_directory)} --cluster-type mainnet-beta --ledger node-ledger-0 --bootstrap-validator 'keys-0/id.json' 'keys-0/vote.json' 'keys-0/stake.json' --bootstrap-stake-authorized-pubkey 'keys-0/id.json' --bootstrap-validator-lamports 10000000000 --bootstrap-validator-stake-lamports 32282880 --faucet-pubkey 'faucet.json' --faucet-lamports 5000000000000000 --hashes-per-tick sleep --target-tick-duration {tick_duration} --slots-per-epoch 128",
+        f"{solana_binary('solana-genesis', solana_source_directory)} --cluster-type testnet --ledger node-ledger-0 --bootstrap-validator 'keys-0/id.json' 'keys-0/vote.json' 'keys-0/stake.json' --bootstrap-stake-authorized-pubkey 'keys-0/id.json' --bootstrap-validator-lamports 10000000000 --bootstrap-validator-stake-lamports 32282880 --faucet-pubkey 'faucet.json' --faucet-lamports 5000000000000000 --hashes-per-tick sleep --target-tick-duration {tick_duration} --slots-per-epoch 128",
          stdout=asyncio.subprocess.PIPE,
          stderr=asyncio.subprocess.PIPE,
          cwd=output_dir)
@@ -234,8 +234,8 @@ async def main():
     parser.add_argument("--solana-source-directory", required=True, type=str, help="Absolute path to the Solana checkout")
     parser.add_argument("--skip-build-solana", action='store_false', help="Skip solana build")
     parser.add_argument("--solana-cluster-nodes", required=False, type=int, help="Number of nodes to use for the multi-node Solana cluster")
-    parser.add_argument("--tick-duration", required=False, type=int, help="Duration of ticks", default=100000)
-    parser.add_argument("--snapshot-interval", required=False, type=int, help="Interval between snapshots", default=10)
+    parser.add_argument("--tick-duration", required=False, type=int, help="Duration of ticks", default=1000)
+    parser.add_argument("--snapshot-interval", required=False, type=int, help="Interval between snapshots", default=500)
     parser.add_argument("--snapshots-to-retain", required=False, type=int, help="Number of snapshots to retain", default=20)
     parser.add_argument("--output-dir", required=True, type=str, help="Output directory where validator keys and ledgers are written to")
     args = parser.parse_args()
