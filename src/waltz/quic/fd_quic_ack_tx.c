@@ -20,13 +20,13 @@ fd_quic_range_extend( fd_quic_range_t * range,
   return lo_decreased || hi_increased;
 }
 
-void
+int
 fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
                  ulong               pkt_number,
                  uint                enc_level,
                  ulong               now ) {
 
-  if( pkt_number == FD_QUIC_PKT_NUM_UNUSED ) return;
+  if( pkt_number == FD_QUIC_PKT_NUM_UNUSED ) return FD_QUIC_ACK_TX_NOOP;
 
   /* Can we merge pkt_number into the most recent ACK? */
   uint            cached_seq = gen->head - 1U;
@@ -49,15 +49,14 @@ fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
 
     FD_ACK_DEBUG( FD_LOG_DEBUG(( "gen=%p queue ACK for enc=%u pkt_num=%lu range=[%lu,%lu) seq=%u (merged)",
         (void *)gen, enc_level, pkt_number, cached_ack->pkt_number.offset_lo, cached_ack->pkt_number.offset_hi, cached_seq )); )
-    return;
+    return FD_QUIC_ACK_TX_MERGED;
 
   }
 
   /* Attempt to allocate another ACK queue entry */
   if( gen->head - gen->tail >= FD_QUIC_ACK_QUEUE_CNT ) {
     FD_DEBUG( FD_LOG_DEBUG(( "ACK queue overflow! (excessive reordering)" )); )
-    /* FIXME count to metrics */
-    return;
+    return FD_QUIC_ACK_TX_ENOSPC;
   }
 
   /* Start new pending ACK */
@@ -70,6 +69,7 @@ fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
     .ts         = now
   };
   gen->head += 1U;
+  return FD_QUIC_ACK_TX_NEW;
 }
 
 void

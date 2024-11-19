@@ -1,6 +1,9 @@
+#include "../fd_quic.h"
 #include "../fd_quic_ack_tx.h"
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
+
+FD_STATIC_ASSERT( sizeof( ((fd_quic_metrics_t *)NULL)->ack_tx )==FD_QUIC_ACK_TX_CNT*sizeof(ulong), ack_tx );
 
 int
 main( int     argc,

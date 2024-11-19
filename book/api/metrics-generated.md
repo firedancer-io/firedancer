@@ -102,6 +102,11 @@
 | quic_&#8203;received_&#8203;frames_&#8203;handshake_&#8203;done | `counter` | Number of QUIC frames received. (HANDSHAKE_DONE frame) |
 | quic_&#8203;received_&#8203;frames_&#8203;ping | `counter` | Number of QUIC frames received. (PING frame) |
 | quic_&#8203;received_&#8203;frames_&#8203;padding | `counter` | Number of QUIC frames received. (PADDING frame) |
+| quic_&#8203;ack_&#8203;tx_&#8203;noop | `counter` | ACK events (non-ACK-eliciting packet) |
+| quic_&#8203;ack_&#8203;tx_&#8203;new | `counter` | ACK events (new ACK range) |
+| quic_&#8203;ack_&#8203;tx_&#8203;merged | `counter` | ACK events (merged into existing ACK range) |
+| quic_&#8203;ack_&#8203;tx_&#8203;drop | `counter` | ACK events (out of buffers) |
+| quic_&#8203;ack_&#8203;tx_&#8203;cancel | `counter` | ACK events (ACK suppressed by handler) |
 | quic_&#8203;service_&#8203;duration_&#8203;seconds | `histogram` | Duration spent in service |
 | quic_&#8203;receive_&#8203;duration_&#8203;seconds | `histogram` | Duration spent receiving packets |
 

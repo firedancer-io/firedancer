@@ -1884,14 +1884,16 @@ fd_quic_handle_v1_zero_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt
   return FD_QUIC_PARSE_FAIL;
 }
 
-void
+int
 fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
                       fd_quic_conn_t *      conn,
                       fd_quic_pkt_t const * pkt ) {
-  if( pkt->ack_flag & ACK_FLAG_CANCEL ) return;
+  if( pkt->ack_flag & ACK_FLAG_CANCEL ) {
+    return FD_QUIC_ACK_TX_CANCEL;
+  }
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  fd_quic_ack_pkt( conn->ack_gen, pkt->pkt_number, pkt->enc_level, state->now );
+  int res = fd_quic_ack_pkt( conn->ack_gen, pkt->pkt_number, pkt->enc_level, state->now );
   conn->ack_gen->is_elicited |= fd_uchar_if( pkt->ack_flag & ACK_FLAG_RQD, 1, 0 );
 
   /* Trigger immediate ACK send? */
@@ -1908,6 +1910,8 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
     svc_type = FD_QUIC_SVC_ACK_TX;
   }
   fd_quic_svc_schedule( state, conn, svc_type );
+
+  return res;
 }
 
 ulong
@@ -2186,7 +2190,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   cur_ptr += rc;
 
   /* if we get here we parsed all the frames, so ack the packet */
-  fd_quic_lazy_ack_pkt( quic, conn, pkt );
+  int ack_type = fd_quic_lazy_ack_pkt( quic, conn, pkt );
+  quic->metrics.ack_tx[ ack_type ]++;
 
   /* return bytes consumed */
   return (ulong)( cur_ptr - orig_ptr );
