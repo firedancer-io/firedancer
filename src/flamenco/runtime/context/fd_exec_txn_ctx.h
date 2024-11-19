@@ -158,10 +158,16 @@ fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );
 void *
 fd_exec_txn_ctx_delete( void * mem );
 
+/* Sets up a basic transaction ctx without a txn descriptor or txn raw. Useful
+   for mocking transaction context objects for instructions. */
+void 
+fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx );
+
 void
 fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
                        fd_txn_t const * txn_descriptor,
                        fd_rawtxn_b_t const * txn_raw );
+
 void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
                                     fd_exec_txn_ctx_t * txn_ctx );
