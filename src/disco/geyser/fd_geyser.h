@@ -114,6 +114,7 @@ typedef void (*fd_geyser_acct_fun)(ulong slot, uchar txn_sig[64U], fd_hash_t con
 struct fd_geyser_args {
   const char * funk_file;                    /* Shared memory backing file of account database */
   const char * blockstore_wksp;              /* Name of blockstore workspace */
+  int          blockstore_fd;                /* File descriptor of blockstore */
 
   void * fun_arg;                            /* Generic callback argument */
 

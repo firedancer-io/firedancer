@@ -82,10 +82,11 @@ struct fd_store_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
 
-  fd_pubkey_t          identity_key[1]; /* Just the public key */
+  fd_pubkey_t identity_key[1]; /* Just the public key */
 
-  fd_store_t * store;
+  fd_store_t *      store;
   fd_blockstore_t * blockstore;
+  int               blockstore_fd; /* file descriptor for archival file */
 
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
@@ -455,7 +456,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
           fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
           insert->iter = iter;
         } else {
-          FD_LOG_WARNING(("FINISHED BLOCK %lu", slot ));
           replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
         }
         FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), txn_cnt, block->shreds_cnt ));
@@ -539,11 +539,13 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_store_tile_ctx_t) );
 
   if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->blockstore_fd = open( tile->store_int.blockstore_file, O_RDONLY );
 }
 
 static void
@@ -593,6 +595,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* root_slot fseq                                                     */
   /**********************************************************************/
+
   ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
   ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
@@ -624,7 +627,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_NOTICE(( "finished blockstore_wksp restore %s", tile->store_int.blockstore_restore ));
     fd_wksp_tag_query_info_t info;
     ulong tag = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.wksp_tag", blockstore_obj_id );
-    if (fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0) {
+    if( FD_LIKELY( fd_wksp_tag_query( ctx->blockstore_wksp, &tag, 1, &info, 1 ) > 0 ) ) {
       void * blockstore_mem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
       ctx->blockstore       = fd_blockstore_join( blockstore_mem );
     } else {
@@ -638,6 +641,8 @@ unprivileged_init( fd_topo_t *      topo,
 
     ctx->blockstore = fd_blockstore_join( blockstore_shmem );
   }
+
+  FD_LOG_NOTICE(( "blockstore: %s", tile->store_int.blockstore_file ));
 
   FD_TEST( ctx->blockstore );
   ctx->store->blockstore = ctx->blockstore;
@@ -761,7 +766,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_store_tile_ctx_t) );
+
+  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
   return sock_filter_policy_store_int_instr_cnt;
 }
 
@@ -770,15 +780,19 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_store_tile_ctx_t) );
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
-  out_fds[ out_cnt++ ] = 2; /* stderr */
+  out_fds[ out_cnt++ ] = STDERR_FILENO;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
   return out_cnt;
 }
 

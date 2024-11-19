@@ -221,11 +221,6 @@ typedef struct {
     } metric;
 
     struct {
-
-      /* specified by [tiles.replay] */
-
-      char  blockstore_checkpt[ PATH_MAX ];
-      int   blockstore_publish;
       int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
@@ -243,7 +238,7 @@ typedef struct {
       int   in_wen_restart;
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
 
-      /* not specified by [tiles.replay] */
+      /* not specified in TOML */
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
@@ -251,6 +246,9 @@ typedef struct {
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
+
+      char  blockstore_file[ PATH_MAX ];
+      char  blockstore_checkpt[ PATH_MAX ];
     } replay;
 
     struct {
@@ -304,11 +302,6 @@ typedef struct {
     } repair;
 
     struct {
-      ulong blockstore_shred_max;
-      ulong blockstore_block_max;
-      ulong blockstore_txn_max;
-      ulong blockstore_alloc_max;
-      char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
 
       ulong expected_shred_version;
@@ -320,6 +313,9 @@ typedef struct {
       char  shred_cap_replay[ PATH_MAX ];
 
       int   in_wen_restart;
+
+      char  blockstore_file[ PATH_MAX ];
+      char  blockstore_restore[ PATH_MAX ];
     } store_int;
 
     struct {
@@ -342,6 +338,7 @@ typedef struct {
       uint    tpu_ip_addr;
       char    identity_key_path[ PATH_MAX ];
     } rpcserv;
+
   };
 } fd_topo_tile_t;
 

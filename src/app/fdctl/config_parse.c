@@ -348,17 +348,24 @@ fdctl_pod_to_cfg( config_t * config,
 
   /* Firedancer-only configuration */
 
+  CFG_POP      ( ulong,  blockstore.shred_max                             );
+  CFG_POP      ( ulong,  blockstore.block_max                             );
+  CFG_POP      ( ulong,  blockstore.idx_max                               );
+  CFG_POP      ( ulong,  blockstore.txn_max                               );
+  CFG_POP      ( ulong,  blockstore.alloc_max                             );
+  CFG_POP      ( cstr,   blockstore.file                                  );
+  CFG_POP      ( cstr,   blockstore.checkpt                               );
+  CFG_POP      ( cstr,   blockstore.restore                               );
+
+  CFG_POP      ( bool,   consensus.vote                                   );
+
   CFG_POP_ARRAY( cstr,   tiles.gossip.entrypoints                         );
   CFG_POP      ( ushort, tiles.gossip.gossip_listen_port                  );
   CFG_POP_ARRAY( ushort, tiles.gossip.peer_ports                          );
 
-  CFG_POP      ( bool,   consensus.vote                                   );
-
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
 
-  CFG_POP      ( cstr,   tiles.replay.blockstore_checkpt                  );
-  CFG_POP      ( bool,   tiles.replay.blockstore_publish                  );
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( ulong,  tiles.replay.funk_rec_max                        );
@@ -375,11 +382,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   tiles.replay.in_wen_restart                      );
   CFG_POP      ( cstr,   tiles.replay.wen_restart_coordinator             );
 
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_shred_max             );
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_block_max              );
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_txn_max               );
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_alloc_max             );
-  CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );

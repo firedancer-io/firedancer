@@ -97,6 +97,7 @@ struct fd_rpc_global_ctx {
   fd_webserver_t ws;
   fd_funk_t * funk;
   fd_blockstore_t * blockstore;
+  int blockstore_fd;
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
   ulong sub_cnt;
   ulong last_subsc_id;
@@ -239,7 +240,7 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_funk_t * funk = ctx->global->funk;
 
   fd_block_map_t block_map_entry = { 0 };
-  fd_blockstore_block_map_query_volatile( glob->blockstore, slot, &block_map_entry );
+  fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_map_entry );
   if( FD_UNLIKELY( block_map_entry.slot != slot ) ) {
     FD_LOG_WARNING( ( "query_volatile failed" ) );
     return NULL;
@@ -505,13 +506,14 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_block_rewards_t rewards[1];
   fd_hash_t parent_hash;
   uchar * blk_data;
-  if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, rewards, &parent_hash, fd_scratch_virtual(), &blk_data, &blk_sz ) ) {
+  if( fd_blockstore_block_data_query_volatile( blockstore, ctx->global->blockstore_fd, slotn, fd_scratch_virtual(), &parent_hash, meta, rewards, &blk_data, &blk_sz ) ) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }
 
   const char * err = fd_block_to_json(ws,
                                       blockstore,
+                                      ctx->global->blockstore_fd,
                                       ctx->call_id,
                                       blk_data,
                                       blk_sz,
@@ -607,7 +609,7 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
           }
           nd->nleader++;
           fd_block_map_t block_map_entry = { 0 };
-          if( fd_blockstore_block_map_query_volatile( blockstore, i, &block_map_entry ) ) {
+          if( fd_blockstore_block_map_query_volatile( blockstore, ctx->global->blockstore_fd, i, &block_map_entry ) ) {
             continue;
           }
           if( !block_map_entry.block_gaddr ) {
@@ -670,7 +672,7 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
     fd_block_map_t meta[1];
-    int ret = fd_blockstore_block_map_query_volatile(blockstore, i, meta);
+    int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -723,7 +725,7 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   uint skips = 0;
   for ( ulong i = startslotn; i <= blockstore->max && cnt < limitn && skips < 100U; ++i ) {
     fd_block_map_t meta[1];
-    int ret = fd_blockstore_block_map_query_volatile(blockstore, i, meta);
+    int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -758,7 +760,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_block_map_t meta[1];
-  int ret = fd_blockstore_block_map_query_volatile(blockstore, slotn, meta);
+  int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, slotn, meta);
   if (ret) {
     fd_method_error(ctx, -1, "invalid slot: %lu", slotn);
     return 0;
@@ -799,7 +801,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong slot_index;
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
     fd_block_map_t meta[1];
-    int ret = fd_blockstore_block_map_query_volatile(ctx->global->blockstore, slot, meta);
+    int ret = fd_blockstore_block_map_query_volatile(ctx->global->blockstore, ctx->global->blockstore_fd, slot, meta);
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
                          (!ret ? meta->height : 0UL),
@@ -1318,7 +1320,7 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
       if( cnt ) EMIT_SIMPLE(",");
 
       if( FD_UNLIKELY( block_map_entry.slot != ele->slot ) ) {
-        fd_blockstore_block_map_query_volatile( gctx->blockstore, ele->slot, &block_map_entry );
+        fd_blockstore_block_map_query_volatile( gctx->blockstore, ctx->global->blockstore_fd, ele->slot, &block_map_entry );
       }
       char buf64[FD_BASE58_ENCODED_64_SZ];
       fd_base58_encode_64(ele->sig, NULL, buf64);
@@ -1370,7 +1372,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     fd_txn_map_t elem;
     uchar flags;
-    if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, NULL, &flags, NULL ) ) {
+    if( fd_blockstore_txn_query_volatile( blockstore, ctx->global->blockstore_fd,  key, &elem, NULL, &flags, NULL ) ) {
       fd_web_reply_sprintf(ws, "null");
       continue;
     }
@@ -1629,7 +1631,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   uchar blk_flags;
   uchar txn_data_raw[FD_TXN_MTU];
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw )
+  if( fd_blockstore_txn_query_volatile( blockstore, ctx->global->blockstore_fd,  key, &elem, &blk_ts, &blk_flags, txn_data_raw )
       /* || ( blk_flags & need_blk_flags ) == (uchar)0 */ ) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
@@ -2485,6 +2487,7 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
 
   gctx->funk = args->funk;
   gctx->blockstore = args->blockstore;
+  gctx->blockstore_fd = args->blockstore_fd;
 
   fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
   msg->type = FD_REPLAY_SLOT_TYPE;
