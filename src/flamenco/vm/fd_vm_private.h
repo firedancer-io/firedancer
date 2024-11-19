@@ -74,6 +74,30 @@ struct __attribute__((packed)) fd_vm_vec {
 
 typedef struct fd_vm_vec fd_vm_vec_t;
 
+/* SBPF version and features
+   https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
+*/
+#define FD_VM_SBPF_VERSION_1  (1UL)
+#define FD_VM_SBPF_VERSION_2  (2UL)
+#define FD_VM_SBPF_VERSION_3  (3UL)
+#define FD_VM_SBPF_VERSION_4  (4UL)
+
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES               (2UL)  /* SIMD-0166 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG                 (3UL)  /* SIMD-0173 */
+#define FD_VM_SBPF_DISABLE_LDDW                       (3UL)
+#define FD_VM_SBPF_DISABLE_LE                         (3UL)
+#define FD_VM_SBPF_MOVE_MEMORY_INSTRUCTION_CLASSES    (3UL)
+#define FD_VM_SBPF_ENABLE_PQR                         (3UL)  /* SIMD-0174 */
+#define FD_VM_SBPF_DISABLE_NEG                        (3UL)
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS          (3UL)
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS (3UL)
+#define FD_VM_SBPF_STATIC_SYSCALLS                    (4UL)  /* SIMD-0176 */
+#define FD_VM_SBPF_STRICTER_CONTROLFLOW               (4UL)  /* SIMD-XXXX */
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP        (4UL)
+#define FD_VM_SBPF_ENABLE_ELF_VADDR                   (4UL)
+
+#define FD_VM_SBPF_HAS( vm, feature )   ((vm)->sbpf_version >= (feature))
+
 FD_PROTOTYPES_BEGIN
 
 /* Log error within the instr_ctx to match Agave/Rust error. */
