@@ -49,6 +49,7 @@ struct fd_quic_conn {
   uint               conn_idx;            /* connection index */
                                           /* connections are sized at runtime */
                                           /* storing the index avoids a division */
+  uint               conn_gen;            /* generation of this connection slot */
 
   fd_quic_t *        quic;
   void *             context;             /* user context */
@@ -85,8 +86,6 @@ struct fd_quic_conn {
   /* TODO: footprint allows specifying conn_id_cnt but hardcoded limit used here */
   fd_quic_net_endpoint_t peer[1];
   fd_quic_conn_id_t      peer_cids[1]; /* FIXME support new/retire conn ID */
-
-  ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
 
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
@@ -271,6 +270,11 @@ struct fd_quic_conn {
 };
 
 FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST static inline ulong
+fd_quic_conn_uid( fd_quic_conn_t const * conn ) {
+  return ( (ulong)conn->conn_idx << 32UL ) | ( (ulong)conn->conn_gen );
+}
 
 /* returns the alignment requirement of fd_quic_conn_t */
 FD_FN_CONST ulong

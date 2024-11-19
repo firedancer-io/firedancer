@@ -4325,7 +4325,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
                               state->next_ephem_udp_port )
   };
   fd_memset( &conn->peer[0], 0, sizeof( conn->peer ) );
-  conn->local_conn_id       = 0; /* TODO probably set it here, or is it only valid for servers? */
+  conn->conn_gen++;
   conn->token_len           = 0;
 
   /* start with smallest value we allow, then allow peer to increase */
