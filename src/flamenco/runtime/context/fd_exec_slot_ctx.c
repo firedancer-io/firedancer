@@ -326,18 +326,22 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   do {
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
 
-    /* Find EpochStakes object matching epoch */
-    fd_epoch_epoch_stakes_pair_t * epochs  = oldbank->epoch_stakes;
-    fd_epoch_stakes_t *            stakes0 = NULL;  /* current */
-    fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
-    slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
-    slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
+    /* We need to save the vote accounts for the current epoch and the next 
+       epoch as it is used to calculate the leader schedule at the epoch
+       boundary. */
 
-    for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
-      if( epochs[i].key == epoch )
-        stakes0 = &epochs[i].value;
-      if( epochs[i].key == epoch+1UL )
-        stakes1 = &epochs[i].value;
+    fd_vote_accounts_t curr_stakes = { .vote_accounts_pool = NULL, .vote_accounts_root = NULL };
+    fd_vote_accounts_t next_stakes = { .vote_accounts_pool = NULL, .vote_accounts_root = NULL };
+
+    for( ulong i=0UL; i<manifest->bank.epoch_stakes_len; i++ ) {
+      if( manifest->bank.epoch_stakes[i].key == epoch ) {
+        curr_stakes.vote_accounts_pool = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool;
+        curr_stakes.vote_accounts_root = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root;
+      }
+      if( manifest->bank.epoch_stakes[i].key == epoch+1UL ) {
+        next_stakes.vote_accounts_pool = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool;
+        next_stakes.vote_accounts_root = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root;
+      }
 
       /* When loading from a snapshot, Agave's stake caches mean that we have to special-case the epoch stakes
          that are used for the second epoch E+2 after the snapshot epoch E.
@@ -346,25 +350,46 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
          If the snapshot does not, we should use the stakes at the end of the E-1 epoch, instead of E-2 as we do for
          all other epochs. */
-      if ( epochs[i].key == epoch+2UL ) {
+
+      if( manifest->bank.epoch_stakes[i].key==epoch+2UL ) {
         slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
       }
     }
-    if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
+
+    for( ulong i=0UL; i<manifest->versioned_epoch_stakes_len; i++ ) {
+      if( manifest->versioned_epoch_stakes[i].epoch == epoch ) {
+        curr_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;
+        curr_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
+      }
+      if( manifest->versioned_epoch_stakes[i].epoch == epoch+1UL ) {
+        next_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;
+        next_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
+      }
+
+      if( manifest->versioned_epoch_stakes[i].epoch==epoch+2UL ) {
+        slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
+      }
+    }
+
+    slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
+    slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
+
+    if( FD_UNLIKELY( (!curr_stakes.vote_accounts_root) | (!next_stakes.vote_accounts_root) ) ) {
       FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));
       return 0;
     }
 
     /* Move current EpochStakes */
+
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool =
       fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
-          stakes0->stakes.vote_accounts.vote_accounts_pool,
-          stakes0->stakes.vote_accounts.vote_accounts_root );
+          curr_stakes.vote_accounts_pool,
+          curr_stakes.vote_accounts_root );
           n;
-          n = fd_vote_accounts_pair_t_map_successor( stakes0->stakes.vote_accounts.vote_accounts_pool, n ) ) {
+          n = fd_vote_accounts_pair_t_map_successor( curr_stakes.vote_accounts_pool, n ) ) {
 
         fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire(
           slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
@@ -378,13 +403,13 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
           elem );
     }
 
-    fd_vote_accounts_destroy( &stakes0->stakes.vote_accounts, &destroy );
+    fd_vote_accounts_destroy( &curr_stakes, &destroy );
 
     /* Move next EpochStakes
        TODO Can we derive this instead of trusting the snapshot? */
 
-    fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
+    fd_vote_accounts_pair_t_mapnode_t * pool = next_stakes.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * root = next_stakes.vote_accounts_root;
 
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root);
           n;
@@ -403,7 +428,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     }
 
-    fd_vote_accounts_destroy( &stakes1->stakes.vote_accounts, &destroy );
+    fd_vote_accounts_destroy( &next_stakes, &destroy );
   } while(0);
 
   // TODO Backup to database
