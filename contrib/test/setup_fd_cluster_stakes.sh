@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 cd ../test-ledger
 
-PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1)
+PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1 | head -n1)
 # RPC_URL="http:/n/$PRIMARY_IP:8899/"
 RPC_URL="http://localhost:8899/"
 AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
@@ -22,7 +22,7 @@ solana -u $RPC_URL --keypair fd-identity-keypair.json delegate-stake fd-stake-ke
 solana -u $RPC_URL --keypair fd-identity-keypair.json vote-account fd-vote-keypair.json
 solana -u $RPC_URL --keypair fd-identity-keypair.json stake-account fd-stake-keypair.json
 
-exit 1
+exit 0
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-identity-keypair-2.json
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-stake-keypair-2.json
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-vote-keypair-2.json

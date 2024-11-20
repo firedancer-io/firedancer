@@ -9,9 +9,11 @@ cd ../test-ledger/
 
 FD_DIR="$SCRIPT_DIR/../.."
 
+OBJDIR=${OBJDIR:-build/native/${CC}}
+
 cleanup() {
   sudo killall -9 -q fddev || true
-  $FD_DIR/build/native/$CC/bin/fddev configure fini all
+  $FD_DIR/$OBJDIR/bin/fddev configure fini all
 }
 trap cleanup EXIT SIGINT SIGTERM
 
@@ -19,7 +21,7 @@ sudo killall -9 -q fddev || true
 
 # if fd_frank_ledger is not on path then use the one in the home directory
 if ! command -v fddev > /dev/null; then
-  PATH="$FD_DIR/build/native/$CC/bin":$PATH
+  PATH="$FD_DIR/$OBJDIR/bin":$PATH
 fi
 
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
@@ -82,10 +84,10 @@ name = \"fd1\"
     vote_account_path = \"fd-vote-keypair.json\"
 " > fddev.toml
 
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init kill --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool-channels --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool-gro --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init keys --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/fddev configure init kill --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-channels --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-gro --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/fddev configure init keys --config $(readlink -f fddev.toml)
 
-sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
+sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
