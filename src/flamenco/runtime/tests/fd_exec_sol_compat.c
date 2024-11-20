@@ -47,7 +47,9 @@ sol_compat_init( int log_level ) {
   int argc = 1;
   char * argv[2] = { (char *)"fd_exec_sol_compat", NULL };
   char ** argv_ = argv;
-  setenv( "FD_LOG_PATH", "", 1 );
+  if ( !getenv( "FD_LOG_PATH" ) ) {
+    setenv( "FD_LOG_PATH", "", 1 );
+  }
   fd_boot( &argc, &argv_ );
   fd_log_level_logfile_set( log_level );
   fd_flamenco_boot( NULL, NULL );
