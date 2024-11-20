@@ -20,3 +20,7 @@ jobs:
     uses: ./.github/workflows/codeql.yml
     permissions:
       security-events: write
+  firedancer:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/test_firedancer_localnet.yml
+    secrets: inherit
