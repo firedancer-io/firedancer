@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/random.h>
 
 static int record_pid;
 
@@ -116,25 +117,16 @@ flame_cmd_fn( args_t *         args,
   }
   FD_TEST( len<sizeof(threads) );
 
-  FD_LOG_NOTICE(( "/usr/bin/perf script record flamegraph -o - -F 99 -%c %s | /usr/bin/perf script report flamegraph -i -", fd_char_if( whole_process, 'p', 't' ), threads ));
-
-  int pipefd[ 2 ];
-  if( FD_UNLIKELY( -1==pipe( pipefd ) ) ) FD_LOG_ERR(( "pipe() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_LOG_NOTICE(( "/usr/bin/perf script record flamegraph -F 99 -%c %s && /usr/bin/perf script report flamegraph", fd_char_if( whole_process, 'p', 't' ), threads ));
 
   record_pid = fork();
   if( FD_UNLIKELY( -1==record_pid ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !record_pid ) ) {
-    if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDOUT_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
     char * args[ 11 ] = {
       "/usr/bin/perf",
       "script",
       "record",
       "flamegraph",
-      "-o",
-      "-",
       "-F",
       "99",
       whole_process ? "-p" : "-t",
@@ -144,33 +136,9 @@ flame_cmd_fn( args_t *         args,
     if( FD_UNLIKELY( -1==execve( "/usr/bin/perf", (char * const *)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  int report_pid = fork();
-  if( FD_UNLIKELY( -1==report_pid ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( !report_pid ) ) {
-    if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==dup2( pipefd[ 0 ], STDIN_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-    char * args[ 7 ] = {
-      "/usr/bin/perf",
-      "script",
-      "report",
-      "flamegraph",
-      "-i",
-      "-",
-      NULL,
-    };
-    if( FD_UNLIKELY( -1==execve( "/usr/bin/perf", (char * const *)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
   FD_LOG_NOTICE(( "Perf collection running. Send SIGINT / Crl+C to stop." ));
 
-  ulong exited_cnt = 0UL;
-  while( FD_UNLIKELY( exited_cnt<2UL ) ) {
+  for(;;) {
     int wstatus;
     int exited_pid = waitpid( -1, &wstatus, 0 );
     if( FD_UNLIKELY( -1==exited_pid ) ) {
@@ -178,14 +146,38 @@ flame_cmd_fn( args_t *         args,
       FD_LOG_ERR(( "waitpid() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     }
 
-    char const * process_name = exited_pid==record_pid ? "record" : "report";
+    int graceful_exit = !WIFEXITED( wstatus ) && WTERMSIG( wstatus )==SIGINT;
+    if( FD_UNLIKELY( !graceful_exit ) ) {
+      if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) FD_LOG_ERR(( "perf record exited unexpectedly with signal %d (%s)", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+      if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) FD_LOG_ERR(( "perf record exited unexpectedly with code %d", WEXITSTATUS( wstatus ) ));
+    }
+    break;
+  }
 
-    int record_graceful = exited_pid==record_pid && !WIFEXITED( wstatus ) && WTERMSIG( wstatus )==SIGINT;
+  int report_pid = fork();
+  if( FD_UNLIKELY( -1==report_pid ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !report_pid ) ) {
+    char * args[ 7 ] = {
+      "/usr/bin/perf",
+      "script",
+      "report",
+      "flamegraph",
+      NULL,
+    };
+    if( FD_UNLIKELY( -1==execve( "/usr/bin/perf", (char * const *)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
-    if( FD_UNLIKELY( !WIFEXITED( wstatus ) && !record_graceful ) ) FD_LOG_ERR(( "perf %s exited unexpectedly with signal %d (%s)", process_name, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-    if( FD_UNLIKELY( WEXITSTATUS( wstatus ) && !record_graceful ) ) FD_LOG_ERR(( "perf %s exited unexpectedly with code %d", process_name, WEXITSTATUS( wstatus ) ));
+  for(;;) {
+    int wstatus;
+    int exited_pid = waitpid( -1, &wstatus, 0 );
+    if( FD_UNLIKELY( -1==exited_pid ) ) {
+      if( FD_LIKELY( errno==EAGAIN || errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "waitpid() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
 
-    exited_cnt++;
+    if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) FD_LOG_ERR(( "perf report exited unexpectedly with signal %d (%s)", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+    if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) FD_LOG_ERR(( "perf report exited unexpectedly with code %d", WEXITSTATUS( wstatus ) ));
+    break;
   }
 
   exit_group( 0 );
