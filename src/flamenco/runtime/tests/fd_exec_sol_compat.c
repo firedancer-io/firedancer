@@ -49,7 +49,12 @@ sol_compat_init( int log_level ) {
   char ** argv_ = argv;
   setenv( "FD_LOG_PATH", "", 1 );
   fd_boot( &argc, &argv_ );
-  fd_log_level_logfile_set( log_level );
+  // loglevel override via env so you don't have to recompile
+  const char* logfile_loglevel = getenv( "FD_LOGFILE_LEVEL" );
+  if ( FD_UNLIKELY( logfile_loglevel != NULL ) ) {
+      log_level = atoi( logfile_loglevel );
+  }
+  fd_log_level_logfile_set(log_level);
   fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
