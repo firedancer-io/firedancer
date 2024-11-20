@@ -422,6 +422,9 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
          fd_blockstore_block_map_query( blockstore, blockstore->min ) == NULL ) {
     blockstore->min ++;
   }
+  if( slot == blockstore->min ) {
+    blockstore->min = slot+1;
+  }
 
   /* It is not safe to remove a replaying block. */
 
@@ -611,7 +614,6 @@ fd_blockstore_evict( fd_blockstore_t * blockstore ) {
     FD_LOG_ERR(( "[%s] min slot %lu has %lu children. expected 1 given this is on the rooted path prior to SMR.", __func__, blockstore->min, min->child_slot_cnt ));
     return;
   }
-  blockstore->min = min->child_slots[0];
   fd_blockstore_slot_remove( blockstore, min->slot );
 }
 
@@ -1018,6 +1020,8 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
      data after it is read. */
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
+  uchar * prev_data_out = NULL;
+  ulong prev_sz = 0;
   for(;;) {
     uint seqnum;
     if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
@@ -1039,7 +1043,16 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
 
     if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
-    uchar * data_out = fd_valloc_malloc( alloc, 128UL, sz );
+    uchar * data_out;
+    if( prev_sz >= sz ) {
+      data_out = prev_data_out;
+    } else {
+      if( prev_data_out != NULL ) {
+        fd_valloc_free( alloc, prev_data_out );
+      }
+      prev_data_out = data_out = fd_valloc_malloc( alloc, 128UL, sz );
+      prev_sz = sz;
+    }
     if( FD_UNLIKELY( data_out == NULL ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     fd_memcpy( data_out, fd_wksp_laddr_fast( wksp, blk_data_gaddr ), sz );
 
