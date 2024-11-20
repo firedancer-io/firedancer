@@ -487,9 +487,11 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
       }
       fd_gossip_ip_addr_t * tmp = &contact_info->addrs[ socket_entry->index ];
       if( tmp->discriminant == fd_gossip_ip_addr_enum_ip4 ) {
+        out_addr->discriminant = fd_gossip_socket_addr_enum_ip4;
         out_addr->inner.ip4.addr = tmp->inner.ip4;
         out_addr->inner.ip4.port = port;
       } else {
+        out_addr->discriminant = fd_gossip_socket_addr_enum_ip6;
         out_addr->inner.ip6.addr = tmp->inner.ip6;
         out_addr->inner.ip6.port = port;
 
