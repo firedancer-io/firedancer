@@ -314,6 +314,13 @@ fd_quic_trace_v1_quic_hdr_initial( char **        out_buf,
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( buf[0] ) + 1u;
   ulong payload_off   = pn_offset + pkt_number_sz;
 
+  /* now we have decrypted packet number */
+  ulong pkt_number = fd_quic_pktnum_decode( buf+pn_offset, pkt_number_sz );
+
+  /* write pkt_number_sz into initial, for tracing */
+  /* note this is the raw packet number, which may have been truncated */
+  initial->pkt_num = pkt_number;
+
   *frame_ptr   = buf + payload_off;
   *frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
@@ -350,6 +357,13 @@ fd_quic_trace_v1_quic_hdr_handshake( char **        out_buf,
   ulong pn_offset     = handshake->pkt_num_pnoff;
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( buf[0] ) + 1u;
   ulong payload_off   = pn_offset + pkt_number_sz;
+
+  /* now we have decrypted packet number */
+  ulong pkt_number = fd_quic_pktnum_decode( buf+pn_offset, pkt_number_sz );
+
+  /* write pkt_number_sz into handshake, for tracing */
+  /* note this is the raw packet number, which may have been truncated */
+  handshake->pkt_num = pkt_number;
 
   *frame_ptr   = buf + payload_off;
   *frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
@@ -391,6 +405,13 @@ fd_quic_trace_v1_quic_hdr_one_rtt( char **        out_buf,
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( buf[0] ) + 1u;
   ulong payload_off   = pn_offset + pkt_number_sz;
   ulong payload_sz    = buf_sz - pn_offset - pkt_number_sz; /* includes auth tag */
+
+  /* now we have decrypted packet number */
+  ulong pkt_number = fd_quic_pktnum_decode( buf+pn_offset, pkt_number_sz );
+
+  /* write pkt_number_sz into one_rtt, for tracing */
+  /* note this is the raw packet number, which may have been truncated */
+  one_rtt->pkt_num = pkt_number;
 
   *frame_ptr   = buf + payload_off;
   *frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
@@ -498,8 +519,7 @@ fd_quic_trace_v1_quic_pkt( uchar const *     buf,
     if( trace_buf[j] == '\0' ) trace_buf[j] = '*';
   }
 
-  printf( "\nTRACE: %s--\n", trace_buf );
-  fflush( stdout );
+  FD_LOG_NOTICE(( "TRACE: [ %s ]", trace_buf ));
 
   return rc;
 }
