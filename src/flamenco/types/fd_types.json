@@ -526,7 +526,7 @@
       "comment": "Accounts DB related fields in a snapshot"
     },
     {
-      "name": "epoch_stakes_current",
+      "name": "versioned_epoch_stakes_current",
       "type": "struct",
       "fields": [
         { "name": "stakes", "type": "stakes_stake" },
@@ -539,7 +539,7 @@
       "name": "versioned_epoch_stakes",
       "type": "enum",
       "variants": [
-          { "name": "Current", "type": "epoch_stakes_current"}
+          { "name": "Current", "type": "versioned_epoch_stakes_current"}
       ]
     },
     {

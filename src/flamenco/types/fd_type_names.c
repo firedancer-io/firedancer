@@ -50,7 +50,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_snapshot_slot_acc_vecs",
  "fd_reward_type",
  "fd_solana_accounts_db_fields",
- "fd_epoch_stakes_current",
+ "fd_versioned_epoch_stakes_current",
  "fd_versioned_epoch_stakes",
  "fd_versioned_epoch_stakes_pair",
  "fd_reward_info",
