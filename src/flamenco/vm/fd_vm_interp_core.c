@@ -23,6 +23,56 @@
 
 # include "fd_vm_interp_jump_table.c"
 
+  /* Update the jump table based on SBPF version */
+
+  ulong sbpf_version = vm->sbpf_version;
+
+  /* SIMD-0173: LDDW */
+  interp_jump_table[ 0x18 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? &&interp_0x18 : &&sigill;
+  interp_jump_table[ 0xf7 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? &&sigill : &&interp_0xf7; /* HOR64 */
+
+  /* SIMD-0173: LE */
+  interp_jump_table[ 0xd4 ] = FD_VM_SBPF_ENABLE_LE  (sbpf_version) ? &&interp_0xd4 : &&sigill;
+
+  /* SIMD-0173: LDXW, STW, STXW */
+  interp_jump_table[ 0x61 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x8c;
+  interp_jump_table[ 0x62 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x87;
+  interp_jump_table[ 0x63 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x8f;
+  interp_jump_table[ 0x8c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x8c : &&sigill;
+  interp_jump_table[ 0x87 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x87 : &&interp_0x87depr;
+  interp_jump_table[ 0x8f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x8f : &&sigill;
+
+  /* SIMD-0173: LDXH, STH, STXH */
+  interp_jump_table[ 0x69 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x3c;
+  interp_jump_table[ 0x6a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x37;
+  interp_jump_table[ 0x6b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x3f;
+  interp_jump_table[ 0x3c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x3c : &&interp_0x3cdepr;
+  interp_jump_table[ 0x37 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x37 : &&interp_0x37depr;
+  interp_jump_table[ 0x3f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x3f : &&interp_0x3fdepr;
+
+  // /* SIMD-0173: LDXB, STB, STXB */
+  interp_jump_table[ 0x71 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x2c;
+  interp_jump_table[ 0x72 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x27;
+  interp_jump_table[ 0x73 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x2f;
+  interp_jump_table[ 0x2c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x2c : &&interp_0x2cdepr;
+  interp_jump_table[ 0x27 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x27 : &&interp_0x27depr;
+  interp_jump_table[ 0x2f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x2f : &&interp_0x2fdepr;
+
+  // /* SIMD-0173: LDXDW, STDW, STXDW */
+  interp_jump_table[ 0x79 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x9c;
+  interp_jump_table[ 0x7a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x97;
+  interp_jump_table[ 0x7b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x9f;
+  interp_jump_table[ 0x9c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x9c : &&interp_0x9cdepr;
+  interp_jump_table[ 0x97 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x97 : &&interp_0x97depr;
+  interp_jump_table[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x9f : &&interp_0x9fdepr;
+
+  /* SIMD-0173: CALLX */
+  interp_jump_table[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? &&interp_0x8d : &&interp_0x8ddepr;
+
+  /* SIMD-0174: NEG */
+  interp_jump_table[ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (sbpf_version) ? &&interp_0x84 : &&sigill;
+  /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
+
   /* Unpack the VM state */
 
   ulong pc        = vm->pc;
@@ -209,7 +259,6 @@ interp_exec:
 
   /* 0x00 - 0x0f ******************************************************/
 
-/* FIXME: MORE THINKING AROUND LDQ HANDLING HERE (see below) */
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
     reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
   FD_VM_INTERP_INSTR_END;
@@ -273,19 +322,46 @@ interp_exec:
     pc += fd_ulong_if( reg_dst>(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x27) /* FD_SBPF_OP_MUL64_IMM */
-    reg[ dst ] = (ulong)( (long)reg_dst * (long)(int)imm );
+  FD_VM_INTERP_INSTR_BEGIN(0x27) { /* FD_SBPF_OP_STB */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */
+    fd_vm_mem_st_1( haddr, (uchar)imm );
+  }
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x2c) /* FD_SBPF_OP_MUL_REG */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)reg_src );
+  FD_VM_INTERP_INSTR_BEGIN(0x2c) { /* FD_SBPF_OP_LDXB */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
+    if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */
+    reg[ dst ] = fd_vm_mem_ld_1( haddr );
+  }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x2d) /* FD_SBPF_OP_JGT_REG */
     pc += fd_ulong_if( reg_dst>reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x2f) /* FD_SBPF_OP_MUL64_REG */
+  FD_VM_INTERP_INSTR_BEGIN(0x2f) { /* FD_SBPF_OP_STXB */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
+    fd_vm_mem_st_1( haddr, (uchar)reg_src );
+  }
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x27depr) /* FD_SBPF_OP_MUL64_IMM */
+    reg[ dst ] = (ulong)( (long)reg_dst * (long)(int)imm );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x2cdepr) /* FD_SBPF_OP_MUL_REG */
+    reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)reg_src );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x2fdepr) /* FD_SBPF_OP_MUL64_REG */
     reg[ dst ] = reg_dst * reg_src;
   FD_VM_INTERP_INSTR_END;
 
@@ -301,20 +377,50 @@ interp_exec:
     pc += fd_ulong_if( reg_dst>=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x37) /* FD_SBPF_OP_DIV64_IMM */
-    reg[ dst ] = reg_dst / (ulong)imm;
+  FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)imm, is_multi_region );
+  }
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x3c) /* FD_SBPF_OP_DIV_REG */
-    if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
-    reg[ dst ] = (ulong)((uint)reg_dst / (uint)reg_src);
+  FD_VM_INTERP_INSTR_BEGIN(0x3c) { /* FD_SBPF_OP_LDXH */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    reg[ dst ] = fd_vm_mem_ld_2( vm, vaddr, haddr, is_multi_region );
+  }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x3d) /* FD_SBPF_OP_JGE_REG */
     pc += fd_ulong_if( reg_dst>=reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x3f) /* FD_SBPF_OP_DIV64_REG */
+  FD_VM_INTERP_INSTR_BEGIN(0x3f) { /* FD_SBPF_OP_STXH */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
+    fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)reg_src, is_multi_region );
+  }
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x37depr) /* FD_SBPF_OP_DIV64_IMM */
+    reg[ dst ] = reg_dst / (ulong)imm;
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x3cdepr) /* FD_SBPF_OP_DIV_REG */
+    if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
+    reg[ dst ] = (ulong)((uint)reg_dst / (uint)reg_src);
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x3fdepr) /* FD_SBPF_OP_DIV64_REG */
     if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
     reg[ dst ] = reg_dst / reg_src;
   FD_VM_INTERP_INSTR_END;
@@ -377,36 +483,6 @@ interp_exec:
      FD_VM_CONSUME_MEM AND NOT JUST FIXED) */
   /* FIXME: MEM TRACING DIAGNOSTICS GO IN HERE */
 
-  FD_VM_INTERP_INSTR_BEGIN(0x61) { /* FD_SBPF_OP_LDXW */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    reg[ dst ] = fd_vm_mem_ld_4( vm, vaddr, haddr, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x62) { /* FD_SBPF_OP_STW */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_4( vm, vaddr, haddr, imm, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x63) { /* FD_SBPF_OP_STXW */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
-    fd_vm_mem_st_4( vm, vaddr, haddr, (uint)reg_src, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
   FD_VM_INTERP_INSTR_BEGIN(0x64) /* FD_SBPF_OP_LSH_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L291 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg_dst, (uint)imm ) );
@@ -419,36 +495,6 @@ interp_exec:
   FD_VM_INTERP_INSTR_BEGIN(0x67) /* FD_SBPF_OP_LSH64_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L376 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg_dst, imm );
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x69) { /* FD_SBPF_OP_LDXH */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    reg[ dst ] = fd_vm_mem_ld_2( vm, vaddr, haddr, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x6a) { /* FD_SBPF_OP_STH */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)imm, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x6b) { /* FD_SBPF_OP_STXH */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
-    fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)reg_src, is_multi_region );
-  }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6c) /* FD_SBPF_OP_LSH_REG */
@@ -467,33 +513,6 @@ interp_exec:
 
   /* 0x70 - 0x7f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x71) { /* FD_SBPF_OP_LDXB */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */
-    reg[ dst ] = fd_vm_mem_ld_1( haddr );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x72) { /* FD_SBPF_OP_STB */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */
-    fd_vm_mem_st_1( haddr, (uchar)imm );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x73) { /* FD_SBPF_OP_STXB */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
-    fd_vm_mem_st_1( haddr, (uchar)reg_src );
-  }
-  FD_VM_INTERP_INSTR_END;
-
   FD_VM_INTERP_INSTR_BEGIN(0x74) /* FD_SBPF_OP_RSH_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L293 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg_dst, imm ) );
@@ -506,36 +525,6 @@ interp_exec:
   FD_VM_INTERP_INSTR_BEGIN(0x77) /* FD_SBPF_OP_RSH64_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L378 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg_dst, imm );
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x79) { /* FD_SBPF_OP_LDXQ */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    reg[ dst ] = fd_vm_mem_ld_8( vm, vaddr, haddr, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x7a) { /* FD_SBPF_OP_STQ */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)imm, is_multi_region );
-  }
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x7b) { /* FD_SBPF_OP_STXQ */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
-    fd_vm_mem_st_8( vm, vaddr, haddr, reg_src, is_multi_region );
-  }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7c) /* FD_SBPF_OP_RSH_REG */
@@ -674,19 +663,34 @@ interp_exec:
 
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x87) /* FD_SBPF_OP_NEG64 */
+  FD_VM_INTERP_INSTR_BEGIN(0x87) { /* FD_SBPF_OP_STW */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    fd_vm_mem_st_4( vm, vaddr, haddr, imm, is_multi_region );
+  } FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x87depr) /* FD_SBPF_OP_NEG64 deprecated */
     reg[ dst ] = -reg_dst;
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x8c) { /* FD_SBPF_OP_LDXW */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    reg[ dst ] = fd_vm_mem_ld_4( vm, vaddr, haddr, is_multi_region );
+  }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x8d) { /* FD_SBPF_OP_CALL_REG */
 
     FD_VM_INTERP_STACK_PUSH;
 
-    /* FIXME: REALLY??  SBPF USES IMM TO INDEX THE REG FILE??  DOUBLE
-       CHECK THIS.  AT LEAST MASKING THE LSB IN THE MEANTIME TO
-       GUARANTEE TO OVERFLOW. */
-    ulong vaddr = reg[ imm & 15U ];
-
+    ulong vaddr = reg[ src ];
     ulong region = vaddr >> 32;
     ulong align  = vaddr & 7UL;
     pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
@@ -703,6 +707,37 @@ interp_exec:
     pc--;
 
   } FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x8ddepr) { /* FD_SBPF_OP_CALL_REG */
+
+    FD_VM_INTERP_STACK_PUSH;
+
+    ulong vaddr = reg[ imm & 15U ];
+    ulong region = vaddr >> 32;
+    ulong align  = vaddr & 7UL;
+    pc = ((vaddr & 0xffffffffUL)/8UL) - text_word_off;
+
+    /* Note: BRANCH_END will implicitly handle a pc that fell outside
+       the text section (below via unsigned wraparoud or above) as
+       sigtext */
+
+    /* FIXME: sigbus for misaligned? */
+
+    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigcall; /* Note: untaken branches don't consume BTB */
+
+    pc--;
+
+  } FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x8f) { /* FD_SBPF_OP_STXW */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
+    fd_vm_mem_st_4( vm, vaddr, haddr, (uint)reg_src, is_multi_region );
+  }
+  FD_VM_INTERP_INSTR_END;
 
   /* 0x90 - 0x9f ******************************************************/
 
@@ -726,16 +761,46 @@ interp_exec:
     reg[10] -= vm->stack_frame_size;
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x97) /* FD_SBPF_OP_MOD64_IMM */
+  FD_VM_INTERP_INSTR_BEGIN(0x97) { /* FD_SBPF_OP_STQ */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)imm, is_multi_region );
+  }
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x9c) { /* FD_SBPF_OP_LDXQ */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    reg[ dst ] = fd_vm_mem_ld_8( vm, vaddr, haddr, is_multi_region );
+  }
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
+    uchar is_multi_region = 0;
+    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    int   sigsegv         = !haddr;
+    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
+    fd_vm_mem_st_8( vm, vaddr, haddr, reg_src, is_multi_region );
+  }
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x97depr) /* FD_SBPF_OP_MOD64_IMM */
     reg[ dst ] = reg_dst % (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x9c) /* FD_SBPF_OP_MOD_REG */
+  FD_VM_INTERP_INSTR_BEGIN(0x9cdepr) /* FD_SBPF_OP_MOD_REG */
     if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
     reg[ dst ] = (ulong)( ((uint)reg_dst % (uint)reg_src) );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x9f) /* FD_SBPF_OP_MOD64_REG */
+  FD_VM_INTERP_INSTR_BEGIN(0x9fdepr) /* FD_SBPF_OP_MOD64_REG */
     if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
     reg[ dst ] = reg_dst % reg_src;
   FD_VM_INTERP_INSTR_END;
@@ -821,9 +886,6 @@ interp_exec:
   /* 0xd0 - 0xdf ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0xd4) /* FD_SBPF_OP_END_LE */
-    /* Note: since fd_vm_validate rejects LE with strange immediates, we
-       sigill if we encouter such in unvalidated code to match (FIXME:
-       IS THIS THE DESIRED BEHAVIOR?) */
     switch( imm ) {
     case 16U: reg[ dst ] = (ushort)reg_dst; break;
     case 32U: reg[ dst ] = (uint)  reg_dst; break;
@@ -847,6 +909,12 @@ interp_exec:
 
   FD_VM_INTERP_BRANCH_BEGIN(0xdd) /* FD_SBPF_OP_JSLE_REG */
     pc += fd_ulong_if( (long)reg_dst<=(long)reg_src, (ulong)(long)offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  /* 0xf0 - 0xff ******************************************************/
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xf7) /* FD_SBPF_OP_HOR64 */
+    reg[ dst ] = reg_dst | (((ulong)imm) << 32);
   FD_VM_INTERP_BRANCH_END;
 
   /* FIXME: sigsplit is only partially implemented (needs the bit vector

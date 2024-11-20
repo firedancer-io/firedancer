@@ -13,7 +13,7 @@ void test_sbpf_version_default( void ) {
   uint max_version = 1U;
 
   fd_sbpf_elf_peek( &info, hello_solana_program_elf, hello_solana_program_elf_sz, /* deploy checks */ 1, max_version );
-  FD_TEST_CUSTOM( info.sbpf_version==1U, "hello_solana_program v1" );
+  FD_TEST_CUSTOM( info.sbpf_version==0U, "hello_solana_program v1" );
 
   fd_sbpf_elf_info_t * res = fd_sbpf_elf_peek( &info, hello_solana_program_sbpf_v3_elf, hello_solana_program_sbpf_v3_elf_sz, /* deploy checks */ 1, max_version );
   FD_TEST_CUSTOM( res==NULL, "hello_solana_program v3 unsupported" );
@@ -22,13 +22,13 @@ void test_sbpf_version_default( void ) {
 void test_sbpf_version_from_elf_header( void ) {
   fd_sbpf_elf_info_t info;
 
-  uint max_version = 3U;
+  uint max_version = 2U;
 
   fd_sbpf_elf_peek( &info, hello_solana_program_elf, hello_solana_program_elf_sz, /* deploy checks */ 1, max_version );
-  FD_TEST_CUSTOM( info.sbpf_version==1U, "hello_solana_program v1" );
+  FD_TEST_CUSTOM( info.sbpf_version==0U, "hello_solana_program v1" );
 
   fd_sbpf_elf_peek( &info, hello_solana_program_sbpf_v3_elf, hello_solana_program_sbpf_v3_elf_sz, /* deploy checks */ 1, max_version );
-  FD_TEST_CUSTOM( info.sbpf_version==3U, "hello_solana_program v3" );
+  FD_TEST_CUSTOM( info.sbpf_version==2U, "hello_solana_program v3" );
 }
 
 int
