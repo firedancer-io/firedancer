@@ -188,6 +188,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       fd_frag_meta_t *      mcache,
                       void *                base,  /* Assumed aligned FD_CHUNK_ALIGN */
                       ulong                 seq,
+                      ulong                 sig,
                       ulong                 tspub ) {
 
   if( FD_UNLIKELY( slot->state != FD_TPU_REASM_STATE_BUSY ) )
@@ -243,14 +244,15 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   ulong tsorig = slot->tsorig;
 
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig, tspub );
+  fd_mcache_publish_avx( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig, tspub );
+  fd_mcache_publish_sse( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
 # else
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
   FD_COMPILER_MFENCE();
   meta->seq    = fd_seq_dec( seq, 1UL );
   FD_COMPILER_MFENCE();
+  meta->sig    = /*    */sig;
   meta->chunk  = (uint  )chunk;
   meta->sz     = (ushort)sz;
   meta->ctl    = (ushort)ctl;

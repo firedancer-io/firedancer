@@ -5,7 +5,10 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../disco/quic/fd_tpu.h"
+#include "../../../../util/net/fd_eth.h"
+#include "../../../../util/net/fd_ip4.h"
 
+#include <stddef.h>
 #include <linux/unistd.h>
 #include <sys/random.h>
 
@@ -102,6 +105,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static inline ulong
+quic_sig( uint ip4_addr /* big endian */ ) {
+  return (ulong)ip4_addr;
+}
+
 /* legacy_stream_notify is called for transactions sent via TPU/UDP. For
    now both QUIC and non-QUIC transactions are accepted, with traffic
    type determined by port.
@@ -111,8 +119,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
-                      uchar *         packet,
-                      ulong           packet_sz ) {
+                      uchar const *   packet,
+                      ulong           packet_sz,
+                      uint            ip4_addr ) {
 
   fd_stem_context_t * stem = ctx->stem;
 
@@ -126,7 +135,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   void * base  = ctx->verify_out_mem;
   ulong  seq   = stem->seqs[0];
 
-  int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, stem->mcaches[0], base, seq, tspub );
+  int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, stem->mcaches[0], base, seq, quic_sig( ip4_addr ), tspub );
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return; /* unreachable */
   ctx->metrics.txns_received_udp++;
 
@@ -250,10 +259,11 @@ after_frag( fd_quic_ctx_t *     ctx,
   (void)tsorig;
   (void)stem;
 
-  ulong proto = fd_disco_netmux_sig_proto( sig );
+  ulong   proto = fd_disco_netmux_sig_proto( sig );
+  uchar * data  = ctx->buffer;
 
   if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
-    fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)sz };
+    fd_aio_pkt_info_t pkt = { .buf = data, .buf_sz = (ushort)sz };
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
@@ -263,6 +273,9 @@ after_frag( fd_quic_ctx_t *     ctx,
       FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
       return;
     }
+
+    ulong ip4_addr_off = sizeof(fd_eth_hdr_t) + offsetof(fd_ip4_hdr_t, saddr_c);
+    uint  ip4_addr     = FD_LOAD( uint, data+ip4_addr_off );
 
     ulong data_sz = sz - network_hdr_sz;
     if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
@@ -279,7 +292,7 @@ after_frag( fd_quic_ctx_t *     ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
+    legacy_stream_notify( ctx, data+network_hdr_sz, data_sz, ip4_addr );
   }
 }
 
@@ -394,10 +407,12 @@ quic_stream_notify( fd_quic_stream_t * stream,
   fd_stem_context_t *   stem   = ctx->stem;
   fd_frag_meta_t *      mcache = stem->mcaches[0];
   void *                base   = ctx->verify_out_mem;
+  fd_quic_conn_t *      conn   = stream->conn;
+  uint                  saddr  = conn->peer[0].ip_addr;
 
   /* Check if reassembly slot is still valid */
 
-  ulong conn_uid  = fd_quic_conn_uid( stream->conn );
+  ulong conn_uid  = fd_quic_conn_uid( conn );
   ulong stream_id = stream->stream_id;
 
   if( FD_UNLIKELY( ( slot->conn_id   != conn_uid  ) |
@@ -417,7 +432,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
 
   ulong  seq   = stem->seqs[0];
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
+  int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, quic_sig( saddr ), tspub );
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
   ctx->metrics.txns_received_quic++;
 
