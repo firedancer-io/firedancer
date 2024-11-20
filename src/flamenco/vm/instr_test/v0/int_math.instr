@@ -162,7 +162,7 @@ $ op=2f dst=a src=1                                                   : vfy     
 $ op=2f dst=b src=1                                                   : vfy                      # invalid dst
 
 # div32 reg, imm
-$ op=34 dst=0 src=a off=2222 r0=               0 imm=       0 : vfy # divide by zero
+$ op=34 dst=0 src=a off=2222 r0=               0 imm=       0 : vfyub # divide by zero
 $ op=34 dst=1 src=9 off=2222 r1=               0 imm=ffffffff : ok  r1=       0
 $ op=34 dst=2 src=8 off=2222 r2=               1 imm=ffffffff : ok  r2=       0
 $ op=34 dst=3 src=7 off=2222 r3=               1 imm=       1 : ok  r3=       1
@@ -194,7 +194,7 @@ $ op=3c dst=a src=1                                                   : vfy # in
 $ op=3c dst=b src=1                                                   : vfy # invalid dst
 
 # div64 reg, imm
-$ op=37 dst=0 src=a off=3333 r0=               0 imm=       0 : vfy # divide by zero
+$ op=37 dst=0 src=a off=3333 r0=               0 imm=       0 : vfyub # divide by zero
 $ op=37 dst=1 src=9 off=3333 r1=               0 imm=ffffffff : ok  r1=               0
 $ op=37 dst=2 src=8 off=3333 r2=               1 imm=ffffffff : ok  r2=               0
 $ op=37 dst=3 src=7 off=3333 r3=               1 imm=       1 : ok  r3=               1
@@ -225,7 +225,7 @@ $ op=3f dst=a src=1                                                   : vfy # in
 $ op=3f dst=b src=1                                                   : vfy # invalid dst
 
 # mod32 reg, imm
-$ op=94 dst=0 src=a off=2222 r0=               0 imm=       0 : vfy # divide by zero
+$ op=94 dst=0 src=a off=2222 r0=               0 imm=       0 : vfyub # divide by zero
 $ op=94 dst=1 src=9 off=2222 r1=               0 imm=ffffffff : ok  r1=       0
 $ op=94 dst=2 src=8 off=2222 r2=               1 imm=ffffffff : ok  r2=       1
 $ op=94 dst=3 src=7 off=2222 r3=               1 imm=       1 : ok  r3=       0
@@ -257,7 +257,7 @@ $ op=9c dst=a src=1                                                   : vfy # in
 $ op=9c dst=b src=1                                                   : vfy # invalid dst
 
 # mod64 reg, imm
-$ op=97 dst=0 src=a off=3333 r0=               0 imm=       0 : vfy # divide by zero
+$ op=97 dst=0 src=a off=3333 r0=               0 imm=       0 : vfyub # divide by zero
 $ op=97 dst=1 src=9 off=3333 r1=               0 imm=ffffffff : ok  r1=               0
 $ op=97 dst=2 src=8 off=3333 r2=               1 imm=ffffffff : ok  r2=               1
 $ op=97 dst=3 src=7 off=3333 r3=               1 imm=       1 : ok  r3=               0

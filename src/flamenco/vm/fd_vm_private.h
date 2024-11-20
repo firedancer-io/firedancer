@@ -76,27 +76,37 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 
 /* SBPF version and features
    https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
-*/
-#define FD_VM_SBPF_VERSION_1  (1UL)
-#define FD_VM_SBPF_VERSION_2  (2UL)
-#define FD_VM_SBPF_VERSION_3  (3UL)
-#define FD_VM_SBPF_VERSION_4  (4UL)
 
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES               (2UL)  /* SIMD-0166 */
-#define FD_VM_SBPF_CALLX_USES_SRC_REG                 (3UL)  /* SIMD-0173 */
-#define FD_VM_SBPF_DISABLE_LDDW                       (3UL)
-#define FD_VM_SBPF_DISABLE_LE                         (3UL)
-#define FD_VM_SBPF_MOVE_MEMORY_INSTRUCTION_CLASSES    (3UL)
-#define FD_VM_SBPF_ENABLE_PQR                         (3UL)  /* SIMD-0174 */
-#define FD_VM_SBPF_DISABLE_NEG                        (3UL)
-#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS          (3UL)
-#define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS (3UL)
-#define FD_VM_SBPF_STATIC_SYSCALLS                    (4UL)  /* SIMD-0176 */
-#define FD_VM_SBPF_STRICTER_CONTROLFLOW               (4UL)  /* SIMD-XXXX */
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP        (4UL)
-#define FD_VM_SBPF_ENABLE_ELF_VADDR                   (4UL)
+   Note: SIMDs enable or disable features, e.g. BPF instructions.
+   If we have macros with names ENABLE vs DISABLE, we have the advantage that
+   the condition is always pretty clear: sbpf_version <= activation_version,
+   but the disadvantage of inconsistent names.
+   Viceversa, calling everything ENABLE has the risk to invert a <= with a >=
+   and create a huge mess.
+   We define both, so hopefully it's foolproof. */
 
-#define FD_VM_SBPF_HAS( vm, feature )   ((vm)->sbpf_version >= (feature))
+/* SIMD-0166 */
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= 1UL )
+/* SIMD-0173 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= 2UL )
+#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= 2UL )
+#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  2UL )
+#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= 2UL )
+#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  2UL )
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= 2UL )
+/* SIMD-0174 */
+#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= 2UL )
+#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= 2UL )
+#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  2UL )
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= 2UL )
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= 2UL )
+/* SIMD-0176 */
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= 3UL )
+/* SIMD-XXXX */
+#define FD_VM_SBPF_STRICTER_CONTROLFLOW(v)         ( v >= 3UL )
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= 3UL )
+#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= 3UL )
+
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
 FD_PROTOTYPES_BEGIN

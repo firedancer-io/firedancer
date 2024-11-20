@@ -108,14 +108,14 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
          & ( ehdr->e_type                      ==FD_ELF_ET_DYN     )
          & ( ( ehdr->e_machine                 ==FD_ELF_EM_BPF   )
            | ( ehdr->e_machine                 ==FD_ELF_EM_SBPF  ) )
-         & ( ehdr->e_version                   >=1                 )
-         & ( ehdr->e_version                   <=max_version       )
+         & ( ehdr->e_version                   ==1                 )
   /* Coherence checks */
          & ( ehdr->e_ehsize   ==sizeof(fd_elf64_ehdr)              )
          & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
          & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
          & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
-         & ( ehdr->e_flags    !=FD_ELF_EF_SBPF_V2                  ) );
+         & ( ehdr->e_flags    <=max_version                        )
+  );
 
   /* Bounds check program header table */
 
@@ -523,8 +523,8 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz, elf_deploy_checks ))!=0 ) )
     return NULL;
 
-  /* Set SBPF version from ELF header */
-  info->sbpf_version = elf->ehdr.e_version;
+  /* Set SBPF version from ELF e_flags */
+  info->sbpf_version = elf->ehdr.e_flags;
 
   return info;
 }
