@@ -1870,36 +1870,47 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       glob->push_cnt++;
       npush++;
 
-      ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
-      /* Add the value in already encoded form */
-      if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
-        /* Packet is getting too large. Flush it */
-        ulong sz = (ulong)(s->packet_end - s->packet);
-        fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
-        char tmp[100];
-        FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
-        s->packet_end = s->packet_end_init;
-        *crds_len = 0;
-      }
+      ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong)); // length goes at the end of the packet buffer (which sits just before fd_crds_value_t * crds)
+
+      /* DEBUG: Send one CRDS value per message */
       fd_memcpy(s->packet_end, msg->data, msg->datalen);
       s->packet_end += msg->datalen;
       (*crds_len)++;
+      fd_gossip_send_raw(glob, &s->addr, s->packet, (ulong)(s->packet_end - s->packet));
+      s->packet_end = s->packet_end_init;
+      *crds_len = 0;
+      
+      // /* Add the value in already encoded form */
+      // if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
+      //   /* Packet is getting too large. Flush it */
+      //   ulong sz = (ulong)(s->packet_end - s->packet);
+      //   fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+      //   glob->sent_push_pkt_cnt++;
+      //   char tmp[100];
+      //   FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+      //   s->packet_end = s->packet_end_init;
+      //   *crds_len = 0;
+      // }
+      // fd_memcpy(s->packet_end, msg->data, msg->datalen);
+      // s->packet_end += msg->datalen;
+      // (*crds_len)++;
     }
   }
 
   /* Flush partially full packets */
-  for (ulong i = 0; i < glob->push_states_cnt; ++i) {
-    fd_push_state_t* s = glob->push_states[i];
-    if (s->packet_end != s->packet_end_init) {
-      ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
-      ulong sz = (ulong)(s->packet_end - s->packet);
-      fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
-      char tmp[100];
-      FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
-      s->packet_end = s->packet_end_init;
-      *crds_len = 0;
-    }
-  }
+  // for (ulong i = 0; i < glob->push_states_cnt; ++i) {
+  //   fd_push_state_t* s = glob->push_states[i];
+  //   if (s->packet_end != s->packet_end_init) {
+  //     ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
+  //     ulong sz = (ulong)(s->packet_end - s->packet);
+  //     fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+  //     glob->sent_push_pkt_cnt++;
+  //     char tmp[100];
+  //     FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+  //     s->packet_end = s->packet_end_init;
+  //     *crds_len = 0;
+  //   }
+  // }
 }
 
 /* Publish an outgoing value. The source id and wallclock are set by this function */
