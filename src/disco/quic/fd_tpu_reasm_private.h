@@ -24,33 +24,6 @@
 void
 fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm );
 
-/* Accessors **********************************************************/
-
-static inline FD_FN_PURE fd_tpu_reasm_slot_t *
-fd_tpu_reasm_slots_laddr( fd_tpu_reasm_t * reasm ) {
-  return (fd_tpu_reasm_slot_t *)( (ulong)reasm + reasm->slots_off );
-}
-
-static inline FD_FN_PURE fd_tpu_reasm_slot_t const *
-fd_tpu_reasm_slots_laddr_const( fd_tpu_reasm_t const * reasm ) {
-  return (fd_tpu_reasm_slot_t const *)( (ulong)reasm + reasm->slots_off );
-}
-
-static inline FD_FN_PURE uint *
-fd_tpu_reasm_pub_slots_laddr( fd_tpu_reasm_t * reasm ) {
-  return (uint *)( (ulong)reasm + reasm->pub_slots_off );
-}
-
-static inline FD_FN_PURE uchar *
-fd_tpu_reasm_chunks_laddr( fd_tpu_reasm_t * reasm ) {
-  return (uchar *)( (ulong)reasm + reasm->chunks_off );
-}
-
-static inline FD_FN_PURE uchar const *
-fd_tpu_reasm_chunks_laddr_const( fd_tpu_reasm_t const * reasm ) {
-  return (uchar const *)( (ulong)reasm + reasm->chunks_off );
-}
-
 static inline FD_FN_PURE fd_tpu_reasm_map_t *
 fd_tpu_reasm_map_laddr( fd_tpu_reasm_t * reasm ) {
   return (fd_tpu_reasm_map_t *)( (ulong)reasm + reasm->map_off );

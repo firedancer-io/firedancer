@@ -245,7 +245,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->inflight_pkt_cnt = 1500;
-  limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
+  limits->tx_buf_sz = FD_TXN_MTU;
   limits->stream_pool_cnt = 1UL<<16;
   limits->stream_id_cnt = 1UL<<16;
 }

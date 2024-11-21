@@ -1,10 +1,9 @@
-#include "../../../../disco/tiles.h"
-
-#include "generated/quic_seccomp.h"
-
 #include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../waltz/quic/fd_quic.h"
+#include "../../../../disco/stem/fd_stem.h"
+#include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/quic/fd_tpu.h"
+#include "../../../../waltz/quic/fd_quic_private.h"
+#include "generated/quic_seccomp.h"
 
 #include <errno.h>
 #include <linux/unistd.h>
@@ -68,6 +67,10 @@ typedef struct {
     ulong txns_received_quic_fast;
     ulong txns_received_quic_frag;
     ulong frag_cnt;
+    long  reasm_active;
+    ulong reasm_overrun;
+    ulong reasm_abandoned;
+    ulong reasm_started;
   } metrics;
 } fd_quic_ctx_t;
 
@@ -154,10 +157,14 @@ before_credit( fd_quic_ctx_t *     ctx,
 
 static inline void
 metrics_write( fd_quic_ctx_t * ctx ) {
-  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_UDP,       ctx->metrics.txns_received_udp );
-  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_QUIC_FAST, ctx->metrics.txns_received_quic_fast );
-  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_QUIC_FRAG, ctx->metrics.txns_received_quic_frag );
-  FD_MCNT_SET( QUIC_TILE, TXNS_FRAGS,              ctx->metrics.frag_cnt );
+  FD_MCNT_SET  ( QUIC_TILE, TXNS_RECEIVED_UDP,       ctx->metrics.txns_received_udp );
+  FD_MCNT_SET  ( QUIC_TILE, TXNS_RECEIVED_QUIC_FAST, ctx->metrics.txns_received_quic_fast );
+  FD_MCNT_SET  ( QUIC_TILE, TXNS_RECEIVED_QUIC_FRAG, ctx->metrics.txns_received_quic_frag );
+  FD_MCNT_SET  ( QUIC_TILE, TXNS_FRAGS,              ctx->metrics.frag_cnt );
+  FD_MCNT_SET  ( QUIC_TILE, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
+  FD_MCNT_SET  ( QUIC_TILE, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
+  FD_MCNT_SET  ( QUIC_TILE, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
+  FD_MGAUGE_SET( QUIC_TILE, TXN_REASMS_ACTIVE,       (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -283,12 +290,13 @@ quic_now( void * ctx ) {
   return (ulong)fd_log_wallclock();
 }
 
-/* quic_conn_new is invoked by the QUIC engine whenever a new connection
-   is being established. */
 static void
-quic_conn_new( fd_quic_conn_t * conn,
-               void *           _ctx ) {
-  (void)conn; (void)_ctx;
+quic_conn_final( fd_quic_conn_t * conn,
+                 void *           quic_ctx ) {
+  fd_quic_ctx_t * ctx = quic_ctx;
+  long abandon_cnt = fd_long_max( conn->srx->rx_streams_active, 0L );
+  ctx->metrics.reasm_active    -= abandon_cnt;
+  ctx->metrics.reasm_abandoned += (ulong)abandon_cnt;
 }
 
 static int
@@ -301,6 +309,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
 
   long                tspub    = fd_tickcount();
   fd_quic_t *         quic     = conn->quic;
+  fd_quic_state_t *   state    = fd_quic_get_state( quic );  /* ugly */
   fd_quic_ctx_t *     ctx      = quic->cb.quic_ctx;
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
   ulong               conn_uid = fd_quic_conn_uid( conn );
@@ -316,11 +325,38 @@ quic_stream_rx( fd_quic_conn_t * conn,
     ctx->metrics.txns_received_quic_fast++;
     return FD_QUIC_SUCCESS;
   }
+
   if( data_sz==0UL && !fin ) return FD_QUIC_SUCCESS; /* noop */
 
-  /* Create or continue reassembly */
+  fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_query( reasm, conn_uid, stream_id );
 
-  fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, conn_uid, stream_id, tspub );
+  if( !slot ) { /* start a new reassembly */
+    if( offset>0   ) return FD_QUIC_FAILED;  /* ignore gapped (cancel ACK) */
+    if( data_sz==0 ) return FD_QUIC_SUCCESS; /* ignore empty */
+
+    /* Was the reasm buffer we evicted busy? */
+    fd_tpu_reasm_slot_t * victim      = fd_tpu_reasm_peek_tail( reasm );
+    int                   victim_busy = victim->k.state == FD_TPU_REASM_STATE_BUSY;
+
+    /* If so, does the connection it refers to still exist?
+       (Or was the buffer previously abandoned by means of conn close) */
+    uint             victim_cidx   = fd_quic_conn_uid_idx( victim->k.conn_uid );
+    uint             victim_gen    = fd_quic_conn_uid_gen( victim->k.conn_uid );
+    fd_quic_conn_t * victim_conn   = fd_quic_conn_at_idx( state, victim_cidx ); /* possibly oob */
+    if( victim_busy ) {
+      uint victim_exists = (victim_conn->conn_gen == victim_gen) &
+                           (victim_conn->state == FD_QUIC_CONN_STATE_ACTIVE); /* in [0,1] */
+      victim_conn->srx->rx_streams_active -= victim_exists;
+      ctx->metrics.reasm_overrun          += victim_exists;
+      ctx->metrics.reasm_active           -= victim_exists;
+    }
+
+    slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub ); /* infallible */
+    ctx->metrics.reasm_started++;
+    ctx->metrics.reasm_active++;
+  }
+
+  conn->srx->rx_streams_active++;
 
   int reasm_res = fd_tpu_reasm_frag( reasm, slot, data, data_sz, offset );
   if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
@@ -332,6 +368,8 @@ quic_stream_rx( fd_quic_conn_t * conn,
     int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
     if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
     ctx->metrics.txns_received_quic_frag++;
+    ctx->metrics.reasm_active--;
+    conn->srx->rx_streams_active--;
 
     fd_stem_advance( stem, 0UL );
   }
@@ -450,6 +488,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  fd_memset( ctx, 0, sizeof(fd_quic_ctx_t) );
 
   if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
     FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -488,9 +527,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.sign         = quic_tls_cv_sign;
   quic->config.sign_ctx     = ctx;
 
-  quic->cb.conn_new         = quic_conn_new;
-  quic->cb.conn_hs_complete = NULL;
-  quic->cb.conn_final       = NULL;
+  quic->cb.conn_final       = quic_conn_final;
   quic->cb.stream_rx        = quic_stream_rx;
   quic->cb.now              = quic_now;
   quic->cb.now_ctx          = NULL;

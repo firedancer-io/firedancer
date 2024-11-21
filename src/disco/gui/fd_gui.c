@@ -440,7 +440,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
   cur->out.quic_overrun      = 0UL;
   cur->out.quic_frag_drop    = 0UL;
-  cur->out.quic_aborted      = 0UL;
+  cur->out.quic_abandoned    = 0UL;
   cur->out.tpu_quic_invalid  = 0UL;
   cur->out.tpu_udp_invalid   = 0UL;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
@@ -452,7 +452,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC_TILE, QUIC_PACKET_TOO_SMALL     ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC,      PKT_CRYPTO_FAILED         ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC,      PKT_NO_CONN               ) ];
-    cur->out.quic_aborted     += quic_metrics[ MIDX( COUNTER, QUIC_TILE, TXNS_ABANDONED            ) ];
+    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC_TILE, TXNS_ABANDONED            ) ];
     cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC_TILE, TXNS_OVERRUN              ) ];
 
     for( ulong j=0UL; j<gui->summary.net_tile_cnt; j++ ) {
@@ -476,7 +476,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   cur->in.quic     = cur->out.tpu_quic_invalid +
                      cur->out.quic_overrun +
                      cur->out.quic_frag_drop +
-                     cur->out.quic_aborted +
+                     cur->out.quic_abandoned +
                      cur->out.net_overrun;
   cur->in.udp      = cur->out.tpu_udp_invalid;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
@@ -524,7 +524,7 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
                             waterfall->out.net_overrun -
                             waterfall->out.tpu_quic_invalid -
                             waterfall->out.tpu_udp_invalid -
-                            waterfall->out.quic_aborted -
+                            waterfall->out.quic_abandoned -
                             waterfall->out.quic_frag_drop -
                             waterfall->out.quic_overrun -
                             waterfall->out.verify_overrun;
