@@ -36,7 +36,7 @@ $ op=20 imm=0 : vfy
 $ op=21 imm=0 : vfy
 $ op=22 imm=0 : vfy
 $ op=23 imm=0 : vfy
-$ op=24 imm=0 : ok   # mul32 reg, imm
+$ op=24 imm=0 : vfy  # mul32 reg, imm - removed SIMD-0174
 $ op=25 imm=0 : ok   # jgt reg, imm
 $ op=26 imm=0 : vfy
 $ op=27 imm=0 : err  # stb [reg+off], imm - added SIMD-0173
@@ -52,17 +52,17 @@ $ op=30 imm=0 : vfy
 $ op=31 imm=0 : vfy
 $ op=32 imm=0 : vfy
 $ op=33 imm=0 : vfy
-$ op=34 imm=1 : ok   # div32 reg, imm
+$ op=34 imm=1 : vfy  # div32 reg, imm - removed SIMD-0174
 $ op=35 imm=0 : ok   # jge reg, imm
-$ op=36 imm=0 : vfy
-$ op=37 imm=1 : err # sth [reg+off], imm - added SIMD-0173
+$ op=36 imm=0 : ok   # uhmul64 reg, imm
+$ op=37 imm=1 : err  # sth [reg+off], imm - added SIMD-0173
 $ op=38 imm=0 : vfy
 $ op=39 imm=0 : vfy
 $ op=3a imm=0 : vfy
 $ op=3b imm=0 : vfy
 $ op=3c imm=0 : err  # ldxh reg, [reg+off] - added SIMD-0173
 $ op=3d imm=0 : ok   # jge reg, reg
-$ op=3e imm=0 : vfy
+$ op=3e imm=0 : ok   # uhmul64 reg, reg
 $ op=3f imm=0 : err  # lsh32 reg, reg - added SIMD-0173
 $ op=40 imm=0 : vfy
 $ op=41 imm=0 : vfy
@@ -70,7 +70,8 @@ $ op=42 imm=0 : vfy
 $ op=43 imm=0 : vfy
 $ op=44 imm=0 : ok   # or32 reg, imm
 $ op=45 imm=0 : ok   # jset reg, imm
-$ op=46 imm=0 : vfy
+$ op=46 imm=1 : ok   # udiv32 reg, imm
+$ op=46 imm=0 : vfyub  # udiv32 reg, imm FD_CHECK_DIV
 $ op=47 imm=0 : ok   # or64 reg, imm
 $ op=48 imm=0 : vfy
 $ op=49 imm=0 : vfy
@@ -78,7 +79,7 @@ $ op=4a imm=0 : vfy
 $ op=4b imm=0 : vfy
 $ op=4c imm=0 : ok   # or32 reg, reg
 $ op=4d imm=0 : ok   # jset reg, reg
-$ op=4e imm=0 : vfy
+$ op=4e imm=0 : err  # udiv32 reg, reg
 $ op=4f imm=0 : ok   # or64 reg, reg
 $ op=50 imm=0 : vfy
 $ op=51 imm=0 : vfy
@@ -86,7 +87,8 @@ $ op=52 imm=0 : vfy
 $ op=53 imm=0 : vfy
 $ op=54 imm=0 : ok   # and32 reg, imm
 $ op=55 imm=0 : ok   # jne reg, imm
-$ op=56 imm=0 : vfy
+$ op=56 imm=1 : ok   # udiv64 reg, imm
+$ op=56 imm=0 : vfyub  # udiv64 reg, imm FD_CHECK_DIV
 $ op=57 imm=0 : ok   # and64 reg, imm
 $ op=58 imm=0 : vfy
 $ op=59 imm=0 : vfy
@@ -94,7 +96,7 @@ $ op=5a imm=0 : vfy
 $ op=5b imm=0 : vfy
 $ op=5c imm=0 : ok   # and32 reg, reg
 $ op=5d imm=0 : ok   # jne reg, reg
-$ op=5e imm=0 : vfy
+$ op=5e imm=0 : err  # udiv64 reg, reg
 $ op=5f imm=0 : ok   # and64 reg, reg
 $ op=60 imm=0 : vfy
 $ op=61 imm=0 : vfy  # ldxw reg, [reg+off] - removed SIMD-0173
@@ -102,7 +104,8 @@ $ op=62 imm=0 : vfy  # stw [reg+off], imm - removed SIMD-0173
 $ op=63 imm=0 : vfy  # stxw [reg+off], reg - removed SIMD-0173
 $ op=64 imm=0 : ok   # lsh32 reg, imm
 $ op=65 imm=0 : ok   # jsgt reg, imm
-$ op=66 imm=0 : vfy
+$ op=66 imm=1 : ok   # urem32 reg, imm
+$ op=66 imm=0 : vfyub  # urem32 reg, imm FD_CHECK_DIV
 $ op=67 imm=0 : ok   # lsh64 reg, imm
 $ op=68 imm=0 : vfy
 $ op=69 imm=0 : vfy  # ldxh reg, [reg+off] - removed SIMD-0173
@@ -110,7 +113,7 @@ $ op=6a imm=0 : vfy  # sth [reg+off], imm - removed SIMD-0173
 $ op=6b imm=0 : vfy  # lsh32 reg, reg - removed SIMD-0173
 $ op=6c imm=0 : ok   # jsgt reg, reg
 $ op=6d imm=0 : ok
-$ op=6e imm=0 : vfy
+$ op=6e imm=0 : err  # urem32 reg, reg
 $ op=6f imm=0 : ok   # lsh64 reg, reg
 $ op=70 imm=0 : vfy
 $ op=71 imm=0 : vfy  # ldxb reg, [reg+off] - removed SIMD-0173
@@ -118,7 +121,8 @@ $ op=72 imm=0 : vfy  # stb [reg+off], imm - removed SIMD-0173
 $ op=73 imm=0 : vfy  # stxb [reg+off], reg - removed SIMD-0173
 $ op=74 imm=0 : ok   # rsh32 reg, imm
 $ op=75 imm=0 : ok   # jsge reg, imm
-$ op=76 imm=0 : vfy
+$ op=76 imm=1 : ok   # urem64 reg, imm
+$ op=76 imm=0 : vfyub  # urem64 reg, imm FD_CHECK_DIV
 $ op=77 imm=0 : ok   # rsh64 reg, imm
 $ op=78 imm=0 : vfy
 $ op=79 imm=0 : vfy  # ldxdw reg, [reg+off] - removed SIMD-0173
@@ -126,7 +130,7 @@ $ op=7a imm=0 : vfy  # stdw [reg+off], imm - removed SIMD-0173
 $ op=7b imm=0 : vfy  # stxdw [reg+off], reg - removed SIMD-0173
 $ op=7c imm=0 : ok   # rsh32 reg, reg
 $ op=7d imm=0 : ok
-$ op=7e imm=0 : vfy
+$ op=7e imm=0 : err  # urem64 reg, reg
 $ op=7f imm=0 : ok   # rsh64 reg, reg
 $ op=80 imm=0 : vfy
 $ op=81 imm=0 : vfy
@@ -134,7 +138,7 @@ $ op=82 imm=0 : vfy
 $ op=83 imm=0 : vfy
 $ op=84 imm=0 : vfy  # neg32 reg - removed SIMD-0173
 $ op=85 imm=0 : err  # call imm
-$ op=86 imm=0 : vfy
+$ op=86 imm=0 : ok   # lmul32 reg, imm
 $ op=87 imm=0 : err  # stw [reg+off], imm - added SIMD-0173
 $ op=88 imm=0 : vfy
 $ op=89 imm=0 : vfy
@@ -142,15 +146,15 @@ $ op=8a imm=0 : vfy
 $ op=8b imm=0 : vfy
 $ op=8c imm=0 : err  # ldxw reg, [reg+off] - added SIMD-0173
 $ op=8d imm=0 : err  # callx reg
-$ op=8e imm=0 : vfy
+$ op=8e imm=0 : ok   # lmul32 reg, reg
 $ op=8f imm=0 : err  # stxw [reg+off], reg - added SIMD-0173
 $ op=90 imm=0 : vfy
 $ op=91 imm=0 : vfy
 $ op=92 imm=0 : vfy
 $ op=93 imm=0 : vfy
-$ op=94 imm=0 : vfyub  # mod32 reg, imm
+$ op=94 imm=1 : vfy  # mod32 reg, imm - removed SIMD-0174
 $ op=95 imm=0 : ok   # exit
-$ op=96 imm=0 : vfy
+$ op=96 imm=0 : ok   # lmul64 reg, imm
 $ op=97 imm=1 : err  # stdw [reg+off], imm - added SIMD-0173
 $ op=98 imm=0 : vfy
 $ op=99 imm=0 : vfy
@@ -158,7 +162,7 @@ $ op=9a imm=0 : vfy
 $ op=9b imm=0 : vfy
 $ op=9c imm=0 : err  # ldxdw reg, [reg+off] - added SIMD-0173
 $ op=9d imm=0 : vfy
-$ op=9e imm=0 : vfy
+$ op=9e imm=0 : ok   # lmul64 reg, reg
 $ op=9f imm=0 : err  # stxdw [reg+off], reg - added SIMD-0173
 $ op=a0 imm=0 : vfy
 $ op=a1 imm=0 : vfy
@@ -182,7 +186,7 @@ $ op=b2 imm=0 : vfy
 $ op=b3 imm=0 : vfy
 $ op=b4 imm=0 : ok   # mov32 reg, imm
 $ op=b5 imm=0 : ok   # jle reg, imm
-$ op=b6 imm=0 : vfy
+$ op=b6 imm=0 : ok   # shmul64 reg, imm
 $ op=b7 imm=0 : ok   # mov64 reg, imm
 $ op=b8 imm=0 : vfy
 $ op=b9 imm=0 : vfy
@@ -190,7 +194,7 @@ $ op=ba imm=0 : vfy
 $ op=bb imm=0 : vfy
 $ op=bc imm=0 : ok   # mov32 reg, reg
 $ op=bd imm=0 : ok   # jle reg, reg
-$ op=be imm=0 : vfy
+$ op=be imm=0 : ok   # shmul64 reg, reg
 $ op=bf imm=0 : ok   # mov64 reg, reg
 $ op=c0 imm=0 : vfy
 $ op=c1 imm=0 : vfy
@@ -198,7 +202,8 @@ $ op=c2 imm=0 : vfy
 $ op=c3 imm=0 : vfy
 $ op=c4 imm=0 : ok   # arsh32 reg, imm
 $ op=c5 imm=0 : ok   # jslt reg, imm
-$ op=c6 imm=0 : vfy
+$ op=c6 imm=1 : ok   # sdiv32 reg, imm
+$ op=c6 imm=0 : vfyub  # sdiv32 reg, imm FD_CHECK_DIV
 $ op=c7 imm=0 : ok   # arsh64 reg, imm
 $ op=c8 imm=0 : vfy
 $ op=c9 imm=0 : vfy
@@ -206,7 +211,7 @@ $ op=ca imm=0 : vfy
 $ op=cb imm=0 : vfy
 $ op=cc imm=0 : ok   # arsh32 reg, reg
 $ op=cd imm=0 : ok   # jslt reg, reg
-$ op=ce imm=0 : vfy
+$ op=ce imm=0 : err  # sdiv32 reg, reg
 $ op=cf imm=0 : ok   # arsh64 reg, reg
 $ op=d0 imm=0 : vfy
 $ op=d1 imm=0 : vfy
@@ -214,7 +219,8 @@ $ op=d2 imm=0 : vfy
 $ op=d3 imm=0 : vfy
 $ op=d4 imm=10: vfy  # le reg, imm - removed SIMD-0173
 $ op=d5 imm=0 : ok   # jsle reg, imm
-$ op=d6 imm=0 : vfy
+$ op=d6 imm=1 : ok   # sdiv64 reg, imm
+$ op=d6 imm=0 : vfyub  # sdiv64 reg, imm FD_CHECK_DIV
 $ op=d7 imm=0 : vfy
 $ op=d8 imm=0 : vfy
 $ op=d9 imm=0 : vfy
@@ -222,7 +228,7 @@ $ op=da imm=0 : vfy
 $ op=db imm=0 : vfy
 $ op=dc imm=10: ok   # be reg, imm
 $ op=dd imm=0 : ok   # jsle reg, reg
-$ op=de imm=0 : vfy
+$ op=de imm=0 : err  # sdiv64 reg, reg
 $ op=df imm=0 : vfy
 $ op=e0 imm=0 : vfy
 $ op=e1 imm=0 : vfy
@@ -230,7 +236,8 @@ $ op=e2 imm=0 : vfy
 $ op=e3 imm=0 : vfy
 $ op=e4 imm=0 : vfy
 $ op=e5 imm=0 : vfy
-$ op=e6 imm=0 : vfy
+$ op=e6 imm=1 : ok   # srem32 reg, imm
+$ op=e6 imm=0 : vfyub  # srem32 reg, imm FD_CHECK_DIV
 $ op=e7 imm=0 : vfy
 $ op=e8 imm=0 : vfy
 $ op=e9 imm=0 : vfy
@@ -238,7 +245,7 @@ $ op=ea imm=0 : vfy
 $ op=eb imm=0 : vfy
 $ op=ec imm=0 : vfy
 $ op=ed imm=0 : vfy
-$ op=ee imm=0 : vfy
+$ op=ee imm=0 : err  # srem32 reg, reg
 $ op=ef imm=0 : vfy
 $ op=f0 imm=0 : vfy
 $ op=f1 imm=0 : vfy
@@ -246,7 +253,8 @@ $ op=f2 imm=0 : vfy
 $ op=f3 imm=0 : vfy
 $ op=f4 imm=0 : vfy
 $ op=f5 imm=0 : vfy
-$ op=f6 imm=0 : vfy
+$ op=f6 imm=1 : ok   # srem64 reg, imm
+$ op=f6 imm=0 : vfyub  # srem64 reg, imm FD_CHECK_DIV
 $ op=f7 imm=0 : ok   # hor64 reg, imm
 $ op=f8 imm=0 : vfy
 $ op=f9 imm=0 : vfy
@@ -254,5 +262,5 @@ $ op=fa imm=0 : vfy
 $ op=fb imm=0 : vfy
 $ op=fc imm=0 : vfy
 $ op=fd imm=0 : vfy
-$ op=fe imm=0 : vfy
+$ op=fe imm=0 : err  # srem64 reg, reg
 $ op=ff imm=0 : vfy

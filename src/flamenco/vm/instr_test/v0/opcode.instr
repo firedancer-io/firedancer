@@ -148,7 +148,7 @@ $ op=90 imm=0 : vfy
 $ op=91 imm=0 : vfy
 $ op=92 imm=0 : vfy
 $ op=93 imm=0 : vfy
-$ op=94 imm=0 : vfyub  # mod32 reg, imm
+$ op=94 imm=1 : ok   # mod32 reg, imm
 $ op=95 imm=0 : ok   # exit
 $ op=96 imm=0 : vfy
 $ op=97 imm=1 : ok   # mod64 reg, imm
