@@ -69,9 +69,52 @@
   /* SIMD-0173: CALLX */
   interp_jump_table[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? &&interp_0x8d : &&interp_0x8ddepr;
 
+  /* SIMD-0174: PQR */
+  interp_jump_table[ 0x36 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x36 : &&sigill;
+  interp_jump_table[ 0x3e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x3e : &&sigill;
+
+  interp_jump_table[ 0x46 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x46 : &&sigill;
+  interp_jump_table[ 0x4e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x4e : &&sigill;
+  interp_jump_table[ 0x56 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x56 : &&sigill;
+  interp_jump_table[ 0x5e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x5e : &&sigill;
+  interp_jump_table[ 0x66 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x66 : &&sigill;
+  interp_jump_table[ 0x6e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x6e : &&sigill;
+  interp_jump_table[ 0x76 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x76 : &&sigill;
+  interp_jump_table[ 0x7e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x7e : &&sigill;
+
+  interp_jump_table[ 0x86 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x86 : &&sigill;
+  interp_jump_table[ 0x8e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x8e : &&sigill;
+  interp_jump_table[ 0x96 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x96 : &&sigill;
+  interp_jump_table[ 0x9e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x9e : &&sigill;
+  interp_jump_table[ 0xb6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xb6 : &&sigill;
+  interp_jump_table[ 0xbe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xbe : &&sigill;
+
+  interp_jump_table[ 0xc6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xc6 : &&sigill;
+  interp_jump_table[ 0xce ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xce : &&sigill;
+  interp_jump_table[ 0xd6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xd6 : &&sigill;
+  interp_jump_table[ 0xde ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xde : &&sigill;
+  interp_jump_table[ 0xe6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xe6 : &&sigill;
+  interp_jump_table[ 0xee ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xee : &&sigill;
+  interp_jump_table[ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xf6 : &&sigill;
+  interp_jump_table[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0xfe : &&sigill;
+
+  /* SIMD-0174: disable MUL, DIV, MOD */
+  interp_jump_table[ 0x24 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&sigill : &&interp_0x24;
+  interp_jump_table[ 0x34 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&sigill : &&interp_0x34;
+  interp_jump_table[ 0x94 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&sigill : &&interp_0x94;
+
   /* SIMD-0174: NEG */
   interp_jump_table[ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (sbpf_version) ? &&interp_0x84 : &&sigill;
   /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
+
+  /* SIMD-0174: Explicit Sign Extension + Register Immediate Subtraction. 
+     Note: 0x14 is affected by both. */
+  interp_jump_table[ 0x04 ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (sbpf_version) ? &&interp_0x04 : &&interp_0x04depr;
+  interp_jump_table[ 0x0c ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (sbpf_version) ? &&interp_0x0c : &&interp_0x0cdepr;
+  interp_jump_table[ 0x1c ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (sbpf_version) ? &&interp_0x1c : &&interp_0x1cdepr;
+  interp_jump_table[ 0xbc ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (sbpf_version) ? &&interp_0xbc : &&interp_0xbcdepr;
+  interp_jump_table[ 0x14 ] = FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(sbpf_version) ? &&interp_0x14 : &&interp_0x14depr;
+  interp_jump_table[ 0x17 ] = FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(sbpf_version) ? &&interp_0x17 : &&interp_0x17depr;
 
   /* Unpack the VM state */
 
@@ -260,6 +303,10 @@ interp_exec:
   /* 0x00 - 0x0f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst + (int)imm );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x04depr) /* FD_SBPF_OP_ADD_IMM deprecated SIMD-0174 */
     reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
   FD_VM_INTERP_INSTR_END;
 
@@ -272,6 +319,10 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x0c) /* FD_SBPF_OP_ADD_REG */
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst + (int)reg_src );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x0cdepr) /* FD_SBPF_OP_ADD_REG deprecated SIMD-0174 */
     reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
@@ -282,6 +333,10 @@ interp_exec:
   /* 0x10 - 0x1f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x14) /* FD_SBPF_OP_SUB_IMM */
+    reg[ dst ] = (ulong)(uint)( (int)imm - (int)reg_dst );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x14depr) /* FD_SBPF_OP_SUB_IMM deprecated SIMD-0174 */
     reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)imm );
   FD_VM_INTERP_INSTR_END;
 
@@ -290,6 +345,10 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x17) /* FD_SBPF_OP_SUB64_IMM */
+    reg[ dst ] = (ulong)(long)(int)imm - reg_dst;
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x17depr) /* FD_SBPF_OP_SUB64_IMM deprecated SIMD-0174 */
     reg[ dst ] = reg_dst - (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
@@ -301,6 +360,10 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1c) /* FD_SBPF_OP_SUB_REG */
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst - (int)reg_src );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x1cdepr) /* FD_SBPF_OP_SUB_REG deprecated SIMD-0174 */
     reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
@@ -377,6 +440,10 @@ interp_exec:
     pc += fd_ulong_if( reg_dst>=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x36) /* FD_SBPF_OP_UHMUL64_IMM */
+    reg[ dst ] = (ulong)(( (uint128)reg_dst * (uint128)(ulong)(long)(int)imm ) >> 64 );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
     uchar is_multi_region = 0;
     ulong vaddr           = reg_dst + (ulong)(long)offset;
@@ -411,6 +478,10 @@ interp_exec:
   }
   FD_VM_INTERP_INSTR_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x3e) /* FD_SBPF_OP_UHMUL64_REG */
+    reg[ dst ] = (ulong)(( (uint128)reg_dst * (uint128)reg_src ) >> 64 );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x37depr) /* FD_SBPF_OP_DIV64_IMM */
     reg[ dst ] = reg_dst / (ulong)imm;
   FD_VM_INTERP_INSTR_END;
@@ -435,6 +506,10 @@ interp_exec:
     pc += fd_ulong_if( !!(reg_dst & (ulong)(long)(int)imm), (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x46) /* FD_SBPF_OP_UDIV32_IMM */
+    reg[ dst ] = (ulong)( (uint)reg_dst / (uint)imm );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x47) /* FD_SBPF_OP_OR64_IMM */
     reg[ dst ] = reg_dst | (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
@@ -446,6 +521,11 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0x4d) /* FD_SBPF_OP_JSET_REG */
     pc += fd_ulong_if( !!(reg_dst & reg_src), (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x4e) /* FD_SBPF_OP_UDIV32_REG */
+    if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
+    reg[ dst ] = (ulong)( (uint)reg_dst / (uint)reg_src );
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x4f) /* FD_SBPF_OP_OR64_REG */
     reg[ dst ] = reg_dst | reg_src;
@@ -461,6 +541,10 @@ interp_exec:
     pc += fd_ulong_if( reg_dst!=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x56) /* FD_SBPF_OP_UDIV64_IMM */
+    reg[ dst ] = reg_dst / (ulong)imm;
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x57) /* FD_SBPF_OP_AND64_IMM */
     reg[ dst ] = reg_dst & (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
@@ -472,6 +556,11 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0x5d) /* FD_SBPF_OP_JNE_REG */
     pc += fd_ulong_if( reg_dst!=reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x5e) /* FD_SBPF_OP_UDIV64_REG */
+    if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
+    reg[ dst ] = reg_dst / reg_src;
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x5f) /* FD_SBPF_OP_AND64_REG */
     reg[ dst ] = reg_dst & reg_src;
@@ -492,6 +581,10 @@ interp_exec:
     pc += fd_ulong_if( (long)reg_dst>(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x66) /* FD_SBPF_OP_UREM32_IMM */
+    reg[ dst ] = (ulong)( (uint)reg_dst % (uint)imm );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x67) /* FD_SBPF_OP_LSH64_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L376 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg_dst, imm );
@@ -505,6 +598,11 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0x6d) /* FD_SBPF_OP_JSGT_REG */
     pc += fd_ulong_if( (long)reg_dst>(long)reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x6e) /* FD_SBPF_OP_UREM32_REG */
+    if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
+    reg[ dst ] = (ulong)( (uint)reg_dst % (uint)reg_src );
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6f) /* FD_SBPF_OP_LSH64_REG */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L377 */
@@ -522,6 +620,10 @@ interp_exec:
     pc += fd_ulong_if( (long)reg_dst>=(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x76) /* FD_SBPF_OP_UREM64_IMM */
+    reg[ dst ] = reg_dst % (ulong)imm;
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x77) /* FD_SBPF_OP_RSH64_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L378 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg_dst, imm );
@@ -535,6 +637,11 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0x7d) /* FD_SBPF_OP_JSGE_REG */
     pc += fd_ulong_if( (long)reg_dst>=(long)reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x7e) /* FD_SBPF_OP_UREM64_REG */
+    if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
+    reg[ dst ] = reg_dst % reg_src;
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7f) /* FD_SBPF_OP_RSH64_REG */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L379 */
@@ -663,6 +770,10 @@ interp_exec:
 
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x86) /* FD_SBPF_OP_LMUL32_IMM */
+    reg[ dst ] = (ulong)( (uint)reg_dst * imm );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x87) { /* FD_SBPF_OP_STW */
     uchar is_multi_region = 0;
     ulong vaddr           = reg_dst + (ulong)(long)offset;
@@ -729,6 +840,10 @@ interp_exec:
 
   } FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x8e) /* FD_SBPF_OP_LMUL32_REG */
+    reg[ dst ] = (ulong)( (uint)reg_dst * (uint)reg_src );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x8f) { /* FD_SBPF_OP_STXW */
     uchar is_multi_region = 0;
     ulong vaddr           = reg_dst + (ulong)(long)offset;
@@ -761,6 +876,10 @@ interp_exec:
     reg[10] -= vm->stack_frame_size;
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0x96) /* FD_SBPF_OP_LMUL64_IMM */
+    reg[ dst ] = reg_dst * (ulong)(long)(int)imm;
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0x97) { /* FD_SBPF_OP_STQ */
     uchar is_multi_region = 0;
     ulong vaddr           = reg_dst + (ulong)(long)offset;
@@ -779,6 +898,10 @@ interp_exec:
     if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     reg[ dst ] = fd_vm_mem_ld_8( vm, vaddr, haddr, is_multi_region );
   }
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0x9e) /* FD_SBPF_OP_LMUL64_REG */
+    reg[ dst ] = reg_dst * reg_src;
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
@@ -841,17 +964,29 @@ interp_exec:
     pc += fd_ulong_if( reg_dst<=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0xb6) /* FD_SBPF_OP_SHMUL64_IMM */
+    reg[ dst ] = (ulong)(( (int128)(long)reg_dst * (int128)(long)(int)imm ) >> 64 );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0xb7) /* FD_SBPF_OP_MOV64_IMM */
     reg[ dst ] = (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xbc) /* FD_SBPF_OP_MOV_REG */
+    reg[ dst ] = (ulong)(long)(int)reg_src;
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0xbcdepr) /* FD_SBPF_OP_MOV_REG deprecated SIMD-1074 */
     reg[ dst ] = (ulong)(uint)reg_src;
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xbd) /* FD_SBPF_OP_JLE_REG */
     pc += fd_ulong_if( reg_dst<=reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0xbe) /* FD_SBPF_OP_SHMUL64_REG */
+    reg[ dst ] = (ulong)(( (int128)(long)reg_dst * (int128)(long)reg_src ) >> 64 );
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xbf) /* FD_SBPF_OP_MOV64_REG */
     reg[ dst ] = reg_src;
@@ -867,6 +1002,11 @@ interp_exec:
     pc += fd_ulong_if( (long)reg_dst<(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0xc6) /* FD_SBPF_OP_SDIV32_IMM */
+    if( FD_UNLIKELY( ((int)reg_dst==INT_MIN) & ((int)imm==-1) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst / (int)imm );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0xc7) /* FD_SBPF_OP_ARSH64_IMM */
     reg[ dst ] = (ulong)( (long)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
   FD_VM_INTERP_INSTR_END;
@@ -878,6 +1018,12 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
     pc += fd_ulong_if( (long)reg_dst<(long)reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0xce) /* FD_SBPF_OP_SDIV32_REG */
+    if( FD_UNLIKELY( !(int)reg_src ) ) goto sigfpe;
+    if( FD_UNLIKELY( ((int)reg_dst==INT_MIN) & ((int)reg_src==-1) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst / (int)reg_src );
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcf) /* FD_SBPF_OP_ARSH64_REG */
     reg[ dst ] = (ulong)( (long)reg_dst >> reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
@@ -898,6 +1044,11 @@ interp_exec:
     pc += fd_ulong_if( (long)reg_dst<=(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0xd6) /* FD_SBPF_OP_SDIV64_IMM */
+    if( FD_UNLIKELY( ((long)reg_dst==LONG_MIN) & ((long)(int)imm==-1L) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)( (long)reg_dst / (long)(int)imm );
+  FD_VM_INTERP_INSTR_END;
+
   FD_VM_INTERP_INSTR_BEGIN(0xdc) /* FD_SBPF_OP_END_BE */
     switch( imm ) {
     case 16U: reg[ dst ] = (ulong)fd_ushort_bswap( (ushort)reg_dst ); break;
@@ -911,11 +1062,41 @@ interp_exec:
     pc += fd_ulong_if( (long)reg_dst<=(long)reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
+  FD_VM_INTERP_INSTR_BEGIN(0xde) /* FD_SBPF_OP_SDIV64_REG */
+    if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
+    if( FD_UNLIKELY( ((long)reg_dst==LONG_MIN) & ((long)reg_src==-1L) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)( (long)reg_dst / (long)reg_src );
+  FD_VM_INTERP_INSTR_END;
+
+  /* 0xe0 - 0xef ******************************************************/
+
+  FD_VM_INTERP_INSTR_BEGIN(0xe6) /* FD_SBPF_OP_SREM32_IMM */
+    if( FD_UNLIKELY( ((int)reg_dst==INT_MIN) & ((int)imm==-1) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst % (int)imm );
+  FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0xee) /* FD_SBPF_OP_SREM32_REG */
+    if( FD_UNLIKELY( !(int)reg_src ) ) goto sigfpe;
+    if( FD_UNLIKELY( ((int)reg_dst==INT_MIN) & ((int)reg_src==-1) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)(uint)( (int)reg_dst % (int)reg_src );
+  FD_VM_INTERP_INSTR_END;
+
   /* 0xf0 - 0xff ******************************************************/
+
+  FD_VM_INTERP_INSTR_BEGIN(0xf6) /* FD_SBPF_OP_SREM64_IMM */
+    if( FD_UNLIKELY( ((long)reg_dst==LONG_MIN) & ((long)(int)imm==-1L) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)( (long)reg_dst % (long)(int)imm );
+  FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xf7) /* FD_SBPF_OP_HOR64 */
     reg[ dst ] = reg_dst | (((ulong)imm) << 32);
   FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_INSTR_BEGIN(0xfe) /* FD_SBPF_OP_SREM64_REG */
+    if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
+    if( FD_UNLIKELY( ((long)reg_dst==LONG_MIN) & ((long)reg_src==-1L) ) ) goto sigfpeof;
+    reg[ dst ] = (ulong)( (long)reg_dst % (long)reg_src );
+  FD_VM_INTERP_INSTR_END;
 
   /* FIXME: sigsplit is only partially implemented (needs the bit vector
      of invalid jump targets in BRANCH_END) */
@@ -961,6 +1142,7 @@ sigsegv:     err = FD_VM_ERR_SIGSEGV;  FD_VM_INTERP_FAULT;                     g
 sigcost:     err = FD_VM_ERR_SIGCOST;  /* ic current */      cu = 0UL;         goto interp_halt;
 sigsyscall:  /* err current */         /* ic current */      /* cu current */  goto interp_halt;
 sigfpe:      err = FD_VM_ERR_SIGFPE;   FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigfpeof:    err = FD_VM_ERR_SIGFPE_OF;FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigexit:     /* err current */         /* ic current */      /* cu current */  goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
