@@ -36,124 +36,140 @@ local tango_ctl_eom = ProtoField.uint16("fd_tango.ctl.eom", "End-of-message", ba
 local tango_ctl_err = ProtoField.uint16("fd_tango.ctl.err", "Err", base.DEC, NULL, 4)
 local tango_ctl_orig = ProtoField.uint16("fd_tango.ctl.orig", "Origin", base.DEC, NULL, 0xFFF8)
 local tango_tsorig = ProtoField.uint32("fd_tango.tsorig", "Origin Timestamp", base.DEC)
-local tango_tspub = ProtoField.uint32("fd_tango.tspub", "Publish Timesatamp", base.DEC)
+local tango_tspub = ProtoField.uint32("fd_tango.tspub", "Publish Timestamp", base.DEC)
 local tango_link = ProtoField.uint32("fd_tango.link", "Link Hash", base.HEX)
 local tango_link_name = ProtoField.string("fd_tango.linkname", "Link Name")
 local tango_contents = ProtoField.bytes("fd_tango.contents", "DCache Contents")
 
 local tpu_payload_sz = ProtoField.uint16("fd_tpu.payload_sz", "Payload Size")
 local tpu_txn = ProtoField.bytes("fd_tpu.txn_t", "fd_txn_t")
+local tpu_requested_cus = ProtoField.uint32("fd_tpu.requested_cus", "Requested CUs")
+local tpu_executed_cus = ProtoField.uint32("fd_tpu.executed_cus", "Executed CUs")
+local tpu_flags = ProtoField.uint32("fd_tpu.flags", "Flags")
 
 tango.fields = {
-	tango_link,
-	tango_link_name,
-	tango_seq,
-	tango_sig,
-	tango_chunk,
-	tango_sz,
-	tango_ctl,
-	tango_tsorig,
-	tango_tspub,
-	tango_ctl_som,
-	tango_ctl_eom,
-	tango_ctl_err,
-	tango_ctl_orig,
-	tango_contents,
+  tango_link,
+  tango_link_name,
+  tango_seq,
+  tango_sig,
+  tango_chunk,
+  tango_sz,
+  tango_ctl,
+  tango_tsorig,
+  tango_tspub,
+  tango_ctl_som,
+  tango_ctl_eom,
+  tango_ctl_err,
+  tango_ctl_orig,
+  tango_contents,
 
-	tpu_payload_sz,
-	tpu_txn
+  tpu_payload_sz,
+  tpu_txn,
+  tpu_requested_cus,
+  tpu_executed_cus,
+  tpu_flags
 }
 
 local link_hashes = {
-	[0xc67c71] = "net_netmux",
-	[0x641266] = "quic_netmux",
-	[0xbbbcde] = "shred_netmux",
-	[0x1efba0] = "verify_dedup",
-	[0x1efba0] = "verify_dedup",
-	[0x59ac4d] = "dedup_pack",    
-	[0xf5fa3d] = "gossip_pack",   
-	[0x27193a] = "stake_out",  
-	[0x7b8342] = "pack_bank", 
-	[0xfe7bbf] = "bank_poh",
-	[0xdb6a44] = "poh_shred",
-	[0xb8e9a5] = "crds_shred",
-	[0x6e5d41] = "shred_store",
-	[0xc650c9] = "shred_sign",
-	[0xd408b5] = "sign_shred"       
+  [0xc67c71] = "net_netmux",
+  [0x641266] = "quic_netmux",
+  [0xbbbcde] = "shred_netmux",
+  [0x18a945] = "shred_net",
+  [0x1efba0] = "verify_dedup",
+  [0x59ac4d] = "dedup_pack",
+  [0xf5fa3d] = "gossip_pack",
+  [0x27193a] = "stake_out",
+  [0x7b8342] = "pack_bank",
+  [0xfe7bbf] = "bank_poh",
+  [0xdb6a44] = "poh_shred",
+  [0xb8e9a5] = "crds_shred",
+  [0x6e5d41] = "shred_store",
+  [0x3845f5] = "shred_storei",
+  [0xc650c9] = "shred_sign",
+  [0xd408b5] = "sign_shred",
+  [0x0d274e] = "quic_net",
+  [0xf680c5] = "net_quic",
+  [0xee5444] = "poh_pack",
+  [0x6f928b] = "net_shred"
 }
 
 function tango.dissector (tvb, pinfo, tree)
     local subtree = tree:add(tango, tvb())
-	packet_len = tvb:len()
+  packet_len = tvb:len()
 
     if packet_len == 0 then
-		return
-	end
+    return
+  end
 
-	local link_hash = tvb(packet_len-4, 4):le_uint()
-	local link_name = link_hashes[bit.rshift(link_hash, 8)] 
+  local link_hash = tvb(packet_len-4, 4):le_uint()
+  local link_name = link_hashes[bit.rshift(link_hash, 8)] 
 
-	local link_element = subtree:add_le(tango_link, tvb(packet_len-4, 4)):append_text( " (" .. link_name .. ")" )
-	subtree:add(tango_link_name, tvb(packet_len-4, 4), link_name)
+  local link_element = subtree:add_le(tango_link, tvb(packet_len-4, 4)):append_text( " (" .. link_name .. ")" )
+  subtree:add(tango_link_name, tvb(packet_len-4, 4), link_name)
 
-	subtree:add_le(tango_seq, tvb(0, 8))
-	subtree:add_le(tango_sig, tvb(8, 8))
-	subtree:add_le(tango_chunk, tvb(16, 4))
-	subtree:add_le(tango_sz, tvb(20, 2))
-	local ctl_node = subtree:add(tango_ctl, tvb(22, 2))
-	local ctl = tvb(22,2):le_uint()
+  subtree:add_le(tango_seq, tvb(0, 8))
+  subtree:add_le(tango_sig, tvb(8, 8))
+  subtree:add_le(tango_chunk, tvb(16, 4))
+  subtree:add_le(tango_sz, tvb(20, 2))
+  local ctl_node = subtree:add(tango_ctl, tvb(22, 2))
+  local ctl = tvb(22,2):le_uint()
 
-	ctl_node:add(tango_ctl_som, tvb(22,2), bit.band(ctl, 1))
-	ctl_node:add(tango_ctl_eom, tvb(22,2), bit.band(ctl, 2))
-	ctl_node:add(tango_ctl_err, tvb(22,2), bit.band(ctl, 4))
-	ctl_node:add(tango_ctl_orig, tvb(22,2), bit.band(ctl, 0xFFF8))
+  ctl_node:add(tango_ctl_som, tvb(22,2), bit.band(ctl, 1))
+  ctl_node:add(tango_ctl_eom, tvb(22,2), bit.band(ctl, 2))
+  ctl_node:add(tango_ctl_err, tvb(22,2), bit.band(ctl, 4))
+  ctl_node:add(tango_ctl_orig, tvb(22,2), bit.band(ctl, 0xFFF8))
 
-	subtree:add_le(tango_tsorig, tvb(24, 4))
-	subtree:add_le(tango_tspub, tvb(28, 4))
+  subtree:add_le(tango_tsorig, tvb(24, 4))
+  subtree:add_le(tango_tspub, tvb(28, 4))
 
 
-	local dcache_contents = tvb:range(32, packet_len-36):tvb()
-	local dcache_tree = subtree:add(tango_contents, tvb(32, packet_len-36))
+  local dcache_contents = tvb:range(32, packet_len-36):tvb()
+  local dcache_tree = subtree:add(tango_contents, tvb(32, packet_len-36))
 
-	if link_name == "net_netmux" or link_name == "quic_netmux" or link_name == "shred_netmux" then
-		local dissector = Dissector.get("eth_withoutfcs")
-		dissector:call(dcache_contents, pinfo, dcache_tree)
-	elseif link_name == "gossip_pack" then
-		local dissector = Dissector.get("solana.tpu.udp")
-		dissector:call(dcache_contents, pinfo, dcache_tree)
-	elseif link_name == "verify_dedup" or link_name == "dedup_pack" then
-		local dissector = Dissector.get("solana.tpu.udp")
-		dissector:call(dcache_contents, pinfo, dcache_tree)
-		-- Also parse fd_txn_t at end
-		local payload_sz = dcache_contents(dcache_contents:len()-2, 2):le_uint()
-		dcache_tree:add_le(tpu_payload_sz, dcache_contents(dcache_contents:len()-2, 2))
-		if payload_sz % 2 == 1 then
-			payload_sz = payload_sz+1
-		end
-		local dissector2 = Dissector.get("fd_txn_t")
-		local txn_t_tvb = dcache_contents:range(payload_sz, dcache_contents:len()-2-payload_sz):tvb()
-		dissector2:call(txn_t_tvb, pinfo, dcache_tree)
-	elseif link_name == "poh_shred" then
-		local dissector = Dissector.get("fd_poh_shred")
-		dissector:call(dcache_contents, pinfo, dcache_tree)
-	elseif link_name == "pack_bank" or link_name == "bank_poh" then
-		local dissector = Dissector.get("solana.tpu.udp")
-		local dissector2 = Dissector.get("fd_txn_t")
+  if link_name == "net_netmux" or link_name == "quic_netmux" or link_name == "shred_netmux" or link_name == "net_quic" or link_name == "quic_net" or link_name == "shred_net" or link_name == "net_shred" then
+    local dissector = Dissector.get("eth_withoutfcs")
+    dissector:call(dcache_contents, pinfo, dcache_tree)
+  elseif link_name == "gossip_pack" then
+    local dissector = Dissector.get("solana.tpu.udp")
+    dissector:call(dcache_contents, pinfo, dcache_tree)
+  elseif link_name == "verify_dedup" or link_name == "dedup_pack" then
+    local dissector = Dissector.get("solana.tpu.udp")
+    dissector:call(dcache_contents, pinfo, dcache_tree)
+    -- Also parse fd_txn_t at end
+    local payload_sz = dcache_contents(dcache_contents:len()-2, 2):le_uint()
+    dcache_tree:add_le(tpu_payload_sz, dcache_contents(dcache_contents:len()-2, 2))
+    if payload_sz % 2 == 1 then
+      payload_sz = payload_sz+1
+    end
+    local dissector2 = Dissector.get("fd_txn_t")
+    local txn_t_tvb = dcache_contents:range(payload_sz, dcache_contents:len()-2-payload_sz):tvb()
+    dissector2:call(txn_t_tvb, pinfo, dcache_tree)
+  elseif link_name == "poh_shred" then
+    local dissector = Dissector.get("fd_poh_shred")
+    dissector:call(dcache_contents, pinfo, dcache_tree)
+  elseif link_name == "pack_bank" or link_name == "bank_poh" then
+    local dissector = Dissector.get("solana.tpu.udp")
+    local dissector2 = Dissector.get("fd_txn_t")
 
-		for j=1,dcache_contents:len()-2103,2104 do
-			local txn_tree = dcache_tree:add(tpu_txn, dcache_contents(j-1,2104))
+    for j=1,dcache_contents:len()-2111,2112 do
+      local txn_tree = dcache_tree:add(tpu_txn, dcache_contents(j-1,2104))
 
-			dissector:call(dcache_contents(j-1,1232):tvb(), pinfo, txn_tree)
-			txn_tree:add_le(tpu_payload_sz, dcache_contents(j+1231, 2))
-			-- Skip meta, flags
-			local txn_t_tvb = dcache_contents(j-1+1232+20, 2104-1232-20):tvb()
-			dissector2:call(txn_t_tvb, pinfo, txn_tree)
-		end
-		-- If bank_poh, the trailer
-	elseif link_name == "shred_store" then
-		local dissector = Dissector.get("fd_shred34_t")
-		dissector:call(dcache_contents, pinfo, dcache_tree)
-	end
+      dissector:call(dcache_contents(j-1,1232):tvb(), pinfo, txn_tree)
+      txn_tree:add_le(tpu_payload_sz, dcache_contents(j+1231, 2))
+      txn_tree:add_le(tpu_requested_cus, dcache_contents(j+1239, 4))
+      txn_tree:add_le(tpu_executed_cus, dcache_contents(j+1243, 4))
+      txn_tree:add_le(tpu_flags, dcache_contents(j+1247, 4))
+      local txn_t_tvb = dcache_contents(j-1+1232+20, 2104-1232-20):tvb()
+      dissector2:call(txn_t_tvb, pinfo, txn_tree)
+    end
+    -- If bank_poh, the trailer
+  elseif link_name == "shred_store" or link_name == "shred_storei" then
+    local dissector = Dissector.get("fd_shred34_t")
+    dissector:call(dcache_contents, pinfo, dcache_tree)
+  elseif link_name == "poh_pack" then
+    local dissector = Dissector.get("fd_became_leader_t")
+    dissector:call(dcache_contents, pinfo, dcache_tree)
+  end
 end
 
 
@@ -218,39 +234,39 @@ function p_fd_txn.dissector(buffer, pinfo, tree)
   subtree:add_le(f.instr_cnt, buffer(offset, 2)); offset = offset + 2
 
   if instr_cnt > 0 then
-	  local instr_tree = subtree:add(f.instrs, buffer(offset, 10*instr_cnt))
-	  for i=1,instr_cnt,1 do
-		  local instr = instr_tree:add(f.instr, buffer(offset, 10)):append_text(" #" .. i-1 )
-		  parse_instr( buffer(offset, 10), instr )
-		  offset = offset+10;
-	  end
+    local instr_tree = subtree:add(f.instrs, buffer(offset, 10*instr_cnt))
+    for i=1,instr_cnt,1 do
+      local instr = instr_tree:add(f.instr, buffer(offset, 10)):append_text(" #" .. i-1 )
+      parse_instr( buffer(offset, 10), instr )
+      offset = offset+10;
+    end
   end
   if addr_table_cnt > 0 then
-	  local alt_tree = subtree:add(f.alts, buffer(offset, 8*addr_table_cnt))
-	  for i=1,addr_table_cnt,1 do
-		  local alt = alt_tree:add(f.instr, buffer(offset, 8)):append_text(" #".. i-1 )
-		  parse_alt( buffer(offset, 8), instr )
-		  offset = offset+8;
-	  end
+    local alt_tree = subtree:add(f.alts, buffer(offset, 8*addr_table_cnt))
+    for i=1,addr_table_cnt,1 do
+      local alt = alt_tree:add(f.alt, buffer(offset, 8)):append_text(" #".. i-1 )
+      parse_alt( buffer(offset, 8), alt )
+      offset = offset+8;
+    end
   end
 end
 
 function parse_instr(buffer,instr_tree)
-	local offset=0
-	instr_tree:add_le(f.program_id, buffer(offset, 1)); offset = offset + 2 -- includes padding
-	instr_tree:add_le(f.acct_cnt, buffer(offset, 2)); offset = offset + 2
-	instr_tree:add_le(f.data_sz, buffer(offset, 2)); offset = offset + 2
-	instr_tree:add_le(f.acct_off, buffer(offset, 2)); offset = offset + 2
-	instr_tree:add_le(f.data_off, buffer(offset, 2)); offset = offset + 2
+  local offset=0
+  instr_tree:add_le(f.program_id, buffer(offset, 1)); offset = offset + 2 -- includes padding
+  instr_tree:add_le(f.acct_cnt, buffer(offset, 2)); offset = offset + 2
+  instr_tree:add_le(f.data_sz, buffer(offset, 2)); offset = offset + 2
+  instr_tree:add_le(f.acct_off, buffer(offset, 2)); offset = offset + 2
+  instr_tree:add_le(f.data_off, buffer(offset, 2)); offset = offset + 2
 end
 
 function parse_alt(buffer,alt_tree)
-	local offset=0
-	alt_tree:add_le(f.addr_off,     buffer(offset, 2)); offset = offset + 2
-	alt_tree:add_le(f.writable_cnt, buffer(offset, 1)); offset = offset + 1
-	alt_tree:add_le(f.readonly_cnt, buffer(offset, 1)); offset = offset + 1
-	alt_tree:add_le(f.writable_off, buffer(offset, 2)); offset = offset + 2
-	alt_tree:add_le(f.readonly_off, buffer(offset, 2)); offset = offset + 2
+  local offset=0
+  alt_tree:add_le(f.addr_off,     buffer(offset, 2)); offset = offset + 2
+  alt_tree:add_le(f.writable_cnt, buffer(offset, 1)); offset = offset + 1
+  alt_tree:add_le(f.readonly_cnt, buffer(offset, 1)); offset = offset + 1
+  alt_tree:add_le(f.writable_off, buffer(offset, 2)); offset = offset + 2
+  alt_tree:add_le(f.readonly_off, buffer(offset, 2)); offset = offset + 2
 end
 
 
@@ -277,31 +293,31 @@ local f_bank_ptr = ProtoField.uint64("fd_poh_shred.bank", "Bank", base.HEX)
 poh_shred.fields = { f_parent_offset, f_reference_tick, f_block_complete, f_hashcnt_delta, f_hash, f_txn_cnt, f_txns, f_slot_start_ns, f_bank_ptr }
 
 function poh_shred.dissector(buffer, pinfo, tree)
-	if buffer:len() < 64 then
-		-- Became leader.  This should use the sig field, but we don't have it here
-		tree:set_text("Became Leader")
-		tree:add_le(f_slot_start_ns, buffer(0, 8))
-		tree:add_le(f_bank_ptr, buffer(8, 8))
-	else
-		local txn_cnt = buffer(64, 4):le_uint()
-		-- Add fields to the tree
-		tree:add_le(f_parent_offset, buffer(0, 8))
-		tree:add_le(f_reference_tick, buffer(8, 8))
-		tree:add_le(f_block_complete, buffer(16, 4))
-		tree:add_le(f_hashcnt_delta, buffer(24, 8))
-		tree:add_le(f_hash, buffer(32, 32))
-		tree:add_le(f_txn_cnt, buffer(64, 8))
+  if buffer:len() < 64 then
+    -- Became leader.  This should use the sig field, but we don't have it here
+    tree:set_text("Became Leader")
+    tree:add_le(f_slot_start_ns, buffer(0, 8))
+    tree:add_le(f_bank_ptr, buffer(8, 8))
+  else
+    local txn_cnt = buffer(64, 4):le_uint()
+    -- Add fields to the tree
+    tree:add_le(f_parent_offset, buffer(0, 8))
+    tree:add_le(f_reference_tick, buffer(8, 8))
+    tree:add_le(f_block_complete, buffer(16, 4))
+    tree:add_le(f_hashcnt_delta, buffer(24, 8))
+    tree:add_le(f_hash, buffer(32, 32))
+    tree:add_le(f_txn_cnt, buffer(64, 8))
 
-		if txn_cnt>0 then
-			local tvb = buffer(72)
-			local subtree = tree:add(f_txns, tvb)
-			local dissector = Dissector.get("solana.tpu.udp")
-			for i=1,txn_cnt,1 do
-				dissector:call(tvb:tvb(), pinfo, subtree)
-				tvb = tvb(tonumber(pinfo.private.bytes_consumed))
-			end
-		end
-	end
+    if txn_cnt>0 then
+      local tvb = buffer(72)
+      local subtree = tree:add(f_txns, tvb)
+      local dissector = Dissector.get("solana.tpu.udp")
+      for i=1,txn_cnt,1 do
+        dissector:call(tvb:tvb(), pinfo, subtree)
+        tvb = tvb(tonumber(pinfo.private.bytes_consumed))
+      end
+    end
+  end
 end
 
 
@@ -314,39 +330,69 @@ local fd_shred34 = Proto("fd_shred34_t", "FD Shred to Store Message")
 
 -- Define fields
 local f_shred_cnt = ProtoField.uint64("fd_shred34_t.shred_cnt", "Shred Count")
+local f_est_txn_cnt = ProtoField.uint64("fd_shred34_t.est_txn_cnt", "Estimated Transaction Count")
 local f_stride = ProtoField.uint64("fd_shred34_t.stride", "Stride")
 local f_offset = ProtoField.uint64("fd_shred34_t.offset", "Offset")
 local f_shred_sz = ProtoField.uint64("fd_shred34_t.shred_sz", "Shred Size")
 local f_shred_payload = ProtoField.bytes("fd_shred34_t.shred_payload", "Shred Payload")
 
 -- Add the fields to the protocol
-fd_shred34.fields = { f_shred_cnt, f_stride, f_offset, f_shred_sz, f_shred_payload }
+fd_shred34.fields = { f_shred_cnt, f_est_txn_cnt, f_stride, f_offset, f_shred_sz, f_shred_payload }
 
 function fd_shred34.dissector(buffer, pinfo, tree)
-	local subtree = tree:add(fd_shred34, buffer(), "fd_shred34_t")
+  local subtree = tree:add(fd_shred34, buffer(), "fd_shred34_t")
 
-    -- Extract fields from buffer
-    local shred_cnt = buffer(0, 4):le_uint()
-    local stride = buffer(8, 4):le_uint()
-    local offset = buffer(16, 4):le_uint()
-    local shred_sz = buffer(24, 4):le_uint()
+  -- Extract fields from buffer
+  local shred_cnt = buffer(0, 4):le_uint()
+  local est_txn_cnt = buffer(8, 4):le_uint()
+  local stride = buffer(16, 4):le_uint()
+  local offset = buffer(24, 4):le_uint()
+  local shred_sz = buffer(32, 4):le_uint()
 
-    -- Add fields to the tree
-    subtree:add_le(f_shred_cnt, buffer(0, 8))
-    subtree:add_le(f_stride, buffer(8, 8))
-    subtree:add_le(f_offset, buffer(16, 8))
-    subtree:add_le(f_shred_sz, buffer(24, 8))
+  -- Add fields to the tree
+  subtree:add_le(f_shred_cnt, buffer(0, 8))
+  subtree:add_le(f_est_txn_cnt, buffer(8, 8))
+  subtree:add_le(f_stride, buffer(16, 8))
+  subtree:add_le(f_offset, buffer(24, 8))
+  subtree:add_le(f_shred_sz, buffer(32, 8))
 
-	local dissector = Dissector.get("solana.shreds")
-    -- Process each shred
-    local shred_start = 32
-    for i = 0, shred_cnt-1 do
-        local tvb = buffer(i * stride + offset, shred_sz):tvb()
-		dissector:call(tvb, pinfo, subtree)
-    end
+  local dissector = Dissector.get("solana.shreds")
+  -- Process each shred
+  local shred_start = 32
+  for i = 0, shred_cnt-1 do
+    local tvb = buffer(i * stride + offset, shred_sz):tvb()
+    dissector:call(tvb, pinfo, subtree)
+  end
 end
 
 
+-- Define a new protocol
+local fd_became_leader = Proto("fd_became_leader_t", "FD PoH to Pack Became Leader Message")
+
+-- Define fields
+local f_slot_start = ProtoField.absolute_time("fd_became_leader_t.slot_start", "Slot start time", base.UTC)
+local f_slot_end   = ProtoField.absolute_time("fd_became_leader_t.slot_end", "Slot end time", base.UTC)
+local f_bank_ptr   = ProtoField.uint64("fd_became_leader_t.bank", "Bank Pointer")
+local f_max_microblocks_in_slot = ProtoField.uint64("fd_became_leader_t.max_microblocks_in_slot", "Maximum allowed microblocks in slot")
+local f_ticks_per_slot = ProtoField.uint64("fd_became_leader_t.ticks_per_slot", "Ticks per slot")
+
+-- Add the fields to the protocol
+fd_became_leader.fields = { f_slot_start, f_slot_end, f_bank_ptr, f_max_microblocks_in_slot, f_ticks_per_slot }
+
+function fd_became_leader.dissector(buffer, pinfo, tree)
+  local subtree = tree:add(fd_became_leader, buffer(), "fd_became_leader_t")
+
+  -- Extract fields from buffer
+  local slot_start = buffer(0, 8):le_int64()
+  local slot_end   = buffer(8, 8):le_int64()
+
+  -- Add fields to the tree
+  subtree:add(f_slot_start, buffer(0, 8), NSTime.new( (slot_start/1000000000):tonumber(), (slot_start%1000000000):lower()) )
+  subtree:add(f_slot_end,   buffer(8, 8), NSTime.new( (slot_end  /1000000000):tonumber(), (slot_end  %1000000000):lower()) )
+  subtree:add_le(f_bank_ptr, buffer(16, 8))
+  subtree:add_le(f_max_microblocks_in_slot, buffer(24, 8))
+  subtree:add_le(f_ticks_per_slot, buffer(32, 8))
+end
 
 
 
