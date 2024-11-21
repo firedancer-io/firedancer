@@ -378,7 +378,7 @@ fd_vm_memmove( fd_vm_t * vm,
     ulong   dst_bytes_rem_in_cur_region;
     uchar * dst_haddr;
     if( dst_is_input_mem_region ) {
-      FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( vm, dst_offset, dst_region_idx, dst_haddr );
+      FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, dst_offset, dst_region_idx, dst_haddr );
       if( FD_UNLIKELY( !vm->input_mem_regions[ dst_region_idx ].is_writable ) ) {
         FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
         return FD_VM_ERR_SIGSEGV;
@@ -411,7 +411,7 @@ fd_vm_memmove( fd_vm_t * vm,
     ulong   src_bytes_rem_in_cur_region;
     uchar * src_haddr;
     if( src_is_input_mem_region ) {
-      FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( vm, src_offset, src_region_idx, src_haddr );
+      FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, src_offset, src_region_idx, src_haddr );
       if( FD_UNLIKELY( reverse ) ) {
         src_bytes_rem_in_cur_region = fd_ulong_sat_sub( src_vaddr_begin + 1UL, vm->input_mem_regions[ src_region_idx ].vaddr_offset );
       } else {
@@ -770,7 +770,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     /* In this case, we are in the input region AND direct mapping is enabled.
        Get the haddr and input region and check if it's writable. */
     ulong region_idx;
-    FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( vm, offset, region_idx, haddr );
+    FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, offset, region_idx, haddr );
     ulong offset_in_cur_region = offset - vm->input_mem_regions[ region_idx ].vaddr_offset;
     ulong bytes_in_cur_region  = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz, offset_in_cur_region );
 

@@ -635,11 +635,14 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 #define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 #define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 
-/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED simply converts a vaddr within the input memory region
-   into an haddr. The macro assumes that the caller already checked that the vaddr exists within the
-   input region (region==4UL) and sets the region_idx and haddr. */
-#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
+/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED simply converts a vaddr within the input memory region
+   into an haddr. The sets the region_idx and haddr. */
+#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
   _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
+  if( FD_UNLIKELY( _offset>=vm->input_mem_regions[ _out_region_idx ].vaddr_offset+vm->input_mem_regions[ _out_region_idx ].region_sz ) ) {                    \
+    FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                                                              \
+    return FD_VM_ERR_SIGSEGV;                                                                                                                   \
+  }                                                                                                                                             \
   _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
 }))
 
