@@ -65,8 +65,9 @@ typedef struct {
 
   struct {
     ulong txns_received_udp;
-    ulong txns_received_quic;
-    ulong txns_overrun;
+    ulong txns_received_quic_fast;
+    ulong txns_received_quic_frag;
+    ulong frag_cnt;
   } metrics;
 } fd_quic_ctx_t;
 
@@ -81,8 +82,6 @@ quic_limits( fd_topo_tile_t const * tile ) {
        either. */
     .conn_id_cnt      = FD_QUIC_MIN_CONN_ID_CNT,
     .inflight_pkt_cnt = 16UL,
-    .rx_stream_cnt    = tile->quic.max_concurrent_streams_per_connection,
-    .stream_pool_cnt  = tile->quic.max_concurrent_streams_per_connection * tile->quic.max_concurrent_connections,
   };
   if( FD_UNLIKELY( !fd_quic_footprint( &limits ) ) ) {
     FD_LOG_ERR(( "Invalid QUIC limits in config" ));
@@ -116,20 +115,14 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
                       ulong           packet_sz ) {
 
-  fd_stem_context_t * stem = ctx->stem;
+  long                tspub    = fd_tickcount();
+  fd_tpu_reasm_t *    reasm    = ctx->reasm;
+  fd_stem_context_t * stem     = ctx->stem;
+  fd_frag_meta_t *    mcache   = stem->mcaches[0];
+  void *              base     = ctx->verify_out_mem;
+  ulong               seq      = stem->seqs[0];
 
-  uint                  tsorig = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_tpu_reasm_slot_t * slot   = fd_tpu_reasm_prepare( ctx->reasm, tsorig );
-
-  int add_err = fd_tpu_reasm_append( ctx->reasm, slot, packet, packet_sz, 0UL );
-  if( FD_UNLIKELY( add_err!=FD_TPU_REASM_SUCCESS ) ) return; /* unreachable */
-
-  uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  void * base  = ctx->verify_out_mem;
-  ulong  seq   = stem->seqs[0];
-
-  int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, stem->mcaches[0], base, seq, tspub );
-  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return; /* unreachable */
+  fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub );
   ctx->metrics.txns_received_udp++;
 
   fd_stem_advance( stem, 0UL );
@@ -161,9 +154,10 @@ before_credit( fd_quic_ctx_t *     ctx,
 
 static inline void
 metrics_write( fd_quic_ctx_t * ctx ) {
-  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_UDP,  ctx->metrics.txns_received_udp );
-  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_QUIC, ctx->metrics.txns_received_quic );
-  FD_MCNT_SET( QUIC_TILE, TXNS_OVERRUN,       ctx->metrics.txns_overrun );
+  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_UDP,       ctx->metrics.txns_received_udp );
+  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_QUIC_FAST, ctx->metrics.txns_received_quic_fast );
+  FD_MCNT_SET( QUIC_TILE, TXNS_RECEIVED_QUIC_FRAG, ctx->metrics.txns_received_quic_frag );
+  FD_MCNT_SET( QUIC_TILE, TXNS_FRAGS,              ctx->metrics.frag_cnt );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -186,13 +180,8 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
 
-  FD_MCNT_SET(   QUIC, STREAM_OPENED, ctx->quic->metrics.stream_opened_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
-  FD_MGAUGE_SET( QUIC, STREAM_ACTIVE, ctx->quic->metrics.stream_active_cnt );
-
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
-  FD_MCNT_SET(  QUIC, STREAM_STALE_EVENTS,    ctx->quic->metrics.stream_stale_event_cnt );
 
   FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES, ctx->quic->metrics.frame_rx_cnt );
 
@@ -302,128 +291,52 @@ quic_conn_new( fd_quic_conn_t * conn,
   (void)conn; (void)_ctx;
 }
 
-/* quic_stream_new is called back by the QUIC engine whenever an open
-   connection creates a new stream, at the time this is called, both the
-   client and server must have agreed to open the stream.  In case the
-   client has opened this stream, it is assumed that the QUIC
-   implementation has verified that the client has the necessary stream
-   quota to do so. */
+static int
+quic_stream_rx( fd_quic_conn_t * conn,
+                ulong            stream_id,
+                ulong            offset,
+                uchar const *    data,
+                ulong            data_sz,
+                int              fin ) {
 
-static void
-quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx ) {
+  long                tspub    = fd_tickcount();
+  fd_quic_t *         quic     = conn->quic;
+  fd_quic_ctx_t *     ctx      = quic->cb.quic_ctx;
+  fd_tpu_reasm_t *    reasm    = ctx->reasm;
+  ulong               conn_uid = fd_quic_conn_uid( conn );
+  fd_stem_context_t * stem     = ctx->stem;
+  fd_frag_meta_t *    mcache   = stem->mcaches[0];
+  void *              base     = ctx->verify_out_mem;
+  ulong               seq      = stem->seqs[0];
 
-  /* Load QUIC state */
+  if( offset==0UL && fin ) {
+    /* Fast path */
+    fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
+    fd_stem_advance( stem, 0UL );
+    ctx->metrics.txns_received_quic_fast++;
+    return FD_QUIC_SUCCESS;
+  }
+  if( data_sz==0UL && !fin ) return FD_QUIC_SUCCESS; /* noop */
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  /* Create or continue reassembly */
 
-  ulong conn_uid  = fd_quic_conn_uid( stream->conn );
-  ulong stream_id = stream->stream_id;
+  fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, conn_uid, stream_id, tspub );
 
-  /* Acquire reassembly slot */
+  int reasm_res = fd_tpu_reasm_frag( reasm, slot, data, data_sz, offset );
+  if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
+    return reasm_res!=FD_TPU_REASM_ERR_SKIP ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
+  }
+  ctx->metrics.frag_cnt++;
 
-  uint                  tsorig = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_tpu_reasm_slot_t * slot   = fd_tpu_reasm_prepare( ctx->reasm, tsorig );
+  if( fin ) {
+    int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
+    if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
+    ctx->metrics.txns_received_quic_frag++;
 
-  slot->conn_id   = conn_uid;
-  slot->stream_id = stream_id;
-
-  /* Wire up with QUIC stream */
-
-  stream->context = slot;
-
-  /* Wind up for next iteration */
-
-}
-
-/* quic_stream_receive is called back by the QUIC engine when any stream
-   in any connection being serviced receives new data.  Currently we
-   simply copy received data out of the xsk (network device memory) into
-   a local dcache. */
-
-static void
-quic_stream_receive( fd_quic_stream_t * stream,
-                     void *             stream_ctx,
-                     uchar const *      data,
-                     ulong              data_sz,
-                     ulong              offset,
-                     int                fin ) {
-
-  (void)fin; /* TODO instantly publish if offset==0UL && fin */
-
-  /* Load TPU state */
-
-  fd_quic_t *           quic     = stream->conn->quic;
-  fd_quic_ctx_t *       quic_ctx = quic->cb.quic_ctx;
-  fd_tpu_reasm_t *      reasm    = quic_ctx->reasm;
-  fd_tpu_reasm_slot_t * slot     = stream_ctx;
-
-  /* Check if reassembly slot is still valid */
-
-  ulong conn_uid  = fd_quic_conn_uid( stream->conn );
-  ulong stream_id = stream->stream_id;
-
-  if( FD_UNLIKELY( ( slot->conn_id   != conn_uid  ) |
-                   ( slot->stream_id != stream_id ) ) ) {
-    return;  /* clobbered */
+    fd_stem_advance( stem, 0UL );
   }
 
-  /* Append data into chunk, we know this is valid */
-
-  fd_tpu_reasm_append( reasm, slot, data, data_sz, offset );
-}
-
-/* quic_stream_notify is called back by the QUIC implementation when a
-   stream is finished.  This could either be because it completed
-   successfully after reading valid data, or it was closed prematurely
-   for some other reason.  All streams must eventually notify.
-
-   If we see a successful QUIC stream notify, it means we have received
-   a full transaction and should publish it downstream to be verified
-   and executed. */
-
-static void
-quic_stream_notify( fd_quic_stream_t * stream,
-                    void *             stream_ctx,
-                    int                type ) {
-
-  /* Load TPU state */
-
-  fd_quic_t *           quic   = stream->conn->quic;
-  fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
-  fd_tpu_reasm_t *      reasm  = ctx->reasm;
-  fd_tpu_reasm_slot_t * slot   = stream_ctx;
-  fd_stem_context_t *   stem   = ctx->stem;
-  fd_frag_meta_t *      mcache = stem->mcaches[0];
-  void *                base   = ctx->verify_out_mem;
-
-  /* Check if reassembly slot is still valid */
-
-  ulong conn_uid  = fd_quic_conn_uid( stream->conn );
-  ulong stream_id = stream->stream_id;
-
-  if( FD_UNLIKELY( ( slot->conn_id   != conn_uid  ) |
-                   ( slot->stream_id != stream_id ) ) ) {
-    ctx->metrics.txns_overrun++;
-    return;  /* clobbered */
-  }
-
-  /* Abort reassembly slot if QUIC stream closes non-gracefully */
-
-  if( FD_UNLIKELY( type!=FD_QUIC_STREAM_NOTIFY_END ) ) {
-    fd_tpu_reasm_cancel( reasm, slot );
-    return;  /* not a successful stream close */
-  }
-
-  /* Publish message */
-
-  ulong  seq   = stem->seqs[0];
-  uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
-  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
-  ctx->metrics.txns_received_quic++;
-
-  fd_stem_advance( stem, 0UL );
+  return FD_QUIC_SUCCESS;
 }
 
 static int
@@ -465,16 +378,16 @@ quic_tx_aio_send( void *                    _ctx,
        just indicate where they came from so they don't bounce back */
     ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dstaddr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
-    ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    long tspub = fd_tickcount();
     fd_mcache_publish( ctx->net_out_mcache,
                        ctx->net_out_depth,
                        ctx->net_out_seq,
                        sig,
                        ctx->net_out_chunk,
                        batch[ i ].buf_sz,
+                       fd_frag_meta_ctl( 0UL, 1, 1, 0 ),
                        0,
-                       0,
-                       tspub );
+                       fd_frag_meta_ts_comp( tspub ) );
 
     ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
     ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
@@ -558,6 +471,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->quic.ack_delay_millis >= tile->quic.idle_timeout_millis ) ) {
     FD_LOG_ERR(( "Invalid `ack_delay_millis`: must be lower than `idle_timeout_millis`" ));
   }
+  if( FD_UNLIKELY( !tile->quic.ip_addr ) ) {
+    FD_LOG_ERR(( "QUIC IP address not set" ));
+  }
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.net.ip_addr                = tile->quic.ip_addr;
@@ -575,9 +491,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.conn_new         = quic_conn_new;
   quic->cb.conn_hs_complete = NULL;
   quic->cb.conn_final       = NULL;
-  quic->cb.stream_new       = quic_stream_new;
-  quic->cb.stream_receive   = quic_stream_receive;
-  quic->cb.stream_notify    = quic_stream_notify;
+  quic->cb.stream_rx        = quic_stream_rx;
   quic->cb.now              = quic_now;
   quic->cb.now_ctx          = NULL;
   quic->cb.quic_ctx         = ctx;
@@ -614,6 +528,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
+  if( FD_UNLIKELY( ctx->round_robin_id >= ctx->round_robin_cnt ) ) {
+    FD_LOG_ERR(( "invalid round robin configuration" ));
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

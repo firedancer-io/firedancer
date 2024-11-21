@@ -12,6 +12,7 @@
 
 /* forward decls */
 typedef struct fd_quic             fd_quic_t;
+typedef struct fd_quic_conn        fd_quic_conn_t;
 typedef struct fd_quic_config      fd_quic_config_t;
 typedef struct fd_quic_tls_cfg     fd_quic_tls_cfg_t;
 typedef struct fd_quic_tls         fd_quic_tls_t;

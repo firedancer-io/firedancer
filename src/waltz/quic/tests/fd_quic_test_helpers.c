@@ -46,13 +46,6 @@ fd_quic_test_cb_conn_final( fd_quic_conn_t * conn,
 }
 
 static void
-fd_quic_test_cb_stream_new( fd_quic_stream_t * stream,
-                            void *             quic_ctx ) {
-  FD_LOG_DEBUG(( "cb_stream_new(stream=%lu, quic_ctx=%p)",
-                 stream->stream_id, (void *)quic_ctx ));
-}
-
-static void
 fd_quic_test_cb_stream_notify( fd_quic_stream_t * stream,
                                void *             quic_ctx,
                                int                notify_type ) {
@@ -60,15 +53,16 @@ fd_quic_test_cb_stream_notify( fd_quic_stream_t * stream,
                  stream->stream_id, quic_ctx, notify_type ));
 }
 
-static void
-fd_quic_test_cb_stream_receive( fd_quic_stream_t * stream,
-                                void *             quic_ctx,
-                                uchar const *      data,
-                                ulong              data_sz,
-                                ulong              offset,
-                                int                fin ) {
-  FD_LOG_DEBUG(( "cb_stream_receive(stream=%lu, quic_ctx=%p, data=%p, data_sz=%lu, offset=%lu, fin=%d)",
-                 stream->stream_id, quic_ctx, (void const *)data, data_sz, offset, fin ));
+static int
+fd_quic_test_cb_stream_rx( fd_quic_conn_t * conn,
+                           ulong            stream_id,
+                           ulong            offset,
+                           uchar const *    data,
+                           ulong            data_sz,
+                           int              fin ) {
+  FD_LOG_DEBUG(( "cb_stream_rx(conn=%p, stream=%lu, offset=%lu, data=%p, data_sz=%lu, fin=%d)",
+                 (void *)conn, stream_id, offset, (void const *)data, data_sz, fin ));
+  return FD_QUIC_SUCCESS;
 }
 
 void
@@ -143,9 +137,8 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;
   quic->cb.conn_hs_complete = fd_quic_test_cb_conn_handshake_complete;
   quic->cb.conn_final       = fd_quic_test_cb_conn_final;
-  quic->cb.stream_new       = fd_quic_test_cb_stream_new;
   quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
-  quic->cb.stream_receive   = fd_quic_test_cb_stream_receive;
+  quic->cb.stream_rx        = fd_quic_test_cb_stream_rx;
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
   quic->cb.now              = fd_quic_test_now;
   quic->cb.now_ctx          = NULL;
@@ -189,7 +182,6 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
     .conn_cnt           = 1UL,
     .handshake_cnt      = 1UL,
     .conn_id_cnt        = 4UL,
-    .rx_stream_cnt      = 1,
     .inflight_pkt_cnt   = 64UL,
     .tx_buf_sz          = 1UL<<15UL,
     .stream_pool_cnt    = 1024

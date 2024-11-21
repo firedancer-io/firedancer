@@ -26,19 +26,17 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   }
 }
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
-
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
   FD_LOG_DEBUG(( "received data from peer (size=%lu offset=%lu)", data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "stream data", data, data_sz ));
+  return FD_QUIC_SUCCESS;
 }
 
 fd_quic_conn_t * client_conn = NULL;
@@ -90,7 +88,7 @@ run_quic_client(
 
     quic->cb.conn_hs_complete = my_handshake_complete;
     quic->cb.conn_final       = my_connection_closed;
-    quic->cb.stream_receive   = my_stream_receive_cb;
+    quic->cb.stream_rx        = my_stream_rx_cb;
     quic->cb.stream_notify    = my_stream_notify_cb;
     quic->cb.now              = test_clock;
     quic->cb.now_ctx          = NULL;
