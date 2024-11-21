@@ -212,7 +212,6 @@ typedef struct {
 
       uint txn_reassembly_count;
       uint max_concurrent_connections;
-      uint max_concurrent_streams_per_connection;
       uint max_concurrent_handshakes;
       uint idle_timeout_millis;
       uint ack_delay_millis;

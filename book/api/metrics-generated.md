@@ -48,9 +48,14 @@
 ## Quic Tile
 | Metric | Type | Description |
 |--------|------|-------------|
-| quic_&#8203;tile_&#8203;txns_&#8203;overrun | `counter` | Count of transactions overrun before reassembled (too small txn_reassembly_count). |
-| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;udp | `counter` | Count of transactions received via TPU/UDP. |
-| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic | `counter` | Count of transactions received via TPU/QUIC. |
+| quic_&#8203;tile_&#8203;txns_&#8203;overrun | `counter` | Count of txns overrun before reassembled (too small txn_reassembly_count). |
+| quic_&#8203;tile_&#8203;txn_&#8203;reasms_&#8203;started | `counter` | Count of fragmented txn receive ops started. |
+| quic_&#8203;tile_&#8203;txn_&#8203;reasms_&#8203;active | `gauge` | Number of fragmented txn receive ops currently active. |
+| quic_&#8203;tile_&#8203;txns_&#8203;frags | `counter` | Count of txn frags received. |
+| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;udp | `counter` | Count of txns received via TPU. (TPU/UDP) |
+| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic_&#8203;fast | `counter` | Count of txns received via TPU. (TPU/QUIC unfragmented) |
+| quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic_&#8203;frag | `counter` | Count of txns received via TPU. (TPU/QUIC fragmented) |
+| quic_&#8203;tile_&#8203;txns_&#8203;abandoned | `counter` | Count of txns abandoned because a conn was lost. |
 | quic_&#8203;tile_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
 | quic_&#8203;tile_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;large | `counter` | Count of packets received on the non-QUIC port that were too large to be a valid transaction. |
@@ -70,16 +75,8 @@
 | quic_&#8203;pkt_&#8203;no_&#8203;conn | `counter` | Number of packets with an unknown connection ID. |
 | quic_&#8203;handshakes_&#8203;created | `counter` | Number of handshake flows created. |
 | quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail | `counter` | Number of handshakes dropped due to alloc fail. |
-| quic_&#8203;stream_&#8203;opened | `counter` | Number of streams opened. |
-| quic_&#8203;stream_&#8203;closed_&#8203;end | `counter` | Number of streams closed. (gracefully closed) |
-| quic_&#8203;stream_&#8203;closed_&#8203;peer_&#8203;reset | `counter` | Number of streams closed. (RESET_STREAM event received) |
-| quic_&#8203;stream_&#8203;closed_&#8203;peer_&#8203;stop | `counter` | Number of streams closed. (STOP_SENDING events received) |
-| quic_&#8203;stream_&#8203;closed_&#8203;drop | `counter` | Number of streams closed. (dropped due to excessive concurrency) |
-| quic_&#8203;stream_&#8203;closed_&#8203;conn_&#8203;abort | `counter` | Number of streams closed. (connection abort) |
-| quic_&#8203;stream_&#8203;active | `gauge` | Number of active streams. |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
-| quic_&#8203;stream_&#8203;stale_&#8203;events | `counter` | Number of stream frames dropped due to stale stream ID. |
 | quic_&#8203;received_&#8203;frames_&#8203;unknown | `counter` | Number of QUIC frames received. (Unknown frame type) |
 | quic_&#8203;received_&#8203;frames_&#8203;ack | `counter` | Number of QUIC frames received. (ACK frame) |
 | quic_&#8203;received_&#8203;frames_&#8203;reset_&#8203;stream | `counter` | Number of QUIC frames received. (RESET_STREAM frame) |

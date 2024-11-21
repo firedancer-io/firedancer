@@ -66,16 +66,14 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   (void)type;
 }
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
 
   //FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
   //              (ulong)stream->stream_id, data_sz, offset ));
@@ -88,6 +86,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   tot_rcvd++;
 
   if( tot_rcvd == NUM_STREAMS ) client_done = 1;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -357,7 +356,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      = 10,
+    .stream_id_cnt      = 10,
     .stream_pool_cnt    = 512,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14
@@ -376,7 +375,7 @@ main( int argc, char ** argv ) {
   FD_TEST( client_quic );
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
-  client_quic->cb.stream_receive   = my_stream_receive_cb;
+  client_quic->cb.stream_rx        = my_stream_rx_cb;
   client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
 
@@ -386,7 +385,7 @@ main( int argc, char ** argv ) {
   client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   server_quic->cb.conn_new       = my_connection_new;
-  server_quic->cb.stream_receive = my_stream_receive_cb;
+  server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
   server_quic->cb.tls_keylog     = my_tls_keylog;

@@ -22,16 +22,14 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   (void)type;
 }
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)stream_id; (void)fin;
 
   FD_LOG_NOTICE(( "SERVER received data from peer. size: %lu offset: %lu\n",
                 data_sz, offset ));
@@ -40,16 +38,13 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   char EXPECTED[] = "request";
   FD_TEST( data_sz >= strlen( EXPECTED ) && strcmp( (char*)data, EXPECTED ) == 0 );
 
-  /* send back "received" */
-  int               send_fin = 0UL; /* do not close stream */
-  char              reply[]  = "received";
-
-  int rc = fd_quic_stream_send( stream, reply, sizeof(reply), send_fin );
-  if( rc!=FD_QUIC_SUCCESS ) {
-    FD_LOG_WARNING(( "SERVER fd_quic_stream_send failed. rc: %d", rc ));
-  }
+  /* Trigger ping */
+  conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
+  conn->flags         &= ~FD_QUIC_CONN_FLAGS_PING_SENT;
+  conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;     /* update to be sent in next packet */
 
   done = 1;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -124,7 +119,6 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      =  2,
     .stream_pool_cnt    = 100,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14,
@@ -139,7 +133,7 @@ main( int argc, char ** argv ) {
   FD_TEST( server_quic );
 
   server_quic->cb.conn_new       = my_connection_new;
-  server_quic->cb.stream_receive = my_stream_receive_cb;
+  server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
 
