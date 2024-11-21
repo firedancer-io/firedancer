@@ -49,14 +49,6 @@ cb_conn_final( fd_quic_conn_t * conn,
 }
 
 void
-cb_stream_new( fd_quic_stream_t * stream,
-               void *             quic_ctx ) {
-  (void)stream;
-  (void)quic_ctx;
-  FD_LOG_NOTICE(( "cb_stream_new" ));
-}
-
-void
 cb_stream_notify( fd_quic_stream_t * stream,
                   void *             stream_ctx,
                   int                notify_type ) {
@@ -70,21 +62,6 @@ cb_stream_notify( fd_quic_stream_t * stream,
   } else {
     FD_LOG_WARNING(( "stream ended in failure: %d", (int)notify_type ));
   }
-}
-
-void
-cb_stream_receive( fd_quic_stream_t * stream,
-                   void *             stream_ctx,
-                   uchar const *      data,
-                   ulong              data_sz,
-                   ulong              offset,
-                   int                fin ) {
-  (void)stream;
-  (void)stream_ctx;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
 }
 
 ulong
@@ -123,9 +100,7 @@ run_quic_client( fd_quic_t *         quic,
   quic->cb.conn_new = cb_conn_new;
   quic->cb.conn_hs_complete = cb_conn_handshake_complete;
   quic->cb.conn_final = cb_conn_final;
-  quic->cb.stream_new = cb_stream_new;
   quic->cb.stream_notify = cb_stream_notify;
-  quic->cb.stream_receive = cb_stream_receive;
   quic->cb.now = fd_quic_test_now;
 
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
@@ -247,7 +222,6 @@ main( int argc,
      .conn_cnt           = 1024UL,
      .handshake_cnt      = 256UL,
      .conn_id_cnt        = 16UL,
-     .rx_stream_cnt      = 2UL,
      .stream_pool_cnt    = 2048UL,
      .inflight_pkt_cnt   = 64UL,
      .tx_buf_sz          = 1UL<<15UL

@@ -863,24 +863,6 @@ dynamic_port_range = "8900-9000"
         # This must be >= 2 and also a power of 2.
         max_concurrent_connections = 131072
 
-        # QUIC allows for multiple streams to be multiplexed over a
-        # single connection.  This option sets the maximum number of
-        # simultaneous streams per connection supported by our protocol
-        # implementation.
-        #
-        # If the peer has this many simultaneous streams open and wishes
-        # to initiate another stream, they must first retire an existing
-        # stream.
-        #
-        # The Solana protocol uses one stream per transaction.
-        # Supporting more streams per connection currently has a memory
-        # footprint cost on the order of kilobytes per stream, per
-        # connection.
-        #
-        # Increasing this number causes server-side performance to get
-        # worse.
-        max_concurrent_streams_per_connection = 512
-
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
         # transactions larger than ca ~1200 bytes, as these arrive

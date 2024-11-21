@@ -14,33 +14,22 @@ my_conn_final( fd_quic_conn_t * conn,
 }
 
 static void
-my_stream_new_cb( fd_quic_stream_t * stream,
-                  void *             quic_ctx ) {
-  (void)stream; (void)quic_ctx;
-}
-
-static void
 my_stream_notify_cb( fd_quic_stream_t * stream,
                      void *             stream_ctx,
                      int                notify_type ) {
   (void)stream; (void)stream_ctx; (void)notify_type;
 }
 
-static void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
-
+static int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)offset; (void)data; (void)fin;
   rx_tot_sz += data_sz;
+  return FD_QUIC_SUCCESS;
 }
 
 int server_complete = 0;
@@ -124,7 +113,6 @@ main( int     argc,
     .conn_cnt           = 1,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
-    .rx_stream_cnt      = 1,
     .stream_pool_cnt    = 1,
     .inflight_pkt_cnt   = 128,
   };
@@ -151,8 +139,7 @@ main( int     argc,
 
   server_quic->cb.conn_new         = my_connection_new;
   server_quic->cb.conn_final       = my_conn_final;
-  server_quic->cb.stream_new       = my_stream_new_cb;
-  server_quic->cb.stream_receive   = my_stream_receive_cb;
+  server_quic->cb.stream_rx        = my_stream_rx_cb;
   server_quic->cb.stream_notify    = my_stream_notify_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;

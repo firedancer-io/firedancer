@@ -78,7 +78,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_tls_t           tls[1];
   fd_quic_tls_hs_t *      hs_pool;
-  fd_quic_stream_pool_t * stream_pool;    /* stream pool */
+  fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_rng_t                _rng[1];        /* random number generator */
   fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
   ulong                   svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
@@ -194,15 +194,6 @@ fd_quic_tx_stream_free( fd_quic_t *        quic,
                         fd_quic_stream_t * stream,
                         int                code );
 
-/* fd_quic_stream_rx_reclaim frees streams and hashmap entries for
-   incoming unidirectional streams in range [stream_id_lo,stream_id_hi) */
-
-void
-fd_quic_stream_rx_reclaim( fd_quic_t *      quic,
-                           fd_quic_conn_t * conn,
-                           ulong            stream_id_lo,
-                           ulong            stream_id_hi );
-
 /* Callbacks provided by fd_quic **************************************/
 
 /* used by quic to receive data from network */
@@ -254,51 +245,40 @@ fd_quic_now( fd_quic_t * quic ) {
 static inline void
 fd_quic_cb_conn_new( fd_quic_t *      quic,
                      fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->cb.conn_new || conn->called_conn_new ) ) {
-    return;
-  }
+  if( conn->called_conn_new ) return;
+  conn->called_conn_new = 1;
+  if( !quic->cb.conn_new ) return;
 
   quic->cb.conn_new( conn, quic->cb.quic_ctx );
-  conn->called_conn_new = 1;
 }
 
 static inline void
 fd_quic_cb_conn_hs_complete( fd_quic_t *      quic,
                              fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->cb.conn_hs_complete ) ) return;
+  if( !quic->cb.conn_hs_complete ) return;
   quic->cb.conn_hs_complete( conn, quic->cb.quic_ctx );
 }
 
 static inline void
 fd_quic_cb_conn_final( fd_quic_t *      quic,
                        fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->cb.conn_final || !conn->called_conn_new ) ) return;
+  if( !quic->cb.conn_final || !conn->called_conn_new ) return;
   quic->cb.conn_final( conn, quic->cb.quic_ctx );
 }
 
-static inline void
-fd_quic_cb_stream_new( fd_quic_t *        quic,
-                       fd_quic_stream_t * stream ) {
-  quic->metrics.stream_opened_cnt++;
-  quic->metrics.stream_active_cnt++;
-
-  if( FD_UNLIKELY( !quic->cb.stream_new ) ) return;
-  quic->cb.stream_new( stream, quic->cb.quic_ctx );
-}
-
-static inline void
-fd_quic_cb_stream_receive( fd_quic_t *        quic,
-                           fd_quic_stream_t * stream,
-                           void *             stream_ctx,
-                           uchar const *      data,
-                           ulong              data_sz,
-                           ulong              offset,
-                           int                fin ) {
+static inline int
+fd_quic_cb_stream_rx( fd_quic_t *        quic,
+                      fd_quic_conn_t *   conn,
+                      ulong              stream_id,
+                      ulong              offset,
+                      uchar const *      data,
+                      ulong              data_sz,
+                      int                fin ) {
   quic->metrics.stream_rx_event_cnt++;
   quic->metrics.stream_rx_byte_cnt += data_sz;
 
-  if( FD_UNLIKELY( !quic->cb.stream_receive ) ) return;
-  quic->cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
+  if( !quic->cb.stream_rx ) return FD_QUIC_SUCCESS;
+  return quic->cb.stream_rx( conn, stream_id, offset, data, data_sz, fin );
 }
 
 static inline void
@@ -309,7 +289,7 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
   quic->metrics.stream_closed_cnt[ event ]++;
   quic->metrics.stream_active_cnt--;
 
-  if( FD_UNLIKELY( !quic->cb.stream_notify ) ) return;
+  if( !quic->cb.stream_notify ) return;
   quic->cb.stream_notify( stream, stream_ctx, event );
 }
 

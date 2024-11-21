@@ -136,16 +136,14 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   client_stream = NULL;
 }
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
 
   /* We received data on a stream. Verify */
   char EXPECTED[] = "received";
@@ -157,6 +155,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
                 data_sz, offset ));
   FD_LOG_HEXDUMP_NOTICE(( "CLIENT received data", data, data_sz ));
 
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -229,7 +228,6 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      =  2,
     .stream_pool_cnt    = 100,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14,
@@ -244,7 +242,7 @@ main( int argc, char ** argv ) {
   FD_TEST( client_quic );
 
   client_quic->cb.conn_new       = my_connection_new;
-  client_quic->cb.stream_receive = my_stream_receive_cb;
+  client_quic->cb.stream_rx      = my_stream_rx_cb;
   client_quic->cb.stream_notify  = my_stream_notify_cb;
   client_quic->cb.conn_final     = my_cb_conn_final;
   client_quic->cb.now            = fd_quic_test_now;

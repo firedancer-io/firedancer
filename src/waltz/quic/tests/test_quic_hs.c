@@ -4,24 +4,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn;
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
-                 stream->stream_id, data_sz, offset ));
+                 stream_id, data_sz, offset ));
   FD_TEST( fd_ulong_is_aligned( offset, 512UL ) );
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
   FD_TEST( data_sz==512UL );
   FD_TEST( !fin );
   FD_TEST( 0==memcmp( data, "Hello world", 11u ) );
+  return FD_QUIC_SUCCESS;
 }
 
 int server_complete = 0;
@@ -86,7 +85,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      = 10,
+    .stream_id_cnt      = 10,
     .stream_pool_cnt    = 400,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14
@@ -106,7 +105,7 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
-  server_quic->cb.stream_receive   = my_stream_receive_cb;
+  server_quic->cb.stream_rx        = my_stream_rx_cb;
 
   client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;

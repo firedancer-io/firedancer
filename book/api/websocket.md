@@ -493,7 +493,6 @@ tranasactions per second.
                 "net_overrun": 1,
                 "quic_overrun": 44,
                 "quic_frag_drop": 13,
-                "quic_frag_drop_g": 14,
                 "quic_aborted": 15,
                 "tpu_quic_invalid": 16,
                 "tpu_udp_invalid": 17,
@@ -982,7 +981,6 @@ are skipped on the currently active fork.
                 "net_overrun": 0,
                 "quic_overrun": 0,
                 "quic_frag_drop": 0,
-                "quic_frag_drop_g": 0,
                 "quic_aborted": 0,
                 "tpu_quic_invalid": 0,
                 "tpu_udp_invalid": 0,
@@ -1090,8 +1088,7 @@ are skipped on the currently active fork.
 |-------------------|----------|-------------|
 | net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
 | quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
-| quic_frag_drop    | `number` | Transactions were dropped because of too many active streams per connection. |
-| quic_frag_drop_g  | `number` | Transactions were dropped because of too many active streams across all connections. |
+| quic_frag_drop    | `number` | Transactions were dropped because of too many active streams. |
 | quic_aborted      | `number` | Transactions were dropped because the request was aborted (connection closed or peer cancelled the request). |
 | tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per invalid packet |
 | tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid. |

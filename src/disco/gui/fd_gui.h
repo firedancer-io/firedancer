@@ -96,7 +96,6 @@ struct fd_gui_txn_waterfall {
     ulong net_overrun;
     ulong quic_overrun;
     ulong quic_frag_drop;
-    ulong quic_frag_drop_g;
     ulong quic_aborted;
     ulong tpu_quic_invalid;
     ulong tpu_udp_invalid;

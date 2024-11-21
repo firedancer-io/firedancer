@@ -25,29 +25,6 @@
 
 #include <assert.h>
 
-static void
-my_stream_new_cb( fd_quic_stream_t * stream,
-                  void *             quic_ctx ) {
-  (void)stream; (void)quic_ctx;
-}
-
-static void
-my_stream_notify_cb( fd_quic_stream_t * stream,
-                     void *             stream_ctx,
-                     int                notify_type ) {
-  (void)stream; (void)stream_ctx; (void)notify_type;
-}
-
-static void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx; (void)stream; (void)data; (void)data_sz; (void)offset; (void)fin;
-}
-
 static FD_TL ulong g_clock;
 
 static ulong
@@ -132,7 +109,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .conn_cnt         = 2,
     .handshake_cnt    = 2,
     .conn_id_cnt      = 4,
-    .rx_stream_cnt    = 1,
     .inflight_pkt_cnt = 8UL,
     .stream_pool_cnt  = 8UL
   };
@@ -154,9 +130,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_tls_test_sign_ctx_t test_signer = fd_tls_test_sign_ctx( rng );
   fd_quic_config_test_signer( quic, &test_signer );
 
-  quic->cb.stream_new = my_stream_new_cb;
-  quic->cb.stream_notify = my_stream_notify_cb;
-  quic->cb.stream_receive = my_stream_receive_cb;
   quic->cb.now = test_clock;
   quic->config.retry = enable_retry;
 
@@ -186,8 +159,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   conn->tx_max_data                            =       512UL;
   conn->tx_initial_max_stream_data_uni         =        64UL;
-  conn->rx_max_data                            =       512UL;
-  conn->rx_sup_stream_id                       =        32UL;
+  conn->srx->rx_max_data                       =       512UL;
+  conn->srx->rx_sup_stream_id                  =        32UL;
   conn->tx_max_datagram_sz                     = FD_QUIC_MTU;
   conn->tx_sup_stream_id                       =        32UL;
 

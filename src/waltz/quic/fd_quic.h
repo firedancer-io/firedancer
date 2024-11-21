@@ -111,7 +111,6 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
 
   ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
   ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count              */
-  ulong  rx_stream_cnt;         /* per-conn, max concurrent stream count                 */
   ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
 
   ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                        */
@@ -227,14 +226,6 @@ typedef void
 (* fd_quic_cb_conn_final_t)( fd_quic_conn_t * conn,
                              void *           quic_ctx );
 
-/* fd_quic_cb_stream_new_t is called when the peer creates a new stream.
-   Callback should set "context" within the supplied stream object but
-   may not change any other stream fields. quic_ctx is the user-provided
-   QUIC context.  Note that this differs from the stream context. */
-typedef void
-(* fd_quic_cb_stream_new_t)( fd_quic_stream_t * stream,
-                             void *             quic_ctx );
-
 /* fd_quic_cb_stream_notify_t signals a notable stream event.
    stream_ctx object is the user-provided stream context set in the new
    callback.
@@ -248,24 +239,13 @@ typedef void
                                 void *             stream_ctx,
                                 int                notify_type );
 
-/* fd_quic_cb_stream_receive_t is called when new data is received from
-   stream.  Each buffer is received in a separate callback.
-
-   args
-     stream_context   is user supplied stream context set in callback
-     stream_id        the quic stream id
-     data             the bytes received
-     data_sz          the number of bytes received
-     offset           the offset in the stream of the first byte in data
-     fin              bool - true if the last byte of data is the last
-                      byte on the receive side of the stream */
-typedef void
-(* fd_quic_cb_stream_receive_t)( fd_quic_stream_t * stream,
-                                 void *             stream_ctx,
-                                 uchar const *      data,
-                                 ulong              data_sz,
-                                 ulong              offset,
-                                 int                fin );
+typedef int
+(* fd_quic_cb_stream_rx_t)( fd_quic_conn_t * conn,
+                            ulong            stream_id,
+                            ulong            offset,
+                            uchar const *    data,
+                            ulong            data_sz,
+                            int              fin );
 
 /* fd_quic_cb_tls_keylog_t is called when a new encryption secret
    becomes available.  line is a cstr containing the secret in NSS key
@@ -287,9 +267,8 @@ struct fd_quic_callbacks {
   fd_quic_cb_conn_new_t                conn_new;          /* non-NULL, with quic_ctx   */
   fd_quic_cb_conn_handshake_complete_t conn_hs_complete;  /* non-NULL, with quic_ctx   */
   fd_quic_cb_conn_final_t              conn_final;        /* non-NULL, with quic_ctx   */
-  fd_quic_cb_stream_new_t              stream_new;        /* non-NULL, with stream_ctx */
   fd_quic_cb_stream_notify_t           stream_notify;     /* non-NULL, with stream_ctx */
-  fd_quic_cb_stream_receive_t          stream_receive;    /* non-NULL, with stream_ctx */
+  fd_quic_cb_stream_rx_t               stream_rx;         /* non-NULL, with stream_ctx */
   fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
 
   /* Clock source */
@@ -339,7 +318,6 @@ union fd_quic_metrics {
     ulong stream_active_cnt;        /* number of active streams */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
-    ulong stream_stale_event_cnt;   /* number of stream events on stale stream IDs */
 
     /* ACK metrics */
     ulong ack_tx[ 5 ];
