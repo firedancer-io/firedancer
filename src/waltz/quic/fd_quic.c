@@ -4354,6 +4354,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   srx->rx_max_streams_unidir_ackd = 0;
   srx->rx_max_data       = our_tp->initial_max_data;
   srx->rx_tot_data       = 0;
+  srx->rx_streams_active = 0L;
 
   /* points to free tx space */
   conn->tx_ptr = conn->tx_buf;

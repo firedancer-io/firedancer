@@ -120,10 +120,12 @@
 struct fd_tpu_reasm_key {
   ulong conn_uid; /* ULONG_MAX means invalid */
   ulong stream_id : 48;
-# define FD_TPU_REASM_SID_MASK (0xffffffffffffUL)
   ulong sz        : 14;
   ulong state     : 2;
 };
+
+#define FD_TPU_REASM_SID_MASK (0xffffffffffffUL)
+#define FD_TPU_REASM_SZ_MASK  (0x3fffUL)
 
 typedef struct fd_tpu_reasm_key fd_tpu_reasm_key_t;
 
@@ -153,11 +155,40 @@ struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
 
   uint   slot_cnt;
   ushort orig;        /* tango orig */
+
+  long  busy_cnt;     /* cnt of slots in FD_TPU_REASM_STATE_BUSY state */
 };
 
 typedef struct fd_tpu_reasm fd_tpu_reasm_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* Private accessors */
+
+static inline FD_FN_PURE fd_tpu_reasm_slot_t *
+fd_tpu_reasm_slots_laddr( fd_tpu_reasm_t * reasm ) {
+  return (fd_tpu_reasm_slot_t *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE fd_tpu_reasm_slot_t const *
+fd_tpu_reasm_slots_laddr_const( fd_tpu_reasm_t const * reasm ) {
+  return (fd_tpu_reasm_slot_t const *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE uint *
+fd_tpu_reasm_pub_slots_laddr( fd_tpu_reasm_t * reasm ) {
+  return (uint *)( (ulong)reasm + reasm->pub_slots_off );
+}
+
+static inline FD_FN_PURE uchar *
+fd_tpu_reasm_chunks_laddr( fd_tpu_reasm_t * reasm ) {
+  return (uchar *)( (ulong)reasm + reasm->chunks_off );
+}
+
+static inline FD_FN_PURE uchar const *
+fd_tpu_reasm_chunks_laddr_const( fd_tpu_reasm_t const * reasm ) {
+  return (uchar const *)( (ulong)reasm + reasm->chunks_off );
+}
 
 /* Construction API */
 
@@ -211,10 +242,34 @@ fd_tpu_reasm_wmark( fd_tpu_reasm_t const * reasm,
 /* Accessor API */
 
 fd_tpu_reasm_slot_t *
+fd_tpu_reasm_query( fd_tpu_reasm_t * reasm,
+                    ulong            conn_uid,
+                    ulong            stream_id );
+
+FD_FN_PURE static inline fd_tpu_reasm_slot_t *
+fd_tpu_reasm_peek_tail( fd_tpu_reasm_t * reasm ) {
+  uint                  tail_idx = reasm->tail;
+  fd_tpu_reasm_slot_t * tail     = fd_tpu_reasm_slots_laddr( reasm ) + tail_idx;
+  return tail;
+}
+
+fd_tpu_reasm_slot_t *
+fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
+                      ulong            conn_uid,
+                      ulong            stream_id,
+                      long             tspub );
+
+static inline fd_tpu_reasm_slot_t *
 fd_tpu_reasm_acquire( fd_tpu_reasm_t * reasm,
                       ulong            conn_uid,
                       ulong            stream_id,
-                      long             tsorig );
+                      long             tspub ) {
+  fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_query( reasm, conn_uid, stream_id );
+  if( !slot ) {
+    slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub );
+  }
+  return slot;
+}
 
 /* fd_tpu_reasm_frag appends a new stream frag to the reasm slot.
    [data,data+data_sz) is the memory region containing the stream data.

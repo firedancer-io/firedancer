@@ -98,6 +98,8 @@ fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm ) {
   uint *                pub_slots = fd_tpu_reasm_pub_slots_laddr( reasm );
   fd_tpu_reasm_map_t *  map       = fd_tpu_reasm_map_laddr( reasm );
 
+  reasm->busy_cnt = 0L;
+
   /* The initial state moves the first 'depth' slots to the mcache (PUB)
      and leaves the rest as FREE. */
 
@@ -167,9 +169,15 @@ fd_tpu_reasm_wmark( fd_tpu_reasm_t const * reasm,
   return fd_laddr_to_chunk( base, slot_get_data_const( reasm, reasm->slot_cnt - 1UL ) );
 }
 
+fd_tpu_reasm_slot_t *
+fd_tpu_reasm_query( fd_tpu_reasm_t * reasm,
+                    ulong            conn_uid,
+                    ulong            stream_id ) {
+  return smap_query( reasm, conn_uid, stream_id );
+}
 
 fd_tpu_reasm_slot_t *
-fd_tpu_reasm_acquire( fd_tpu_reasm_t * reasm,
+fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
                       ulong            conn_uid,
                       ulong            stream_id,
                       long             tsorig ) {
@@ -178,6 +186,7 @@ fd_tpu_reasm_acquire( fd_tpu_reasm_t * reasm,
   if( was_overrun ) {
     smap_remove( reasm, slot );
   }
+  reasm->busy_cnt += !was_overrun;
   slot_begin( slot );
   slotq_push_head( reasm, slot );
   slot->k.conn_uid  = conn_uid;
@@ -270,6 +279,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   smap_remove( reasm, slot );
   slot->k.state = FD_TPU_REASM_STATE_PUB;
   *pub_slot = slot_idx;
+  reasm->busy_cnt--;
 
   /* Free oldest published slot */
   fd_tpu_reasm_slot_t * free_slot = fd_tpu_reasm_slots_laddr( reasm ) + freed_slot_idx;
@@ -316,6 +326,8 @@ void
 fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
                      fd_tpu_reasm_slot_t * slot ) {
   if( FD_UNLIKELY( slot->k.state == FD_TPU_REASM_STATE_FREE ) ) return;
+  uint was_overrun = slot->k.state == FD_TPU_REASM_STATE_BUSY;
+  reasm->busy_cnt -= was_overrun;
   slotq_remove( reasm, slot );
   smap_remove( reasm, slot );
   slot->k.state     = FD_TPU_REASM_STATE_FREE;

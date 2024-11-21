@@ -78,6 +78,14 @@ verify_state( fd_tpu_reasm_t * reasm,
   }
   FD_TEST( queue_tail_depth==burst );
 
+  /* Validate busy_cnt */
+
+  long busy_cnt = 0L;
+  for( ulong j=0UL; j<slot_cnt; j++ ) {
+    busy_cnt += (slots[j].k.state==FD_TPU_REASM_STATE_BUSY);
+  }
+  FD_TEST( busy_cnt == reasm->busy_cnt );
+
   return free_cnt;
 }
 
@@ -115,7 +123,7 @@ main( int     argc,
   FD_TEST( mcache );
   ulong seq = fd_mcache_seq0( mcache );
 
-  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 337024 ];
+  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 337088 ];
   FD_TEST( sizeof(tpu_reasm_mem)==fd_tpu_reasm_footprint( depth, burst ) );
 
   fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig ) );
