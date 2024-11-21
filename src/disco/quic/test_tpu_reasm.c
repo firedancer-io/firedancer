@@ -115,7 +115,7 @@ main( int     argc,
   FD_TEST( mcache );
   ulong seq = fd_mcache_seq0( mcache );
 
-  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 337024 ];
+  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 337088 ];
   FD_TEST( sizeof(tpu_reasm_mem)==fd_tpu_reasm_footprint( depth, burst ) );
 
   fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig ) );

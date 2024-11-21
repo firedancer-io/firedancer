@@ -53,6 +53,8 @@ struct fd_quic_conn_stream_rx {
 
   ulong rx_max_streams_unidir_ackd; /* value of MAX_STREAMS acked for UNIDIR */
 
+  long  rx_streams_active;  /* FIXME: This is a user scratch field, not in use by fd_quic */
+
   /* FIXME add a TLB */
 };
 
@@ -238,6 +240,16 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline ulong
 fd_quic_conn_uid( fd_quic_conn_t const * conn ) {
   return ( (ulong)conn->conn_idx << 32UL ) | ( (ulong)conn->conn_gen );
+}
+
+FD_FN_CONST static inline uint
+fd_quic_conn_uid_idx( ulong conn_uid ) {
+  return (uint)( conn_uid >> 32UL );
+}
+
+FD_FN_CONST static inline uint
+fd_quic_conn_uid_gen( ulong conn_uid ) {
+  return (uint)( conn_uid & 0xffffffffUL );
 }
 
 /* returns the alignment requirement of fd_quic_conn_t */

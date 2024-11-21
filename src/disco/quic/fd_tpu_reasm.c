@@ -167,9 +167,15 @@ fd_tpu_reasm_wmark( fd_tpu_reasm_t const * reasm,
   return fd_laddr_to_chunk( base, slot_get_data_const( reasm, reasm->slot_cnt - 1UL ) );
 }
 
+fd_tpu_reasm_slot_t *
+fd_tpu_reasm_query( fd_tpu_reasm_t * reasm,
+                    ulong            conn_uid,
+                    ulong            stream_id ) {
+  return smap_query( reasm, conn_uid, stream_id );
+}
 
 fd_tpu_reasm_slot_t *
-fd_tpu_reasm_acquire( fd_tpu_reasm_t * reasm,
+fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
                       ulong            conn_uid,
                       ulong            stream_id,
                       long             tsorig ) {
@@ -315,7 +321,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
 void
 fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
                      fd_tpu_reasm_slot_t * slot ) {
-  if( FD_UNLIKELY( slot->k.state == FD_TPU_REASM_STATE_FREE ) ) return;
+  if( FD_UNLIKELY( slot->k.state != FD_TPU_REASM_STATE_BUSY ) ) return;
   slotq_remove( reasm, slot );
   smap_remove( reasm, slot );
   slot->k.state     = FD_TPU_REASM_STATE_FREE;
