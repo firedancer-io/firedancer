@@ -86,26 +86,26 @@ typedef struct fd_vm_vec fd_vm_vec_t;
    We define both, so hopefully it's foolproof. */
 
 /* SIMD-0166 */
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= 1UL )
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
 /* SIMD-0173 */
-#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= 2UL )
-#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= 2UL )
-#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  2UL )
-#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= 2UL )
-#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  2UL )
-#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= 2UL )
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= FD_SBPF_V2 )
 /* SIMD-0174 */
-#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= 2UL )
-#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= 2UL )
-#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  2UL )
-#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= 2UL )
-#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= 2UL )
+#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
 /* SIMD-0176 */
-#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= 3UL )
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
 /* SIMD-XXXX */
-#define FD_VM_SBPF_STRICTER_CONTROLFLOW(v)         ( v >= 3UL )
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= 3UL )
-#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= 3UL )
+#define FD_VM_SBPF_STRICTER_CONTROLFLOW(v)         ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= FD_SBPF_V3 )
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 

@@ -114,7 +114,10 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
          & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
          & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
          & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
-         & ( ehdr->e_flags    <=max_version                        )
+         & ( max_version
+             ? ( ehdr->e_flags <= max_version )
+             : ( ehdr->e_flags != FD_ELF_EF_SBPF_V2 )
+           )
   );
 
   /* Bounds check program header table */
@@ -524,7 +527,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
     return NULL;
 
   /* Set SBPF version from ELF e_flags */
-  info->sbpf_version = elf->ehdr.e_flags;
+  info->sbpf_version = sbpf_max_version ? elf->ehdr.e_flags : 0UL;
 
   return info;
 }
