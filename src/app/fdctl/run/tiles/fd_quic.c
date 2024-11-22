@@ -1,12 +1,12 @@
-#include "../../../../disco/tiles.h"
-
-#include "generated/quic_seccomp.h"
-
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/stem/fd_stem.h"
+#include "../../../../disco/topo/fd_topo.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../disco/quic/fd_tpu.h"
+#include "generated/quic_seccomp.h"
 
 #include <linux/unistd.h>
+#include <setjmp.h>
 #include <sys/random.h>
 
 /* fd_quic provides a TPU server tile.
@@ -61,6 +61,9 @@ typedef struct {
   ulong       net_out_chunk;
 
   fd_wksp_t * verify_out_mem;
+
+  fd_cnc_t * cnc;
+  jmp_buf    bail;
 
   struct {
     ulong txns_received_udp;
@@ -139,6 +142,17 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
 static void
 during_housekeeping( fd_quic_ctx_t * ctx ) {
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
+
+  fd_cnc_t * cnc = ctx->cnc;
+  if( cnc ) {
+    fd_cnc_heartbeat( cnc, fd_tickcount() );
+    ulong s = fd_cnc_signal_query( cnc );
+    if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
+      if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected cnc signal (%lu)", s ));
+      FD_LOG_NOTICE(( "Received halt signal ... exiting gracefully" ));
+      longjmp( ctx->bail, 1 );
+    }
+  }
 }
 
 /* This tile always publishes messages downstream, even if there are
@@ -634,6 +648,11 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
+
+  if( tile->quic.cnc_obj_id ) {
+    ctx->cnc = fd_cnc_join( fd_topo_obj_laddr( topo, tile->quic.cnc_obj_id ) );
+    if( FD_UNLIKELY( !ctx->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  }
 }
 
 static ulong
@@ -679,6 +698,24 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../../../disco/stem/fd_stem.c"
 
+static void
+run( fd_topo_t *      topo,
+     fd_topo_tile_t * tile ) {
+  /* FIXME this is an ugly workaround implementing a tile loop exit,
+           since fd_stem does not support fd_cnc. */
+  fd_quic_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( ctx->cnc ) {
+    fd_cnc_signal( ctx->cnc, FD_CNC_SIGNAL_RUN );
+  }
+  if( !setjmp( ctx->bail ) ) {
+    stem_run( topo, tile );
+  } else {
+    if( ctx->cnc ) {
+      fd_cnc_signal( ctx->cnc, FD_CNC_SIGNAL_BOOT );
+    }
+  }
+}
+
 fd_topo_run_tile_t fd_tile_quic = {
   .name                     = "quic",
   .populate_allowed_seccomp = populate_allowed_seccomp,
@@ -687,5 +724,5 @@ fd_topo_run_tile_t fd_tile_quic = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .run                      = stem_run,
+  .run                      = run,
 };

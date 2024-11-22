@@ -165,6 +165,7 @@ typedef struct {
       uint   ack_delay_millis;
       char   identity_key_path[ PATH_MAX ];
       int    retry;
+      ulong  cnc_obj_id; /* ignored if zero */
     } quic;
 
     struct {
