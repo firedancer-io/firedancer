@@ -1,9 +1,9 @@
-#include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/stem/fd_stem.h"
-#include "../../../../disco/topo/fd_topo.h"
-#include "../../../../disco/quic/fd_tpu.h"
-#include "../../../../waltz/quic/fd_quic_private.h"
-#include "generated/quic_seccomp.h"
+#include "../metrics/fd_metrics.h"
+#include "../stem/fd_stem.h"
+#include "../topo/fd_topo.h"
+#include "../quic/fd_tpu.h"
+#include "../../waltz/quic/fd_quic_private.h"
+#include "../../app/fdctl/run/tiles/generated/quic_seccomp.h" /* ugly: disco->fdctl dep */
 
 #include <errno.h>
 #include <linux/unistd.h>
@@ -77,7 +77,7 @@ typedef struct {
   } metrics;
 } fd_quic_ctx_t;
 
-FD_FN_CONST static inline fd_quic_limits_t
+FD_FN_CONST static fd_quic_limits_t
 quic_limits( fd_topo_tile_t const * tile ) {
   fd_quic_limits_t limits = {
     .conn_cnt      = tile->quic.max_concurrent_connections,
@@ -550,7 +550,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, net_in->dcache, net_in->mtu );
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
-
   ctx->net_out_mcache = net_out->mcache;
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
@@ -633,7 +632,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
-#include "../../../../disco/stem/fd_stem.c"
+#include "../stem/fd_stem.c"
 
 static void
 run( fd_topo_t *      topo,
