@@ -1,5 +1,5 @@
 #include "fd_aio_pcapng.h"
-#include "../../util/net/fd_pcapng_private.h"
+#include "../../util/net/fd_pcapng.h"
 
 #include <errno.h>
 
