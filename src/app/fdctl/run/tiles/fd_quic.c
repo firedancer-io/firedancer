@@ -6,6 +6,7 @@
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
+#include <errno.h>
 #include <linux/unistd.h>
 #include <sys/random.h>
 
@@ -79,25 +80,26 @@ quic_limits( fd_topo_tile_t const * tile ) {
        completing a handshake.  Connection migration is not supported
        either. */
     .conn_id_cnt      = FD_QUIC_MIN_CONN_ID_CNT,
-    .inflight_pkt_cnt = tile->quic.max_inflight_quic_packets,
-    .tx_buf_sz        = 0,
+    .inflight_pkt_cnt = 16UL,
     .rx_stream_cnt    = tile->quic.max_concurrent_streams_per_connection,
     .stream_pool_cnt  = tile->quic.max_concurrent_streams_per_connection * tile->quic.max_concurrent_connections,
   };
+  if( FD_UNLIKELY( !fd_quic_footprint( &limits ) ) ) {
+    FD_LOG_ERR(( "Invalid QUIC limits in config" ));
+  }
   return limits;
 }
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 4096UL;
+  return fd_ulong_max( alignof(fd_quic_ctx_t), fd_quic_align() );
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  fd_quic_limits_t limits = quic_limits( tile );
+  fd_quic_limits_t limits = quic_limits( tile ); /* May FD_LOG_ERR */
   ulong            l      = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )      );
-  l = FD_LAYOUT_APPEND( l, fd_aio_align(),           fd_aio_footprint()           );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -516,6 +518,9 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( topo->objs[ tile->tile_obj_id ].footprint < scratch_footprint( tile ) ) ) {
+    FD_LOG_ERR(( "insufficient tile scratch space" ));
+  }
 
   if( FD_UNLIKELY( tile->in_cnt<1UL ||
                    strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ) )
@@ -530,16 +535,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
 
-  ulong depth = tile->quic.depth;
-  if( topo->links[ tile->out_link_id[ 0 ] ].depth != depth )
-    FD_LOG_ERR(( "quic tile in depths are not equal" ));
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
 
-  /* End privileged allocs */
-
-  FD_TEST( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )==ED25519_PRIV_KEY_SZ );
+  if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
+    FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( ctx->sha512 ) );
   fd_ed25519_public_from_private( ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
   fd_sha512_leave( sha512 );
@@ -584,22 +585,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
-  /* Put a bound on chunks we read from the input, to make sure they
-      are within in the data region of the workspace. */
-  fd_topo_link_t * link0 = &topo->links[ tile->in_link_id[ 0 ] ];
-
-  for( ulong i=1UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-
-    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
-
-    if( FD_UNLIKELY( topo->objs[ link0->dcache_obj_id ].wksp_id!=topo->objs[ link->dcache_obj_id ].wksp_id ) ) FD_LOG_ERR(( "quic tile reads input from multiple workspaces" ));
-    if( FD_UNLIKELY( link0->mtu!=link->mtu         ) ) FD_LOG_ERR(( "quic tile reads input from multiple links with different MTUs" ));
-  }
-
-  ctx->in_mem    = topo->workspaces[ topo->objs[ link0->dcache_obj_id ].wksp_id ].wksp;
-  ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
-  ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
+  fd_topo_link_t * net_in = &topo->links[ tile->in_link_id[ 0 ] ];
+  ctx->in_mem    = topo->workspaces[ topo->objs[ net_in->dcache_obj_id ].wksp_id ].wksp;
+  ctx->in_chunk0 = fd_dcache_compact_chunk0( ctx->in_mem, net_in->dcache );
+  ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, net_in->dcache, net_in->mtu );
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
 
@@ -607,8 +596,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
   ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
-  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
@@ -617,7 +606,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->verify_out_mem = topo->workspaces[ topo->objs[ verify_out->reasm_obj_id ].wksp_id ].wksp;
 
   ctx->reasm = verify_out->reasm;
-  if( FD_UNLIKELY( !ctx->reasm ) )
+  if( FD_UNLIKELY( !verify_out->is_reasm || !ctx->reasm ) )
     FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
 
   ctx->quic        = quic;
