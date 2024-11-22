@@ -360,11 +360,9 @@ fd_topo_initialize( config_t * config ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
 
-      tile->quic.depth                          = topo->links[ tile->out_link_id[ 0 ] ].depth;
       tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
       tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
       tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
-      tile->quic.max_inflight_quic_packets      = config->tiles.quic.max_inflight_quic_packets;
       tile->quic.ip_addr                        = config->tiles.net.ip_addr;
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;

@@ -152,11 +152,9 @@ typedef struct {
     } net;
 
     struct {
-      ulong  depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
-      ulong  max_inflight_quic_packets;
       ulong  max_concurrent_streams_per_connection;
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];

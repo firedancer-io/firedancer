@@ -900,13 +900,6 @@ dynamic_port_range = "8900-9000"
         #
         max_concurrent_handshakes = 4096
 
-        # QUIC has a concept of a "QUIC packet", there can be multiple
-        # of these inside a UDP packet.  Each QUIC packet we send to the
-        # peer needs to be acknowledged before we can discard it, as we
-        # may need to retransmit.  This setting configures how many such
-        # packets we can have in-flight to the peer and unacknowledged.
-        max_inflight_quic_packets = 64
-
         # QUIC has a concept of an idle connection, one where neither
         # the client nor the server has sent any packet to the other for
         # a period of time.  Once this timeout is reached the connection
@@ -1039,7 +1032,7 @@ dynamic_port_range = "8900-9000"
     # endpoint to clients to view it.
     [tiles.gui]
         # If the GUI is enabled.
-        # 
+        #
         # Names and icons of peer validators will not be displayed in
         # the GUI unless the program-id index is enabled, which can be
         # done by setting
