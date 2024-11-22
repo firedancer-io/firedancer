@@ -161,7 +161,6 @@ typedef struct {
       ushort quic_transaction_listen_port;
       ulong  idle_timeout_millis;
       uint   ack_delay_millis;
-      char   identity_key_path[ PATH_MAX ];
       int    retry;
     } quic;
 
