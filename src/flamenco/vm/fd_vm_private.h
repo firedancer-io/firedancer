@@ -107,6 +107,8 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 #define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= FD_SBPF_V3 )
 #define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= FD_SBPF_V3 )
 
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
+
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
 FD_PROTOTYPES_BEGIN

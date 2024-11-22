@@ -408,10 +408,22 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_INVALID: default: return FD_VM_ERR_INVALID_OPCODE;
     }
 
-    if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG; /* FIXME: MAGIC NUMBER */
+    /* Check registers
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/verifier.rs#L177 */
 
-    int is_invalid_dst_reg = instr.dst_reg > ((validation_code == FD_CHECK_ST) ? 10 : 9); /* FIXME: MAGIC NUMBER */
-    if( FD_UNLIKELY( is_invalid_dst_reg ) ) return FD_VM_ERR_INVALID_DST_REG;
+    /* Source register */
+    if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG;
+
+    /* Special R11 register */
+    if( instr.dst_reg==11U
+        && FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version )
+        && instr.opcode.raw == 0x07
+        && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
+        continue;
+
+    /* Destination register. */
+    if( FD_UNLIKELY( instr.dst_reg==10U && validation_code != FD_CHECK_ST ) ) return FD_VM_ERR_INVALID_DST_REG;
+    if( FD_UNLIKELY( instr.dst_reg > 10U ) ) return FD_VM_ERR_INVALID_DST_REG;
   }
 
   return FD_VM_SUCCESS;
@@ -603,7 +615,7 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   /* FIXME: Zero out shadow, stack and heap here? */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  vm->reg[11] = vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   /* Set execution state */
   vm->pc        = vm->entry_pc;
