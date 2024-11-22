@@ -318,6 +318,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ushort, tiles.gui.gui_listen_port                        );
 
   CFG_POP      ( bool,   development.sandbox                              );
+  CFG_POP      ( bool,   development.fddev_live                           );
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );

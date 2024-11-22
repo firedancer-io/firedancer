@@ -133,9 +133,9 @@ create_clone_stack( void ) {
 }
 
 
-static int
+int
 execve_agave( int config_memfd,
-                    int pipefd ) {
+              int pipefd ) {
   if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -163,12 +163,13 @@ execve_agave( int config_memfd,
   return 0;
 }
 
-static pid_t
+pid_t
 execve_tile( fd_topo_tile_t * tile,
              fd_cpuset_t *    floating_cpu_set,
              int              floating_priority,
              int              config_memfd,
-             int              pipefd ) {
+             int              pipefd,
+             char const *     execve_binary ) {
   FD_CPUSET_DECL( cpu_set );
   if( FD_LIKELY( tile->cpu_idx!=ULONG_MAX ) ) {
     /* set the thread affinity before we clone the new process to ensure
@@ -199,6 +200,8 @@ execve_tile( fd_topo_tile_t * tile,
     char _current_executable_path[ PATH_MAX ];
     current_executable_path( _current_executable_path );
 
+    if( FD_UNLIKELY( execve_binary ) ) strncpy( _current_executable_path, execve_binary, PATH_MAX );
+
     char kind_id[ 32 ], config_fd[ 32 ], pipe_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( kind_id,   sizeof( kind_id ),   NULL, "%lu", tile->kind_id ) );
     FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d",  config_memfd ) );
@@ -214,7 +217,7 @@ execve_tile( fd_topo_tile_t * tile,
 
 extern int * fd_log_private_shared_lock;
 
-int
+static int
 main_pid_namespace( void * _args ) {
   struct pidns_clone_args * args = _args;
   if( FD_UNLIKELY( close( args->pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -290,7 +293,7 @@ main_pid_namespace( void * _args ) {
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-    child_pids[ child_cnt ] = execve_tile( tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
+    child_pids[ child_cnt ] = execve_tile( tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ], NULL );
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], tile->name, 32 );
     child_cnt++;
@@ -404,10 +407,11 @@ main_pid_namespace( void * _args ) {
   return 0;
 }
 
-int
+static int
 clone_firedancer( config_t * const config,
                   int              close_fd,
-                  int *            out_pipe ) {
+                  int *            out_pipe,
+                  int            (*main_pid_namespace_fn)( void * args ) ) {
   /* This pipe is here just so that the child process knows when the
      parent has died (it will get a HUP). */
   int pipefd[2];
@@ -419,7 +423,9 @@ clone_firedancer( config_t * const config,
 
   void * stack = create_clone_stack();
 
-  int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
+  if( FD_LIKELY( !main_pid_namespace_fn ) ) main_pid_namespace_fn = main_pid_namespace;
+
+  int pid_namespace = clone( main_pid_namespace_fn, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -751,7 +757,8 @@ run_firedancer_init( config_t * const config,
 void
 run_firedancer( config_t * const config,
                 int              parent_pipefd,
-                int              init_workspaces ) {
+                int              init_workspaces,
+                int            (*main_pid_namespace_fn)( void * args ) ) {
   /* dump the topology we are using to the output log */
   fd_topo_print_log( 0, &config->topo );
 
@@ -778,7 +785,7 @@ run_firedancer( config_t * const config,
   if( FD_UNLIKELY( fd_log_private_logfile_fd()!=1 && close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int pipefd;
-  pid_namespace = clone_firedancer( config, parent_pipefd, &pipefd );
+  pid_namespace = clone_firedancer( config, parent_pipefd, &pipefd, main_pid_namespace_fn );
 
   /* Print the location of the logfile on SIGINT or SIGTERM, and also
      kill the child.  They are connected by a pipe which the child is
@@ -843,5 +850,5 @@ run_cmd_fn( args_t *         args,
                    "empty. Please remove the empty entrypoint or set it correctly. "));
   }
 
-  run_firedancer( config, -1, 1 );
+  run_firedancer( config, -1, 1, NULL );
 }

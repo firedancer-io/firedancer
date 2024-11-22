@@ -204,7 +204,8 @@ stem_run1( ulong                        in_cnt,
 
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
-  ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  ulong *        out_seq;   /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  ulong **       out_sync;  /* ==fd_mcache_seq_laddr( out_mcache[out_idx] ), local addr where mux mcache sync info is published */
 
   /* out flow control state */
   ulong          cr_avail;   /* number of flow control credits available to publish downstream, in [0,cr_max] */
@@ -271,8 +272,9 @@ stem_run1( ulong                        in_cnt,
 
   cr_avail = 0UL;
 
-  out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_depth  = (ulong *) FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),   out_cnt*sizeof(ulong) );
+  out_seq    = (ulong *) FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),   out_cnt*sizeof(ulong) );
+  out_sync   = (ulong **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *), out_cnt*sizeof(ulong *) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
@@ -281,7 +283,8 @@ stem_run1( ulong                        in_cnt,
     if( FD_UNLIKELY( !out_mcache[ out_idx ] ) ) FD_LOG_ERR(( "NULL out_mcache[%lu]", out_idx ));
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
-    out_seq[ out_idx ] = 0UL;
+    out_sync[ out_idx ]  = fd_mcache_seq_laddr( out_mcache[ out_idx ] );
+    out_seq[ out_idx ]   = fd_mcache_seq_query( out_sync[ out_idx ] );
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
   }
@@ -353,6 +356,9 @@ stem_run1( ulong                        in_cnt,
         stem_in_update( &in[ in_idx ] );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
+      
+        /* Send synchronization info */
+        for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++) fd_mcache_seq_update( out_sync[ out_idx ], out_seq[ out_idx ] );
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();

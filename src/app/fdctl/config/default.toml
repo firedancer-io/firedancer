@@ -1080,6 +1080,14 @@ dynamic_port_range = "8900-9000"
     # debugging with the `--no-sandbox` argument to `fddev`.
     sandbox = true
 
+    # The Firedancer development binary `fddev` will by default refuse
+    # to start if you are connecting to a live cluster like mainnet, as
+    # it is not safe to run a development binary on a live cluster.  In
+    # certain development scenarios, it is useful to override this
+    # behavior but this should not be enabled on any staked validator,
+    # as the development binary is not secured.
+    fddev_live = false
+
     # As part of the security sandboxing, Firedancer will run every tile
     # in a separate process.  This can be annoying for debugging where
     # you want control of all the tiles under one inferior, so we also

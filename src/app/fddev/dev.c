@@ -214,7 +214,7 @@ dev_cmd_fn( args_t *         args,
   }
 
   if( FD_LIKELY( !args->dev.monitor ) ) {
-    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
+    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces, NULL );
     else                                             run_firedancer_threaded( config );
   } else {
     install_parent_signals();
@@ -230,7 +230,7 @@ dev_cmd_fn( args_t *         args,
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
         FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 1 );
+      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 1, NULL );
       else                                             run_firedancer_threaded( config );
     } else {
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

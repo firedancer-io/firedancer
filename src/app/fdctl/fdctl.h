@@ -75,6 +75,10 @@ typedef union {
   } flame;
 
   struct {
+    const char * hot_reload_binary;
+  } runhot;
+
+  struct {
     char    affinity[ AFFINITY_SZ ];
     uint    tpu_ip;
     uint    rpc_ip;
