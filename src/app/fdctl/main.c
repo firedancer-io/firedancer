@@ -31,6 +31,18 @@ extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_blackhole;
 
+#ifdef FD_HAS_NO_AGAVE
+extern fd_topo_run_tile_t fd_tile_gossip;
+extern fd_topo_run_tile_t fd_tile_repair;
+extern fd_topo_run_tile_t fd_tile_store_int;
+extern fd_topo_run_tile_t fd_tile_replay;
+extern fd_topo_run_tile_t fd_tile_replay_thread;
+extern fd_topo_run_tile_t fd_tile_poh_int;
+extern fd_topo_run_tile_t fd_tile_sender;
+extern fd_topo_run_tile_t fd_tile_eqvoc;
+extern fd_topo_run_tile_t fd_tile_rpcserv;
+#endif
+
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_quic,
@@ -48,6 +60,17 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_gui,
   &fd_tile_plugin,
   &fd_tile_blackhole,
+#ifdef FD_HAS_NO_AGAVE
+  &fd_tile_gossip,
+  &fd_tile_repair,
+  &fd_tile_store_int,
+  &fd_tile_replay,
+  &fd_tile_replay_thread,
+  &fd_tile_poh_int,
+  &fd_tile_sender,
+  &fd_tile_eqvoc,
+  &fd_tile_rpcserv,
+#endif
   NULL,
 };
 
