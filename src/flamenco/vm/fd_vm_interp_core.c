@@ -281,9 +281,11 @@
   shadow[ frame_cnt ].r7 = reg[7];                                                                          \
   shadow[ frame_cnt ].r8 = reg[8];                                                                          \
   shadow[ frame_cnt ].r9 = reg[9];                                                                          \
+  shadow[ frame_cnt ].r10= reg[10];                                                                         \
   shadow[ frame_cnt ].pc = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  reg[10] += vm->stack_frame_size
+  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[11] += vm->stack_frame_size;                   \
+  reg[10] = reg[11];
 
   /* We subtract the heap cost in the BPF loader */
 
@@ -801,7 +803,7 @@ interp_exec:
 
     FD_VM_INTERP_STACK_PUSH;
 
-    ulong vaddr = reg[ src ];
+    ulong vaddr = reg_src;
     ulong region = vaddr >> 32;
     ulong align  = vaddr & 7UL;
     pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
@@ -872,8 +874,9 @@ interp_exec:
     reg[7]   = shadow[ frame_cnt ].r7;
     reg[8]   = shadow[ frame_cnt ].r8;
     reg[9]   = shadow[ frame_cnt ].r9;
+    reg[10]  = shadow[ frame_cnt ].r10;
     pc       = shadow[ frame_cnt ].pc;
-    reg[10] -= vm->stack_frame_size;
+    if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[11] -= vm->stack_frame_size;
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x96) /* FD_SBPF_OP_LMUL64_IMM */
