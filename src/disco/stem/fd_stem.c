@@ -128,11 +128,22 @@
    fragment that was received.  If the producer is not respecting flow
    control, these may be corrupt or torn and should not be trusted. */
 
-#if FD_HAS_SSE
+#if !FD_HAS_SSE
+#error "fd_stem requires SSE"
+#endif
+
+#if !FD_HAS_ALLOCA
+#error "fd_stem requires alloca"
+#endif
 
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
 #include "../../tango/fd_tango.h"
+
+#ifndef STEM_NAME
+#define STEM_NAME stem
+#endif
+#define STEM_(n) FD_EXPAND_THEN_CONCAT3(STEM_NAME,_,n)
 
 #ifndef STEM_BURST
 #error "STEM_BURST must be defined"
@@ -142,8 +153,12 @@
 #error "STEM_CALLBACK_CONTEXT_TYPE must be defined"
 #endif
 
+#ifndef STEM_LAZY
+#define STEM_LAZY (0L)
+#endif
+
 static inline void
-stem_in_update( fd_stem_tile_in_t * in ) {
+STEM_(in_update)( fd_stem_tile_in_t * in ) {
   fd_fseq_update( in->fseq, in->seq );
 
   volatile ulong * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
@@ -159,17 +174,15 @@ stem_in_update( fd_stem_tile_in_t * in ) {
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
-#define STEM_SCRATCH_ALIGN (128UL)
-
 FD_FN_PURE static inline ulong
-stem_scratch_align( void ) {
-  return STEM_SCRATCH_ALIGN;
+STEM_(scratch_align)( void ) {
+  return FD_STEM_SCRATCH_ALIGN;
 }
 
 FD_FN_PURE static inline ulong
-stem_scratch_footprint( ulong in_cnt,
-                        ulong out_cnt,
-                        ulong cons_cnt ) {
+STEM_(scratch_footprint)( ulong in_cnt,
+                          ulong out_cnt,
+                          ulong cons_cnt ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t)     );  /* in */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
@@ -179,23 +192,23 @@ stem_scratch_footprint( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_seq */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),            (in_cnt+cons_cnt+1UL)*sizeof(ushort) ); /* event_map */
-  return FD_LAYOUT_FINI( l, stem_scratch_align() );
+  return FD_LAYOUT_FINI( l, STEM_(scratch_align)() );
 }
 
 static inline void
-stem_run1( ulong                        in_cnt,
-           fd_frag_meta_t const **      in_mcache,
-           ulong **                     in_fseq,
-           ulong                        out_cnt,
-           fd_frag_meta_t **            out_mcache,
-           ulong                        cons_cnt,
-           ulong *                      _cons_out,
-           ulong **                     _cons_fseq,
-           ulong                        burst,
-           long                         lazy,
-           fd_rng_t *                   rng,
-           void *                       scratch,
-           STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
+STEM_(run1)( ulong                        in_cnt,
+             fd_frag_meta_t const **      in_mcache,
+             ulong **                     in_fseq,
+             ulong                        out_cnt,
+             fd_frag_meta_t **            out_mcache,
+             ulong                        cons_cnt,
+             ulong *                      _cons_out,
+             ulong **                     _cons_fseq,
+             ulong                        burst,
+             long                         lazy,
+             fd_rng_t *                   rng,
+             void *                       scratch,
+             STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
   /* in frag stream state */
   ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
@@ -226,7 +239,7 @@ stem_run1( ulong                        in_cnt,
   ulong metric_regime_ticks[9];    /* How many ticks the tile has spent in each regime */
 
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "NULL scratch" ));
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, stem_scratch_align() ) ) ) FD_LOG_ERR(( "misaligned scratch" ));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, STEM_(scratch_align)() ) ) ) FD_LOG_ERR(( "misaligned scratch" ));
 
   /* in_backp==1, backp_cnt==0 indicates waiting for initial credits,
       cleared during first housekeeping if credits available */
@@ -350,7 +363,7 @@ stem_run1( ulong                        in_cnt,
         /* Send flow control credits and drain flow control diagnostics
            for in_idx. */
 
-        stem_in_update( &in[ in_idx ] );
+        STEM_(in_update)( &in[ in_idx ] );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -386,6 +399,8 @@ stem_run1( ulong                        in_cnt,
 
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
         STEM_CALLBACK_DURING_HOUSEKEEPING( ctx );
+#else
+        (void)ctx;
 #endif
       }
 
@@ -630,9 +645,9 @@ stem_run1( ulong                        in_cnt,
   }
 }
 
-static void
-stem_run( fd_topo_t *      topo,
-          fd_topo_tile_t * tile ) {
+FD_FN_UNUSED static void
+STEM_(run)( fd_topo_t *      topo,
+            fd_topo_tile_t * tile ) {
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
@@ -679,23 +694,30 @@ stem_run( fd_topo_t *      topo,
 
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
 
-  stem_run1( polled_in_cnt,
-             in_mcache,
-             in_fseq,
-             tile->out_cnt,
-             out_mcache,
-             reliable_cons_cnt,
-             cons_out,
-             cons_fseq,
-             STEM_BURST,
-#ifdef STEM_LAZY
-             STEM_LAZY,
-#else
-             0L,
-#endif
-             rng,
-             fd_alloca( STEM_SCRATCH_ALIGN, stem_scratch_footprint( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
-             ctx );
+  STEM_(run1)( polled_in_cnt,
+               in_mcache,
+               in_fseq,
+               tile->out_cnt,
+               out_mcache,
+               reliable_cons_cnt,
+               cons_out,
+               cons_fseq,
+               STEM_BURST,
+               STEM_LAZY,
+               rng,
+               fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
+               ctx );
 }
 
-#endif /* FD_HAS_SSE */
+#undef STEM_NAME
+#undef STEM_
+#undef STEM_BURST
+#undef STEM_CALLBACK_CONTEXT_TYPE
+#undef STEM_LAZY
+#undef STEM_CALLBACK_DURING_HOUSEKEEPING
+#undef STEM_CALLBACK_METRICS_WRITE
+#undef STEM_CALLBACK_BEFORE_CREDIT
+#undef STEM_CALLBACK_AFTER_CREDIT
+#undef STEM_CALLBACK_BEFORE_FRAG
+#undef STEM_CALLBACK_DURING_FRAG
+#undef STEM_CALLBACK_AFTER_FRAG
