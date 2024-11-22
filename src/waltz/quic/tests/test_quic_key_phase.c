@@ -1,5 +1,4 @@
 #include "../fd_quic.h"
-#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 #include "../../../util/net/fd_pcapng.h"
 
@@ -251,8 +250,7 @@ client_fibre_fn( void * vp_arg ) {
 
   conn = fd_quic_connect( quic,
           server_quic->config.net.ip_addr,
-          server_quic->config.net.listen_udp_port,
-          server_quic->config.sni );
+          server_quic->config.net.listen_udp_port );
 
   if( !conn ) {
     FD_LOG_ERR(( "Client unable to obtain a connection. now: %lu", (ulong)now ));

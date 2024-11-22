@@ -1,13 +1,9 @@
 /* test_quic_tls_hs performs a handshake using the fd_quic_tls API.
    (fd_quic_tls is a light wrapper over fd_tls) */
 
-#include <signal.h>
-
 #include "../../tls/test_tls_helper.h"
 #include "../tls/fd_quic_tls.h"
 #include "../templ/fd_quic_transport_params.h"
-#include "../../../util/net/fd_ip4.h"
-#include "../../../ballet/x509/fd_x509_mock.h"
 
 // test transport parameters
 static uchar const test_tp[] =
@@ -99,7 +95,6 @@ main( int     argc,
       quic_tls,
       tls_client,
       0 /* is_server */,
-      "localhost",
       tmp_tp ) );
 
   my_quic_tls_t    tls_server[1] = {0};
@@ -109,7 +104,6 @@ main( int     argc,
       quic_tls,
       tls_server,
       1 /* is_server */,
-      "localhost",
       tmp_tp ) );
 
   // generate initial secrets for client

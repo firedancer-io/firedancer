@@ -88,13 +88,6 @@ cb_stream_receive( fd_quic_stream_t * stream,
 }
 
 ulong
-cb_now( void * context ) {
-  (void)context;
-  return (ulong)fd_log_wallclock();
-}
-
-
-ulong
 findch( char * buf, ulong buf_sz, char ch ) {
   for( ulong j = 0UL; j < buf_sz; ++j ) {
     char cur = buf[j];
@@ -133,8 +126,7 @@ run_quic_client( fd_quic_t *         quic,
   quic->cb.stream_new = cb_stream_new;
   quic->cb.stream_notify = cb_stream_notify;
   quic->cb.stream_receive = cb_stream_receive;
-  quic->cb.now = cb_now;
-  quic->cb.now_ctx = NULL;
+  quic->cb.now = fd_quic_test_now;
 
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
@@ -147,7 +139,7 @@ run_quic_client( fd_quic_t *         quic,
       /* if no connection, try making one */
       FD_LOG_NOTICE(( "Creating connection" ));
 
-      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
+      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port );
 
       continue;
     }

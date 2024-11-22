@@ -358,7 +358,7 @@ during_frag( fd_benchs_ctx_t * ctx,
       uint   dest_ip   = 0;
       ushort dest_port = fd_ushort_bswap( ctx->quic_port );
 
-      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, "client" );
+      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port );
 
       /* failed? try later */
       if( FD_UNLIKELY( !ctx->quic_conn ) ) {

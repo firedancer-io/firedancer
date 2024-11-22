@@ -184,8 +184,7 @@ main( int     argc,
   fd_quic_conn_t * client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port,
-      server_quic->config.sni );
+      server_quic->config.net.listen_udp_port );
 
   FD_TEST( conn_final_cnt==0 );
 
