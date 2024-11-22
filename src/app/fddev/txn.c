@@ -88,7 +88,7 @@ send_quic_transactions( fd_quic_t *         quic,
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
   quic->cb.stream_notify    = cb_stream_notify;
 
-  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
+  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port );
   while ( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
     fd_quic_service( quic );
     fd_quic_udpsock_service( udpsock );

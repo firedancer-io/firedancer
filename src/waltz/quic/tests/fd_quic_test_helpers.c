@@ -7,7 +7,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../ballet/txn/fd_txn.h" /* FD_TXN_MTU */
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -80,7 +79,7 @@ fd_quic_test_cb_tls_keylog( void *       quic_ctx,
     fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), fd_quic_test_pcap );
 }
 
-static ulong
+ulong
 fd_quic_test_now( void * context ) {
   (void)context;
   return (ulong)fd_log_wallclock();
@@ -139,7 +138,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   config->ack_delay        = FD_QUIC_DEFAULT_ACK_DELAY;
   config->ack_threshold    = FD_QUIC_DEFAULT_ACK_THRESHOLD;
   config->initial_rx_max_stream_data = FD_TXN_MTU;
-  strcpy( config->sni, "local" );
 
   /* Default callbacks */
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;

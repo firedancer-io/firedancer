@@ -323,6 +323,7 @@ fd_quic_init( fd_quic_t * quic ) {
 
   if( FD_UNLIKELY( !config->role          ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
   if( FD_UNLIKELY( !config->idle_timeout  ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
+  if( FD_UNLIKELY( !quic->cb.now          ) ) { FD_LOG_WARNING(( "NULL cb.now"           )); return NULL; }
 
   do {
     ulong x = 0U;
@@ -1507,7 +1508,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           state->tls,
           (void*)conn,
           1 /*is_server*/,
-          quic->config.sni,
           tp );
       conn->tls_hs = tls_hs;
       quic->metrics.hs_created_cnt++;
@@ -4151,8 +4151,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
 fd_quic_conn_t *
 fd_quic_connect( fd_quic_t *  quic,
                  uint         dst_ip_addr,
-                 ushort       dst_udp_port,
-                 char const * sni ) {
+                 ushort       dst_udp_port ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
@@ -4228,7 +4227,6 @@ fd_quic_connect( fd_quic_t *  quic,
       state->tls,
       (void*)conn,
       0 /*is_server*/,
-      sni,
       tp );
   quic->metrics.hs_created_cnt++;
 

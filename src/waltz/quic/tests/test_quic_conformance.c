@@ -428,7 +428,6 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
       state->tls,
       (void*)conn,
       1 /*is_server*/,
-      quic->config.sni,
       tp );
   conn->tls_hs = tls_hs;
 

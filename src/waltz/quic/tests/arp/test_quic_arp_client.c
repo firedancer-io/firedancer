@@ -6,20 +6,9 @@
 #include <stdlib.h>
 #include <time.h>
 
-
-/* clocks */
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-
-  struct timespec ts;
-  clock_gettime( CLOCK_REALTIME, &ts );
-
-  return (ulong)ts.tv_sec * (ulong)1e9 + (ulong)ts.tv_nsec;
-}
-
 long
 test_fibre_clock(void) {
-  return (long)test_clock(NULL);;
+  return (long)fd_quic_test_now(NULL);
 }
 
 int done            = 0;
@@ -61,14 +50,14 @@ void
 send_fibre_main( void * vp_args ) {
   send_fibre_args_t * args = (send_fibre_args_t*)vp_args;
 
-  ulong now            = test_clock(NULL);
+  ulong now            = (ulong)fd_log_wallclock();
   ulong next_send_time = now;
   ulong end_time       = args->end_time;
 
   while( !done && !received ) {
     FD_TEST( client_quic );
 
-    now = test_clock(NULL);
+    now = (ulong)fd_log_wallclock();
     if( now < next_send_time ) {
       fd_fibre_wait_until( (long)next_send_time );
       continue;
@@ -80,13 +69,12 @@ send_fibre_main( void * vp_args ) {
       FD_LOG_NOTICE(( "CLIENT No connection: connecting and waiting" ));
 
       /* create a connection and wait for connected */
-      char const * sni = "test_quic_arp"; /* TODO what's this used for */
-      client_conn = fd_quic_connect( client_quic, args->server_ip, args->server_port, sni );
+      client_conn = fd_quic_connect( client_quic, args->server_ip, args->server_port );
       FD_TEST( client_conn );
 
       /* wait for connection handshake to complete */
       while( client_conn && client_conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
-        ulong now = (ulong)test_clock(NULL);
+        ulong now = (ulong)fd_log_wallclock();
         FD_TEST( now < end_time );
 
         fd_fibre_yield();
@@ -127,7 +115,7 @@ send_fibre_main( void * vp_args ) {
     fd_quic_conn_close( client_conn, 0 );
 
     while( client_conn ) {
-      ulong now = test_clock(NULL);
+      ulong now = (ulong)fd_log_wallclock();
       if( now > end_time ) break;
 
       fd_fibre_yield();
@@ -259,9 +247,7 @@ main( int argc, char ** argv ) {
   client_quic->cb.stream_receive = my_stream_receive_cb;
   client_quic->cb.stream_notify  = my_stream_notify_cb;
   client_quic->cb.conn_final     = my_cb_conn_final;
-
-  client_quic->cb.now     = test_clock;
-  client_quic->cb.now_ctx = NULL;
+  client_quic->cb.now            = fd_quic_test_now;
 
   fd_quic_udpsock_t _udpsock[1];
   udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, fd_quic_get_aio_net_rx( client_quic ) );
@@ -293,7 +279,7 @@ main( int argc, char ** argv ) {
 
   /* runs for DURATION seconds */
   ulong DURATION = (ulong)60e9;
-  ulong end_time = (ulong)test_clock(NULL) + (ulong)DURATION;
+  ulong end_time = (ulong)fd_log_wallclock() + (ulong)DURATION;
 
   /* initialize fibres */
   void * this_fibre_mem = fd_wksp_alloc_laddr( wksp, fd_fibre_init_align(), fd_fibre_init_footprint( ), 1UL );

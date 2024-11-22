@@ -169,11 +169,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 # define FD_QUIC_PATH_LEN 1023UL
   char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 
-  /* Server name indication (client only)
-     FIXME: Extend server to validate SNI */
-# define FD_QUIC_SNI_LEN (255UL)
-  char sni[ FD_QUIC_SNI_LEN+1UL ];
-
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
 
   /* Network config ****************************************/
@@ -507,14 +502,12 @@ fd_quic_fini( fd_quic_t * quic );
 
    args
      dst_ip_addr   destination ip address
-     dst_udp_port  destination port number
-     sni           server name indication cstr, max 253 chars, nullable */
+     dst_udp_port  destination port number */
 
 FD_QUIC_API fd_quic_conn_t *
 fd_quic_connect( fd_quic_t *  quic,  /* requires exclusive access */
                  uint         dst_ip_addr,
-                 ushort       dst_udp_port,
-                 char const * sni );
+                 ushort       dst_udp_port );
 
 /* fd_quic_conn_close asynchronously initiates a shutdown of the conn.
    The given reason code is returned to the peer via a CONNECTION_CLOSE

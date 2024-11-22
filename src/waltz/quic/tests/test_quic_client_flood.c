@@ -103,7 +103,7 @@ run_quic_client(
     FD_LOG_NOTICE(( "Starting QUIC client" ));
 
     /* make a connection from client to the server */
-    client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
+    client_conn = fd_quic_connect( quic, dst_ip, dst_port );
 
     /* do general processing */
     while ( !client_complete ) {
