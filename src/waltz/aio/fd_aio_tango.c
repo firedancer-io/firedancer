@@ -9,6 +9,7 @@ fd_aio_tango_send1( fd_aio_tango_tx_t *       self,
   ulong            depth   = self->depth;
   ulong            mtu     = self->mtu;
   ulong            orig    = self->orig;
+  ulong            sig     = self->sig;
   ulong            chunk0  = self->chunk0;
   ulong            wmark   = self->wmark;
   uchar const *    data    = pkt->buf;
@@ -24,7 +25,7 @@ fd_aio_tango_send1( fd_aio_tango_tx_t *       self,
     ulong   ctl     = fd_frag_meta_ctl( orig, som, eom, 0 );
 
     fd_memcpy( frag, data, frag_sz );
-    fd_mcache_publish( mcache, depth, self->seq, 0UL, self->chunk, frag_sz, ctl, ts, ts );
+    fd_mcache_publish( mcache, depth, self->seq, sig, self->chunk, frag_sz, ctl, ts, ts );
 
     self->seq   = fd_seq_inc( self->seq, 1UL );
     self->chunk = fd_dcache_compact_next( self->chunk, frag_sz, chunk0, wmark );
@@ -55,7 +56,8 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
                      void *              dcache,
                      void *              base,
                      ulong               mtu,
-                     ulong               orig ) {
+                     ulong               orig,
+                     ulong               sig ) {
   ulong depth = fd_mcache_depth( mcache );
   ulong chunk = fd_dcache_compact_chunk0( base, dcache );
   ulong wmark = fd_dcache_compact_wmark ( base, dcache, mtu );
@@ -69,6 +71,7 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
     .depth  = depth,
     .mtu    = mtu,
     .orig   = orig,
+    .sig    = sig,
     .chunk  = chunk,
     .seq    = seq,
   };
@@ -77,7 +80,82 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
 }
 
 void *
-fd_aio_tango_delete( fd_aio_tango_tx_t * self ) {
+fd_aio_tango_tx_delete( fd_aio_tango_tx_t * self ) {
   fd_aio_delete( &self->aio );
   return self;
+}
+
+
+fd_aio_tango_rx_t *
+fd_aio_tango_rx_new( fd_aio_tango_rx_t *    self,
+                     fd_aio_t const *       aio,
+                     fd_frag_meta_t const * mcache,
+                     ulong                  seq0,
+                     void *                 base ) {
+  ulong depth = fd_mcache_depth( mcache );
+  *self = (fd_aio_tango_rx_t) {
+    .mcache = mcache,
+    .depth  = depth,
+    .base   = base,
+    .seq    = seq0,
+    .aio    = aio,
+  };
+  return self;
+}
+
+void *
+fd_aio_tango_rx_delete( fd_aio_tango_rx_t * self ) {
+  return self;
+}
+
+void
+fd_aio_tango_rx_poll( fd_aio_tango_rx_t * self ) {
+  fd_frag_meta_t const * mcache = self->mcache;
+  ulong                  depth  = self->depth;
+  void *                 base   = self->base;
+  fd_aio_t const *       aio    = self->aio;
+
+# define RX_BATCH (64UL)
+  fd_aio_pkt_info_t batch[ RX_BATCH ];
+  ulong             batch_idx;
+  for( batch_idx=0UL; batch_idx<RX_BATCH; batch_idx++ ) {
+
+    /* Poll next fragment */
+    ulong seq_expected = self->seq;
+    fd_frag_meta_t const * mline = mcache + fd_mcache_line_idx( seq_expected, depth );
+    FD_COMPILER_MFENCE();
+    ulong seq_found = mline->seq;
+    FD_COMPILER_MFENCE();
+    ulong chunk  = mline->chunk;
+    ulong sz     = mline->sz;
+    ulong ctl    = mline->ctl;
+    FD_COMPILER_MFENCE();
+    ulong seq_test = mline->seq;
+    FD_COMPILER_MFENCE();
+    if( !fd_seq_eq( seq_found, seq_test ) ) break; /* overrun */
+
+    if( fd_seq_gt( seq_expected, seq_found ) ) {
+      /* caught up */
+      break;
+    }
+
+    if( fd_seq_lt( seq_expected, seq_found ) ) {
+      /* overrun */
+      self->seq = seq_found;
+      break;
+    }
+
+    if( fd_frag_meta_ctl_err( ctl ) || !fd_frag_meta_ctl_som( ctl ) ) {
+      batch_idx--;
+    } else {
+      batch[ batch_idx ].buf    = fd_chunk_to_laddr( base, chunk );
+      batch[ batch_idx ].buf_sz = (ushort)sz;
+    }
+
+    self->seq = fd_seq_inc( seq_expected, 1UL );
+
+  }
+
+  ulong batch_cons;
+  fd_aio_send( aio, batch, batch_idx, &batch_cons, 1 );
 }

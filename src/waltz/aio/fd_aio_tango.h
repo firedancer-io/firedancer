@@ -21,6 +21,7 @@ struct fd_aio_tango_tx {
   ulong            depth;
   ulong            mtu;
   ulong            orig;
+  ulong            sig;
   ulong            chunk;
   ulong            seq;
 };
@@ -35,15 +36,50 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
                      void *              dcache,
                      void *              base,
                      ulong               mtu,
-                     ulong               orig );
+                     ulong               orig,
+                     ulong               sig );
 
 void *
-fd_aio_tango_delete( fd_aio_tango_tx_t * self );
+fd_aio_tango_tx_delete( fd_aio_tango_tx_t * self );
 
 FD_FN_CONST static inline fd_aio_t const *
-fd_aio_tango_get_aio( fd_aio_tango_tx_t const * self ) {
+fd_aio_tango_tx_aio( fd_aio_tango_tx_t const * self ) {
   return &self->aio;
 }
+
+FD_PROTOTYPES_END
+
+
+/* fd_aio_tango_rx_t provides an API to receive frags from an mcache.
+   Does not support fragmentation.  Does not backpressure (frags are
+   skipped if fd_aio is too slow).  Frag pointers provided to the aio
+   receiver may be overrun during the fd_aio_send callback.  Mainly
+   intended for testing and does not support high performance. */
+
+struct fd_aio_tango_rx {
+  fd_frag_meta_t const * mcache;
+  ulong                  depth;
+  void *                 base;
+  ulong                  seq;
+  fd_aio_t const *       aio;
+};
+
+typedef struct fd_aio_tango_rx fd_aio_tango_rx_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_aio_tango_rx_t *
+fd_aio_tango_rx_new( fd_aio_tango_rx_t *    self,
+                     fd_aio_t const *       aio,
+                     fd_frag_meta_t const * mcache,
+                     ulong                  seq0,
+                     void *                 base );
+
+void *
+fd_aio_tango_rx_delete( fd_aio_tango_rx_t * self );
+
+void
+fd_aio_tango_rx_poll( fd_aio_tango_rx_t * self );
 
 FD_PROTOTYPES_END
 
