@@ -182,16 +182,16 @@ while true; do
                 send_slack_message "Replay Statistics: \`$REPLAY_INFO\`"
             else
                 DONE=0
-                BH_MISMATCH=$(grep "Bank hash mismatch!" "$LOG" | tail -n 1)
+                MISMATCH_LOG=$(grep "mismatch!" "$LOG" | tail -n 1)
                 CURRENT_MISMATCH_COUNT=$((CURRENT_MISMATCH_COUNT + 1))
 
-                if [ -z "$BH_MISMATCH" ]; then
+                if [ -z "$MISMATCH_LOG" ]; then
                     CURRENT_FAILURE_COUNT=$((CURRENT_FAILURE_COUNT + 1))
                     send_slack_message "Ledger Replay Failure. Check logs for more details"
                     DONE=1
                     exit 0
                 else
-                    MISMATCH_SLOT=$(echo "$BH_MISMATCH" | awk -F 'slot=' '{print $2}' | awk '{print $1}')
+                    MISMATCH_SLOT=$(echo "$MISMATCH_LOG" | awk -F 'slot=' '{print $2}' | awk '{print $1}')
                     send_slack_message "@here Mismatch occurred on slot: \`$MISMATCH_SLOT\`. Minimizing mismatch"
 
                     # move older snapshot to old_snapshots
