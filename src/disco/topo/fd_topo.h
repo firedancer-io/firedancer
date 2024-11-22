@@ -162,6 +162,7 @@ typedef struct {
       uint   ack_delay_millis;
       int    retry;
       ulong  cnc_obj_id; /* ignored if zero */
+      long   lazy;
     } quic;
 
     struct {
