@@ -148,6 +148,7 @@ typedef struct {
 
   struct {
     int sandbox;
+    int fddev_live;
     int no_clone;
     int no_agave;
     int bootstrap;

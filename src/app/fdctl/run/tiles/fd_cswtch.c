@@ -16,6 +16,7 @@ typedef struct {
   ulong            tile_cnt;
   int              status_fds[ FD_TILE_MAX ];
   volatile ulong * metrics[ FD_TILE_MAX ];
+  int              printed_dead[ FD_TILE_MAX ];
 } fd_cswtch_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -67,7 +68,8 @@ before_credit( fd_cswtch_ctx_t *   ctx,
     /* Supervisor is going to bring the whole process tree down if any
        of the target PIDs died, so we can ignore this and wait. */
     if( FD_UNLIKELY( process_died ) ) {
-      FD_LOG_WARNING(( "cannot get context switch metrics for dead tile idx %lu", i ));
+      if( FD_UNLIKELY( !ctx->printed_dead[ i ] ) ) FD_LOG_WARNING(( "cannot get context switch metrics for dead tile idx %lu", i ));
+      ctx->printed_dead[ i ] = 1;
       continue;
     }
 
@@ -156,6 +158,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+
+  memset( ctx->printed_dead, 0, sizeof(ctx->printed_dead) );
 
   ctx->next_report_nanos = fd_log_wallclock();
 

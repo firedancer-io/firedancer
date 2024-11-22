@@ -107,6 +107,7 @@ static action_t DEV_ACTIONS[] = {
   { .name = "load",    .args = load_cmd_args,    .fn = load_cmd_fn,    .perm = load_cmd_perm    },
   { .name = "dump",    .args = dump_cmd_args,    .fn = dump_cmd_fn,    .perm = NULL             },
   { .name = "flame",   .args = flame_cmd_args,   .fn = flame_cmd_fn,   .perm = flame_cmd_perm   },
+  { .name = "runhot",  .args = runhot_cmd_args,  .fn = runhot_cmd_fn,  .perm = runhot_cmd_perm  },
 };
 
 extern char fd_log_private_path[ 1024 ];
@@ -196,11 +197,11 @@ fddev_main( int     argc,
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
 
-  int is_allowed_live = !strcmp( action->name, "flame" ) || !strcmp( action->name, "dump" );
+  int is_allowed_live = config.development.fddev_live || !strcmp( action->name, "flame" ) || !strcmp( action->name, "dump" );
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
-    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
+    FD_LOG_ERR(( "The `fddev %s` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
-                 "production environment" ));
+                 "production environment", action_name ));
 
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
