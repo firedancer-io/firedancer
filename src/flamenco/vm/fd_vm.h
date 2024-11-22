@@ -15,7 +15,7 @@ typedef struct fd_vm fd_vm_t;
 /* A fd_vm_shadow_t holds stack frame information not accessible from
    within a program. */
 
-struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong pc; };
+struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong r10; ulong pc; };
 typedef struct fd_vm_shadow fd_vm_shadow_t;
 
 /* fd_vm_input_region_t holds information about fragmented memory regions 
@@ -220,7 +220,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527296UL)
+#define FD_VM_FOOTPRINT (527808UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
