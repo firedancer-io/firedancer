@@ -36,8 +36,7 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
                      void *              dcache,
                      void *              base,
                      ulong               mtu,
-                     ulong               orig,
-                     ulong               sig );
+                     ulong               orig );
 
 void *
 fd_aio_tango_tx_delete( fd_aio_tango_tx_t * self );

@@ -169,6 +169,14 @@ fd_quic_crypto_encrypt(
     fd_quic_crypto_keys_t const *  const hp_keys,
     ulong                          const pkt_number );
 
+void
+fd_quic_crypto_encrypt_inplace(
+    uchar *                       hdr,
+    ulong                         hdr_sz,
+    ulong                         frame_sz,
+    fd_quic_crypto_keys_t const * pkt_keys,
+    fd_quic_crypto_keys_t const * hp_keys,
+    ulong                         pkt_number );
 
 /* decrypt a quic protected packet
 

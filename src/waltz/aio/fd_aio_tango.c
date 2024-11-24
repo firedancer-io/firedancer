@@ -56,8 +56,7 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
                      void *              dcache,
                      void *              base,
                      ulong               mtu,
-                     ulong               orig,
-                     ulong               sig ) {
+                     ulong               orig ) {
   ulong depth = fd_mcache_depth( mcache );
   ulong chunk = fd_dcache_compact_chunk0( base, dcache );
   ulong wmark = fd_dcache_compact_wmark ( base, dcache, mtu );
@@ -71,7 +70,6 @@ fd_aio_tango_tx_new( fd_aio_tango_tx_t * self,
     .depth  = depth,
     .mtu    = mtu,
     .orig   = orig,
-    .sig    = sig,
     .chunk  = chunk,
     .seq    = seq,
   };
@@ -156,6 +154,7 @@ fd_aio_tango_rx_poll( fd_aio_tango_rx_t * self ) {
 
   }
 
+  if( batch_idx==0UL ) return;
   ulong batch_cons;
   fd_aio_send( aio, batch, batch_idx, &batch_cons, 1 );
 }

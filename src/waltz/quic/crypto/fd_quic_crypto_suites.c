@@ -266,20 +266,55 @@ fd_quic_crypto_encrypt(
   uchar hp_cipher[16];
   fd_aes_encrypt( sample, hp_cipher, ecb );
 
-  /* hp_cipher is mask */
-  uchar const * mask = hp_cipher;
-
   uchar long_hdr = first & 0x80u; /* long header? */
-  out[0] ^= (uchar)( mask[0] & ( long_hdr ? 0x0fu : 0x1fu ) );
+  out[0] ^= (uchar)( hp_cipher[0] & ( long_hdr ? 0x0fu : 0x1fu ) );
 
   ulong pkt_number_off = hdr_sz - pkt_number_sz;
 
   for( ulong j = 0; j < pkt_number_sz; ++j ) {
-    out[pkt_number_off + j] ^= mask[1+j];
+    out[pkt_number_off + j] ^= hp_cipher[1+j];
   }
 
   return FD_QUIC_SUCCESS;
 }
+
+void
+fd_quic_crypto_encrypt_inplace(
+    uchar *                       hdr,
+    ulong                         hdr_sz,
+    ulong                         frame_sz,
+    fd_quic_crypto_keys_t const * pkt_keys,
+    fd_quic_crypto_keys_t const * hp_keys,
+    ulong                         pkt_number ) {
+  uchar first = hdr[0];
+  uint  pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
+
+  uchar nonce[FD_QUIC_NONCE_SZ] = {0};
+  uchar const * quic_iv = pkt_keys->iv;
+  FD_STORE( ulong, nonce,   FD_LOAD( ulong, quic_iv ) );
+  FD_STORE( uint,  nonce+8, FD_LOAD( uint,  quic_iv+8 ) ^ fd_uint_bswap( (uint)pkt_number ) );
+
+  fd_aes_gcm_t pkt_cipher[1];
+  fd_aes_128_gcm_init( pkt_cipher, pkt_keys->pkt_key, nonce );
+
+  uchar * frames = hdr + hdr_sz;
+  uchar * tag    = frames + frame_sz;
+  fd_aes_gcm_encrypt( pkt_cipher, frames, frames, frame_sz, hdr, hdr_sz, tag );
+
+  uchar * pkt_number_ptr = hdr + hdr_sz - pkt_number_sz;
+
+  fd_aes_key_t ecb[1];
+  fd_aes_set_encrypt_key( hp_keys->hp_key, 128, ecb );
+  uchar hp_cipher[16];
+  fd_aes_encrypt( pkt_number_ptr+4, hp_cipher, ecb );
+
+  uchar long_hdr = first & 0x80u; /* long header? */
+  hdr[0] ^= (uchar)( hp_cipher[0] & ( long_hdr ? 0x0fu : 0x1fu ) );
+
+  uint pkt_num_xor = FD_LOAD( uint, hp_cipher+1 ) & ((1U<<(pkt_number_sz*8))-1U);
+  FD_STORE( uint, pkt_number_ptr, FD_LOAD( uint, pkt_number_ptr ) ^ pkt_num_xor );
+}
+
 
 int
 fd_quic_crypto_decrypt(
@@ -314,8 +349,10 @@ fd_quic_crypto_decrypt(
   }
 
   if( FD_UNLIKELY( ( buf_sz < hdr_sz ) |
-                   ( buf_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) ) )
+                   ( buf_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: not enough space for tag" ) ) );
     return FD_QUIC_FAILED;
+  }
 
   /* Derive offsets
 
@@ -337,10 +374,11 @@ fd_quic_crypto_decrypt(
 
   int decrypt_ok =
    fd_aes_gcm_decrypt( pkt_cipher,
-                            out /* ciphertext */, out /* plaintext */,
-                            gcm_sz,      /* size of plaintext */
-                            hdr, hdr_sz, /* associated data */
-                            gcm_tag      /* auth tag */ );
+                       out          /* ciphertext */,
+                       out          /* plaintext */,
+                       gcm_sz,      /* size of plaintext */
+                       hdr, hdr_sz, /* associated data */
+                       gcm_tag      /* auth tag */ );
   if( FD_UNLIKELY( !decrypt_ok ) ) {
    FD_DEBUG( FD_LOG_WARNING(( "fd_aes_gcm_decrypt failed" )) );
    return FD_QUIC_FAILED;

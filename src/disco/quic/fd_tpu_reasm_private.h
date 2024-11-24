@@ -110,8 +110,15 @@ slotq_pop_tail( fd_tpu_reasm_t * reasm ) {
 
   uint                  tail_idx = reasm->tail;
   fd_tpu_reasm_slot_t * tail     = fd_tpu_reasm_slots_laddr( reasm ) + tail_idx;
+  if( FD_UNLIKELY( tail_idx >= reasm->slot_cnt ) ) {
+    FD_LOG_ERR(( "OOB tail_idx (tail_idx=%u, slot_cnt=%u)", tail_idx, reasm->slot_cnt ));
+  }
+
   uint                  slot_idx = tail->lru_prev;
   fd_tpu_reasm_slot_t * slot     = fd_tpu_reasm_slots_laddr( reasm ) + slot_idx;
+  if( FD_UNLIKELY( slot_idx >= reasm->slot_cnt ) ) {
+    FD_LOG_ERR(( "OOB slot_idx (slot_idx=%u, slot_cnt=%u)", slot_idx, reasm->slot_cnt ));
+  }
 
   slot->lru_next = UINT_MAX;
   reasm->tail    = slot_idx;
