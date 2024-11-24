@@ -57,10 +57,10 @@ verify_state( fd_tpu_reasm_t * reasm,
     free_cnt += (slot->k.state==FD_TPU_REASM_STATE_FREE);
 
     fd_tpu_reasm_slot_t * slot2 = smap_query( reasm, slot->k.conn_uid, slot->k.stream_id );
-    if( slot->k.state!=FD_TPU_REASM_STATE_BUSY ) {
-      FD_TEST( slot2==NULL );  /* free and pub slots must not be in map */
-    } else {
+    if( slot->k.state==FD_TPU_REASM_STATE_BUSY ) {
       FD_TEST( slot==slot2 );  /* busy slot lookup must be correct */
+    } else {
+      FD_TEST( slot2==NULL || slot==slot2 );  /* optionally in map */
     }
   }
   FD_TEST( queue_head_depth==burst );
@@ -115,7 +115,8 @@ main( int     argc,
   FD_TEST( mcache );
   ulong seq = fd_mcache_seq0( mcache );
 
-  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 337088 ];
+  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 337024 ];
+  FD_LOG_INFO(( "fd_tpu_reasm_footprint(%lu,%lu)==%lu", depth, burst, fd_tpu_reasm_footprint( depth, burst ) ));
   FD_TEST( sizeof(tpu_reasm_mem)==fd_tpu_reasm_footprint( depth, burst ) );
 
   fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig ) );
@@ -217,7 +218,7 @@ main( int     argc,
 
   uint free_cnt;
   for( ulong j=0UL; j<2*burst; j++ ) {
-    fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, j, 0UL, 0UL );
+    fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, j, 1UL, 0UL );
     FD_TEST( slot->k.state == FD_TPU_REASM_STATE_BUSY );
     free_cnt = verify_state( reasm, mcache );
     FD_TEST( (long)free_cnt==fd_long_max( (long)burst-(long)j-1L, 0L ) );

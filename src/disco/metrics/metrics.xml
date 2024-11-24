@@ -178,7 +178,9 @@ metric introduced.
     <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
     <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
     <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active." />
-    <counter name="TxnsFrags" summary="Count of txn frags received." />
+    <counter name="FragsOk" summary="Count of txn frags received" />
+    <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
+    <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
     <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU." />
     <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost." />
 

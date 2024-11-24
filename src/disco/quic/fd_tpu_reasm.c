@@ -17,13 +17,14 @@ fd_tpu_reasm_footprint( ulong depth,
       ( burst>0x7fffffffUL          ) ) )
     return 0UL;
 
-  ulong chain_cnt = fd_tpu_reasm_map_chain_cnt_est( burst );
+  ulong slot_cnt  = depth+burst;
+  ulong chain_cnt = fd_tpu_reasm_map_chain_cnt_est( slot_cnt );
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-      FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                        ), /* hdr       */
-      alignof(uint),                 (depth)         *sizeof(uint)                ), /* pub_slots */
-      alignof(fd_tpu_reasm_slot_t), ((depth)+(burst))*sizeof(fd_tpu_reasm_slot_t) ), /* slots     */
-      FD_CHUNK_ALIGN,               ((depth)+(burst))*FD_TPU_REASM_MTU            ), /* chunks    */
-      fd_tpu_reasm_map_align(),     fd_tpu_reasm_map_footprint( chain_cnt )       ), /* map       */
+      FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                  ), /* hdr       */
+      alignof(uint),                depth   *sizeof(uint)                   ), /* pub_slots */
+      alignof(fd_tpu_reasm_slot_t), slot_cnt*sizeof(fd_tpu_reasm_slot_t)    ), /* slots     */
+      FD_CHUNK_ALIGN,               slot_cnt*FD_TPU_REASM_MTU               ), /* chunks    */
+      fd_tpu_reasm_map_align(),     fd_tpu_reasm_map_footprint( chain_cnt ) ), /* map       */
       FD_TPU_REASM_ALIGN );
 
 }
@@ -43,7 +44,7 @@ fd_tpu_reasm_new( void * shmem,
 
   ulong slot_cnt = depth+burst;
   if( FD_UNLIKELY( !slot_cnt ) ) return NULL;
-  ulong chain_cnt = fd_tpu_reasm_map_chain_cnt_est( burst );
+  ulong chain_cnt = fd_tpu_reasm_map_chain_cnt_est( slot_cnt );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_tpu_reasm_t *      reasm     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_t), sizeof(fd_tpu_reasm_t) );
@@ -180,10 +181,7 @@ fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
                       ulong            stream_id,
                       long             tsorig ) {
   fd_tpu_reasm_slot_t * slot = slotq_pop_tail( reasm );
-  uint was_overrun = slot->k.state == FD_TPU_REASM_STATE_BUSY;
-  if( was_overrun ) {
-    smap_remove( reasm, slot );
-  }
+  smap_remove( reasm, slot );
   slot_begin( slot );
   slotq_push_head( reasm, slot );
   slot->k.conn_uid  = conn_uid;
@@ -273,7 +271,6 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
 
   /* Mark new slot as published */
   slotq_remove( reasm, slot );
-  smap_remove( reasm, slot );
   slot->k.state = FD_TPU_REASM_STATE_PUB;
   *pub_slot = slot_idx;
 
@@ -340,9 +337,7 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
                            long             tspub ) {
 
   fd_tpu_reasm_slot_t * slot = slotq_pop_tail( reasm );
-  if( slot->k.state == FD_TPU_REASM_STATE_BUSY ) {
-    smap_remove( reasm, slot );
-  }
+  smap_remove( reasm, slot );
 
   /* Derive chunk index */
   uint    slot_idx  = slot_get_idx( reasm, slot );

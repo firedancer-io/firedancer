@@ -66,7 +66,9 @@ typedef struct {
     ulong txns_received_udp;
     ulong txns_received_quic_fast;
     ulong txns_received_quic_frag;
-    ulong frag_cnt;
+    ulong frag_ok_cnt;
+    ulong frag_gap_cnt;
+    ulong frag_dup_cnt;
     long  reasm_active;
     ulong reasm_overrun;
     ulong reasm_abandoned;
@@ -160,7 +162,9 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET  ( QUIC_TILE, TXNS_RECEIVED_UDP,       ctx->metrics.txns_received_udp );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_RECEIVED_QUIC_FAST, ctx->metrics.txns_received_quic_fast );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_RECEIVED_QUIC_FRAG, ctx->metrics.txns_received_quic_frag );
-  FD_MCNT_SET  ( QUIC_TILE, TXNS_FRAGS,              ctx->metrics.frag_cnt );
+  FD_MCNT_SET  ( QUIC_TILE, FRAGS_OK,                ctx->metrics.frag_ok_cnt );
+  FD_MCNT_SET  ( QUIC_TILE, FRAGS_GAP,               ctx->metrics.frag_gap_cnt );
+  FD_MCNT_SET  ( QUIC_TILE, FRAGS_DUP,               ctx->metrics.frag_dup_cnt );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
   FD_MCNT_SET  ( QUIC_TILE, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
@@ -331,7 +335,10 @@ quic_stream_rx( fd_quic_conn_t * conn,
   fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_query( reasm, conn_uid, stream_id );
 
   if( !slot ) { /* start a new reassembly */
-    if( offset>0   ) return FD_QUIC_FAILED;  /* ignore gapped (cancel ACK) */
+    if( offset>0 ) {
+      ctx->metrics.frag_gap_cnt++;
+      return FD_QUIC_SUCCESS;
+    }
     if( data_sz==0 ) return FD_QUIC_SUCCESS; /* ignore empty */
 
     /* Was the reasm buffer we evicted busy? */
@@ -354,15 +361,20 @@ quic_stream_rx( fd_quic_conn_t * conn,
     slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub ); /* infallible */
     ctx->metrics.reasm_started++;
     ctx->metrics.reasm_active++;
+  } else if( slot->k.state != FD_TPU_REASM_STATE_BUSY ) {
+    ctx->metrics.frag_dup_cnt++;
+    return FD_QUIC_SUCCESS;
   }
 
   conn->srx->rx_streams_active++;
 
   int reasm_res = fd_tpu_reasm_frag( reasm, slot, data, data_sz, offset );
   if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
-    return reasm_res!=FD_TPU_REASM_ERR_SKIP ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
+    int is_gap = reasm_res==FD_TPU_REASM_ERR_SKIP;
+    ctx->metrics.frag_gap_cnt += (ulong)is_gap;
+    return is_gap ? FD_QUIC_FAILED : FD_QUIC_SUCCESS;
   }
-  ctx->metrics.frag_cnt++;
+  ctx->metrics.frag_ok_cnt++;
 
   if( fin ) {
     int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );

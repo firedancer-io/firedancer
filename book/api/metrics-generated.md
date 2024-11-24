@@ -51,7 +51,9 @@
 | quic_&#8203;tile_&#8203;txns_&#8203;overrun | `counter` | Count of txns overrun before reassembled (too small txn_reassembly_count). |
 | quic_&#8203;tile_&#8203;txn_&#8203;reasms_&#8203;started | `counter` | Count of fragmented txn receive ops started. |
 | quic_&#8203;tile_&#8203;txn_&#8203;reasms_&#8203;active | `gauge` | Number of fragmented txn receive ops currently active. |
-| quic_&#8203;tile_&#8203;txns_&#8203;frags | `counter` | Count of txn frags received. |
+| quic_&#8203;tile_&#8203;frags_&#8203;ok | `counter` | Count of txn frags received |
+| quic_&#8203;tile_&#8203;frags_&#8203;gap | `counter` | Count of txn frags dropped due to data gap |
+| quic_&#8203;tile_&#8203;frags_&#8203;dup | `counter` | Count of txn frags dropped due to dup (stream already completed) |
 | quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;udp | `counter` | Count of txns received via TPU. (TPU/UDP) |
 | quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic_&#8203;fast | `counter` | Count of txns received via TPU. (TPU/QUIC unfragmented) |
 | quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic_&#8203;frag | `counter` | Count of txns received via TPU. (TPU/QUIC fragmented) |
