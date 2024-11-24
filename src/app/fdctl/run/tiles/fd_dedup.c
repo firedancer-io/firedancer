@@ -123,13 +123,11 @@ after_frag( fd_dedup_ctx_t *    ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sig;
-  (void)chunk;
 
   /* Transactions coming from verify tile, already parsed.
      We need to reconstruct fd_txn_t * txn, because we need the

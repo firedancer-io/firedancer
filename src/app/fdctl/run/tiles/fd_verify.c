@@ -74,14 +74,12 @@ after_frag( fd_verify_ctx_t *   ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)chunk;
 
   /* At this point, the payload only contains the serialized txn.
      Beyond end of txn, but within bounds of msg layout, add a trailer
