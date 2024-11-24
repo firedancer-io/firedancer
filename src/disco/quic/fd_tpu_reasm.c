@@ -246,10 +246,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   /* Derive chunk index */
   uint    slot_idx      = slot_get_idx( reasm, slot );
   uchar * data          = slot_get_data( reasm, slot_idx );
-  ulong   data_laddr    = (ulong)data;
-  ulong   chunk         = fd_laddr_to_chunk( base, (void *)data_laddr );
-  if( FD_UNLIKELY( ( data_laddr<(ulong)base ) |
-                   ( chunk>UINT_MAX         ) ) ) {
+  ulong   chunk         = fd_laddr_to_chunk( base, data );
+  if( FD_UNLIKELY( ( (ulong)data<(ulong)base ) |
+                   ( chunk>UINT_MAX          ) ) ) {
     FD_LOG_CRIT(( "invalid base %p for slot %p in tpu_reasm %p",
                   base, (void *)slot, (void *)reasm ));
   }

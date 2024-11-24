@@ -625,7 +625,7 @@ STEM_(run1)( ulong                        in_cnt,
     }
 
 #ifdef STEM_CALLBACK_AFTER_FRAG
-    STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, tsorig, &stem );
+    STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, &stem );
 #endif
 
     /* Windup for the next in poll and accumulate diagnostics */
