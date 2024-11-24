@@ -439,7 +439,7 @@ fd_gossip_unlock( fd_gossip_t * gossip ) {
   FD_VOLATILE( gossip->lock ) = 0UL;
 }
 
-/* FIXME: does these go in fd_types_custom instead? */
+/* FIXME: do these go in fd_types_custom instead? */
 void fd_gossip_ip_addr_from_sockaddr( fd_gossip_socket_addr_t const * addr, fd_gossip_ip_addr_t * out ) {
   if( FD_LIKELY( addr->discriminant == fd_gossip_socket_addr_enum_ip4 ) ) {
     fd_gossip_ip_addr_new_disc(out, fd_gossip_ip_addr_enum_ip4);
@@ -1482,6 +1482,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
     ushort last_port = 0;
     uchar cnt = 0;
     for(;;) {
+      fd_gossip_socket_addr_t* min_socket = NULL;
       fd_gossip_ip_addr_t min_addr[1] = {0};
       ushort min_port = USHORT_MAX;
       uchar min_key = 0;
@@ -1494,39 +1495,40 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       ushort tpu_vote_port = fd_gossip_port_from_socket( &glob->my_contact_info.tpu_vote );
       if( gossip_port > 0 && gossip_port > last_port && gossip_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
-        fd_gossip_ip_addr_from_sockaddr( &glob->my_contact_info.gossip, min_addr );
+        min_socket = &glob->my_contact_info.gossip;
         min_port = gossip_port;
       }
       if( serve_repair_port > 0 && serve_repair_port > last_port && serve_repair_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR;
-        fd_gossip_ip_addr_from_sockaddr( &glob->my_contact_info.serve_repair, min_addr );
+        min_socket = &glob->my_contact_info.serve_repair;
         min_port = serve_repair_port;
       }
       if( tvu_port > 0 && tvu_port > last_port && tvu_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TVU;
-        fd_gossip_ip_addr_from_sockaddr( &glob->my_contact_info.tvu, min_addr );
+        min_socket = &glob->my_contact_info.tvu;
         min_port = tvu_port;
       }
       if( tpu_port > 0 && tpu_port > last_port && tpu_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TPU;
-        fd_gossip_ip_addr_from_sockaddr( &glob->my_contact_info.tpu, min_addr );
+        min_socket = &glob->my_contact_info.tpu;
         min_port = tpu_port;
       }
       if( tpu_quic_port > 0 && tpu_quic_port > last_port && tpu_quic_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TPU_QUIC;
-        fd_gossip_ip_addr_from_sockaddr( &glob->my_contact_info.tpu, min_addr );
+        min_socket = &glob->my_contact_info.tpu;
         min_port = tpu_quic_port;
       }
       if( tpu_vote_port > 0 && tpu_vote_port > last_port && tpu_vote_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
-        fd_gossip_ip_addr_from_sockaddr( &glob->my_contact_info.tpu_vote, min_addr );
+        min_socket = &glob->my_contact_info.tpu_vote;
         min_port = tpu_vote_port;
       }
       if( min_port==USHORT_MAX ) {
         break;
       }
 
-      ci->addrs[ cnt ] = *min_addr;
+      /* ci->addrs[ cnt ] = min_socket->inner.{ip4,ip6}.addr */
+      fd_gossip_ip_addr_from_sockaddr( min_socket, &ci->addrs[ cnt ] );
       ci->sockets[ cnt ].index = 0;
       ci->sockets[ cnt ].offset = (ushort)( min_port - last_port );
       ci->sockets[ cnt ].key = min_key;
