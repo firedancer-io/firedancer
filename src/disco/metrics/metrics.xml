@@ -295,6 +295,8 @@ metric introduced.
     <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent receiving packets</summary>
     </histogram>
+
+    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
 </group>
 
 <group name="Verify" tile="verify">
