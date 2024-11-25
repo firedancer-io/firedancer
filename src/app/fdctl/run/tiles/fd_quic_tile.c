@@ -62,6 +62,10 @@ typedef struct {
 
   fd_wksp_t * verify_out_mem;
 
+  double ns_per_tick;
+  ulong  last_tick;
+  ulong  last_wall;
+
   struct {
     ulong txns_received_udp;
     ulong txns_received_quic_fast;
@@ -283,13 +287,17 @@ after_frag( fd_quic_ctx_t *     ctx,
   }
 }
 
-/* quic_now is called by the QUIC engine to get the current timestamp in
-   UNIX time.  */
-
 static ulong
-quic_now( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
+quic_now( void * quic_ctx ) {
+  fd_quic_ctx_t * ctx = quic_ctx;
+  ulong  tick       = (ulong)fd_tickcount();
+  ulong  tick_delta = tick - ctx->last_tick;
+  double wall_delta = (double)tick_delta * ctx->ns_per_tick;
+  int    sync       = wall_delta > 1e6; /* sync every millisecond */
+  ulong  wall       = ctx->last_wall + (ulong)wall_delta;
+  fd_ulong_store_if( sync, &ctx->last_tick, tick );
+  fd_ulong_store_if( sync, &ctx->last_wall, wall );
+  return wall;
 }
 
 static void
@@ -540,7 +548,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.conn_final       = quic_conn_final;
   quic->cb.stream_rx        = quic_stream_rx;
   quic->cb.now              = quic_now;
-  quic->cb.now_ctx          = NULL;
+  quic->cb.now_ctx          = ctx;
   quic->cb.quic_ctx         = ctx;
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
@@ -587,6 +595,11 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
+
+  /* Train clock */
+  ctx->ns_per_tick = 1 / fd_tempo_tick_per_ns( NULL );
+  ctx->last_tick   = (ulong)fd_tickcount();
+  ctx->last_wall   = 0UL;
 }
 
 static ulong
