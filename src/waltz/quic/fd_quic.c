@@ -1924,6 +1924,31 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
   return res;
 }
 
+static void
+fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
+  /* Key updates are only possible for 1-RTT packets, which are appdata */
+  ulong const enc_level = fd_quic_enc_level_appdata_id;
+
+  /* Update payload keys */
+  memcpy( &conn->keys[enc_level][0].pkt_key, &conn->new_keys[0].pkt_key, FD_AES_128_KEY_SZ );
+  memcpy( &conn->keys[enc_level][0].iv,      &conn->new_keys[0].iv,      FD_AES_GCM_IV_SZ  );
+  memcpy( &conn->keys[enc_level][1].pkt_key, &conn->new_keys[1].pkt_key, FD_AES_128_KEY_SZ );
+  memcpy( &conn->keys[enc_level][1].iv,      &conn->new_keys[1].iv,      FD_AES_GCM_IV_SZ  );
+
+  /* Update IVs */
+  memcpy( conn->secrets.secret[enc_level][0], conn->secrets.new_secret[0], FD_QUIC_SECRET_SZ );
+  memcpy( conn->secrets.secret[enc_level][1], conn->secrets.new_secret[1], FD_QUIC_SECRET_SZ );
+
+  /* Packet header encryption keys are not updated */
+
+  /* Wind up for next key phase update */
+  conn->key_phase  = !conn->key_phase;
+  conn->key_update = 0;
+  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+
+  FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
+}
+
 ulong
 fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
                            fd_quic_conn_t *      conn,
@@ -2014,22 +2039,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     /* is current packet in the current key phase? */
     int current_key_phase = conn->key_phase == key_phase;
 
-    /* is this a new request to change key_phase? */
-    if( !current_key_phase && !conn->key_phase_upd ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "key update started" )); )
-
-      /* generate new secrets */
-      fd_quic_gen_new_secrets( &conn->secrets );
-
-      /* generate new keys */
-      fd_quic_gen_new_keys( &conn->new_keys[0],
-                            conn->secrets.new_secret[0] );
-      fd_quic_gen_new_keys( &conn->new_keys[1],
-                            conn->secrets.new_secret[1] );
-      conn->key_phase_upd = 1;
-    }
-
 # if !FD_QUIC_DISABLE_CRYPTO
+    /* If the key phase bit flips, decrypt with the new pair of keys
+       instead.  Note that the key phase bit is untrusted at this point. */
     fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[enc_level][!server]
                                                      : &conn->new_keys[!server];
 
@@ -2044,6 +2056,13 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
       return FD_QUIC_PARSE_FAIL;
     }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
+
+  if( !current_key_phase ) {
+    /* Decryption succeeded.  Commit the key phase update and throw
+       away the old keys.  (May cause a few decryption failures if old
+       packets get reordered past the current incoming packet) */
+    fd_quic_key_update_complete( conn );
+  }
 
   if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
     conn->peer_enc_level = (uchar)enc_level;
@@ -2511,6 +2530,10 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   fd_quic_gen_keys(
       &conn->keys[enc_level][1],
       conn->secrets.secret[enc_level][1] );
+
+  if( enc_level==fd_quic_enc_level_appdata_id ) {
+    fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+  }
 
   /* Key logging */
 
@@ -3185,7 +3208,7 @@ fd_quic_gen_handshake_done_frame( fd_quic_conn_t *     conn,
                                   uchar *              payload_end,
                                   fd_quic_pkt_meta_t * pkt_meta,
                                   ulong                now ) {
-  if( !conn->handshake_done_send ) return 0UL;
+  if( conn->handshake_done_send==0 ) return 0UL;
   conn->handshake_done_send = 0;
   if( FD_UNLIKELY( conn->handshake_done_ackd  ) ) return 0UL;
   if( FD_UNLIKELY( payload_ptr >= payload_end ) ) return 0UL;
@@ -3512,73 +3535,13 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
   }
 
-  /* this test section is close to what we actually need
-     just need to choose the packet number at which to start a
-     key update, and store it on conn */
-
-  /* TODO
-   * store number of packets encrypted with key
-   * start update when this count exceeds confidentiality limit
-   * store number of failed decrypts
-   * fail connection when this count exceeds integrity limit */
-
-  // fd_quic_crypto_suite_t const * suite = conn->suites[enc_level];
-  // static ulong nxt_key_upd = suite->pkt_limit;
-  // if( FD_UNLIKELY(
-  //       conn->pkt_number[2] >= nxt_key_upd
-  //       && enc_level        == 3
-  //       && conn->state      == FD_QUIC_CONN_STATE_ACTIVE
-  //       ) ) {
-  //   /* generate new secrets */
-  //   if( FD_UNLIKELY(
-  //         fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz )
-  //           != FD_QUIC_SUCCESS ) ) {
-  //     FD_LOG_WARNING(( "Unable to generate new secrets for key update. "
-  //           "Aborting connection" ));
-  //     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_AEAD_LIMIT_REACHED );
-  //     return FD_QUIC_PARSE_FAIL;
-  //   }
-
-  //   /* generate new keys */
-  //   if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[0],
-  //                                          suite,
-  //                                          conn->secrets.new_secret[0],
-  //                                          conn->secrets.secret_sz[enc_level][0],
-  //                                          suite->hmac_fn, suite->hash_sz )
-  //         != FD_QUIC_SUCCESS ) ) {
-  //     /* set state to DEAD to reclaim connection */
-  //     FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
-  //     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
-  //     return FD_QUIC_PARSE_FAIL;
-  //   }
-  //   if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[1],
-  //                                          suite,
-  //                                          conn->secrets.new_secret[1],
-  //                                          conn->secrets.secret_sz[enc_level][1],
-  //                                          suite->hmac_fn, suite->hash_sz )
-  //         != FD_QUIC_SUCCESS ) ) {
-  //     /* set state to DEAD to reclaim connection */
-  //     FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
-  //     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
-  //     return FD_QUIC_PARSE_FAIL;
-  //   }
-
-  //   conn->key_phase_upd = 1;
-  // }
-
   /* nothing to send? */
   if( enc_level == ~0u                       ) return;
   if( conn->state == FD_QUIC_CONN_STATE_DEAD ) return;
 
-  int key_phase_upd  = (int)conn->key_phase_upd;
-  uint key_phase     = conn->key_phase;
-  int key_phase_tx   = (int)key_phase ^ key_phase_upd;
-
-  /* key phase flags to set on every relevant pkt_meta */
-  uint key_phase_flags = fd_uint_if( enc_level == fd_quic_enc_level_appdata_id,
-                                        ( fd_uint_if( key_phase_upd, FD_QUIC_PKT_META_FLAGS_KEY_UPDATE, 0 ) |
-                                          fd_uint_if( key_phase_tx,  FD_QUIC_PKT_META_FLAGS_KEY_PHASE,  0 ) ),
-                                        0 );
+  int key_phase_upd = (int)conn->key_update;
+  uint key_phase    = conn->key_phase;
+  int key_phase_tx  = (int)key_phase ^ key_phase_upd;
 
   /* get time, and set reschedule time for at most the idle timeout */
   ulong now = fd_quic_get_state( quic )->now;
@@ -3591,7 +3554,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
       if( FD_UNLIKELY( !pkt_meta ) ) {
         /* when there is no pkt_meta, it's best to keep processing acks
-        * until some pkt_meta are returned */
+           until some pkt_meta are returned */
+        /* FIXME add metric */
         return;
       }
     } else {
@@ -3619,8 +3583,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
 
     /* get next packet number
-       we burn this number immediately - quic allows gaps, so this isn't harmful
-       even if we end up not sending */
+       Returned to pool if not sent as gaps are harmful for ACK frame
+       compression. */
     ulong pkt_number = conn->pkt_number[pn_space]++;
 
     pkt_meta->pn_space   = (uchar)pn_space;
@@ -3812,7 +3776,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
     /* everything successful up to here
        encrypt into tx_ptr,tx_ptr+tx_sz */
-    pkt_meta->flags |= key_phase_flags;
 
 #if FD_QUIC_DISABLE_CRYPTO
     ulong quic_pkt_sz = hdr_sz + tot_frame_sz + padding;
@@ -4388,7 +4351,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* suites initialized above */
 
   conn->key_phase            = 0;
-  conn->key_phase_upd        = 0;
+  conn->key_update           = 0;
 
   conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
   conn->reason               = 0;
@@ -4455,11 +4418,11 @@ fd_quic_get_next_wakeup( fd_quic_t * quic ) {
   long wait_wakeup = LONG_MAX;
   if( state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head != UINT_MAX ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head );
-    ack_wakeup = (long)conn->svc_time - (long)state->now;
+    ack_wakeup = (long)conn->svc_time;
   }
   if( state->svc_queue[ FD_QUIC_SVC_WAIT ].head != UINT_MAX ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_WAIT ].head );
-    wait_wakeup = (long)conn->svc_time - (long)state->now;
+    wait_wakeup = (long)conn->svc_time;
   }
 
   return (ulong)fd_long_max( fd_long_min( ack_wakeup, wait_wakeup ), 0L );
@@ -4712,54 +4675,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   uint            flags = pkt_meta->flags;
   fd_quic_range_t range = pkt_meta->range;
-
-  if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
-    /* what key phase was used for packet? */
-    uint pkt_meta_key_phase = !!( flags & FD_QUIC_PKT_META_FLAGS_KEY_PHASE );
-
-    if( pkt_meta_key_phase != conn->key_phase ) {
-      /* key update was acknowledged
-         replace with new ones */
-
-      /* TODO improve this code */
-#     define COPY_KEY(SERVER,KEY)                         \
-        fd_memcpy( &conn->keys[enc_level][SERVER].KEY[0], \
-                   &conn->new_keys[SERVER].KEY[0],        \
-                   sizeof( conn->keys[enc_level][0].KEY ) )
-      COPY_KEY(0,pkt_key);
-      COPY_KEY(0,iv);
-      COPY_KEY(1,pkt_key);
-      COPY_KEY(1,iv);
-#     undef COPY_KEY
-
-      /* finally zero out new_keys */
-      fd_memset( &conn->new_keys[0], 0, sizeof( fd_quic_crypto_keys_t ) );
-      fd_memset( &conn->new_keys[1], 0, sizeof( fd_quic_crypto_keys_t ) );
-
-      /* copy secrets */
-      fd_memcpy( &conn->secrets.secret[enc_level][0][0],
-                 &conn->secrets.new_secret[0][0],
-                 sizeof( conn->secrets.new_secret[0] ) );
-      fd_memcpy( &conn->secrets.secret[enc_level][1][0],
-                 &conn->secrets.new_secret[1][0],
-                 sizeof( conn->secrets.new_secret[1] ) );
-
-      /* zero out new_secret */
-      fd_memset( &conn->secrets.new_secret[0][0], 0, sizeof( conn->secrets.new_secret[0] ) );
-      fd_memset( &conn->secrets.new_secret[1][0], 0, sizeof( conn->secrets.new_secret[1] ) );
-
-      conn->key_phase     = pkt_meta_key_phase; /* switch to new key phase */
-      conn->key_phase_upd = 0;                  /* no longer updating */
-
-      /* ensure the key phase change gets ack'ed even if there are no */
-      /* otherwise ack-eliciting packets */
-      conn->ack_gen->is_elicited = 1;
-
-      FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
-
-      /* TODO still need to add code to initiate key update */
-    }
-  }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
     /* Note that tls_hs could already be freed */
@@ -5026,7 +4941,8 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
                            uint             enc_level,
                            ulong            largest_ack,
                            ulong            ack_range ) {
-  /* loop thru all packet metadata, and process individual metadata */
+  /* FIXME: This would benefit from algorithmic improvements */
+  /* FIXME: Close connection if peer ACKed a higher packet number than we sent */
 
   /* inclusive range */
   ulong hi = largest_ack;
