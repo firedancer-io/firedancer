@@ -110,6 +110,7 @@
 | quic_&#8203;ack_&#8203;tx_&#8203;cancel | `counter` | ACK events (ACK suppressed by handler) |
 | quic_&#8203;service_&#8203;duration_&#8203;seconds | `histogram` | Duration spent in service |
 | quic_&#8203;receive_&#8203;duration_&#8203;seconds | `histogram` | Duration spent receiving packets |
+| quic_&#8203;frame_&#8203;fail_&#8203;parse | `counter` | Number of QUIC frames failed to parse. |
 
 ## Verify Tile
 | Metric | Type | Description |

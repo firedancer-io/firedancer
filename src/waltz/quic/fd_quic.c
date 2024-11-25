@@ -1629,6 +1629,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                   frame_ptr,
                                   frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "Failed to handle frame (Initial, frame=0x%02x)", frame_ptr[0] )) );
+      quic->metrics.frame_rx_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1789,6 +1791,8 @@ fd_quic_handle_v1_handshake(
                                   frame_ptr,
                                   frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "Failed to handle frame (Handshake, frame=0x%02x)", frame_ptr[0] )) );
+      quic->metrics.frame_rx_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2082,7 +2086,8 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
                                   frame_ptr,
                                   frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "frame failed to parse" )) );
+      FD_DEBUG( FD_LOG_DEBUG(( "Failed to handle frame (1-RTT, frame=0x%02x)", frame_ptr[0] )) );
+      quic->metrics.frame_rx_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
