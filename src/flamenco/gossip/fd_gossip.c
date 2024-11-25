@@ -490,7 +490,12 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
 
       /* Annoyingly, fd_gossip_socket_addr->inner and fd_gossip_ip_addr
          are slightly different, so we can't just 
-         out_addr->ip = contact_info->addrs[ idx ] */
+         out_addr->ip = contact_info->addrs[ idx ]
+         
+         Potential ptimization idea:
+         - first 4 + 32/128 bytes of a fd_gossip_socket_addr_t can cast directly to fd_gossip_ip_addr_t AKA:
+           fd_memcpy( out_addr, &contact_info->addrs[ socket_entry->index ], sizeof(fd_gossip_ip_addr_t) );
+           out_addr->port = port; */
       fd_gossip_ip_addr_t * tmp = &contact_info->addrs[ socket_entry->index ];
       if( FD_LIKELY( tmp->discriminant == fd_gossip_ip_addr_enum_ip4 ) ) {
         out_addr->discriminant = fd_gossip_socket_addr_enum_ip4;
@@ -500,7 +505,6 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
         out_addr->discriminant = fd_gossip_socket_addr_enum_ip6;
         out_addr->inner.ip6.addr = tmp->inner.ip6;
         out_addr->inner.ip6.port = port;
-
       }
       return 1;
     }
