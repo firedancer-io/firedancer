@@ -69,6 +69,7 @@ typedef struct {
     ulong frag_ok_cnt;
     ulong frag_gap_cnt;
     ulong frag_dup_cnt;
+    ulong frag_oversz_cnt;
     long  reasm_active;
     ulong reasm_overrun;
     ulong reasm_abandoned;
@@ -165,6 +166,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_OK,                ctx->metrics.frag_ok_cnt );
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_GAP,               ctx->metrics.frag_gap_cnt );
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_DUP,               ctx->metrics.frag_dup_cnt );
+  FD_MCNT_SET  ( QUIC_TILE, FRAGS_OVERSZ,            ctx->metrics.frag_oversz_cnt );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
   FD_MCNT_SET  ( QUIC_TILE, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
@@ -187,6 +189,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MCNT_SET(   QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
   FD_MCNT_SET(   QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(   QUIC, PKT_TX_ALLOC_FAIL, ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
@@ -322,9 +325,13 @@ quic_stream_rx( fd_quic_conn_t * conn,
 
   if( offset==0UL && fin ) {
     /* Fast path */
-    fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
-    fd_stem_advance( stem, 0UL );
-    ctx->metrics.txns_received_quic_fast++;
+    int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
+    if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
+      fd_stem_advance( stem, 0UL );
+      ctx->metrics.txns_received_quic_fast++;
+    } else if( err==FD_TPU_REASM_ERR_SZ ) {
+      ctx->metrics.frag_oversz_cnt++;
+    }
     return FD_QUIC_SUCCESS;
   }
 
@@ -368,8 +375,10 @@ quic_stream_rx( fd_quic_conn_t * conn,
 
   int reasm_res = fd_tpu_reasm_frag( reasm, slot, data, data_sz, offset );
   if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
-    int is_gap = reasm_res==FD_TPU_REASM_ERR_SKIP;
-    ctx->metrics.frag_gap_cnt += (ulong)is_gap;
+    int is_gap    = reasm_res==FD_TPU_REASM_ERR_SKIP;
+    int is_oversz = reasm_res==FD_TPU_REASM_ERR_SZ;
+    ctx->metrics.frag_gap_cnt    += (ulong)is_gap;
+    ctx->metrics.frag_oversz_cnt += (ulong)is_oversz;
     return is_gap ? FD_QUIC_FAILED : FD_QUIC_SUCCESS;
   }
   ctx->metrics.frag_ok_cnt++;
@@ -377,7 +386,8 @@ quic_stream_rx( fd_quic_conn_t * conn,
   if( fin ) {
     int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
     if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
-    ctx->metrics.txns_received_quic_frag++;
+    ulong * rcv_cnt = (offset==0UL && fin) ? &ctx->metrics.txns_received_quic_fast : &ctx->metrics.txns_received_quic_frag;
+    (*rcv_cnt)++;
     ctx->metrics.reasm_active--;
     conn->srx->rx_streams_active--;
 

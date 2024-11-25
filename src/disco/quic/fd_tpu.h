@@ -308,10 +308,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       long                  tspub );
 
 /* fd_tpu_reasm_publish_fast is a streamlined version of acquire/frag/
-   publish.  Guaranteed to succeed. Silently truncates packets with
-   sz>FD_TPU_REASM_MTU. */
+   publish. */
 
-void
+int
 fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
                            uchar const *    data,
                            ulong            sz,

@@ -3555,7 +3555,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       if( FD_UNLIKELY( !pkt_meta ) ) {
         /* when there is no pkt_meta, it's best to keep processing acks
            until some pkt_meta are returned */
-        /* FIXME add metric */
+        quic->metrics.pkt_tx_alloc_fail_cnt++;
         return;
       }
     } else {

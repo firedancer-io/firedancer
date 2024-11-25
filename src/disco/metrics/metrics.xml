@@ -181,6 +181,7 @@ metric introduced.
     <counter name="FragsOk" summary="Count of txn frags received" />
     <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
     <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
+    <counter name="FragsOversz" summary="Count of txn frags dropped because they would exceed txn MTU" />
     <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU." />
     <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost." />
 
@@ -276,6 +277,7 @@ metric introduced.
 
     <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
     <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
+    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
 
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />

@@ -54,6 +54,7 @@
 | quic_&#8203;tile_&#8203;frags_&#8203;ok | `counter` | Count of txn frags received |
 | quic_&#8203;tile_&#8203;frags_&#8203;gap | `counter` | Count of txn frags dropped due to data gap |
 | quic_&#8203;tile_&#8203;frags_&#8203;dup | `counter` | Count of txn frags dropped due to dup (stream already completed) |
+| quic_&#8203;tile_&#8203;frags_&#8203;oversz | `counter` | Count of txn frags dropped because they would exceed txn MTU |
 | quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;udp | `counter` | Count of txns received via TPU. (TPU/UDP) |
 | quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic_&#8203;fast | `counter` | Count of txns received via TPU. (TPU/QUIC unfragmented) |
 | quic_&#8203;tile_&#8203;txns_&#8203;received_&#8203;quic_&#8203;frag | `counter` | Count of txns received via TPU. (TPU/QUIC fragmented) |
@@ -75,6 +76,7 @@
 | quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail | `counter` | Number of connections that failed during retry (e.g. invalid token). |
 | quic_&#8203;pkt_&#8203;crypto_&#8203;failed | `counter` | Number of packets that failed decryption. |
 | quic_&#8203;pkt_&#8203;no_&#8203;conn | `counter` | Number of packets with an unknown connection ID. |
+| quic_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail | `counter` | Number of packets failed to send because of metadata alloc fail. |
 | quic_&#8203;handshakes_&#8203;created | `counter` | Number of handshake flows created. |
 | quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail | `counter` | Number of handshakes dropped due to alloc fail. |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
