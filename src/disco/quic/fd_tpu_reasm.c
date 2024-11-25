@@ -108,8 +108,10 @@ fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm ) {
     slot->k.conn_uid  = ULONG_MAX;
     slot->k.stream_id = 0xffffffffffff;
     slot->k.sz        = 0;
-    slot->chain_next = UINT_MAX;
-    pub_slots[ j ]   = j;
+    slot->k.mapped    = 0;
+    slot->chain_prev  = UINT_MAX;
+    slot->chain_next  = UINT_MAX;
+    pub_slots[ j ]    = j;
   }
   for( uint j=depth; j<node_cnt; j++ ) {
     fd_tpu_reasm_slot_t * slot = slots + j;
@@ -119,6 +121,8 @@ fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm ) {
     slot->k.sz        = 0;
     slot->lru_prev    = fd_uint_if( j<node_cnt-1U, j+1U, UINT_MAX );
     slot->lru_next    = fd_uint_if( j>depth,       j-1U, UINT_MAX );
+    slot->k.mapped    = 0;
+    slot->chain_prev  = UINT_MAX;
     slot->chain_next  = UINT_MAX;
   }
 
@@ -187,7 +191,7 @@ fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
   slot->k.conn_uid  = conn_uid;
   slot->k.stream_id = stream_id & FD_TPU_REASM_SID_MASK;
   smap_insert( reasm, slot );
-  slot->tsorig_comp = (uint)fd_frag_meta_ts_comp( tsorig );
+  (void)tsorig;
   return slot;
 }
 
@@ -271,15 +275,14 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   /* Publish to mcache */
   ulong sz          = slot->k.sz;
   ulong ctl         = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
-  ulong tsorig_comp = slot->tsorig_comp;
   ulong tspub_comp  = fd_frag_meta_ts_comp( tspub );
 
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tspub_comp, tspub_comp );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tspub_comp, tspub_comp );
 # else
-  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, sz, ctl, tspub_comp, tspub_comp );
 # endif
 
   /* Mark new slot as published */
@@ -367,14 +370,13 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
      the old slot */
   *pub_slot = slot_idx;
   ulong ctl         = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
-  uint  tsorig_comp = slot->tsorig_comp;
   uint  tspub_comp  = (uint)fd_frag_meta_ts_comp( tspub );
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tspub_comp, tspub_comp );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tspub_comp, tspub_comp );
 # else
-  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, sz, ctl, tspub_comp, tspub_comp );
 # endif
 
   /* Free old slot */

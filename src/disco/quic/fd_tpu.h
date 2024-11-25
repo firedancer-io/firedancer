@@ -120,12 +120,13 @@
 struct fd_tpu_reasm_key {
   ulong conn_uid; /* ULONG_MAX means invalid */
   ulong stream_id : 48;
-  ulong sz        : 14;
-  ulong state     : 2;
+  ulong sz        : 13;
+  ulong state     :  2;
+  ulong mapped    :  1;
 };
 
 #define FD_TPU_REASM_SID_MASK (0xffffffffffffUL)
-#define FD_TPU_REASM_SZ_MASK  (0x3fffUL)
+#define FD_TPU_REASM_SZ_MASK  (0x1fffUL)
 
 typedef struct fd_tpu_reasm_key fd_tpu_reasm_key_t;
 
@@ -134,7 +135,7 @@ struct __attribute__((aligned(16))) fd_tpu_reasm_slot {
   uint lru_prev;
   uint lru_next;
   uint chain_next;
-  uint tsorig_comp;
+  uint chain_prev;
 };
 
 typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;

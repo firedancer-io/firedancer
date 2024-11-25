@@ -16,7 +16,8 @@
 #define MAP_KEY_EQ(a,b) (((a)->conn_uid==(b)->conn_uid) & ((a)->stream_id==(b)->stream_id))
 #define MAP_KEY_HASH(key,seed) fd_tpu_reasm_key_hash( key, seed )
 #define MAP_NEXT  chain_next
-#include "../../util/tmpl/fd_map_chain.c"
+#define MAP_PREV  chain_prev
+#include "fd_map_dchain.c"
 
 /* fd_tpu_reasm_reset initializes all reassembly slots to their initial
    state.  Corrupts messages currently visible in mcache ring. */
@@ -175,6 +176,7 @@ smap_insert( fd_tpu_reasm_t *      reasm,
       slot,
       fd_tpu_reasm_slots_laddr( reasm )
   );
+  slot->k.mapped = 1;
 }
 
 static FD_FN_UNUSED fd_tpu_reasm_slot_t *
@@ -196,11 +198,22 @@ smap_query( fd_tpu_reasm_t * reasm,
 static FD_FN_UNUSED void
 smap_remove( fd_tpu_reasm_t *      reasm,
              fd_tpu_reasm_slot_t * slot ) {
-  /* FIXME use a doubly linked list remove */
-  fd_tpu_reasm_map_idx_remove(
-      fd_tpu_reasm_map_laddr( reasm ),
-      &slot->k,
-      ULONG_MAX,
-      fd_tpu_reasm_slots_laddr( reasm )
-  );
+  if( !slot->k.mapped ) return;
+
+  fd_tpu_reasm_map_t *  map     = fd_tpu_reasm_map_laddr( reasm );
+  fd_tpu_reasm_slot_t * pool    = fd_tpu_reasm_slots_laddr( reasm );
+  ulong                 ele_idx = (ulong)( slot - pool );
+
+  uint * head = fd_tpu_reasm_map_private_chain( map ) + fd_tpu_reasm_map_private_chain_idx( &pool[ ele_idx ].k, map->seed, map->chain_cnt );
+  uint tail_[1];
+
+  uint next_idx = pool[ ele_idx ].chain_next;
+  uint prev_idx = pool[ ele_idx ].chain_prev;
+
+  *fd_ptr_if( next_idx!=UINT_MAX, &pool[ next_idx ].chain_prev, tail_ ) = prev_idx;
+  *fd_ptr_if( prev_idx!=UINT_MAX, &pool[ prev_idx ].chain_next, head  ) = next_idx;
+
+  slot->k.mapped   = 0;
+  slot->chain_next = UINT_MAX;
+  slot->chain_prev = UINT_MAX;
 }
