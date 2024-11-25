@@ -440,7 +440,8 @@ fd_gossip_unlock( fd_gossip_t * gossip ) {
 }
 
 /* FIXME: do these go in fd_types_custom instead? */
-void fd_gossip_ip_addr_from_sockaddr( fd_gossip_socket_addr_t const * addr, fd_gossip_ip_addr_t * out ) {
+void
+fd_gossip_ip_addr_from_sockaddr( fd_gossip_socket_addr_t const * addr, fd_gossip_ip_addr_t * out ) {
   if( FD_LIKELY( addr->discriminant == fd_gossip_socket_addr_enum_ip4 ) ) {
     fd_gossip_ip_addr_new_disc(out, fd_gossip_ip_addr_enum_ip4);
     out->inner.ip4 = addr->inner.ip4.addr;
@@ -450,7 +451,8 @@ void fd_gossip_ip_addr_from_sockaddr( fd_gossip_socket_addr_t const * addr, fd_g
   }
 }
 
-ushort fd_gossip_port_from_socket( fd_gossip_socket_addr_t const * addr ) {
+ushort
+fd_gossip_port_from_socket( fd_gossip_socket_addr_t const * addr ) {
   if( FD_LIKELY( addr->discriminant == fd_gossip_socket_addr_enum_ip4 ) ) {
     return addr->inner.ip4.port;
   } else {
