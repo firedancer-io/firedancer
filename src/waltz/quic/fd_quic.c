@@ -5127,6 +5127,12 @@ fd_quic_frame_handle_stream_frame(
   /* ack-eliciting */
   pkt->ack_flag |= ACK_FLAG_RQD;
 
+  /* If !data->{length,offset}_opt then data->{length,offset} may be
+     uninitialized.  GCC 13 falsely reports a 'maybe-uninitialized'
+     warning here.  Suppress it. */
+  if( !data->length_opt ) __asm__( "#NOP" : "=rm" (data->length) );
+  if( !data->offset_opt ) __asm__( "#NOP" : "=rm" (data->offset) );
+
   ulong offset  = fd_ulong_if( data->offset_opt, data->offset, 0UL  );
   ulong data_sz = fd_ulong_if( data->length_opt, data->length, p_sz );
   int   fin     = data->fin_opt;
