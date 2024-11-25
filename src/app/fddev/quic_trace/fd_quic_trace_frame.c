@@ -75,16 +75,11 @@ fd_quic_trace_stream_frame(
     uchar const *               p FD_PARAM_UNUSED,
     ulong                       p_sz ) {
 
-  ulong offset = fd_ulong_if( frame->offset_opt, frame->offset, p_sz );
+  ulong offset = fd_ulong_if( frame->offset_opt, frame->offset, 0UL );
   ulong length = fd_ulong_if( frame->length_opt, frame->length, p_sz );
   if( FD_UNLIKELY( length>p_sz ) ) return FD_QUIC_PARSE_FAIL;
 
-  static FD_TL FILE * out = NULL;
-  if( FD_UNLIKELY( !out ) ) {
-    out = fopen( "streams.csv", "a" );
-    if( !out ) FD_LOG_ERR(( "fopen failed" ));
-  }
-  fprintf( out, FD_IP4_ADDR_FMT ",%hu,%lu,%lu,%lu,%lu\n",
+  printf( FD_IP4_ADDR_FMT ",%hu,%lu,%lu,%lu,%lu\n",
            FD_IP4_ADDR_FMT_ARGS( context->src_ip ),
            context->src_port,
            context->pkt_num,
@@ -134,7 +129,7 @@ FRAME_STUB( handshake_done )
       uchar const * const buf,                                            \
       ulong         const buf_sz                                          \
   ) {                                                                     \
-    fd_quic_##NAME##_t frame[1];                                          \
+    fd_quic_##NAME##_t frame[1] = {0};                                    \
     uchar const *       p0 = buf;                                         \
     uchar const * const p1 = buf+buf_sz;                                  \
     ulong               rc;                                               \
