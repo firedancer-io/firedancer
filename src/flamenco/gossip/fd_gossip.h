@@ -6,6 +6,8 @@
 
 /* Max number of validators that can be known */
 #define FD_PEER_KEY_MAX (1<<14)
+/* Number of recognized CRDS enum members */
+#define FD_KNOWN_CRDS_ENUM_MAX (14UL)
 
 /* Contact info v2 socket tag constants */
 #define FD_GOSSIP_SOCKET_TAG_GOSSIP             (0)
@@ -137,5 +139,103 @@ void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const 
 void fd_gossip_set_entrypoints( fd_gossip_t * gossip, uint allowed_entrypoints[static 16], ulong allowed_entrypoints_cnt, ushort * ports );
 
 uint fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr );
+
+/* Gossip Metrics */
+struct fd_gossip_metrics {
+  /* Receive Packets */
+  ulong recv_pkt_cnt;
+  ulong recv_pkt_corrupted_msg;
+
+  /* Receive Gossip Messages */
+  ulong recv_message[6];
+  ulong recv_unknown_message;
+
+  /* Receive CRDS */
+  /* TODO: seperate into Push/Pull */
+  ulong recv_crds[FD_KNOWN_CRDS_ENUM_MAX];
+  ulong recv_crds_unknown_discriminant;
+  ulong recv_crds_cnt;
+  ulong recv_crds_own_message;
+  ulong recv_crds_encode_failed;
+  ulong recv_crds_duplicate_message[FD_KNOWN_CRDS_ENUM_MAX];
+  ulong recv_crds_data_encode_failed;
+  ulong recv_crds_invalid_signature;
+  ulong recv_crds_table_full;
+  ulong recv_crds_push_queue_full;
+  ulong recv_crds_zero_gossip_port;
+  ulong recv_crds_peer_table_full;
+  ulong recv_crds_inactives_queue_full;
+  ulong recv_crds_discarded_peer;
+
+  /* Push CRDS value */
+  ulong push_crds[FD_KNOWN_CRDS_ENUM_MAX];
+  ulong push_crds_unknown_discriminant;
+  ulong push_crds_encode_failed;
+  ulong push_crds_already_present;
+  ulong push_crds_table_full;
+  ulong push_crds_queue_full;
+  ulong push_crds_queue_cnt;
+
+  /* Active Push Destinations */
+  ulong active_push_destinations;
+  ulong refresh_push_states_encode_failed;
+  ulong refresh_push_states_failcnt;
+
+  /* Pull Requests/Responses */
+  ulong handle_pull_req_peer_not_in_actives;
+  ulong handle_pull_req_unresponsive_peer;
+  ulong handle_pull_req_pending_pool_full;
+  ulong handle_pull_req_encode_failed;
+  ulong handle_pull_req_bloom_hits; /* TODO: per host? */
+  ulong handle_pull_req_bloom_misses; /* TODO: per host? */
+  ulong handle_pull_req_npackets; /* TODO: per host? */
+
+  /* Receive Prune Messages */
+  ulong handle_prune_message_not_for_me;
+  ulong handle_prune_message_sign_message_encode_failed;
+  ulong handle_prune_message_invalid_signature;
+
+  /* Send Prune Messages */
+  ulong make_prune_stale_entry; /* TODO: per host? */
+  ulong make_prune_high_duplicates; /* TODO: per host? */
+  ulong make_prune_requested_origins; /* TODO: per host? */
+  ulong make_prune_sign_data_encode_failed;
+
+  /* Send Gossip Messages */
+  ulong send_message[6];
+
+  /* Send Packets */
+  ulong send_packet_cnt;
+  ulong send_packet_encoding_failed;
+  ulong send_packet_oversized_packet;
+
+  /* Ping/Pong */
+  ulong send_ping_actives_table_full;
+  ulong send_ping_actives_insert;
+  ulong send_ping_max_ping_count_exceeded;
+  ulong send_ping_new_token;
+  ulong recv_ping_invalid_signature;
+  ulong recv_pong_expired;
+  ulong recv_pong_wrong_token;
+  ulong recv_pong_invalid_signature;
+  ulong recv_pong_peer_table_full;
+  ulong recv_pong_new_peer;
+
+  /* Peers (all known validators) */
+  ulong peer_cnt;
+
+  /* Actives Table (validators that we are currently pinging) */
+  ulong actives_cnt;
+
+  /* Inactives Table (validators that may be added to Actives) */
+  ulong inactives_cnt;
+
+  /* TODO: Lock metrics */
+};
+typedef struct fd_gossip_metrics fd_gossip_metrics_t; 
+#define FD_GOSSIP_METRICS_FOOTPRINT ( sizeof( fd_gossip_metrics_t ) )
+
+fd_gossip_metrics_t *
+fd_gossip_get_metrics( fd_gossip_t * gossip );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

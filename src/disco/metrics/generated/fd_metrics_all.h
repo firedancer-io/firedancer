@@ -13,6 +13,7 @@
 #include "fd_metrics_store.h"
 #include "fd_metrics_verify.h"
 #ifdef FD_HAS_NO_AGAVE
+#include "fd_metrics_gossip.h"
 #include "fd_metrics_replay.h"
 #include "fd_metrics_storei.h"
 #endif
@@ -190,7 +191,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 #ifndef FD_HAS_NO_AGAVE
 #define FD_METRICS_TILE_KIND_CNT 10
 #else
-#define FD_METRICS_TILE_KIND_CNT 12
+#define FD_METRICS_TILE_KIND_CNT 13
 #endif
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];

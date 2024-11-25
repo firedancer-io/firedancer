@@ -44,6 +44,7 @@ const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT] = {
     "store",
     "verify",
 #ifdef FD_HAS_NO_AGAVE
+    "gossip",
     "replay",
     "storei",
 #endif
@@ -60,6 +61,7 @@ const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {
     FD_METRICS_STORE_TOTAL,
     FD_METRICS_VERIFY_TOTAL,
 #ifdef FD_HAS_NO_AGAVE
+    FD_METRICS_GOSSIP_TOTAL,
     FD_METRICS_REPLAY_TOTAL,
     FD_METRICS_STOREI_TOTAL,
 #endif
@@ -76,6 +78,7 @@ const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT]
     FD_METRICS_STORE,
     FD_METRICS_VERIFY,
 #ifdef FD_HAS_NO_AGAVE
+    FD_METRICS_GOSSIP,
     FD_METRICS_REPLAY,
     FD_METRICS_STOREI,
 #endif

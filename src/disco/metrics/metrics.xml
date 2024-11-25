@@ -425,4 +425,148 @@ metric introduced.
   <counter name="SnapshotStatus" enum="SnapshotStatus" summary="The snapshot and incremental snapshot progress" />
 </group>
 
+<group name="GossipTile" tile="gossip" full="true">
+  <gauge name="TimeSinceLastCrdsPushContactInfoPublish" summary="Time since last CRDS Push ContactInfo message publish" />
+  <counter name="MismatchedContactInfoShredVersion" summary="Mismatched Contact Info Shred Version" />
+  <counter name="IPv6ContactInfoTVUAddress" summary="IPv6 Contact Info TVU Address" />
+  <counter name="ZeroIPv4ContactInfoTVUAddress" summary="Zero IPv4 TVU Address" />
+  <counter name="IPv6ContactInfoRepairAddress" summary="IPv6 Contact Info Repair Address" />
+  <counter name="ZeroContactInfoIPv4RepairAddress" summary="Zero IPv4 Repair Address" />
+  <counter name="IPv6ContactInfoTPUVoteAddress" summary="IPv6 Contact Info TPU Vote Address" />
+  <counter name="ZeroContactInfoIPv4TPUVoteAddress" summary="Zero IPv4 TPU Vote Address" />
+  <gauge name="TVUPeersCount" summary="Number of TVU Peers" />
+  <gauge name="RepairPeersCount" summary="Number of Repair Peers" />
+  <gauge name="VoterPeersCount" summary="Number of Voter Peers" />
+  <gauge name="TimeSinceCrdsPushLastRestartVotedForkPublish" summary="Time since last CRDS Push LastRestartVotedFork message publish" />
+  <counter name="ShredVersionZero" summary="Shred version zero" />
+
+  <gauge name="ReceivedPackets" summary="Number of all gossip packets received" />
+  <counter name="CorruptedMessages" summary="Number of corrupted gossip messages received" />
+  <counter name="ReceivedPullReq" summary="Number of Pull Request messages received" />
+  <counter name="ReceivedPullResponse" summary="Number of Pull Response messages received" />
+  <counter name="ReceivedPush" summary="Number of Push message messages received" />
+  <counter name="ReceivedPrune" summary="Number of Prune messages received" />
+  <counter name="ReceivedPing" summary="Number of Ping messages received" />
+  <counter name="ReceivedPong" summary="Number of Pong messages received" />
+
+  <counter name="ReceivedUnknownMessage" summary="Number of gossip messages received that have an unknown discriminant" />
+
+  <gauge name="ReceivedCrdsCount" summary="Number of CRDS values received in the last 5 minutes" />
+  <counter name="ReceivedCrdsContactInfoV1" summary="Number of Push,PullResp CRDS ContactInfoV1 values received" />
+  <counter name="ReceivedVote" summary="Number of Push,PullResp CRDS Vote values received" />
+  <counter name="ReceivedCrdsLowestSlot" summary="Number of Push,PullResp CRDS LowestSlot values received" />
+  <counter name="ReceivedCrdsSnapshotHashes" summary="Number of Push,PullResp CRDS SnapshotHashes values received" />
+  <counter name="ReceivedCrdsAccountsHashes" summary="Number of Push,PullResp CRDS AccountsHashes values received" />
+  <counter name="ReceivedCrdsEpochSlots" summary="Number of Push,PullResp CRDS EpochSlots values received" />
+  <counter name="ReceivedCrdsVersionV1" summary="Number of Push,PullResp CRDS VersionV1 values received" />
+  <counter name="ReceivedCrdsVersionV2" summary="Number of Push,PullResp CRDS VersionV2 values received" />
+  <counter name="ReceivedCrdsNodeInstance" summary="Number of Push,PullResp CRDS NodeInstance values received" />
+  <counter name="ReceivedCrdsDuplicateShred" summary="Number of Push,PullResp CRDS DuplicateShred values received" />
+  <counter name="ReceivedCrdsIncrementalSnapshotHashes" summary="Number of Push,PullResp CRDS IncrementalSnapshotHashes values received" />
+  <counter name="ReceivedCrdsContactInfoV2" summary="Number of Push,PullResp CRDS ContactInfoV2 values received" />
+  <counter name="ReceivedCrdsRestartLastVotedForkSlots" summary="Number of Push,PullResp CRDS RestartLastVotedForkSlots values received" />
+  <counter name="ReceivedCrdsRestartHeaviestFork" summary="Number of Push,PullResp CRDS RestartHeaviestFork values received" />
+
+  <counter name="ReceivedCrdsUnknownDiscriminant" summary="Number of Push,PullResp CRDS values received which have an unknown discriminant" />
+  <counter name="ReceivedCrdsOwnMessage" summary="Number of Push,PullResp CRDS values received from ourselves" />
+  <counter name="ReceivedCrdsEncodeFailed" summary="Number of Push,PullResp CRDS values received where the hash value encoding failed" />
+
+  <counter name="ReceivedCrdsDuplicateMessageContactInfoV1" summary="Number of duplicate Push,PullResp CRDS CrdsContactInfoV1 values received" />
+  <counter name="ReceivedCrdsDuplicateMessageVote" summary="Number of duplicate Push,PullResp CRDS Vote values received" />
+  <counter name="ReceivedCrdsDuplicateMessageLowestSlot" summary="Number of duplicate Push,PullResp CRDS LowestSlot values received" />
+  <counter name="ReceivedCrdsDuplicateMessageSnapshotHashes" summary="Number of duplicate Push,PullResp CRDS SnapshotHashes values received" />
+  <counter name="ReceivedCrdsDuplicateMessageAccountsHashes" summary="Number of duplicate Push,PullResp CRDS AccountsHashes values received" />
+  <counter name="ReceivedCrdsDuplicateMessageEpochSlots" summary="Number of duplicate Push,PullResp CRDS EpochSlots values received" />
+  <counter name="ReceivedCrdsDuplicateMessageVersionV1" summary="Number of duplicate Push,PullResp CRDS VersionV1 values received" />
+  <counter name="ReceivedCrdsDuplicateMessageVersionV2" summary="Number of duplicate Push,PullResp CRDS VersionV2 values received" />
+  <counter name="ReceivedCrdsDuplicateMessageNodeInstance" summary="Number of duplicate Push,PullResp CRDS NodeInstance values received" />
+  <counter name="ReceivedCrdsDuplicateMessageDuplicateShred" summary="Number of duplicate Push,PullResp CRDS DuplicateShred values received" />
+  <counter name="ReceivedCrdsDuplicateMessageIncrementalSnapshotHashes" summary="Number of duplicate Push,PullResp CRDS IncrementalSnapshotHashes values received" />
+  <counter name="ReceivedCrdsDuplicateMessageContactInfoV2" summary="Number of duplicate Push,PullResp CRDS ContactInfoV2 values received" />
+  <counter name="ReceivedCrdsDuplicateMessageRestartLastVotedForkSlots" summary="Number of duplicate Push,PullResp CRDS RestartLastVotedForkSlots values received" />
+  <counter name="ReceivedCrdsDuplicateMessageRestartHeaviestFork" summary="Number of duplicate Push,PullResp CRDS RestartHeaviestFork values received" />
+
+  <counter name="ReceivedCrdsDataEncodeFailed" summary="Number of Push,PullResp CRDS values received where the data encoding failed" />
+  <counter name="ReceivedCrdsInvalidSignature" summary="Number of Push,PullResp CRDS values received which have an invalid signature" />
+  <counter name="ReceivedCrdsTableFull" summary="Number of Push,PullResp CRDS values received which were discarded because the values table was full" />
+  <counter name="ReceivedCrdsPushQueueFull" summary="Number of Push,PullResp CRDS values received which weren't pushed because the Push Queue was full" />
+  <counter name="ReceivedCrdsZeroGossipPort" summary="Number of Push,PullResp CRDS Contact Info values received which have a zero gossip port" />
+  <counter name="ReceivedCrdsPeerTableFull" summary="Number of Push,PullResp CRDS Contact Info values received whilst the peer table was full" />
+  <counter name="ReceivedCrdsInactivesQueueFull" summary="Number of Push,PullResp CRDS Contact Info values received whilst the inactives queue was full" />
+  <counter name="ReceivedCrdsDiscardedPeer" summary="Number of Push,PullResp CRDS Contact Info values received for a peer which was not in the peers table" />
+
+  <counter name="PushCrdsContactInfoV1" summary="Number of CRDS ContactInfoV1 values pushed" />
+  <counter name="PushCrdsVote" summary="Number of CRDS Vote values pushed" />
+  <counter name="PushCrdsLowestSlot" summary="Number of CRDS LowestSlot values pushed" />
+  <counter name="PushCrdsSnapshotHashes" summary="Number of CRDS SnapshotHashes values pushed" />
+  <counter name="PushCrdsAccountsHashes" summary="Number of CRDS AccountsHashes values pushed" />
+  <counter name="PushCrdsEpochSlots" summary="Number of CRDS EpochSlots values pushed" />
+  <counter name="PushCrdsVersionV1" summary="Number of CRDS VersionV1 values pushed" />
+  <counter name="PushCrdsVersionV2" summary="Number of CRDS VersionV2 values pushed" />
+  <counter name="PushCrdsNodeInstance" summary="Number of CRDS NodeInstance values pushed" />
+  <counter name="PushCrdsDuplicateShred" summary="Number of CRDS DuplicateShred values pushed" />
+  <counter name="PushCrdsIncrementalSnapshotHashes" summary="Number of CRDS IncrementalSnapshotHashes values pushed" />
+  <counter name="PushCrdsContactInfoV2" summary="Number of CRDS ContactInfoV2 values pushed" />
+  <counter name="PushCrdsRestartLastVotedForkSlots" summary="Number of CRDS RestartLastVotedForkSlots values pushed" />
+  <counter name="PushCrdsRestartHeaviestFork" summary="Number of CRDS RestartHeaviestFork values pushed" />
+
+  <counter name="PushCrdsUnknownDiscriminant" summary="Number of CRDS values unable to be pushed due to unknown discriminant" />
+  <counter name="PushCrdsEncodeFailed" summary="Number of CRDS values unable to be pushed due to encoding failed" />
+  <counter name="PushCrdsAlreadyPresent" summary="Number of CRDS values not pushed because they were already present in the table" />
+  <counter name="PushCrdsTableFull" summary="Number of CRDS values not pushed because the table was full" />
+  <counter name="PushCrdsQueueFull" summary="Number of CRDS values not pushed because the queue was full" />
+  <gauge name="PushCrdsQueueCount" summary="Number of CRDS values in the queue to be pushed" />
+
+  <gauge name="ActivePushDestinations" summary="Number of active Push destinations" />
+
+  <counter name="RefreshPushStatesEncodeFailed" summary="Number of Push messages we failed to encode whilst refreshing push states" />
+  <counter name="RefreshPushStatesFailCount" summary="Number of failures whilst refreshing push states" />
+
+  <counter name="PullReqPeerNotInActives" summary="Number of PullReq messages from peers that are not in the active set" />
+  <counter name="PullReqUnresponsivePeer" summary="Number of PullReq messages from a peer that hasn't responded to our ping message yet" />
+  <counter name="PullReqSkippedPendingPoolFull" summary="Number of PullReq messages skipped due to the pending pool being full" />
+  <counter name="PullReqEncodeFailed" summary="Number of PullReq messages skipped due to message encoding failed" />
+  <gauge name="PullReqBloomHits" summary="Number of PullReq bloom filter hits" />
+  <gauge name="PullReqBloomMisses" summary="Number of PullReq bloom filter misses" />
+  <gauge name="PullReqBloomNpackets" summary="Number of packets used to respond to a PullReq" />
+
+  <counter name="PruneMessageNotForMe" summary="Number of Prune messages received that were not for this node" />
+  <counter name="PruneMessageSignEncodingFailed" summary="Number of Prune messages received for which we failed to encode the sign data" />
+  <counter name="PruneMessageInvalidSignature" summary="Number of Prune message received that had an invalid signature" />
+
+  <counter name="MakePruneStaleEntry" summary="Number of stale entries removed from the stats table while making prune messages" />
+  <counter name="MakePruneHighDuplicates" summary="Number of origins with high duplicate counts found while making prune messages" />
+  <gauge name="MakePruneRequestedOrigins" summary="Number of requested origins in the last prune message we made" />
+  <counter name="MakePruneSignDataEncodeFailed" summary="Number of times we failed to encode the sign data" />
+  
+  <counter name="SentPullReq" summary="Number of PullReq messages sent" />
+  <counter name="SentPullResponse" summary="Number of PullResponse messages sent" />
+  <counter name="SentPush" summary="Number of Push messages sent" />
+  <counter name="SentPrune" summary="Number of Prune messages sent" />
+  <counter name="SentPing" summary="Number of Ping messages sent" />
+  <counter name="SentPong" summary="Number of Pong messages sent" />
+
+  <counter name="SentPackets" summary="Number of Packets sent" />
+  <counter name="SentPacketEncodingFailed" summary="Number of Packets we failed to send due to encoding failures" />
+  <counter name="SentPacketOversizedPacket" summary="Number of Packets we failed to send due to the packet being oversized" />
+
+  <counter name="SentPingActivesTableFull" summary="Number of Ping messages we failed to send due to the Active Peers table being full" />
+  <counter name="SendPingActivesTableInsert" summary="Number of Ping messages that cause an insert into the Active Peers table" />
+  <counter name="SendPingMaxPeerCountExceeded" summary="Number of times we removed a peer from the Actives table, because it repeatedly failed to respond to a ping" />
+  <counter name="SendPingNewToken" summary="Number of times we generated a new token" />
+
+  <counter name="RecvPingInvalidSignature" summary="Number of times we received a Ping message with an invalid signature" />
+
+  <counter name="RecvPongExpired" summary="Number of times we received a Pong message for a peer which is not in the actives table" />
+  <counter name="RecvPongWrongToken" summary="Number of times we received a Pong message with the wrong token" />
+  <counter name="RecvPongInvalidSignature" summary="Number of times we received a Pong message with an invalid signature" />
+  <counter name="RecvPongPeerTableFull" summary="Number of times we received a Pong message but our peer table was full" />
+  <counter name="RecvPongNewPeer" summary="Number of times we received a Pong message from a peer not in the peer table" />
+
+  <gauge name="PeerCount" summary="Number of known peers" />
+  <gauge name="ActivesCount" summary="Number of validators we are currently pinging" />
+  <gauge name="InactivesCount" summary="Number of validators that may be added to active" />
+
+</group>
+
 </metrics>

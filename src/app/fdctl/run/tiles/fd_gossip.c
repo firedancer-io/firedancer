@@ -61,6 +61,24 @@ static volatile ulong * fd_shred_version;
 #define MAP_T        fd_contact_info_elem_t
 #include "../../../../util/tmpl/fd_map_giant.c"
 
+struct fd_gossip_tile_metrics {
+  ulong time_since_last_crds_push_contact_info_publish;
+  ulong mismatched_contact_info_shred_version;
+  ulong ipv6_contact_info_tvu_address;
+  ulong zero_ipv4_contact_info_tvu_address;
+  ulong ipv6_contact_info_repair_address;
+  ulong zero_contact_info_ipv4_repair_address;
+  ulong ipv6_contact_info_tpu_vote_address;
+  ulong zero_contact_info_ipv4_tpu_vote_address;
+  ulong tvu_peers_count;
+  ulong repair_peers_count;
+  ulong voter_peers_count;
+  ulong time_since_crds_push_last_restart_voted_fork_publish;
+  ulong shred_version_zero;
+};
+typedef struct fd_gossip_tile_metrics fd_gossip_tile_metrics_t; 
+#define FD_GOSSIP_TILE_METRICS_FOOTPRINT ( sizeof( fd_gossip_tile_metrics_t ) )
+
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
   fd_gossip_config_t gossip_config;
@@ -182,6 +200,9 @@ struct fd_gossip_tile_ctx {
   long  restart_last_vote_push_time;
   ulong restart_last_vote_msg_sz;
   uchar restart_last_vote_msg [ LAST_VOTED_FORK_MAX_MSG_BYTES ];
+
+  /* Metrics */
+  fd_gossip_tile_metrics_t metrics;
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -542,6 +563,9 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
   long now = fd_gossip_gettime( ctx->gossip );
   if( ( now - ctx->last_shred_dest_push_time )>CONTACT_INFO_PUBLISH_TIME_NS ) {
+
+    ctx->metrics.time_since_last_crds_push_contact_info_publish = (ulong)(now - ctx->last_shred_dest_push_time);
+
     ctx->last_shred_dest_push_time = now;
 
     ulong tvu_peer_cnt = 0;
@@ -558,16 +582,19 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
 
       if( ele->contact_info.shred_version!=fd_gossip_get_shred_version( ctx->gossip ) ) {
+        ctx->metrics.mismatched_contact_info_shred_version += 1UL;
         continue;
       }
 
       {
         if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.tvu.addr ) ) {
+          ctx->metrics.ipv6_contact_info_tvu_address += 1UL;
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
         if( ele->contact_info.tvu.addr.inner.ip4==0 ) {
+          ctx->metrics.zero_ipv4_contact_info_tvu_address += 1UL;
           continue;
         }
 
@@ -580,11 +607,13 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
       {
         if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.repair.addr ) ) {
+          ctx->metrics.ipv6_contact_info_repair_address += 1UL;
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
         if( ele->contact_info.serve_repair.addr.inner.ip4 == 0 ) {
+          ctx->metrics.zero_contact_info_ipv4_repair_address += 1UL;
           continue;
         }
 
@@ -597,11 +626,13 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
       {
         if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.tpu_vote.addr ) ) {
+          ctx->metrics.ipv6_contact_info_tpu_vote_address += 1UL;
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
         if( ele->contact_info.tpu_vote.addr.inner.ip4 == 0 ) {
+          ctx->metrics.zero_contact_info_ipv4_tpu_vote_address += 1UL;
           continue;
         }
 
@@ -612,6 +643,10 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
         voter_peers_cnt++;
       }
     }
+
+    ctx->metrics.tvu_peers_count = tvu_peer_cnt;
+    ctx->metrics.repair_peers_count = repair_peers_cnt;
+    ctx->metrics.voter_peers_count = voter_peers_cnt;
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -646,6 +681,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY(( ctx->restart_last_vote_msg_sz!=0 )&&( ctx->restart_last_vote_push_time+LAST_VOTED_FORK_PUBLISH_PERIOD_NS<now )) ) {
+    ctx->metrics.time_since_crds_push_last_restart_voted_fork_publish = (ulong)(now - ctx->restart_last_vote_push_time);
+    // METRIC: time since last restart vote message publish
     ctx->restart_last_vote_push_time = now;
     fd_crds_data_t restart_last_vote_msg;
     restart_last_vote_msg.discriminant = fd_crds_data_enum_restart_last_voted_fork_slots;
@@ -661,12 +698,16 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                     restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_slot,
                     FD_BASE58_ENC_32_ALLOCA( &restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_hash ),
                     restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version ));
+
+    // FIXME: why the return here? shouldn't this be removed?
     return;
   }
 
   ushort shred_version = fd_gossip_get_shred_version( ctx->gossip );
   if( shred_version!=0U ) {
     *fd_shred_version = shred_version;
+  } else {
+    ctx->metrics.shred_version_zero += 1UL;
   }
   fd_gossip_continue( ctx->gossip );
 }
@@ -897,6 +938,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
+
+  /* Initialize metrics to zero */
+  memset( &ctx->metrics, 0, FD_GOSSIP_TILE_METRICS_FOOTPRINT );
 }
 
 static ulong
@@ -928,6 +972,155 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline void
+fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
+  FD_MGAUGE_SET( GOSSIP_TILE, RECEIVED_PACKETS, metrics->recv_pkt_cnt );
+  FD_MCNT_SET( GOSSIP_TILE, CORRUPTED_MESSAGES, metrics->recv_pkt_corrupted_msg );
+
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_PULL_REQ, metrics->recv_message[ fd_gossip_msg_enum_pull_req ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_PULL_RESPONSE, metrics->recv_message[ fd_gossip_msg_enum_pull_resp ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_PUSH, metrics->recv_message[ fd_gossip_msg_enum_push_msg ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_PRUNE, metrics->recv_message[ fd_gossip_msg_enum_prune_msg ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_PING, metrics->recv_message[ fd_gossip_msg_enum_ping ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_PONG, metrics->recv_message[ fd_gossip_msg_enum_pong ] );
+
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_UNKNOWN_MESSAGE, metrics->recv_unknown_message );
+
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_CONTACT_INFO_V1, metrics->recv_crds[ fd_crds_data_enum_contact_info_v1 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_VOTE, metrics->recv_crds[ fd_crds_data_enum_vote ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_LOWEST_SLOT, metrics->recv_crds[ fd_crds_data_enum_lowest_slot ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_SNAPSHOT_HASHES, metrics->recv_crds[ fd_crds_data_enum_snapshot_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_ACCOUNTS_HASHES, metrics->recv_crds[ fd_crds_data_enum_accounts_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_EPOCH_SLOTS, metrics->recv_crds[ fd_crds_data_enum_epoch_slots ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_VERSION_V1, metrics->recv_crds[ fd_crds_data_enum_version_v1 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_VERSION_V2, metrics->recv_crds[ fd_crds_data_enum_version_v2 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_NODE_INSTANCE, metrics->recv_crds[ fd_crds_data_enum_node_instance ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_SHRED, metrics->recv_crds[ fd_crds_data_enum_duplicate_shred ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_INCREMENTAL_SNAPSHOT_HASHES, metrics->recv_crds[ fd_crds_data_enum_incremental_snapshot_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_CONTACT_INFO_V2, metrics->recv_crds[ fd_crds_data_enum_contact_info_v2 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_RESTART_LAST_VOTED_FORK_SLOTS, metrics->recv_crds[ fd_crds_data_enum_restart_last_voted_fork_slots ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_RESTART_HEAVIEST_FORK, metrics->recv_crds[ fd_crds_data_enum_restart_heaviest_fork ] );
+
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_UNKNOWN_DISCRIMINANT, metrics->recv_crds_unknown_discriminant );
+  FD_MGAUGE_SET( GOSSIP_TILE, RECEIVED_CRDS_COUNT, metrics->recv_crds_cnt );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_OWN_MESSAGE, metrics->recv_crds_own_message );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_ENCODE_FAILED, metrics->recv_crds_encode_failed );
+
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_CONTACT_INFO_V1, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_contact_info_v1 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_VOTE, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_vote ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_LOWEST_SLOT, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_lowest_slot ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_SNAPSHOT_HASHES, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_snapshot_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_ACCOUNTS_HASHES, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_accounts_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_EPOCH_SLOTS, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_epoch_slots ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_VERSION_V1, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_version_v1 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_VERSION_V2, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_version_v2 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_NODE_INSTANCE, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_node_instance ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_DUPLICATE_SHRED, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_duplicate_shred ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_INCREMENTAL_SNAPSHOT_HASHES, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_incremental_snapshot_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_CONTACT_INFO_V2, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_contact_info_v2 ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_RESTART_LAST_VOTED_FORK_SLOTS, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_restart_last_voted_fork_slots ] );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DUPLICATE_MESSAGE_RESTART_HEAVIEST_FORK, metrics->recv_crds_duplicate_message[ fd_crds_data_enum_restart_heaviest_fork ] );
+
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DATA_ENCODE_FAILED, metrics->recv_crds_data_encode_failed );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_INVALID_SIGNATURE, metrics->recv_crds_invalid_signature );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_TABLE_FULL, metrics->recv_crds_table_full );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_PUSH_QUEUE_FULL, metrics->recv_crds_push_queue_full );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_ZERO_GOSSIP_PORT, metrics->recv_crds_zero_gossip_port );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_PEER_TABLE_FULL, metrics->recv_crds_peer_table_full );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_INACTIVES_QUEUE_FULL, metrics->recv_crds_inactives_queue_full );
+  FD_MCNT_SET( GOSSIP_TILE, RECEIVED_CRDS_DISCARDED_PEER, metrics->recv_crds_discarded_peer );
+
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_CONTACT_INFO_V1, metrics->push_crds[ fd_crds_data_enum_contact_info_v1 ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_VOTE, metrics->push_crds[ fd_crds_data_enum_vote ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_LOWEST_SLOT, metrics->push_crds[ fd_crds_data_enum_lowest_slot ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_SNAPSHOT_HASHES, metrics->push_crds[ fd_crds_data_enum_snapshot_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_ACCOUNTS_HASHES, metrics->push_crds[ fd_crds_data_enum_accounts_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_EPOCH_SLOTS, metrics->push_crds[ fd_crds_data_enum_epoch_slots ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_VERSION_V1, metrics->push_crds[ fd_crds_data_enum_version_v1 ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_VERSION_V2, metrics->push_crds[ fd_crds_data_enum_version_v2 ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_NODE_INSTANCE, metrics->push_crds[ fd_crds_data_enum_node_instance ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_DUPLICATE_SHRED, metrics->push_crds[ fd_crds_data_enum_duplicate_shred ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_INCREMENTAL_SNAPSHOT_HASHES, metrics->push_crds[ fd_crds_data_enum_incremental_snapshot_hashes ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_CONTACT_INFO_V2, metrics->push_crds[ fd_crds_data_enum_contact_info_v2 ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_RESTART_LAST_VOTED_FORK_SLOTS, metrics->push_crds[ fd_crds_data_enum_restart_last_voted_fork_slots ] );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_RESTART_HEAVIEST_FORK, metrics->push_crds[ fd_crds_data_enum_restart_heaviest_fork ] );
+  
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_UNKNOWN_DISCRIMINANT, metrics->push_crds_unknown_discriminant );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_ENCODE_FAILED, metrics->push_crds_encode_failed );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_ALREADY_PRESENT, metrics->push_crds_already_present );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_TABLE_FULL, metrics->push_crds_table_full );
+  FD_MCNT_SET( GOSSIP_TILE, PUSH_CRDS_QUEUE_FULL, metrics->push_crds_queue_full );
+  FD_MGAUGE_SET( GOSSIP_TILE, PUSH_CRDS_QUEUE_COUNT, metrics->push_crds_queue_cnt );
+
+  FD_MGAUGE_SET( GOSSIP_TILE, ACTIVE_PUSH_DESTINATIONS, metrics->active_push_destinations );
+  FD_MCNT_SET( GOSSIP_TILE, REFRESH_PUSH_STATES_ENCODE_FAILED, metrics->refresh_push_states_encode_failed );
+  FD_MCNT_SET( GOSSIP_TILE, REFRESH_PUSH_STATES_FAIL_COUNT, metrics->refresh_push_states_failcnt );
+
+  FD_MCNT_SET( GOSSIP_TILE, PULL_REQ_PEER_NOT_IN_ACTIVES, metrics->handle_pull_req_peer_not_in_actives );
+  FD_MCNT_SET( GOSSIP_TILE, PULL_REQ_UNRESPONSIVE_PEER, metrics->handle_pull_req_unresponsive_peer );
+  FD_MCNT_SET( GOSSIP_TILE, PULL_REQ_SKIPPED_PENDING_POOL_FULL, metrics->handle_pull_req_pending_pool_full );
+  FD_MCNT_SET( GOSSIP_TILE, PULL_REQ_ENCODE_FAILED, metrics->handle_pull_req_encode_failed );
+  FD_MGAUGE_SET( GOSSIP_TILE, PULL_REQ_BLOOM_HITS, metrics->handle_pull_req_bloom_hits );
+  FD_MGAUGE_SET( GOSSIP_TILE, PULL_REQ_BLOOM_MISSES, metrics->handle_pull_req_bloom_misses );
+  FD_MGAUGE_SET( GOSSIP_TILE, PULL_REQ_BLOOM_NPACKETS, metrics->handle_pull_req_npackets );
+
+  FD_MCNT_SET( GOSSIP_TILE, PRUNE_MESSAGE_NOT_FOR_ME, metrics->handle_prune_message_not_for_me );
+  FD_MCNT_SET( GOSSIP_TILE, PRUNE_MESSAGE_SIGN_ENCODING_FAILED, metrics->handle_prune_message_sign_message_encode_failed );
+  FD_MCNT_SET( GOSSIP_TILE, PRUNE_MESSAGE_INVALID_SIGNATURE, metrics->handle_prune_message_invalid_signature );
+
+  FD_MCNT_SET( GOSSIP_TILE, MAKE_PRUNE_STALE_ENTRY, metrics->make_prune_stale_entry );
+  FD_MCNT_SET( GOSSIP_TILE, MAKE_PRUNE_HIGH_DUPLICATES, metrics->make_prune_high_duplicates );
+  FD_MGAUGE_SET( GOSSIP_TILE, MAKE_PRUNE_REQUESTED_ORIGINS, metrics->make_prune_requested_origins );
+  FD_MCNT_SET( GOSSIP_TILE, MAKE_PRUNE_SIGN_DATA_ENCODE_FAILED, metrics->make_prune_sign_data_encode_failed );
+
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PULL_REQ, metrics->send_message[ fd_gossip_msg_enum_pull_req ] );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PULL_RESPONSE, metrics->send_message[ fd_gossip_msg_enum_pull_resp ] );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PUSH, metrics->send_message[ fd_gossip_msg_enum_push_msg ] );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PRUNE, metrics->send_message[ fd_gossip_msg_enum_prune_msg ] );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PING, metrics->send_message[ fd_gossip_msg_enum_ping ] );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PONG, metrics->send_message[ fd_gossip_msg_enum_pong ] );
+
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PACKETS, metrics->send_packet_cnt );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PACKET_ENCODING_FAILED, metrics->send_packet_encoding_failed );
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PACKET_OVERSIZED_PACKET, metrics->send_packet_oversized_packet );
+
+  FD_MCNT_SET( GOSSIP_TILE, SENT_PING_ACTIVES_TABLE_FULL, metrics->send_ping_actives_table_full );
+  FD_MCNT_SET( GOSSIP_TILE, SEND_PING_ACTIVES_TABLE_INSERT, metrics->send_ping_actives_insert );
+  FD_MCNT_SET( GOSSIP_TILE, SEND_PING_MAX_PEER_COUNT_EXCEEDED, metrics->send_ping_max_ping_count_exceeded );
+  FD_MCNT_SET( GOSSIP_TILE, SEND_PING_NEW_TOKEN, metrics->send_ping_new_token );
+  FD_MCNT_SET( GOSSIP_TILE, RECV_PING_INVALID_SIGNATURE, metrics->recv_ping_invalid_signature );
+  FD_MCNT_SET( GOSSIP_TILE, RECV_PONG_EXPIRED, metrics->recv_pong_expired );
+  FD_MCNT_SET( GOSSIP_TILE, RECV_PONG_WRONG_TOKEN, metrics->recv_pong_wrong_token );
+  FD_MCNT_SET( GOSSIP_TILE, RECV_PONG_INVALID_SIGNATURE, metrics->recv_pong_invalid_signature );
+  FD_MCNT_SET( GOSSIP_TILE, RECV_PONG_PEER_TABLE_FULL, metrics->recv_pong_peer_table_full );
+  FD_MCNT_SET( GOSSIP_TILE, RECV_PONG_NEW_PEER, metrics->recv_pong_new_peer );
+
+  FD_MGAUGE_SET( GOSSIP_TILE, PEER_COUNT, metrics->peer_cnt );
+  FD_MGAUGE_SET( GOSSIP_TILE, ACTIVES_COUNT, metrics->actives_cnt );
+  FD_MGAUGE_SET( GOSSIP_TILE, INACTIVES_COUNT, metrics->inactives_cnt );
+}
+
+static inline void
+metrics_write( fd_gossip_tile_ctx_t * ctx ) {
+  /* Tile-specific metrics */
+  FD_MGAUGE_SET( GOSSIP_TILE, TIME_SINCE_LAST_CRDS_PUSH_CONTACT_INFO_PUBLISH, ctx->metrics.time_since_last_crds_push_contact_info_publish );
+  FD_MCNT_SET( GOSSIP_TILE, MISMATCHED_CONTACT_INFO_SHRED_VERSION, ctx->metrics.mismatched_contact_info_shred_version );
+  FD_MCNT_SET( GOSSIP_TILE, I_PV6_CONTACT_INFO_T_V_U_ADDRESS, ctx->metrics.ipv6_contact_info_tvu_address );
+  FD_MCNT_SET( GOSSIP_TILE, ZERO_I_PV4_CONTACT_INFO_T_V_U_ADDRESS, ctx->metrics.zero_ipv4_contact_info_tvu_address );
+  FD_MCNT_SET( GOSSIP_TILE, I_PV6_CONTACT_INFO_REPAIR_ADDRESS, ctx->metrics.ipv6_contact_info_repair_address );
+  FD_MCNT_SET( GOSSIP_TILE, ZERO_CONTACT_INFO_I_PV4_REPAIR_ADDRESS, ctx->metrics.zero_contact_info_ipv4_repair_address );
+  FD_MCNT_SET( GOSSIP_TILE, I_PV6_CONTACT_INFO_T_P_U_VOTE_ADDRESS, ctx->metrics.ipv6_contact_info_tpu_vote_address );
+  FD_MCNT_SET( GOSSIP_TILE, ZERO_CONTACT_INFO_I_PV4_T_P_U_VOTE_ADDRESS, ctx->metrics.zero_contact_info_ipv4_tpu_vote_address );
+  FD_MGAUGE_SET( GOSSIP_TILE, T_V_U_PEERS_COUNT, ctx->metrics.tvu_peers_count );
+  FD_MGAUGE_SET( GOSSIP_TILE, REPAIR_PEERS_COUNT, ctx->metrics.repair_peers_count );
+  FD_MGAUGE_SET( GOSSIP_TILE, VOTER_PEERS_COUNT, ctx->metrics.voter_peers_count );
+  FD_MGAUGE_SET( GOSSIP_TILE, TIME_SINCE_CRDS_PUSH_LAST_RESTART_VOTED_FORK_PUBLISH, ctx->metrics.time_since_crds_push_last_restart_voted_fork_publish );
+  FD_MCNT_SET( GOSSIP_TILE, SHRED_VERSION_ZERO, ctx->metrics.shred_version_zero );
+
+  /* Gossip-protocol-specific metrics */
+  fd_gossip_update_gossip_metrics( fd_gossip_get_metrics( ctx->gossip ) );
+}
+
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
@@ -938,6 +1131,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 
