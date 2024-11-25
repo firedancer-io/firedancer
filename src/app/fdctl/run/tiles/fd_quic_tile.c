@@ -31,9 +31,8 @@ typedef struct {
 
   fd_stem_context_t * stem;
 
-  fd_quic_t *      quic;
-  const fd_aio_t * quic_rx_aio;
-  fd_aio_t         quic_tx_aio[1];
+  fd_quic_t * quic;
+  fd_aio_t    quic_tx_aio[1];
 
 # define ED25519_PRIV_KEY_SZ (32)
 # define ED25519_PUB_KEY_SZ  (32)
@@ -260,8 +259,13 @@ after_frag( fd_quic_ctx_t *     ctx,
   ulong proto = fd_disco_netmux_sig_proto( sig );
 
   if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
-    fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)sz };
-    fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
+    fd_quic_t * quic = ctx->quic;
+    long dt = -fd_tickcount();
+    fd_quic_process_packet( quic, ctx->buffer, sz );
+    dt += fd_tickcount();
+    fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
+    quic->metrics.net_rx_byte_cnt += sz;
+    quic->metrics.net_rx_pkt_cnt++;
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
@@ -588,8 +592,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !verify_out->is_reasm || !ctx->reasm ) )
     FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
 
-  ctx->quic        = quic;
-  ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
+  ctx->quic = quic;
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
