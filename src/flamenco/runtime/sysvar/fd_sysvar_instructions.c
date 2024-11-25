@@ -31,6 +31,7 @@ instructions_serialized_size( fd_instr_info_t const *   instrs,
   return serialized_size;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
 int
 fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
@@ -48,11 +49,15 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   rec->const_meta = rec->meta = meta;
   rec->const_data = rec->data = data;
 
+  /* Agave sets up the borrowed account for the instructions sysvar to contain
+     default values except for the data which is serialized into the account. */
+
   memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
-  rec->meta->info.lamports = 0; // TODO: This cannot be right... well, it gets destroyed almost instantly...
+  rec->starting_lamports     = 0UL;
+  rec->meta->info.lamports   = 0UL; // TODO: This cannot be right... well, it gets destroyed almost instantly...
   rec->meta->info.executable = 0;
-  rec->meta->info.rent_epoch = 0;
-  rec->meta->dlen = serialized_sz;
+  rec->meta->info.rent_epoch = 0UL;
+  rec->meta->dlen            = serialized_sz;
 
   uchar * serialized_instructions = rec->data;
   ulong offset = 0;
