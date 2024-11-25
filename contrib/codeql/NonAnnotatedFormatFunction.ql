@@ -1,6 +1,6 @@
 /**
  * Find calls to functions that likely expect a format string but are not annotated as such.
- * @id cpp/non-annotated-format-function
+ * @id asymmetric-research/non-annotated-format-function
  * @kind problem
  * @severity warning
  */
@@ -13,3 +13,4 @@ s.getParent().(FunctionCall).getTarget() = f and  /* ignores dynamic function ca
 not exists( Attribute attr | attr = f.getAnAttribute() | attr.getName() = "format" ) and
 f.getLocation().getFile().getRelativePath().regexpMatch("src/.*")
 select f, "Likely format string passed to non-format function"
+
