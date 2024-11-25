@@ -367,6 +367,10 @@ fd_quic_crypto_decrypt_hdr(
 
   /* now we can calculate the actual packet number size */
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
+  if( pkt_number_off+pkt_number_sz > buf_sz ) {
+    FD_DEBUG( FD_LOG_WARNING(( "decrypt hdr: not enough bytes for packet number" )) );
+    return FD_QUIC_FAILED;
+  }
 
   /* undo packet number encryption */
   for( ulong j = 0u; j < pkt_number_sz; ++j ) {

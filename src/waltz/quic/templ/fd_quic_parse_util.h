@@ -107,6 +107,16 @@ fd_quic_one_rtt_h0( uint spin_bit,   /* [0,1] */
   return (uchar)( 0x40 | (spin_bit<<5) | (key_phase<<2) | pkt_num_len );
 }
 
+static inline uint
+fd_quic_one_rtt_spin_bit( uint h0 ) {
+  return (uint)( (h0>>5) & 1 );
+}
+
+static inline uint
+fd_quic_one_rtt_key_phase( uint h0 ) {
+  return (uint)( (h0>>2) & 1 );
+}
+
 __attribute__((used)) static ulong
 fd_quic_varint_decode( uchar const * buf,
                        uint          msb2 ) {

@@ -202,8 +202,6 @@ struct fd_quic_conn {
 # define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
 # define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
 
-  uchar                spin_bit;                   /* spin bit used for latency measurements */
-
   /* max stream data per stream type */
   ulong                tx_initial_max_stream_data_uni;
 
