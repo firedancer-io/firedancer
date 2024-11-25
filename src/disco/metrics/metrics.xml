@@ -168,10 +168,22 @@ metric introduced.
     <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
 </group>
 
+<enum name="TpuRecvType">
+    <int value="0" name="Udp" label="TPU/UDP" />
+    <int value="1" name="QuicFast" label="TPU/QUIC unfragmented" />
+    <int value="2" name="QuicFrag" label="TPU/QUIC fragmented" />
+</enum>
+
 <group name="QuicTile" tile="quic">
-    <counter name="TxnsOverrun" summary="Count of transactions overrun before reassembled (too small txn_reassembly_count)." />
-    <counter name="TxnsReceivedUdp" summary="Count of transactions received via TPU/UDP." />
-    <counter name="TxnsReceivedQuic" summary="Count of transactions received via TPU/QUIC." />
+    <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
+    <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
+    <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active." />
+    <counter name="FragsOk" summary="Count of txn frags received" />
+    <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
+    <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
+    <counter name="FragsOversz" summary="Count of txn frags dropped because they would exceed txn MTU" />
+    <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU." />
+    <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost." />
 
     <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
 
@@ -240,6 +252,14 @@ metric introduced.
   <int value="4" name="ConnAbort" label="connection abort" />
 </enum>
 
+<enum name="QuicAckTx">
+  <int value="0" name="Noop" label="non-ACK-eliciting packet" />
+  <int value="1" name="New" label="new ACK range" />
+  <int value="2" name="Merged" label="merged into existing ACK range" />
+  <int value="3" name="Drop" label="out of buffers" />
+  <int value="4" name="Cancel" label="ACK suppressed by handler" />
+</enum>
+
 <group name="Quic" tile="quic">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
@@ -257,19 +277,18 @@ metric introduced.
 
     <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
     <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
+    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
 
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
 
-    <counter name="StreamOpened" summary="Number of streams opened." />
-    <counter name="StreamClosed" enum="QuicStreamCloseType" summary="Number of streams closed." />
-    <gauge name="StreamActive" summary="Number of active streams." />
-
     <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
-    <counter name="StreamStaleEvents" summary="Number of stream frames dropped due to stale stream ID." />
 
     <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
+
+    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
+
     <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent in service</summary>
     </histogram>

@@ -3,9 +3,6 @@
 
 #include "../../../../disco/tiles.h"
 
-#define VERIFY_TCACHE_DEPTH   16UL
-#define VERIFY_TCACHE_MAP_CNT 64UL
-
 #define FD_TXN_VERIFY_SUCCESS  0
 #define FD_TXN_VERIFY_FAILED  -1
 #define FD_TXN_VERIFY_DEDUP   -2

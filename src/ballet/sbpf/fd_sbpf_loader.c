@@ -89,7 +89,8 @@ _fd_int_store_if_negative( int * p,
 
 static int
 fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
-                    ulong                 elf_sz ) {
+                    ulong                 elf_sz,
+                    uint                  max_version ) {
 
   /* Validate ELF magic */
   REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU          )
@@ -113,7 +114,11 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
          & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
          & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
          & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
-         & ( ehdr->e_flags    !=FD_ELF_EF_SBPF_V2                  ) );
+         & ( max_version
+             ? ( ehdr->e_flags <= max_version )
+             : ( ehdr->e_flags != FD_ELF_EF_SBPF_V2 )
+           )
+  );
 
   /* Bounds check program header table */
 
@@ -472,18 +477,21 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   return 0;
 }
 
-static int
-_fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
-                   void const *         bin,
-                   ulong                elf_sz,
-                   int                  elf_deploy_checks ) {
+fd_sbpf_elf_info_t *
+fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
+                  void const *         bin,
+                  ulong                elf_sz,
+                  int                  elf_deploy_checks,
+                  uint                 sbpf_max_version ) {
 
   /* ELFs must have a file header */
-  REQUIRE( elf_sz>sizeof(fd_elf64_ehdr) );
+  if( FD_UNLIKELY( elf_sz<=sizeof(fd_elf64_ehdr) ) )
+    return NULL;
 
   /* Reject overlong ELFs (using uint addressing internally).
      This is well beyond Solana's max account size of 10 MB. */
-  REQUIRE( elf_sz<=UINT_MAX );
+  if( FD_UNLIKELY( elf_sz>UINT_MAX ) )
+    return NULL;
 
   /* Initialize info struct */
   *info = (fd_sbpf_elf_info_t) {
@@ -499,6 +507,7 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
     .shndx_dyn        = -1,
     .shndx_dynstr     = -1,
     .phndx_dyn        = -1,
+    .sbpf_version     = 0U,
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
   };
 
@@ -506,26 +515,21 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   int err;
 
   /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) )
-    return err;
+  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_max_version ))!=0 ) )
+    return NULL;
 
   /* Program headers */
   if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) )
-    return err;
+    return NULL;
 
   /* Section headers */
   if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz, elf_deploy_checks ))!=0 ) )
-    return err;
+    return NULL;
 
-  return 0;
-}
+  /* Set SBPF version from ELF e_flags */
+  info->sbpf_version = sbpf_max_version ? elf->ehdr.e_flags : 0UL;
 
-fd_sbpf_elf_info_t *
-fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
-                  void const *         bin,
-                  ulong                elf_sz,
-                  int                  elf_deploy_checks ) {
-  return (_fd_sbpf_elf_peek( info, bin, elf_sz, elf_deploy_checks ) == 0) ? info : NULL;
+  return info;
 }
 
 /* ELF loader, part 2 **************************************************

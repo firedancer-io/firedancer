@@ -360,12 +360,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq,
             ulong                  sig,
-            ulong                  chunk,
             ulong                  sz,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
   (void)seq;
-  (void)chunk;
   (void)tsorig;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {

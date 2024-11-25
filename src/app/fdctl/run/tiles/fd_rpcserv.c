@@ -9,7 +9,7 @@
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../flamenco/rpcserver/fd_rpc_service.h"
+#include "../../../../disco/rpcserver/fd_rpc_service.h"
 #include "../../../../funk/fd_funk_filemap.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "generated/rpcserv_seccomp.h"
@@ -99,14 +99,14 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
                    ctx->replay_notif_in_chunk0, ctx->replay_notif_in_wmark ));
     }
-    replay_sham_link_during_frag( ctx->ctx, &ctx->replay_notif_in_state, fd_chunk_to_laddr_const( ctx->replay_notif_in_mem, chunk ), (int)sz );
+    fd_rpc_replay_during_frag( ctx->ctx, &ctx->replay_notif_in_state, fd_chunk_to_laddr_const( ctx->replay_notif_in_mem, chunk ), (int)sz );
 
   } else if( FD_UNLIKELY( in_idx==STAKE_CI_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_ci_in_chunk0 || chunk>ctx->stake_ci_in_wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
                    ctx->stake_ci_in_chunk0, ctx->stake_ci_in_wmark ));
     }
-    stake_sham_link_during_frag( ctx->ctx, ctx->args.stake_ci, fd_chunk_to_laddr_const( ctx->stake_ci_in_mem, chunk ), (int)sz );
+    fd_rpc_stake_during_frag( ctx->ctx, ctx->args.stake_ci, fd_chunk_to_laddr_const( ctx->stake_ci_in_mem, chunk ), (int)sz );
 
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
@@ -118,13 +118,11 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq,
             ulong                  sig,
-            ulong                  chunk,
             ulong                  sz,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
   (void)seq;
   (void)sig;
-  (void)chunk;
   (void)sz;
   (void)tsorig;
   (void)stem;
@@ -142,10 +140,10 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
       fd_rpc_start_service( args, ctx->ctx );
     }
 
-    replay_sham_link_after_frag( ctx->ctx, &ctx->replay_notif_in_state );
+    fd_rpc_replay_after_frag( ctx->ctx, &ctx->replay_notif_in_state );
 
   } else if( FD_UNLIKELY( in_idx==STAKE_CI_IN_IDX ) ) {
-    stake_sham_link_after_frag( ctx->ctx, ctx->args.stake_ci );
+    fd_rpc_stake_after_frag( ctx->ctx, ctx->args.stake_ci );
 
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));

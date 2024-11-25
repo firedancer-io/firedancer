@@ -490,8 +490,7 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui, "net_overrun",       cur->out.net_overrun       - prev->out.net_overrun );
       jsonp_ulong( gui, "quic_overrun",      cur->out.quic_overrun      - prev->out.quic_overrun );
       jsonp_ulong( gui, "quic_frag_drop",    cur->out.quic_frag_drop    - prev->out.quic_frag_drop );
-      jsonp_ulong( gui, "quic_frag_drop_g",  cur->out.quic_frag_drop_g  - prev->out.quic_frag_drop_g );
-      jsonp_ulong( gui, "quic_aborted",      cur->out.quic_aborted      - prev->out.quic_aborted );
+      jsonp_ulong( gui, "quic_abandoned",    cur->out.quic_abandoned    - prev->out.quic_abandoned );
       jsonp_ulong( gui, "tpu_quic_invalid",  cur->out.tpu_quic_invalid  - prev->out.tpu_quic_invalid );
       jsonp_ulong( gui, "tpu_udp_invalid",   cur->out.tpu_udp_invalid   - prev->out.tpu_udp_invalid );
       jsonp_ulong( gui, "verify_overrun",    cur->out.verify_overrun    - prev->out.verify_overrun );

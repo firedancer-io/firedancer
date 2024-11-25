@@ -43,12 +43,28 @@ enum {
   FD_QUIC_CONN_REASON_HANDSHAKE_FAILURE            = 0x128    /* Handshake failed. */
 };
 
-typedef struct fd_quic_conn       fd_quic_conn_t;
+struct fd_quic_conn_stream_rx {
+  ulong rx_hi_stream_id;    /* highest RX stream ID sent by peer + 4 */
+  ulong rx_sup_stream_id;   /* highest allowed RX stream ID + 4 */
+
+  ulong rx_max_data;        /* the limit on the number of bytes the peer is allowed to send to us */
+  ulong rx_tot_data;        /* total of all bytes received across all streams and including implied bytes */
+  ulong rx_max_data_ackd;   /* max max_data acked by peer */
+
+  ulong rx_max_streams_unidir_ackd; /* value of MAX_STREAMS acked for UNIDIR */
+
+  long  rx_streams_active;  /* FIXME: This is a user scratch field, not in use by fd_quic */
+
+  /* FIXME add a TLB */
+};
+
+typedef struct fd_quic_conn_stream_rx fd_quic_conn_stream_rx_t;
 
 struct fd_quic_conn {
   uint               conn_idx;            /* connection index */
                                           /* connections are sized at runtime */
                                           /* storing the index avoids a division */
+  uint               conn_gen;            /* generation of this connection slot */
 
   fd_quic_t *        quic;
   void *             context;             /* user context */
@@ -59,6 +75,8 @@ struct fd_quic_conn {
   uint               transport_params_set : 1;
   uint               called_conn_new : 1; /* whether we need to call conn_final on teardown */
   uint               visited : 1;         /* scratch bit, no strict definition */
+  uint               key_phase : 1;
+  uint               key_update : 1;
 
   /* Service queue dlist membership.  All active conns (state not INVALID)
      are in a service queue, FD_QUIC_SVC_TYPE_WAIT by default.
@@ -86,8 +104,6 @@ struct fd_quic_conn {
   fd_quic_net_endpoint_t peer[1];
   fd_quic_conn_id_t      peer_cids[1]; /* FIXME support new/retire conn ID */
 
-  ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
-
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
 
@@ -114,14 +130,16 @@ struct fd_quic_conn {
   /* amount of handshake data ack'ed by peer counted from head of queue */
   ulong hs_ackd_bytes[4];
 
-  /* secret members */
+  /* Keys for header and packet protection
+       secrets:    Contains 'master' secrets used to derive other keys
+       keys:       Current pair of keys for each encryption level
+       new_keys:   App keys to use for the next key update.  Once app
+                   keys are available these are always kept up-to-date
+       keys_avail: Bit set of available keys, LSB indexed by enc level */
   fd_quic_crypto_secrets_t secrets;
-  fd_quic_crypto_keys_t    keys[4][2];  /* a set of keys for each of the encoding levels, and for client/server */
-  fd_quic_crypto_keys_t    new_keys[2]; /* a set of keys for use during key update */
-  uint                     keys_avail;  /* bit set, LSB indexed by encryption level */
-  uint                     key_phase;   /* current key phase - represents the current phase of the
-                                           value of keys */
-  uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
+  fd_quic_crypto_keys_t    keys[FD_QUIC_NUM_ENC_LEVELS][2];
+  fd_quic_crypto_keys_t    new_keys[2];
+  uint                     keys_avail;
 
   fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
   fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
@@ -130,54 +148,8 @@ struct fd_quic_conn {
      used_streams */
 
   /* stream id members */
-  ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
-                                /* next_stream_id is used for streams coming from the stream pool */
-
-  ulong rx_hi_stream_id;    /* highest RX stream ID sent by peer + 4 */
-  ulong rx_sup_stream_id;   /* highest allowed RX stream ID + 4 */
   ulong tx_next_stream_id;  /* stream ID to be used for new stream */
   ulong tx_sup_stream_id;   /* highest allowed TX stream ID + 4 */
-
-  ulong max_concur_streams[4];  /* user set concurrent max */
-
-  /* stream id limits */
-  /* limits->stream_cnt */
-  /*   used to size stream_map, and provides an upper limit on the temporary limits */
-  /*   on streams */
-
-  /* max_concur_streams */
-  /*   temporary limit on the number of streams */
-  /*   currently only applies to peers */
-  /*   may be adjusted via fd_quic_conn_set_max_streams */
-
-  /* limits->initial_stream_cnt */
-  /*   new connections attempt to assign initial_stream_cnt streams from the pool */
-  /*   for peer initiated streams */
-  /*   however many streams are assigned at this point becomes the limit imposed */
-  /*   on the peer */
-
-  /* peer initiated streams */
-  /* the peer will create streams at will up to our imposed limit via max_streams */
-  /* frames */
-  /* max_streams frames are derived from changes to sup_stream_id */
-
-  /* self initiated streams */
-  /* we can create streams at will up to the peer imposed limit in peer_sup_stream_id */
-  /* these streams also come from the stream pool, and so the size of the stream pool */
-  /* also imposes a limit on self initiated streams */
-
-  /* rfc9000:
-       19.11 Note that these frames (and the corresponding transport parameters)
-               do not describe the number of streams that can be opened concurrently.
-        4.6  Only streams with a stream ID less than
-               (max_streams * 4 + first_stream_id_of_type) can be opened
-        2.1  Stream types:
-             0x00 Client-Initiated, Bidirectional
-             0x01 Server-Initiated, Bidirectional
-             0x02 Client-Initiated, Unidirectional
-             0x03 Server-Initiated, Unidirectional */
-
-  ulong rx_max_streams_unidir_ackd; /* value of MAX_STREAMS acked for UNIDIR */
 
   fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
 
@@ -222,11 +194,6 @@ struct fd_quic_conn {
                                               and they count against the max */
   ulong                tx_tot_data;        /* total of all bytes received across all streams
                                               and including implied bytes */
-  ulong                rx_max_data;        /* the limit on the number of bytes the peer is allowed to
-                                              send to us */
-  ulong                rx_tot_data;        /* total of all bytes received across all streams
-                                              and including implied bytes */
-  ulong                rx_max_data_ackd;   /* max max_data acked by peer */
 
   uint                 flags;
 # define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
@@ -268,9 +235,26 @@ struct fd_quic_conn {
 
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
+
+  fd_quic_conn_stream_rx_t srx[1];
 };
 
 FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST static inline ulong
+fd_quic_conn_uid( fd_quic_conn_t const * conn ) {
+  return ( (ulong)conn->conn_idx << 32UL ) | ( (ulong)conn->conn_gen );
+}
+
+FD_FN_CONST static inline uint
+fd_quic_conn_uid_idx( ulong conn_uid ) {
+  return (uint)( conn_uid >> 32UL );
+}
+
+FD_FN_CONST static inline uint
+fd_quic_conn_uid_gen( ulong conn_uid ) {
+  return (uint)( conn_uid & 0xffffffffUL );
+}
 
 /* returns the alignment requirement of fd_quic_conn_t */
 FD_FN_CONST ulong

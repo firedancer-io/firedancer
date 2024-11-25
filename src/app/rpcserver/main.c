@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "../../flamenco/rpcserver/fd_rpc_service.h"
+#include "../../disco/rpcserver/fd_rpc_service.h"
 #include "../../funk/fd_funk_filemap.h"
 
 #define SHAM_LINK_CONTEXT fd_rpc_ctx_t
@@ -217,4 +217,24 @@ int main( int argc, char ** argv ) {
 
   fd_halt();
   return 0;
+}
+
+static void
+replay_sham_link_during_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * state, void const * msg, int sz) {
+  fd_rpc_replay_during_frag( ctx, state, msg, sz );
+}
+
+static void
+replay_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
+  fd_rpc_replay_after_frag( ctx, msg );
+}
+
+static void
+stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state, void const * msg, int sz) {
+  fd_rpc_stake_during_frag( ctx, state, msg, sz );
+}
+
+static void
+stake_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state) {
+  fd_rpc_stake_after_frag( ctx, state );
 }

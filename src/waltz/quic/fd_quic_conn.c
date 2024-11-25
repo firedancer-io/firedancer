@@ -1,9 +1,7 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_common.h"
-#include "../../util/fd_util.h"
 #include "fd_quic_enum.h"
 #include "fd_quic_pkt_meta.h"
-#include "fd_quic_private.h"
 
 /* define a map for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
@@ -16,14 +14,9 @@
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_quic_conn_layout {
-  ulong stream_cnt;
-  ulong stream_ptr_off;
-  ulong stream_footprint;
   int   stream_map_lg;
   ulong stream_map_off;
   ulong pkt_meta_off;
-  ulong token_len_off;
-  ulong token_off;
 };
 typedef struct fd_quic_conn_layout fd_quic_conn_layout_t;
 
@@ -44,25 +37,28 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   ulong inflight_pkt_cnt = limits->inflight_pkt_cnt;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
 
-  layout->stream_cnt = limits->rx_stream_cnt;
   ulong stream_id_cnt = limits->stream_id_cnt;
-  if( !stream_id_cnt ) stream_id_cnt = limits->rx_stream_cnt;
 
   ulong off  = 0;
 
   off += sizeof( fd_quic_conn_t );
 
-  /* allocate space for stream hash map */
-  /* about a million seems like a decent bound, with expected values up to 20,000 */
-  ulong lg = 0;
-  while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_id_cnt*FD_QUIC_DEFAULT_SPARSITY) ) {
-    lg++;
-  }
-  layout->stream_map_lg = (int)lg;
+  if( stream_id_cnt ) {
+    /* allocate space for stream hash map */
+    /* about a million seems like a decent bound, with expected values up to 20,000 */
+    ulong lg = 0;
+    while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_id_cnt*FD_QUIC_DEFAULT_SPARSITY) ) {
+      lg++;
+    }
+    layout->stream_map_lg = (int)lg;
 
-  off                     = fd_ulong_align_up( off, fd_quic_stream_align() );
-  layout->stream_map_off  = off;
-  off                    += fd_quic_stream_map_footprint( (int)lg );
+    off                     = fd_ulong_align_up( off, fd_quic_stream_align() );
+    layout->stream_map_off  = off;
+    off                    += fd_quic_stream_map_footprint( (int)lg );
+  } else {
+    layout->stream_map_lg  = 0;
+    layout->stream_map_off = 0UL;
+  }
 
   /* allocate space for packet metadata */
   off                   = fd_ulong_align_up( off, alignof(fd_quic_pkt_meta_t) );
@@ -130,9 +126,11 @@ fd_quic_conn_new( void *                   mem,
 
   /* Initialize stream hash map */
 
-  ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
-  conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg ) );
-  if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
+  if( layout.stream_map_off ) {
+    ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
+    conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg ) );
+    if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
+  }
 
   /* Initialize packet meta pool */
 

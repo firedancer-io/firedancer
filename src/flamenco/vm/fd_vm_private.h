@@ -74,6 +74,41 @@ struct __attribute__((packed)) fd_vm_vec {
 
 typedef struct fd_vm_vec fd_vm_vec_t;
 
+/* SBPF version and features
+   https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
+
+   Note: SIMDs enable or disable features, e.g. BPF instructions.
+   If we have macros with names ENABLE vs DISABLE, we have the advantage that
+   the condition is always pretty clear: sbpf_version <= activation_version,
+   but the disadvantage of inconsistent names.
+   Viceversa, calling everything ENABLE has the risk to invert a <= with a >=
+   and create a huge mess.
+   We define both, so hopefully it's foolproof. */
+
+/* SIMD-0166 */
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
+/* SIMD-0173 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= FD_SBPF_V2 )
+/* SIMD-0174 */
+#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
+/* SIMD-0176 */
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
+/* SIMD-XXXX */
+#define FD_VM_SBPF_STRICTER_CONTROLFLOW(v)         ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= FD_SBPF_V3 )
+
+#define FD_VM_OFFSET_MASK (0xffffffffUL)
+
 FD_PROTOTYPES_BEGIN
 
 /* Log error within the instr_ctx to match Agave/Rust error. */
@@ -312,7 +347,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  ulong              sentinel,
                  uchar *            is_multi_region ) {
   ulong region = FD_VADDR_TO_REGION( vaddr );
-  ulong offset = vaddr & 0xffffffffUL;
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
@@ -353,7 +388,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
   ulong region   = FD_VADDR_TO_REGION( vaddr );
-  ulong offset   = vaddr & 0xffffffffUL;
+  ulong offset   = vaddr & FD_VM_OFFSET_MASK;
   if( FD_UNLIKELY( region==4UL ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
   }
@@ -367,7 +402,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
 
 static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * dst ) {
 
-  ulong offset              = vaddr & 0xffffffffUL;
+  ulong offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   uint  bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                               (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -424,7 +459,7 @@ FD_FN_PURE static inline ulong fd_vm_mem_ld_8( fd_vm_t const * vm, ulong vaddr, 
    the case where the store spans multiple input memory regions. */
 
 static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * src ) {
-  ulong   offset              = vaddr & 0xffffffffUL;
+  ulong   offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong   region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   ulong   bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                                  (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -610,11 +645,14 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 #define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 #define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 
-/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED simply converts a vaddr within the input memory region
-   into an haddr. The macro assumes that the caller already checked that the vaddr exists within the
-   input region (region==4UL) and sets the region_idx and haddr. */
-#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
+/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED simply converts a vaddr within the input memory region
+   into an haddr. The sets the region_idx and haddr. */
+#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
   _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
+  if( FD_UNLIKELY( _offset>=vm->input_mem_regions[ _out_region_idx ].vaddr_offset+vm->input_mem_regions[ _out_region_idx ].region_sz ) ) {                    \
+    FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                                                              \
+    return FD_VM_ERR_SIGSEGV;                                                                                                                   \
+  }                                                                                                                                             \
   _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
 }))
 

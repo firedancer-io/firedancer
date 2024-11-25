@@ -110,6 +110,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGRDONLY: return "SIGRDONLY illegal write";
   case FD_VM_ERR_SIGCOST:   return "SIGCOST compute unit limit exceeded";
   case FD_VM_ERR_SIGFPE:    return "SIGFPE division by zero";
+  case FD_VM_ERR_SIGFPE_OF: return "SIGFPE division overflow";
 
   /* VM syscall error codes */
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L81 */
@@ -169,73 +170,154 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_SH64  ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
 # define FD_INVALID     ((uchar)8) /* The opcode is invalid */
 # define FD_CHECK_CALLX ((uchar)9) /* Validation should check that callx has valid register number */
+# define FD_CHECK_CALLX_DEPR ((uchar)10) /* Older / deprecated FD_CHECK_CALLX */
 
-  static uchar const validation_map[ 256 ] = {
+  static uchar validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
     /* 0x04 */ FD_VALID,      /* 0x05 */ FD_CHECK_JMP,  /* 0x06 */ FD_INVALID,    /* 0x07 */ FD_VALID,
     /* 0x08 */ FD_INVALID,    /* 0x09 */ FD_INVALID,    /* 0x0a */ FD_INVALID,    /* 0x0b */ FD_INVALID,
     /* 0x0c */ FD_VALID,      /* 0x0d */ FD_INVALID,    /* 0x0e */ FD_INVALID,    /* 0x0f */ FD_VALID,
     /* 0x10 */ FD_INVALID,    /* 0x11 */ FD_INVALID,    /* 0x12 */ FD_INVALID,    /* 0x13 */ FD_INVALID,
     /* 0x14 */ FD_VALID,      /* 0x15 */ FD_CHECK_JMP,  /* 0x16 */ FD_INVALID,    /* 0x17 */ FD_VALID,
-    /* 0x18 */ FD_CHECK_LDQ,  /* 0x19 */ FD_INVALID,    /* 0x1a */ FD_INVALID,    /* 0x1b */ FD_INVALID,
+    /* 0x18 */ FD_INVALID,    /* 0x19 */ FD_INVALID,    /* 0x1a */ FD_INVALID,    /* 0x1b */ FD_INVALID,
     /* 0x1c */ FD_VALID,      /* 0x1d */ FD_CHECK_JMP,  /* 0x1e */ FD_INVALID,    /* 0x1f */ FD_VALID,
     /* 0x20 */ FD_INVALID,    /* 0x21 */ FD_INVALID,    /* 0x22 */ FD_INVALID,    /* 0x23 */ FD_INVALID,
-    /* 0x24 */ FD_VALID,      /* 0x25 */ FD_CHECK_JMP,  /* 0x26 */ FD_INVALID,    /* 0x27 */ FD_VALID,
+    /* 0x24 */ FD_INVALID,    /* 0x25 */ FD_CHECK_JMP,  /* 0x26 */ FD_INVALID,    /* 0x27 */ FD_CHECK_ST,
     /* 0x28 */ FD_INVALID,    /* 0x29 */ FD_INVALID,    /* 0x2a */ FD_INVALID,    /* 0x2b */ FD_INVALID,
-    /* 0x2c */ FD_VALID,      /* 0x2d */ FD_CHECK_JMP,  /* 0x2e */ FD_INVALID,    /* 0x2f */ FD_VALID,
+    /* 0x2c */ FD_VALID,      /* 0x2d */ FD_CHECK_JMP,  /* 0x2e */ FD_INVALID,    /* 0x2f */ FD_CHECK_ST,
     /* 0x30 */ FD_INVALID,    /* 0x31 */ FD_INVALID,    /* 0x32 */ FD_INVALID,    /* 0x33 */ FD_INVALID,
-    /* 0x34 */ FD_CHECK_DIV,  /* 0x35 */ FD_CHECK_JMP,  /* 0x36 */ FD_INVALID,    /* 0x37 */ FD_CHECK_DIV,
+    /* 0x34 */ FD_INVALID,    /* 0x35 */ FD_CHECK_JMP,  /* 0x36 */ FD_VALID,      /* 0x37 */ FD_CHECK_ST,
     /* 0x38 */ FD_INVALID,    /* 0x39 */ FD_INVALID,    /* 0x3a */ FD_INVALID,    /* 0x3b */ FD_INVALID,
-    /* 0x3c */ FD_VALID,      /* 0x3d */ FD_CHECK_JMP,  /* 0x3e */ FD_INVALID,    /* 0x3f */ FD_VALID,
+    /* 0x3c */ FD_VALID,      /* 0x3d */ FD_CHECK_JMP,  /* 0x3e */ FD_VALID,      /* 0x3f */ FD_CHECK_ST,
     /* 0x40 */ FD_INVALID,    /* 0x41 */ FD_INVALID,    /* 0x42 */ FD_INVALID,    /* 0x43 */ FD_INVALID,
-    /* 0x44 */ FD_VALID,      /* 0x45 */ FD_CHECK_JMP,  /* 0x46 */ FD_INVALID,    /* 0x47 */ FD_VALID,
+    /* 0x44 */ FD_VALID,      /* 0x45 */ FD_CHECK_JMP,  /* 0x46 */ FD_CHECK_DIV,  /* 0x47 */ FD_VALID,
     /* 0x48 */ FD_INVALID,    /* 0x49 */ FD_INVALID,    /* 0x4a */ FD_INVALID,    /* 0x4b */ FD_INVALID,
-    /* 0x4c */ FD_VALID,      /* 0x4d */ FD_CHECK_JMP,  /* 0x4e */ FD_INVALID,    /* 0x4f */ FD_VALID,
+    /* 0x4c */ FD_VALID,      /* 0x4d */ FD_CHECK_JMP,  /* 0x4e */ FD_VALID,      /* 0x4f */ FD_VALID,
     /* 0x50 */ FD_INVALID,    /* 0x51 */ FD_INVALID,    /* 0x52 */ FD_INVALID,    /* 0x53 */ FD_INVALID,
-    /* 0x54 */ FD_VALID,      /* 0x55 */ FD_CHECK_JMP,  /* 0x56 */ FD_INVALID,    /* 0x57 */ FD_VALID,
+    /* 0x54 */ FD_VALID,      /* 0x55 */ FD_CHECK_JMP,  /* 0x56 */ FD_CHECK_DIV,  /* 0x57 */ FD_VALID,
     /* 0x58 */ FD_INVALID,    /* 0x59 */ FD_INVALID,    /* 0x5a */ FD_INVALID,    /* 0x5b */ FD_INVALID,
-    /* 0x5c */ FD_VALID,      /* 0x5d */ FD_CHECK_JMP,  /* 0x5e */ FD_INVALID,    /* 0x5f */ FD_VALID,
-    /* 0x60 */ FD_INVALID,    /* 0x61 */ FD_VALID,      /* 0x62 */ FD_CHECK_ST,   /* 0x63 */ FD_CHECK_ST,
-    /* 0x64 */ FD_CHECK_SH32, /* 0x65 */ FD_CHECK_JMP,  /* 0x66 */ FD_INVALID,    /* 0x67 */ FD_CHECK_SH64,
-    /* 0x68 */ FD_INVALID,    /* 0x69 */ FD_VALID,      /* 0x6a */ FD_CHECK_ST,   /* 0x6b */ FD_CHECK_ST,
-    /* 0x6c */ FD_VALID,      /* 0x6d */ FD_CHECK_JMP,  /* 0x6e */ FD_INVALID,    /* 0x6f */ FD_VALID,
-    /* 0x70 */ FD_INVALID,    /* 0x71 */ FD_VALID,      /* 0x72 */ FD_CHECK_ST,   /* 0x73 */ FD_CHECK_ST,
-    /* 0x74 */ FD_CHECK_SH32, /* 0x75 */ FD_CHECK_JMP,  /* 0x76 */ FD_INVALID,    /* 0x77 */ FD_CHECK_SH64,
-    /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_VALID,      /* 0x7a */ FD_CHECK_ST,   /* 0x7b */ FD_CHECK_ST,
-    /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_INVALID,    /* 0x7f */ FD_VALID,
+    /* 0x5c */ FD_VALID,      /* 0x5d */ FD_CHECK_JMP,  /* 0x5e */ FD_VALID,      /* 0x5f */ FD_VALID,
+    /* 0x60 */ FD_INVALID,    /* 0x61 */ FD_INVALID,    /* 0x62 */ FD_INVALID,    /* 0x63 */ FD_INVALID,
+    /* 0x64 */ FD_CHECK_SH32, /* 0x65 */ FD_CHECK_JMP,  /* 0x66 */ FD_CHECK_DIV,  /* 0x67 */ FD_CHECK_SH64,
+    /* 0x68 */ FD_INVALID,    /* 0x69 */ FD_INVALID,    /* 0x6a */ FD_INVALID,    /* 0x6b */ FD_INVALID,
+    /* 0x6c */ FD_VALID,      /* 0x6d */ FD_CHECK_JMP,  /* 0x6e */ FD_VALID,      /* 0x6f */ FD_VALID,
+    /* 0x70 */ FD_INVALID,    /* 0x71 */ FD_INVALID,    /* 0x72 */ FD_INVALID,    /* 0x73 */ FD_INVALID,
+    /* 0x74 */ FD_CHECK_SH32, /* 0x75 */ FD_CHECK_JMP,  /* 0x76 */ FD_CHECK_DIV,  /* 0x77 */ FD_CHECK_SH64,
+    /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_INVALID,    /* 0x7a */ FD_INVALID,    /* 0x7b */ FD_INVALID,
+    /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_VALID,      /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
-    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_VALID,      /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
+    /* 0x84 */ FD_INVALID,    /* 0x85 */ FD_VALID,      /* 0x86 */ FD_VALID,      /* 0x87 */ FD_CHECK_ST,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
-    /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_CHECK_CALLX,/* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,
+    /* 0x8c */ FD_VALID,      /* 0x8d */ FD_CHECK_CALLX,/* 0x8e */ FD_VALID,      /* 0x8f */ FD_CHECK_ST,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
-    /* 0x94 */ FD_CHECK_DIV,  /* 0x95 */ FD_VALID,      /* 0x96 */ FD_INVALID,    /* 0x97 */ FD_CHECK_DIV,
+    /* 0x94 */ FD_INVALID,    /* 0x95 */ FD_VALID,      /* 0x96 */ FD_VALID,      /* 0x97 */ FD_CHECK_ST,
     /* 0x98 */ FD_INVALID,    /* 0x99 */ FD_INVALID,    /* 0x9a */ FD_INVALID,    /* 0x9b */ FD_INVALID,
-    /* 0x9c */ FD_VALID,      /* 0x9d */ FD_INVALID,    /* 0x9e */ FD_INVALID,    /* 0x9f */ FD_VALID,
+    /* 0x9c */ FD_VALID,      /* 0x9d */ FD_INVALID,    /* 0x9e */ FD_VALID,      /* 0x9f */ FD_CHECK_ST,
     /* 0xa0 */ FD_INVALID,    /* 0xa1 */ FD_INVALID,    /* 0xa2 */ FD_INVALID,    /* 0xa3 */ FD_INVALID,
     /* 0xa4 */ FD_VALID,      /* 0xa5 */ FD_CHECK_JMP,  /* 0xa6 */ FD_INVALID,    /* 0xa7 */ FD_VALID,
     /* 0xa8 */ FD_INVALID,    /* 0xa9 */ FD_INVALID,    /* 0xaa */ FD_INVALID,    /* 0xab */ FD_INVALID,
     /* 0xac */ FD_VALID,      /* 0xad */ FD_CHECK_JMP,  /* 0xae */ FD_INVALID,    /* 0xaf */ FD_VALID,
     /* 0xb0 */ FD_INVALID,    /* 0xb1 */ FD_INVALID,    /* 0xb2 */ FD_INVALID,    /* 0xb3 */ FD_INVALID,
-    /* 0xb4 */ FD_VALID,      /* 0xb5 */ FD_CHECK_JMP,  /* 0xb6 */ FD_INVALID,    /* 0xb7 */ FD_VALID,
+    /* 0xb4 */ FD_VALID,      /* 0xb5 */ FD_CHECK_JMP,  /* 0xb6 */ FD_VALID,      /* 0xb7 */ FD_VALID,
     /* 0xb8 */ FD_INVALID,    /* 0xb9 */ FD_INVALID,    /* 0xba */ FD_INVALID,    /* 0xbb */ FD_INVALID,
-    /* 0xbc */ FD_VALID,      /* 0xbd */ FD_CHECK_JMP,  /* 0xbe */ FD_INVALID,    /* 0xbf */ FD_VALID,
+    /* 0xbc */ FD_VALID,      /* 0xbd */ FD_CHECK_JMP,  /* 0xbe */ FD_VALID,      /* 0xbf */ FD_VALID,
     /* 0xc0 */ FD_INVALID,    /* 0xc1 */ FD_INVALID,    /* 0xc2 */ FD_INVALID,    /* 0xc3 */ FD_INVALID,
-    /* 0xc4 */ FD_CHECK_SH32, /* 0xc5 */ FD_CHECK_JMP,  /* 0xc6 */ FD_INVALID,    /* 0xc7 */ FD_CHECK_SH64,
+    /* 0xc4 */ FD_CHECK_SH32, /* 0xc5 */ FD_CHECK_JMP,  /* 0xc6 */ FD_CHECK_DIV,  /* 0xc7 */ FD_CHECK_SH64,
     /* 0xc8 */ FD_INVALID,    /* 0xc9 */ FD_INVALID,    /* 0xca */ FD_INVALID,    /* 0xcb */ FD_INVALID,
-    /* 0xcc */ FD_VALID,      /* 0xcd */ FD_CHECK_JMP,  /* 0xce */ FD_INVALID,    /* 0xcf */ FD_VALID,
+    /* 0xcc */ FD_VALID,      /* 0xcd */ FD_CHECK_JMP,  /* 0xce */ FD_VALID,      /* 0xcf */ FD_VALID,
     /* 0xd0 */ FD_INVALID,    /* 0xd1 */ FD_INVALID,    /* 0xd2 */ FD_INVALID,    /* 0xd3 */ FD_INVALID,
-    /* 0xd4 */ FD_CHECK_END,  /* 0xd5 */ FD_CHECK_JMP,  /* 0xd6 */ FD_INVALID,    /* 0xd7 */ FD_INVALID,
+    /* 0xd4 */ FD_INVALID,    /* 0xd5 */ FD_CHECK_JMP,  /* 0xd6 */ FD_CHECK_DIV,  /* 0xd7 */ FD_INVALID,
     /* 0xd8 */ FD_INVALID,    /* 0xd9 */ FD_INVALID,    /* 0xda */ FD_INVALID,    /* 0xdb */ FD_INVALID,
-    /* 0xdc */ FD_CHECK_END,  /* 0xdd */ FD_CHECK_JMP,  /* 0xde */ FD_INVALID,    /* 0xdf */ FD_INVALID,
+    /* 0xdc */ FD_CHECK_END,  /* 0xdd */ FD_CHECK_JMP,  /* 0xde */ FD_VALID,      /* 0xdf */ FD_INVALID,
     /* 0xe0 */ FD_INVALID,    /* 0xe1 */ FD_INVALID,    /* 0xe2 */ FD_INVALID,    /* 0xe3 */ FD_INVALID,
-    /* 0xe4 */ FD_INVALID,    /* 0xe5 */ FD_INVALID,    /* 0xe6 */ FD_INVALID,    /* 0xe7 */ FD_INVALID,
+    /* 0xe4 */ FD_INVALID,    /* 0xe5 */ FD_INVALID,    /* 0xe6 */ FD_CHECK_DIV,  /* 0xe7 */ FD_INVALID,
     /* 0xe8 */ FD_INVALID,    /* 0xe9 */ FD_INVALID,    /* 0xea */ FD_INVALID,    /* 0xeb */ FD_INVALID,
-    /* 0xec */ FD_INVALID,    /* 0xed */ FD_INVALID,    /* 0xee */ FD_INVALID,    /* 0xef */ FD_INVALID,
+    /* 0xec */ FD_INVALID,    /* 0xed */ FD_INVALID,    /* 0xee */ FD_VALID,      /* 0xef */ FD_INVALID,
     /* 0xf0 */ FD_INVALID,    /* 0xf1 */ FD_INVALID,    /* 0xf2 */ FD_INVALID,    /* 0xf3 */ FD_INVALID,
-    /* 0xf4 */ FD_INVALID,    /* 0xf5 */ FD_INVALID,    /* 0xf6 */ FD_INVALID,    /* 0xf7 */ FD_INVALID,
+    /* 0xf4 */ FD_INVALID,    /* 0xf5 */ FD_INVALID,    /* 0xf6 */ FD_CHECK_DIV,  /* 0xf7 */ FD_VALID,
     /* 0xf8 */ FD_INVALID,    /* 0xf9 */ FD_INVALID,    /* 0xfa */ FD_INVALID,    /* 0xfb */ FD_INVALID,
-    /* 0xfc */ FD_INVALID,    /* 0xfd */ FD_INVALID,    /* 0xfe */ FD_INVALID,    /* 0xff */ FD_INVALID,
+    /* 0xfc */ FD_INVALID,    /* 0xfd */ FD_INVALID,    /* 0xfe */ FD_VALID,      /* 0xff */ FD_INVALID,
   };
+
+  ulong sbpf_version = vm->sbpf_version;
+
+  /* SIMD-0173: LDDW */
+  validation_map[ 0x18 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_CHECK_LDQ : FD_INVALID;
+  validation_map[ 0xf7 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_INVALID   : FD_VALID; /* HOR64 */
+
+  /* SIMD-0173: LE */
+  validation_map[ 0xd4 ] = FD_VM_SBPF_ENABLE_LE  (sbpf_version) ? FD_CHECK_END : FD_INVALID;
+
+  /* SIMD-0173: LDXW, STW, STXW */
+  validation_map[ 0x61 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x62 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x63 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x8c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x87 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID; /* VALID because it's NEG64 */
+  validation_map[ 0x8f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_INVALID;
+
+  /* SIMD-0173: LDXH, STH, STXH */
+  validation_map[ 0x69 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x6a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x6b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x3c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_VALID;
+  validation_map[ 0x37 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_CHECK_DIV;
+  validation_map[ 0x3f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+
+  /* SIMD-0173: LDXB, STB, STXB */
+  validation_map[ 0x71 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x72 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x73 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x2c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_VALID;
+  validation_map[ 0x27 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+  validation_map[ 0x2f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+
+  /* SIMD-0173: LDXDW, STDW, STXDW */
+  validation_map[ 0x79 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x7a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x7b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x9c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_VALID;
+  validation_map[ 0x97 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_CHECK_DIV;
+  validation_map[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+
+  /* SIMD-0173: CALLX */
+  validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? FD_CHECK_CALLX : FD_CHECK_CALLX_DEPR;
+
+  /* SIMD-0174: MUL, DIV, MOD */
+  validation_map[ 0x24 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_VALID;
+  validation_map[ 0x34 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_CHECK_DIV;
+  validation_map[ 0x94 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_CHECK_DIV;
+  /* note: 0x?c, 0x?7, 0x?f should not be overwritten because they're now load/store ix */
+
+  /* SIMD-0174: NEG */
+  validation_map[ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (sbpf_version) ? FD_VALID : FD_INVALID;
+  /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
+
+  /* SIMD-0174: MUL, DIV, MOD */
+  validation_map[ 0x36 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* UHMUL64 */
+  validation_map[ 0x3e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x46 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UDIV32 */
+  validation_map[ 0x4e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x56 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UDIV64 */
+  validation_map[ 0x5e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x66 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UREM32 */
+  validation_map[ 0x6e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x76 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UREM64 */
+  validation_map[ 0x7e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x86 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* LMUL32 */
+  validation_map[ 0x8e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x96 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* LMUL64 */
+  validation_map[ 0x9e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xb6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* SHMUL64 */
+  validation_map[ 0xbe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xc6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SDIV32 */
+  validation_map[ 0xce ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xd6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SDIV64 */
+  validation_map[ 0xde ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xe6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM32 */
+  validation_map[ 0xee ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM64 */
+  validation_map[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
 
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
@@ -309,9 +391,14 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
+    /* https://github.com/solana-labs/rbpf/blob/v0.8.5/src/verifier.rs#L207 */
     case FD_CHECK_CALLX: {
-      /* The register number to read is stored in the immediate.
-         https://github.com/solana-labs/rbpf/blob/v0.8.1/src/verifier.rs#L218 */
+      if( FD_UNLIKELY( instr.src_reg > 9 ) ) {
+        return FD_VM_ERR_INVALID_REG;
+      }
+      break;
+    }
+    case FD_CHECK_CALLX_DEPR: {
       if( FD_UNLIKELY( instr.imm > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
       }
@@ -438,6 +525,7 @@ fd_vm_init(
    ulong text_sz,
    ulong entry_pc,
    ulong * calldests,
+   ulong sbpf_version,
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
    fd_sha256_t * sha,
@@ -479,6 +567,7 @@ fd_vm_init(
   vm->text_sz = text_sz;
   vm->entry_pc = entry_pc;
   vm->calldests = calldests;
+  vm->sbpf_version = sbpf_version;
   vm->syscalls = syscalls;
   vm->trace = trace;
   vm->sha = sha;

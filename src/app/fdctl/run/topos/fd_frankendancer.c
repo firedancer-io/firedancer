@@ -86,11 +86,9 @@ fd_topo_initialize( config_t * config ) {
 
   int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
   int is_agave_auto_affinity = !strcmp( config->layout.agave_affinity, "auto" );
-  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
 
-  if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ||
-                   is_auto_affinity != is_bench_auto_affinity ) ) {
-    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
+  if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ) ) {
+    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [layout.agave_affinity] must both be set to 'auto' or both be set to a specific CPU affinity string." ));
   }
 
   ulong affinity_tile_cnt = 0UL;
@@ -360,21 +358,18 @@ fd_topo_initialize( config_t * config ) {
       }
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
-      strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
 
-      tile->quic.depth                          = topo->links[ tile->out_link_id[ 0 ] ].depth;
       tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
       tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
       tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
-      tile->quic.max_inflight_quic_packets      = config->tiles.quic.max_inflight_quic_packets;
       tile->quic.ip_addr                        = config->tiles.net.ip_addr;
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
-      tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
+      tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
       tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;

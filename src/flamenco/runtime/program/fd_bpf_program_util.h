@@ -26,6 +26,9 @@ struct fd_sbpf_validated_program {
   /* Backing memory for calldests and rodata */
   // uchar calldests_shmem[];
   // uchar rodata[];
+
+  /* SBPF version, SIMD-0161 */
+  ulong sbpf_version;
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 

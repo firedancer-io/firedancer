@@ -85,6 +85,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
       vm_ctx->rodata_text_section_length,
       0, /* entry_pc, not used in validate at the moment */
       NULL, /* calldests */
+      TEST_VM_DEFAULT_SBPF_VERSION,
       NULL, /* syscalls */
       NULL, /* trace */
       NULL, /* sha */
@@ -215,22 +216,6 @@ do{
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
 
-  /* Override some execution state values from the interp fuzzer input
-     This is so we can test if the interp (or vm setup) mutates any of
-     these erroneously */
-  vm->reg[0]  = input->vm_ctx.r0;
-  vm->reg[1]  = input->vm_ctx.r1;
-  vm->reg[2]  = input->vm_ctx.r2;
-  vm->reg[3]  = input->vm_ctx.r3;
-  vm->reg[4]  = input->vm_ctx.r4;
-  vm->reg[5]  = input->vm_ctx.r5;
-  vm->reg[6]  = input->vm_ctx.r6;
-  vm->reg[7]  = input->vm_ctx.r7;
-  vm->reg[8]  = input->vm_ctx.r8;
-  vm->reg[9]  = input->vm_ctx.r9;
-  vm->reg[10] = input->vm_ctx.r10;
-  vm->reg[11] = input->vm_ctx.r11;
-
   fd_vm_init(
     vm,
     instr_ctx,
@@ -244,6 +229,7 @@ do{
     rodata_sz, /* text_sz */
     input->vm_ctx.entry_pc,
     calldests,
+    TEST_VM_DEFAULT_SBPF_VERSION,
     syscalls,
     trace, /* trace */
     NULL, /* sha */
@@ -253,6 +239,22 @@ do{
     0, /* is deprecated */
     FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) /* direct mapping */
   );
+
+  /* Override some execution state values from the interp fuzzer input
+     This is so we can test if the interp (or vm setup) mutates any of
+     these erroneously */
+  vm->reg[0]  = input->vm_ctx.r0;
+  // vm->reg[1]  = input->vm_ctx.r1; // set in fd_vm_init
+  vm->reg[2]  = input->vm_ctx.r2;
+  vm->reg[3]  = input->vm_ctx.r3;
+  vm->reg[4]  = input->vm_ctx.r4;
+  vm->reg[5]  = input->vm_ctx.r5;
+  vm->reg[6]  = input->vm_ctx.r6;
+  vm->reg[7]  = input->vm_ctx.r7;
+  vm->reg[8]  = input->vm_ctx.r8;
+  vm->reg[9]  = input->vm_ctx.r9;
+  // vm->reg[10]  = input->vm_ctx.r10; // set in fd_vm_init
+  vm->reg[11] = input->vm_ctx.r11;
 
   // Propagate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
@@ -285,6 +287,9 @@ do{
   } else {
     exec_res = fd_vm_exec_notrace( vm );
   }
+
+  /* Agave does not have a SIGCALL error, and instead throws SIGILL */
+  if( exec_res == FD_VM_ERR_SIGCALL ) exec_res = FD_VM_ERR_SIGILL;
   effects->error = -1 * exec_res;
 
   /* Capture outputs */

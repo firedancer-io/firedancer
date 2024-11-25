@@ -152,20 +152,20 @@ typedef struct {
     } net;
 
     struct {
-      ulong  depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
-      ulong  max_inflight_quic_packets;
-      ulong  max_concurrent_streams_per_connection;
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
       ulong  idle_timeout_millis;
       uint   ack_delay_millis;
-      char   identity_key_path[ PATH_MAX ];
       int    retry;
     } quic;
+
+    struct {
+      ulong tcache_depth;
+    } verify;
 
     struct {
       ulong tcache_depth;

@@ -53,6 +53,7 @@ typedef struct test_input test_input_t;
 
 struct test_effects {
   int   status;
+  int   force_exec;
   ulong reg[REG_CNT];
 };
 
@@ -282,14 +283,12 @@ parse_token( test_parser_t *  p,
 
     parse_assign_sep( p );
     ulong reg = parse_hex_int( p );
-    assert( reg < 0x10 );
     p->input.dst = (uchar)(reg & 0xf);
 
   } else if( 0==strncmp( word, "src", word_len ) ) {
 
     parse_assign_sep( p );
     ulong reg = parse_hex_int( p );
-    assert( reg < 0x10 );
     p->input.src = (uchar)(reg & 0xf);
 
   } else if( 0==strncmp( word, "off", word_len ) ) {
@@ -315,6 +314,12 @@ parse_token( test_parser_t *  p,
   } else if( 0==strncmp( word, "vfy", word_len ) ) {
 
     p->effects.status = STATUS_VERIFY_FAIL;
+    p->effects.force_exec = 1;
+
+  } else if( 0==strncmp( word, "vfyub", word_len ) ) {
+
+    p->effects.status = STATUS_VERIFY_FAIL;
+    p->effects.force_exec = 0;
 
   } else if( word_len >= 2 && word[0] == 'r' && isdigit( word[1] ) ) {
 
@@ -348,10 +353,14 @@ parse_next( test_parser_t *  p,
 
 static void
 run_input2( test_effects_t * out,
-            fd_vm_t *        vm ) {
+            fd_vm_t *        vm,
+            int              force_exec ) {
 
   if( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
     out->status = STATUS_VERIFY_FAIL;
+    if( force_exec && fd_vm_exec_notrace( vm ) == FD_VM_SUCCESS ) {
+      //TODO: we should mark these tests as vfyub
+    }
     return;
   }
 
@@ -373,7 +382,9 @@ run_input2( test_effects_t * out,
 static void
 run_input( test_input_t const * input,
            test_effects_t *     out,
-           fd_vm_t *            vm ) {
+           fd_vm_t *            vm,
+           ulong                sbpf_version,
+           int                  force_exec ) {
 
   /* Assemble instructions */
 
@@ -446,6 +457,7 @@ run_input( test_input_t const * input,
       /* text_sz          */ text_cnt * sizeof(ulong),
       /* entry_pc         */ 0UL,
       /* calldests        */ calldests,
+      /* sbpf_version     */ sbpf_version,
       /* syscalls         */ syscalls,
       /* trace            */ NULL,
       /* sha              */ NULL,
@@ -461,7 +473,7 @@ run_input( test_input_t const * input,
     vm->reg[i] = input->reg[i];
   }
 
-  run_input2( out, vm );
+  run_input2( out, vm, force_exec );
 
   /* Clean up */
   test_vm_exec_instr_ctx_delete( instr_ctx );
@@ -477,13 +489,14 @@ run_input( test_input_t const * input,
 static int
 run_fixture( test_fixture_t const * f,
              char const *           src_file,
-             fd_vm_t *              vm ) {
+             fd_vm_t *              vm,
+             ulong                  sbpf_version ) {
 
   int fail = 0;
 
   test_effects_t const * expected  = &f->effects;
   test_effects_t         actual[1] = {{0}};
-  run_input( &f->input, actual, vm );
+  run_input( &f->input, actual, vm, sbpf_version, expected->force_exec );
 
   if( expected->status != actual->status ) {
     FD_LOG_WARNING(( "FAIL %s(%lu): Expected status %s, got %s",
@@ -515,7 +528,8 @@ run_fixture( test_fixture_t const * f,
 
 static int
 handle_file( char const * file_path,
-             fd_vm_t *    vm ) {
+             fd_vm_t *    vm,
+             ulong        sbpf_version ) {
 
   int fd = open( file_path, O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -549,7 +563,7 @@ handle_file( char const * file_path,
     test_fixture_t * f = NULL;
     f = parse_next( &parser, _f );
     if( !f ) break;
-    fail += run_fixture( f, file_path, vm );
+    fail += run_fixture( f, file_path, vm, sbpf_version );
   }
 
   if( FD_UNLIKELY( 0!=close( fd ) ) ) {
@@ -588,7 +602,7 @@ main( int     argc,
   for( int i=1; i<argc; i++ ) {
     int flag = 0==strncmp( argv[i], "--", 2 );
     if( literal || !flag ) {
-      fail += handle_file( argv[i], vm );
+      fail += handle_file( argv[i], vm, TEST_VM_DEFAULT_SBPF_VERSION );
       executed_cnt += 1;
     } else {
       if( argv[i][2] == '\0' ) literal = 1;
@@ -599,17 +613,38 @@ main( int     argc,
   /* No arguments given?  Execute default paths */
 
   if( !executed_cnt ) {
-    char const * default_paths[] = {
-      "src/flamenco/vm/instr_test/bitwise.instr",
-      "src/flamenco/vm/instr_test/int_math.instr",
-      "src/flamenco/vm/instr_test/jump.instr",
-      "src/flamenco/vm/instr_test/load.instr",
-      "src/flamenco/vm/instr_test/opcode.instr",
-      "src/flamenco/vm/instr_test/shift.instr",
-      NULL
-    };
-    for( char const ** path=default_paths; *path; path++ ) {
-      fail |= handle_file( *path, vm );
+    {
+      char const * default_paths[] = {
+        "src/flamenco/vm/instr_test/v0/opcode.instr",
+        "src/flamenco/vm/instr_test/v0/bitwise.instr",
+        "src/flamenco/vm/instr_test/v0/int_math.instr",
+        "src/flamenco/vm/instr_test/v0/jump.instr",
+        "src/flamenco/vm/instr_test/v0/load.instr",
+        "src/flamenco/vm/instr_test/v0/shift.instr",
+        NULL
+      };
+      for( char const ** path=default_paths; *path; path++ ) {
+        fail += handle_file( *path, vm, 0 );
+      }
+      if( !fail ) FD_LOG_NOTICE(( "v0 pass" ));
+      else        FD_LOG_WARNING(( "v0 fail cnt %d", fail ));
+    }
+
+    {
+      char const * default_paths[] = {
+        "src/flamenco/vm/instr_test/v2/opcode.instr",
+        "src/flamenco/vm/instr_test/v2/bitwise.instr",
+        "src/flamenco/vm/instr_test/v2/int_math.instr",
+        "src/flamenco/vm/instr_test/v2/jump.instr",
+        "src/flamenco/vm/instr_test/v2/load.instr",
+        "src/flamenco/vm/instr_test/v2/shift.instr",
+        NULL
+      };
+      for( char const ** path=default_paths; *path; path++ ) {
+        fail += handle_file( *path, vm, 2 );
+      }
+      if( !fail ) FD_LOG_NOTICE(( "v2 pass" ));
+      else        FD_LOG_WARNING(( "v2 fail cnt %d", fail ));
     }
   }
 

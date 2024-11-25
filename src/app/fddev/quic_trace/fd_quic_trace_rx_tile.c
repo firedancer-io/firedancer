@@ -114,11 +114,10 @@ after_frag( void * _ctx FD_FN_UNUSED,
             ulong  in_idx,
             ulong  seq,
             ulong  sig,
-            ulong  chunk,
             ulong  sz,
             ulong  tsorig,
             fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)chunk; (void)sz; (void)tsorig; (void)stem;
+  (void)in_idx; (void)seq; (void)sig; (void)sz; (void)tsorig; (void)stem;
 
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
 

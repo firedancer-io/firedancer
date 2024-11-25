@@ -5,8 +5,6 @@
 #include "../../../../disco/stem/fd_stem.h"
 #include "../../../../waltz/quic/fd_quic.h"
 
-#define FD_QUIC_TILE_CTX_MAGIC (0xbe66b25100961d68) /* random */
-
 typedef struct {
   fd_tpu_reasm_t * reasm;
 
@@ -23,8 +21,6 @@ typedef struct {
   fd_sha512_t      sha512[1]; /* used for signing */
 
   uchar buffer[ FD_NET_MTU ];
-
-  ulong conn_seq; /* current quic connection sequence number */
 
   ulong round_robin_cnt;
   ulong round_robin_id;
@@ -45,10 +41,22 @@ typedef struct {
 
   fd_wksp_t * verify_out_mem;
 
+  double ns_per_tick;
+  ulong  last_tick;
+  ulong  last_wall;
+
   struct {
     ulong txns_received_udp;
-    ulong txns_received_quic;
-    ulong txns_overrun;
+    ulong txns_received_quic_fast;
+    ulong txns_received_quic_frag;
+    ulong frag_ok_cnt;
+    ulong frag_gap_cnt;
+    ulong frag_dup_cnt;
+    ulong frag_oversz_cnt;
+    long  reasm_active;
+    ulong reasm_overrun;
+    ulong reasm_abandoned;
+    ulong reasm_started;
   } metrics;
 } fd_quic_ctx_t;
 

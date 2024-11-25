@@ -202,5 +202,6 @@
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4"},
   {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
   {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"},
-  {"name": "enable_secp256r1_precompile","pubkey":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"}
+  {"name": "enable_secp256r1_precompile","pubkey":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"},
+  {"name": "get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq"}
 ]

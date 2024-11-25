@@ -130,6 +130,9 @@ test_decompress( void ) {
   FD_TEST( dstream->magic==0UL );
 }
 
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
 int
 main( int     argc,
       char ** argv ) {
@@ -148,6 +151,10 @@ main( int     argc,
   }
 
   test_decompress();
+
+  for( int lvl=0; lvl<20; lvl++ ) {
+    FD_LOG_INFO(( "ZSTD_estimateCCtxSize(%d) = %lu", lvl, ZSTD_estimateCCtxSize( lvl ) ));
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

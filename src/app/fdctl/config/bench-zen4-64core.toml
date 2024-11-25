@@ -1,0 +1,31 @@
+# Configuration file used for benchmarking on an AMD Zen4 CPU
+# with 64 physical cores and 128 logical cores, something like
+# a AMD EPYC 9554P.
+scratch_directory = "/dev/shm/fd1"
+
+[layout]
+  verify_tile_count = 42
+  bank_tile_count = 20
+  shred_tile_count = 1
+
+[development.genesis]
+  fund_initial_accounts = 10000
+  hashes_per_tick = 12_500
+
+[development.bench]
+  benchg_tile_count = 18
+  benchs_tile_count = 3
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+  disable_blockstore_from_slot = 1
+  disable_status_cache = true
+
+[rpc]
+  transaction_history = false
+  extended_tx_metadata_storage = false
+
+[tiles.gui]
+  enabled = true
+
+[tiles.pack]
+  use_consumed_cus = false

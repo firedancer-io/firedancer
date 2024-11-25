@@ -2,7 +2,7 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
-PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1)
+PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1 | head -n 1)
 RPC_URL="http://$PRIMARY_IP:8899/"
 AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 

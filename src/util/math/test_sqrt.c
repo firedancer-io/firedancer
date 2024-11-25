@@ -32,7 +32,7 @@ main( int     argc,
       }                                                                       \
       INT v = fd_##INT##_re_sqrt( u );                                        \
       INT s = (INT)(u - v*v);                                                 \
-      if( !( FD_UNLIKELY( ((u>=((INT)0)) & (((INT)0)<=s) & (s<=(v<<1))) |     \
+      if( FD_UNLIKELY( !( ((u>=((INT)0)) & (((INT)0)<=s) & (s<=(v<<1))) |     \
                           ((u< ((INT)0)) & (v==((INT)0))              ) ) ) ) \
         FD_LOG_ERR(( "FAIL: iter %i op sqrt_re_int" #w " u %li v %li s %li",  \
                      i, (long)u, (long)v, (long)s ));                         \

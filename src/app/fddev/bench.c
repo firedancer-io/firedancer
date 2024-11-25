@@ -152,6 +152,15 @@ bench_cmd_fn( args_t *         args,
   config->rpc.port     = fd_ushort_if( config->rpc.port, config->rpc.port, 8899 );
   config->rpc.full_api = 1;
 
+  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+  int is_agave_auto_affinity = !strcmp( config->layout.agave_affinity, "auto" );
+  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
+
+  if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ||
+                   is_auto_affinity != is_bench_auto_affinity ) ) {
+    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
+  }
+
   add_bench_topo( &config->topo,
                   config->development.bench.affinity,
                   config->development.bench.benchg_tile_count,

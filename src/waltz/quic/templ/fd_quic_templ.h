@@ -90,38 +90,6 @@ FD_TEMPL_DEF_STRUCT_BEGIN(initial)
 FD_TEMPL_DEF_STRUCT_END(initial)
 
 
-/* 17.2.3 0-RTT
-   0-RTT Packet {
-     Header Form (1) = 1,
-     Fixed Bit (1) = 1,
-     Long Packet Type (2) = 1,
-     Reserved Bits (2),
-     Packet Number Length (2),
-     Version (32),
-     Destination Connection ID Length (8),
-     Destination Connection ID (0..160),
-     Source Connection ID Length (8),
-     Source Connection ID (0..160),
-     Length (i),
-     Packet Number (8..32),
-     Packet Payload (8..),
-   }
-   Figure 16: 0-RTT Packet */
-FD_TEMPL_DEF_STRUCT_BEGIN(zero_rtt)
-  FD_TEMPL_MBR_ELEM          ( h0,               uchar                  )
-  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
-  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
-
-  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                  )
-  FD_TEMPL_MBR_ELEM_VARINT   ( pkt_num,          ulong                  )
-
-  // payload starts here
-FD_TEMPL_DEF_STRUCT_END(zero_rtt)
-
-
 /* 17.2.4 Handshake Packet
    Handshake Packet {
      Header Form (1) = 1,

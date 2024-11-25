@@ -27,6 +27,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   int enable_alt_bn128_syscall             = 0;
   int enable_alt_bn128_compression_syscall = 0;
   int enable_last_restart_slot_syscall     = 0;
+  int enable_get_sysvar_syscall            = 0;
 
   int disable_fees_sysvar                  = 0;
 
@@ -38,6 +39,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
     enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_syscall );
     enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_compression_syscall );
     enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar );
+    enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot_ctx, get_sysvar_syscall_enabled );
 
     disable_fees_sysvar                  = !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
 
@@ -49,6 +51,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
     enable_alt_bn128_syscall             = 1;
     enable_alt_bn128_compression_syscall = 1;
     enable_last_restart_slot_syscall     = 1;
+    enable_get_sysvar_syscall            = 1;
 
   }
 
@@ -100,7 +103,11 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   REGISTER( "sol_get_rent_sysvar",                   fd_vm_syscall_sol_get_rent_sysvar );
 
   if( FD_LIKELY( enable_last_restart_slot_syscall ) ) {
-    REGISTER( "sol_get_last_restart_slot",             fd_vm_syscall_sol_get_last_restart_slot_sysvar );
+    REGISTER( "sol_get_last_restart_slot",           fd_vm_syscall_sol_get_last_restart_slot_sysvar );
+  }
+
+  if( enable_get_sysvar_syscall ) {
+    REGISTER( "sol_get_sysvar",                      fd_vm_syscall_sol_get_sysvar );
   }
 
   REGISTER( "sol_memcpy_",                           fd_vm_syscall_sol_memcpy );

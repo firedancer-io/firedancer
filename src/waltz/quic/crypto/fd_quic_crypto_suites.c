@@ -70,34 +70,35 @@ fd_quic_gen_secrets(
 }
 
 
-/* generate new secrets
-
-   Used during key update to generate new secrets from the
-   existing secrets
-
-   see rfc9001 section 6, rfc8446 section 7.2 */
 void
-fd_quic_gen_new_secrets( fd_quic_crypto_secrets_t * secrets ) {
+fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
+                           fd_quic_crypto_keys_t      new_keys[2] ) {
   /* Defined as:
      application_traffic_secret_N+1 =
            HKDF-Expand-Label(application_traffic_secret_N,
                              "traffic upd", "", Hash.length) */
   uint enc_level = fd_quic_enc_level_appdata_id;
-  uchar * client_secret = secrets->new_secret[0];
-  uchar * server_secret = secrets->new_secret[1];
 
-  uchar * old_client_secret = secrets->secret[enc_level][0];
-  uchar * old_server_secret = secrets->secret[enc_level][1];
+  for( ulong j=0UL; j<2UL; j++ ) {
+    fd_quic_hkdf_expand_label(
+        secrets->new_secret[j], FD_QUIC_SECRET_SZ,
+        secrets->secret[enc_level][j],
+        FD_QUIC_CRYPTO_LABEL_KEY_UPDATE, FD_QUIC_CRYPTO_LABEL_KEY_UPDATE_LEN );
+  }
 
-  fd_quic_hkdf_expand_label(
-      client_secret, FD_QUIC_SECRET_SZ,
-      old_client_secret,
-      FD_QUIC_CRYPTO_LABEL_KEY_UPDATE, FD_QUIC_CRYPTO_LABEL_KEY_UPDATE_LEN );
+  for( ulong j=0UL; j<2UL; j++ ) {
+    fd_quic_hkdf_expand_label(
+        new_keys[j].pkt_key, FD_AES_128_KEY_SZ,
+        secrets->new_secret[j],
+        FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
+        FD_QUIC_CRYPTO_LABEL_QUIC_KEY_LEN );
 
-  fd_quic_hkdf_expand_label(
-      server_secret, FD_QUIC_SECRET_SZ,
-      old_server_secret,
-      FD_QUIC_CRYPTO_LABEL_KEY_UPDATE, FD_QUIC_CRYPTO_LABEL_KEY_UPDATE_LEN );
+    fd_quic_hkdf_expand_label(
+        new_keys[j].iv, FD_AES_GCM_IV_SZ,
+        secrets->new_secret[j],
+        FD_QUIC_CRYPTO_LABEL_QUIC_IV,
+        FD_QUIC_CRYPTO_LABEL_QUIC_IV_LEN );
+  }
 }
 
 
@@ -125,30 +126,6 @@ fd_quic_gen_keys(
       secret,
       FD_QUIC_CRYPTO_LABEL_QUIC_HP,
       FD_QUIC_CRYPTO_LABEL_QUIC_HP_LEN );
-
-  /* quic iv */
-  fd_quic_hkdf_expand_label(
-      keys->iv, FD_AES_GCM_IV_SZ,
-      secret,
-      FD_QUIC_CRYPTO_LABEL_QUIC_IV,
-      FD_QUIC_CRYPTO_LABEL_QUIC_IV_LEN );
-}
-
-
-/* generates packet key and iv key
-   used by key update
-
-   TODO this overlaps with fd_quic_gen_keys, split into gen_hp_keys and gen_pkt_keys */
-void
-fd_quic_gen_new_keys(
-    fd_quic_crypto_keys_t * keys,
-    uchar const             secret[ 32 ] ) {
-  /* quic key */
-  fd_quic_hkdf_expand_label(
-      keys->pkt_key, FD_AES_128_KEY_SZ,
-      secret,
-      FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
-      FD_QUIC_CRYPTO_LABEL_QUIC_KEY_LEN );
 
   /* quic iv */
   fd_quic_hkdf_expand_label(
@@ -283,11 +260,11 @@ fd_quic_crypto_encrypt(
 
 int
 fd_quic_crypto_decrypt(
-    uchar *                        buf,
-    ulong                          buf_sz,
-    ulong                          pkt_number_off,
-    ulong                          pkt_number,
-    fd_quic_crypto_keys_t const *  keys ) {
+    uchar *                       buf,
+    ulong                         buf_sz,
+    ulong                         pkt_number_off,
+    ulong                         pkt_number,
+    fd_quic_crypto_keys_t const * keys ) {
 
   if( FD_UNLIKELY( ( pkt_number_off >= buf_sz      ) |
                    ( buf_sz < FD_QUIC_SHORTEST_PKT ) ) ) {

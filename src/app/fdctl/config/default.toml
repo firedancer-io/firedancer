@@ -863,24 +863,6 @@ dynamic_port_range = "8900-9000"
         # This must be >= 2 and also a power of 2.
         max_concurrent_connections = 131072
 
-        # QUIC allows for multiple streams to be multiplexed over a
-        # single connection.  This option sets the maximum number of
-        # simultaneous streams per connection supported by our protocol
-        # implementation.
-        #
-        # If the peer has this many simultaneous streams open and wishes
-        # to initiate another stream, they must first retire an existing
-        # stream.
-        #
-        # The Solana protocol uses one stream per transaction.
-        # Supporting more streams per connection currently has a memory
-        # footprint cost on the order of kilobytes per stream, per
-        # connection.
-        #
-        # Increasing this number causes server-side performance to get
-        # worse.
-        max_concurrent_streams_per_connection = 512
-
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
         # transactions larger than ca ~1200 bytes, as these arrive
@@ -899,13 +881,6 @@ dynamic_port_range = "8900-9000"
         # handshakes to occur concurrently.
         #
         max_concurrent_handshakes = 4096
-
-        # QUIC has a concept of a "QUIC packet", there can be multiple
-        # of these inside a UDP packet.  Each QUIC packet we send to the
-        # peer needs to be acknowledged before we can discard it, as we
-        # may need to retransmit.  This setting configures how many such
-        # packets we can have in-flight to the peer and unacknowledged.
-        max_inflight_quic_packets = 64
 
         # QUIC has a concept of an idle connection, one where neither
         # the client nor the server has sent any packet to the other for
@@ -928,6 +903,12 @@ dynamic_port_range = "8900-9000"
     # transactions, making sure that the data is well-formed, and that
     # it is signed by the appropriate private key.
     [tiles.verify]
+        # The verify tiles have a cache of signatures they have seen
+        # recently, used to discard duplicate transactions before they
+        # get verified to save signature verification resources.  See
+        # [tiles.dedup.signature_cache_size] below for more information.
+        signature_cache_size = 4194302
+
         # The maximum number of messages in-flight between a QUIC tile
         # and associated verify tile, after which earlier messages might
         # start being overwritten, and get dropped so that the system
@@ -949,7 +930,10 @@ dynamic_port_range = "8900-9000"
         # is available, it can make sense to increase this cache size to
         # protect against denial of service from high volumes of
         # transaction spam.
-        signature_cache_size = 4194302
+        #
+        # The default value here, 2^26 - 2 is a good balance, as it fits
+        # in 1GiB of memory using a single gigantic page.
+        signature_cache_size = 33554430
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
@@ -1030,7 +1014,7 @@ dynamic_port_range = "8900-9000"
     # endpoint to clients to view it.
     [tiles.gui]
         # If the GUI is enabled.
-        # 
+        #
         # Names and icons of peer validators will not be displayed in
         # the GUI unless the program-id index is enabled, which can be
         # done by setting

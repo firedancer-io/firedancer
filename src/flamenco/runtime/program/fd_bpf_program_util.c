@@ -20,6 +20,9 @@ fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info )
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
   validated_prog->rodata = (uchar *)mem + l;
 
+  /* SBPF version */
+  validated_prog->sbpf_version = elf_info->sbpf_version;
+
   return (fd_sbpf_validated_program_t *)mem;
 }
 
@@ -131,7 +134,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0 ) == NULL ) {
+    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, FD_SBPF_MAX_VERSION ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -192,6 +195,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
                       prog->text_sz,
                       prog->entry_pc,
                       prog->calldests,
+                      elf_info.sbpf_version,
                       NULL,
                       NULL,
                       NULL,

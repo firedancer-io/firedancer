@@ -1,5 +1,3 @@
-#include "../../../../disco/tiles.h"
-
 /* The frontend assets are pre-built and statically compiled into the
    binary here.  To regenerate them, run
 
@@ -9,6 +7,7 @@
    from the repository root. */
 
 #include "generated/http_import_dist.h"
+#define DIST_COMPRESSION_LEVEL (19)
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #if defined(__aarch64__)
@@ -20,18 +19,20 @@
 #include "../../version.h"
 
 #include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/gui/fd_gui.h"
 #include "../../../../disco/plugin/fd_plugin.h"
-#include "../../../../ballet/base58/fd_base58.h"
 #include "../../../../ballet/http/fd_http_server.h"
 
-#include <errno.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
 #include <poll.h>
 #include <stdio.h>
+
+#if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#endif
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -84,7 +85,30 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( GUI_PARAMS ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  ulong sz = FD_LAYOUT_FINI( l, scratch_align() );
+
+# if FD_HAS_ZSTD
+  sz = fd_ulong_max( sz, ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL ) );
+# endif
+
+  return sz;
+}
+
+/* dist_file_sz returns the sum of static asset file sizes */
+
+static ulong
+dist_file_sz( void ) {
+  ulong tot_sz = 0UL;
+  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+    tot_sz += *(f->data_len);
+  }
+  return tot_sz;
+}
+
+static inline ulong
+loose_footprint( fd_topo_tile_t const * tile FD_FN_UNUSED ) {
+  /* Reserve total size of files for compression buffers */
+  return fd_spad_footprint( dist_file_sz() );
 }
 
 static int
@@ -136,13 +160,11 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)chunk;
   (void)sz;
   (void)tsorig;
   (void)stem;
@@ -177,12 +199,12 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip" );
 
-  for( ulong i=0UL; i<sizeof(STATIC_FILES)/sizeof(STATIC_FILES[0]); i++ ) {
-    if( !strcmp( request->path, STATIC_FILES[ i ].name ) ||
-        (!strcmp( STATIC_FILES[ i ].name, "/index.html" ) && is_vite_page) ) {
+  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+    if( !strcmp( request->path, f->name ) ||
+        (!strcmp( f->name, "/index.html" ) && is_vite_page) ) {
       char const * content_type = NULL;
 
-      char const * ext = strrchr( STATIC_FILES[ i ].name, '.' );
+      char const * ext = strrchr( f->name, '.' );
       if( FD_LIKELY( ext ) ) {
         if( !strcmp( ext, ".html" ) ) content_type = "text/html; charset=utf-8";
         else if( !strcmp( ext, ".css" ) ) content_type = "text/css";
@@ -195,8 +217,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
       char const * cache_control = NULL;
       if( FD_LIKELY( !strncmp( request->path, "/assets", 7 ) ) ) cache_control = "public, max-age=31536000, immutable";
 
-      const uchar * data = STATIC_FILES[ i ].data;
-      ulong data_len = *(STATIC_FILES[ i ].data_len);
+      const uchar * data = f->data;
+      ulong data_len = *(f->data_len);
 
       int accepts_zstd = 0;
       if( FD_LIKELY( request->headers.accept_encoding ) ) {
@@ -204,10 +226,10 @@ gui_http_request( fd_http_server_request_t const * request ) {
       }
 
       char const * content_encoding = NULL;
-      if( FD_LIKELY( accepts_zstd && STATIC_FILES[ i ].zstd_data ) ) {
+      if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
         content_encoding = "zstd";
-        data = STATIC_FILES[ i ].zstd_data;
-        data_len = *(STATIC_FILES[ i ].zstd_data_len);
+        data = f->zstd_data;
+        data_len = f->zstd_data_len;
       }
 
       return (fd_http_server_response_t){
@@ -270,10 +292,69 @@ privileged_init( fd_topo_t *      topo,
   ctx->identity_key = fd_keyload_load( tile->gui.identity_key_path, /* pubkey only: */ 1 );
 }
 
+#if FD_HAS_ZSTD
+
+/* pre_compress_files compresses static assets into wksp-provided
+   buffers using Zstandard.  Logs warning and continues if insufficient
+   wksp space is available. */
+
+static void
+pre_compress_files( fd_wksp_t * wksp,
+                    ZSTD_CCtx * cctx ) {
+  ulong glo, ghi;
+  if( FD_UNLIKELY( !fd_wksp_alloc_at_least( wksp, FD_SPAD_ALIGN, loose_footprint( NULL ), 1UL, &glo, &ghi ) ) ) {
+    FD_LOG_WARNING(( "Failed to allocate space for compressing assets" ));
+    return;
+  }
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_wksp_laddr_fast( wksp, glo ), fd_spad_mem_max_max( ghi-glo ) ) );
+  fd_spad_push( spad );
+
+  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
+    char const * ext = strrchr( f->name, '.' );
+    if( !ext ) continue;
+    if( !strcmp( ext, ".html" ) ||
+        !strcmp( ext, ".css"  ) ||
+        !strcmp( ext, ".js"   ) ||
+        !strcmp( ext, ".svg"  ) ) {}
+    else continue;
+
+    ulong   zstd_bufsz = fd_spad_alloc_max( spad, 1UL );
+    uchar * zstd_buf   = fd_spad_prepare( spad, 1UL, zstd_bufsz );
+    ulong zstd_sz = ZSTD_compressCCtx( cctx, zstd_buf, zstd_bufsz, f->data, *f->data_len, DIST_COMPRESSION_LEVEL );
+    if( ZSTD_isError( zstd_sz ) ) {
+      fd_spad_cancel( spad );
+      FD_LOG_WARNING(( "ZSTD_compressCCtx(%s) failed (%s)", f->name, ZSTD_getErrorName( zstd_sz ) ));
+      break;
+    }
+    f->zstd_data     = zstd_buf;
+    f->zstd_data_len = zstd_sz;
+    fd_spad_publish( spad, zstd_sz );
+  }
+
+  ulong uncompressed_sz = 0UL;
+  ulong compressed_sz   = 0UL;
+  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
+    uncompressed_sz += *f->data_len;
+    compressed_sz   += fd_ulong_if( !!f->zstd_data_len, f->zstd_data_len, *f->data_len );
+  }
+
+  FD_LOG_INFO(( "Compressed assets (%lu bytes => %lu bytes)", uncompressed_sz, compressed_sz ));
+}
+
+#endif /* FD_HAS_ZSTD */
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+# if FD_HAS_ZSTD
+  /* Temporarily use tile memory to compress dist assets */
+  ZSTD_CCtx * cctx = ZSTD_initStaticCCtx( scratch, topo->objs[ tile->tile_obj_id ].footprint );
+  pre_compress_files( fd_wksp_containing( scratch ), cctx );
+  /* zstd.h: there is no corresponding "free" function */
+  cctx = NULL;
+# endif
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
@@ -350,6 +431,7 @@ fd_topo_run_tile_t fd_tile_gui = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
