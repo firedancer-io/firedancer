@@ -171,6 +171,8 @@ while true; do
                 --on-demand-block-ingest 1 \
                 --tile-cpus 5-21 >> $LOG 2>&1
             status=$?
+            sleep 10
+            REPLAY_SNAPSHOT_SLOT_NUMBER=$(basename $LEDGER_REPLAY_SNAPSHOT | grep -oP 'snapshot-\K\d+')
 
             if [ "$status" -eq 0 ]; then
                 DONE=1
@@ -208,6 +210,10 @@ while true; do
                         fi
                     done
                     echo "Found minimized rooted slot: $MINIMIZED_START_SLOT"
+                    if [ "$MINIMIZED_START_SLOT" -lt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
+                        MINIMIZED_START_SLOT=$REPLAY_SNAPSHOT_SLOT_NUMBER
+                    fi
+                    echo "Minimized start slot: $MINIMIZED_START_SLOT"
 
                     FOUND_PREVIOUS_ROOTED_SLOT=0
                     PREVIOUS_ROOTED_SLOT=$((MINIMIZED_START_SLOT-1))
@@ -236,18 +242,28 @@ while true; do
                     echo "Found next rooted slot: $NEXT_ROOTED_SLOT"
 
                     # create new snapshot at that slot
-                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
-                    rm $LEDGER_DIR/ledger_tool -rf
-                    # delete old snapshot (LEADER_REPLAY_SNAPSHOT)
-                    rm $LEDGER_REPLAY_SNAPSHOT
+                    if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
+                    echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
+                        $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
+                        sleep 10
+                        rm $LEDGER_DIR/ledger_tool -rf
+                        # delete old snapshot (LEADER_REPLAY_SNAPSHOT)
+                        rm $LEDGER_REPLAY_SNAPSHOT
+                    fi
+                    if [ "$PREVIOUS_ROOTED_SLOT" -lt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
+                        PREVIOUS_ROOTED_SLOT=$REPLAY_SNAPSHOT_SLOT_NUMBER
+                    fi
+                    echo "Minimized start slot: $PREVIOUS_ROOTED_SLOT"
+
                     # create a new base snapshot for rooted slot right after the mismatch slot
+                    echo "Creating new snapshot at $NEXT_ROOTED_SLOT"
                     $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR
+                    sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
                     # set LEDGER_REPLAY_SNAPSHOT to new snapshot
                     LEDGER_REPLAY_SNAPSHOT=$LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}*
                     echo "New snapshot created at $LEDGER_REPLAY_SNAPSHOT"
                     # minify a rocksdb for the minimized snapshot
-                    
                     
                     # create a minimized snapshot for the mismatch slot using the new snapshot
                     MISMATCH_DIR=$LEDGER_DIR/$NETWORK-${MISMATCH_SLOT}
@@ -268,10 +284,12 @@ while true; do
                         --page-cnt $PAGES \
                         --copy-txn-status 1 >> $LOG 2>&1
                     status=$?
+                    sleep 10
 
                     mv $LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
                     echo "Creating minimized snapshot for mismatch"
                     $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT
+                    sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
                     mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
 
