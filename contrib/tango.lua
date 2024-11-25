@@ -75,6 +75,7 @@ local link_hashes = {
   [0x641266] = "quic_netmux",
   [0xbbbcde] = "shred_netmux",
   [0x18a945] = "shred_net",
+  [0x2aabab] = "quic_verify",
   [0x1efba0] = "verify_dedup",
   [0x59ac4d] = "dedup_pack",
   [0xf5fa3d] = "gossip_pack",
@@ -102,7 +103,7 @@ function tango.dissector (tvb, pinfo, tree)
   end
 
   local link_hash = tvb(packet_len-4, 4):le_uint()
-  local link_name = link_hashes[bit.rshift(link_hash, 8)] 
+  local link_name = link_hashes[bit.rshift(link_hash, 8)]
 
   local link_element = subtree:add_le(tango_link, tvb(packet_len-4, 4)):append_text( " (" .. link_name .. ")" )
   subtree:add(tango_link_name, tvb(packet_len-4, 4), link_name)
