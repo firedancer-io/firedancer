@@ -441,7 +441,7 @@ fd_gossip_unlock( fd_gossip_t * gossip ) {
 
 /* FIXME: do these go in fd_types_custom instead? */
 void
-fd_gossip_ip_addr_from_sockaddr( fd_gossip_socket_addr_t const * addr, fd_gossip_ip_addr_t * out ) {
+fd_gossip_ipaddr_from_socketaddr( fd_gossip_socket_addr_t const * addr, fd_gossip_ip_addr_t * out ) {
   if( FD_LIKELY( addr->discriminant == fd_gossip_socket_addr_enum_ip4 ) ) {
     fd_gossip_ip_addr_new_disc(out, fd_gossip_ip_addr_enum_ip4);
     out->inner.ip4 = addr->inner.ip4.addr;
@@ -452,7 +452,7 @@ fd_gossip_ip_addr_from_sockaddr( fd_gossip_socket_addr_t const * addr, fd_gossip
 }
 
 ushort
-fd_gossip_port_from_socket( fd_gossip_socket_addr_t const * addr ) {
+fd_gossip_port_from_socketaddr( fd_gossip_socket_addr_t const * addr ) {
   if( FD_LIKELY( addr->discriminant == fd_gossip_socket_addr_enum_ip4 ) ) {
     return addr->inner.ip4.port;
   } else {
@@ -1285,7 +1285,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
   if (crd->data.discriminant == fd_crds_data_enum_contact_info_v1) {
     fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
-    if( fd_gossip_port_from_socket(&info->gossip) != 0) {
+    if( fd_gossip_port_from_socketaddr(&info->gossip) != 0) {
       /* Remember the peer */
       fd_gossip_peer_addr_t pkey;
       fd_memset(&pkey, 0, sizeof(pkey));
@@ -1322,7 +1322,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
     fd_gossip_socket_addr_t socket_addr;
     if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
-      if( fd_gossip_port_from_socket( &socket_addr ) != 0) {
+      if( fd_gossip_port_from_socketaddr( &socket_addr ) != 0) {
         /* Remember the peer */
         fd_gossip_peer_addr_t pkey;
         fd_memset(&pkey, 0, sizeof(pkey));
@@ -1349,7 +1349,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
       fd_gossip_peer_addr_t peer_addr = { .addr = socket_addr.inner.ip4.addr,
                                           /* FIXME: hardcode to ip4 inner? */
-                                          .port = fd_ushort_bswap( fd_gossip_port_from_socket( &socket_addr ) ) };
+                                          .port = fd_ushort_bswap( fd_gossip_port_from_socketaddr( &socket_addr ) ) };
       if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
         FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version));
         glob->my_contact_info.shred_version = crd->data.inner.contact_info_v2.shred_version;
@@ -1493,12 +1493,12 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       ushort min_port = USHORT_MAX;
       uchar min_key = 0;
 
-      ushort gossip_port = fd_gossip_port_from_socket( &glob->my_contact_info.gossip );
-      ushort serve_repair_port = fd_gossip_port_from_socket( &glob->my_contact_info.serve_repair );
-      ushort tvu_port = fd_gossip_port_from_socket( &glob->my_contact_info.tvu );
-      ushort tpu_port = fd_gossip_port_from_socket( &glob->my_contact_info.tpu );
-      ushort tpu_quic_port = fd_gossip_port_from_socket( &glob->my_contact_info.tpu ) + 6;
-      ushort tpu_vote_port = fd_gossip_port_from_socket( &glob->my_contact_info.tpu_vote );
+      ushort gossip_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.gossip );
+      ushort serve_repair_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.serve_repair );
+      ushort tvu_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tvu );
+      ushort tpu_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu );
+      ushort tpu_quic_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu ) + 6;
+      ushort tpu_vote_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu_vote );
       if( gossip_port > 0 && gossip_port > last_port && gossip_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
         min_socket = &glob->my_contact_info.gossip;
@@ -1534,7 +1534,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       }
 
       /* ci->addrs[ cnt ] = min_socket->inner.{ip4,ip6}.addr */
-      fd_gossip_ip_addr_from_sockaddr( min_socket, &ci->addrs[ cnt ] );
+      fd_gossip_ipaddr_from_socketaddr( min_socket, &ci->addrs[ cnt ] );
       ci->sockets[ cnt ].index = 0;
       ci->sockets[ cnt ].offset = (ushort)( min_port - last_port );
       ci->sockets[ cnt ].key = min_key;
