@@ -304,6 +304,7 @@ union fd_quic_metrics {
     /* Packet metrics */
     ulong pkt_decrypt_fail_cnt;    /* number of packets that failed decryption */
     ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
+    ulong pkt_tx_alloc_fail_cnt;   /* number of pkt_meta alloc fails */
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */

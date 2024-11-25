@@ -57,7 +57,9 @@ slot_get_data_const( fd_tpu_reasm_t const * reasm,
 static FD_FN_UNUSED void
 slot_begin( fd_tpu_reasm_slot_t * slot ) {
   memset( slot, 0, sizeof(fd_tpu_reasm_slot_t) );
-  slot->k.state = FD_TPU_REASM_STATE_BUSY;
+  slot->k.state     = FD_TPU_REASM_STATE_BUSY;
+  slot->k.conn_uid  = ULONG_MAX;
+  slot->k.stream_id = FD_TPU_REASM_SID_MASK;
 }
 
 /* Slot queue methods **************************************************
