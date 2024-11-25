@@ -190,9 +190,11 @@ struct fd_gossip_tile_ctx {
   ulong replay_vote_txn_sz;
   uchar replay_vote_txn [ FD_TXN_MTU ];
 
-  long  restart_last_vote_push_time;
+  long  restart_last_push_time;
   ulong restart_last_vote_msg_sz;
-  uchar restart_last_vote_msg [ LAST_VOTED_FORK_MAX_MSG_BYTES ];
+  ulong restart_heaviest_fork_msg_sz;
+  ulong restart_heaviest_fork_msg[ sizeof(fd_gossip_restart_heaviest_fork_t) ];
+  uchar restart_last_vote_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -304,40 +306,7 @@ static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)arg;
 
-  if( fd_crds_data_is_restart_last_voted_fork_slots( data ) ) {
-    ulong struct_len = sizeof( fd_gossip_restart_last_voted_fork_slots_t );
-    /* TODO: handle RunLengthEncoding for bitmap */
-    ulong bitmap_len = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits_len;
-    if( FD_UNLIKELY( bitmap_len>LAST_VOTED_FORK_MAX_BITMAP_BYTES ) ) {
-      FD_LOG_WARNING(( "Ignore an invalid gossip message with bitmap length %lu, greater than %lu", bitmap_len, LAST_VOTED_FORK_MAX_BITMAP_BYTES ));
-      return;
-    }
-
-    uchar * last_vote_msg_ = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    FD_STORE( uint, last_vote_msg_, fd_crds_data_enum_restart_last_voted_fork_slots );
-    fd_memcpy( last_vote_msg_+sizeof(uint), &data->inner.restart_last_voted_fork_slots, struct_len );
-    fd_memcpy( last_vote_msg_+sizeof(uint)+struct_len,
-               data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits,
-               bitmap_len );
-
-    ulong total_len = sizeof(uint) + struct_len + bitmap_len;
-    fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, 1UL, ctx->replay_out_chunk,
-                       total_len, 0UL, 0, 0 );
-    ctx->replay_out_seq   = fd_seq_inc( ctx->replay_out_seq, 1UL );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, total_len, ctx->replay_out_chunk0, ctx->replay_out_wmark );
-  } else if( fd_crds_data_is_restart_heaviest_fork( data ) ) {
-    uchar * heaviest_fork_msg_ = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    FD_STORE( uint, heaviest_fork_msg_, fd_crds_data_enum_restart_heaviest_fork );
-    fd_memcpy( heaviest_fork_msg_+sizeof(uint),
-               &data->inner.restart_heaviest_fork,
-               sizeof(fd_gossip_restart_heaviest_fork_t) );
-
-    ulong total_len = sizeof(uint) + sizeof(fd_gossip_restart_heaviest_fork_t);
-    fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, 1UL, ctx->replay_out_chunk,
-                       total_len, 0UL, 0, 0 );
-    ctx->replay_out_seq   = fd_seq_inc( ctx->replay_out_seq, 1UL );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, total_len, ctx->replay_out_chunk0, ctx->replay_out_wmark );
-  } else if( fd_crds_data_is_vote( data ) ) {
+  if( fd_crds_data_is_vote( data ) ) {
     fd_gossip_vote_t const * gossip_vote = &data->inner.vote;
     if( verify_vote_txn( gossip_vote ) != 0 ) {
       return;
@@ -400,6 +369,46 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
                        0 );
     ctx->eqvoc_out_seq   = fd_seq_inc( ctx->eqvoc_out_seq, 1UL );
     ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
+  } else if( fd_crds_data_is_restart_last_voted_fork_slots( data ) ) {
+    ulong struct_len       = sizeof( fd_gossip_restart_last_voted_fork_slots_t );
+    uchar * last_vote_msg_ = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    FD_STORE( uint, last_vote_msg_, fd_crds_data_enum_restart_last_voted_fork_slots );
+
+    ulong bitmap_len   = 0;
+    uchar * bitmap_dst = last_vote_msg_+sizeof(uint)+struct_len;
+    if ( FD_LIKELY( data->inner.restart_last_voted_fork_slots.offsets.discriminant==fd_restart_slots_offsets_enum_raw_offsets ) ) {
+      uchar * bitmap_src = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits;
+      bitmap_len         = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits_len;
+      memcpy( bitmap_dst, bitmap_src, bitmap_len );
+    } else {
+      uchar bitmap_src [ FD_RESTART_RAW_BITMAP_BYTES_MAX ];
+      fd_restart_convert_runlength_to_raw_bitmap( &data->inner.restart_last_voted_fork_slots, bitmap_src, &bitmap_len );
+      if( FD_UNLIKELY( bitmap_len>FD_RESTART_RAW_BITMAP_BYTES_MAX ) ) {
+        FD_LOG_WARNING(( "Ignore an invalid gossip message with bitmap length greater than %lu", FD_RESTART_RAW_BITMAP_BYTES_MAX ));
+        return;
+      }
+      memcpy( bitmap_dst, bitmap_src, bitmap_len );
+    }
+    /* Copy the struct to the buffer now because it may be modified by fd_restart_convert_runlength_to_raw_bitmap */
+    fd_memcpy( last_vote_msg_+sizeof(uint), &data->inner.restart_last_voted_fork_slots, struct_len );
+
+    ulong total_len = sizeof(uint) + struct_len + bitmap_len;
+    fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, 1UL, ctx->replay_out_chunk,
+                       total_len, 0UL, 0, 0 );
+    ctx->replay_out_seq   = fd_seq_inc( ctx->replay_out_seq, 1UL );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, total_len, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  } else if( fd_crds_data_is_restart_heaviest_fork( data ) ) {
+    uchar * heaviest_fork_msg_ = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    FD_STORE( uint, heaviest_fork_msg_, fd_crds_data_enum_restart_heaviest_fork );
+    fd_memcpy( heaviest_fork_msg_+sizeof(uint),
+               &data->inner.restart_heaviest_fork,
+               sizeof(fd_gossip_restart_heaviest_fork_t) );
+
+    ulong total_len = sizeof(uint) + sizeof(fd_gossip_restart_heaviest_fork_t);
+    fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, 1UL, ctx->replay_out_chunk,
+                       total_len, 0UL, 0, 0 );
+    ctx->replay_out_seq   = fd_seq_inc( ctx->replay_out_seq, 1UL );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, total_len, ctx->replay_out_chunk0, ctx->replay_out_wmark );
   }
 }
 
@@ -440,7 +449,7 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
   (void)sig;
 
   if( in_idx==REPLAY_IN_IDX ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>RESTART_MAX_MSG_BYTES+sizeof(uint) ) ) {
+    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
     }
 
@@ -448,27 +457,20 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     uint discriminant = FD_LOAD( uint, msg );
     if( discriminant==fd_crds_data_enum_restart_last_voted_fork_slots ) {
       if( ctx->restart_last_vote_msg_sz!=0 ) {
-        FD_LOG_ERR(( "Gossip tile should expect this message only once. Something may have corrupted." ));
+        FD_LOG_ERR(( "Gossip tile expects fd_gossip_restart_last_voted_fork_slots_t only once." ));
       }
       /* Copy this message into ctx and after_frag will send it out periodically */
       FD_TEST( sz>=sizeof(uint)+sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
       fd_memcpy( ctx->restart_last_vote_msg, msg+sizeof(uint), sz-sizeof(uint) );
-      ctx->restart_last_vote_msg_sz = sz;
+      ctx->restart_last_vote_msg_sz = sz-sizeof(uint);
     } else if( discriminant==fd_crds_data_enum_restart_heaviest_fork ) {
+      if( ctx->restart_heaviest_fork_msg_sz!=0 ) {
+        FD_LOG_ERR(( "Gossip tile expects fd_gossip_restart_heaviest_fork_t only once." ));
+      }
+      /* Copy this message into ctx and after_frag will send it out periodically */
       FD_TEST( sz==sizeof(uint)+sizeof(fd_gossip_restart_heaviest_fork_t) );
-
-      fd_crds_data_t restart_heaviest_fork_msg;
-      restart_heaviest_fork_msg.discriminant = fd_crds_data_enum_restart_heaviest_fork;
-      fd_memcpy( &restart_heaviest_fork_msg.inner.restart_heaviest_fork,
-                 msg+sizeof(uint),
-                 sizeof(fd_gossip_restart_heaviest_fork_t) );
-      restart_heaviest_fork_msg.inner.restart_heaviest_fork.shred_version = fd_gossip_get_shred_version( ctx->gossip );
-      FD_TEST( fd_gossip_push_value( ctx->gossip, &restart_heaviest_fork_msg, NULL )==0 );
-
-      FD_LOG_NOTICE(( "Send out restart_heaviest_fork gossip message with slot=%lu, hash=%s, shred_version=%u",
-                       restart_heaviest_fork_msg.inner.restart_heaviest_fork.last_slot,
-                       FD_BASE58_ENC_32_ALLOCA( &restart_heaviest_fork_msg.inner.restart_heaviest_fork.last_slot_hash ),
-                       restart_heaviest_fork_msg.inner.restart_heaviest_fork.shred_version ));
+      fd_memcpy( ctx->restart_heaviest_fork_msg, msg+sizeof(uint), sz-sizeof(uint) );
+      ctx->restart_heaviest_fork_msg_sz = sz-sizeof(uint);
     }
     return;
   }
@@ -709,23 +711,46 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     publish_peers_to_plugin( ctx, stem );
   }
 
-  if( FD_UNLIKELY(( ctx->restart_last_vote_msg_sz!=0 )&&( ctx->restart_last_vote_push_time+LAST_VOTED_FORK_PUBLISH_PERIOD_NS<now )) ) {
-    ctx->restart_last_vote_push_time = now;
-    fd_crds_data_t restart_last_vote_msg;
-    restart_last_vote_msg.discriminant = fd_crds_data_enum_restart_last_voted_fork_slots;
-    fd_memcpy( &restart_last_vote_msg.inner.restart_last_voted_fork_slots, ctx->restart_last_vote_msg, sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
+  if( FD_UNLIKELY(( ctx->restart_last_push_time+FD_RESTART_MSG_PUBLISH_PERIOD_NS<now )) ) {
+    ctx->restart_last_push_time = now;
 
-    restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version = fd_gossip_get_shred_version( ctx->gossip );
-    restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
+    if( FD_UNLIKELY( ctx->restart_last_vote_msg_sz>0 ) ) {
+      fd_crds_data_t restart_last_vote_msg;
+      restart_last_vote_msg.discriminant = fd_crds_data_enum_restart_last_voted_fork_slots;
+      fd_memcpy( &restart_last_vote_msg.inner.restart_last_voted_fork_slots,
+                 ctx->restart_last_vote_msg,
+                 sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
 
-    FD_TEST( fd_gossip_push_value( ctx->gossip, &restart_last_vote_msg, NULL )==0 );
+      restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version = fd_gossip_get_shred_version( ctx->gossip );
+      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
 
-    FD_LOG_NOTICE(( "Send out restart_last_voted_fork_slots message with bitmap=%luB, vote_slot=%lu, vote_hash=%s, shred_version=%u",
-                    ctx->restart_last_vote_msg_sz - sizeof(fd_gossip_restart_last_voted_fork_slots_t),
-                    restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_slot,
-                    FD_BASE58_ENC_32_ALLOCA( &restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_hash ),
-                    restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version ));
-    return;
+      /* Convert the raw bitmap into RunLengthEncoding before sending out */
+      fd_restart_run_length_encoding_inner_t runlength_encoding[ FD_RESTART_PACKET_BITMAP_BYTES_MAX/sizeof(ushort) ];
+      fd_restart_convert_raw_bitmap_to_runlength( &restart_last_vote_msg.inner.restart_last_voted_fork_slots, runlength_encoding );
+
+      FD_TEST( fd_gossip_push_value( ctx->gossip, &restart_last_vote_msg, NULL )==0 );
+      FD_LOG_NOTICE(( "Send out restart_last_voted_fork_slots message with bitmap=%luB, vote_slot=%lu, bank_hash=%s, shred_version=%u",
+                      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.run_length_encoding.offsets_len*sizeof(ushort),
+                      restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_slot,
+                      FD_BASE58_ENC_32_ALLOCA( &restart_last_vote_msg.inner.restart_last_voted_fork_slots.last_voted_hash ),
+                      restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version ));
+    }
+
+    if( FD_UNLIKELY( ctx->restart_heaviest_fork_msg_sz>0 ) ) {
+      fd_crds_data_t restart_heaviest_fork_msg;
+      restart_heaviest_fork_msg.discriminant = fd_crds_data_enum_restart_heaviest_fork;
+      fd_memcpy( &restart_heaviest_fork_msg.inner.restart_heaviest_fork,
+                 ctx->restart_heaviest_fork_msg,
+                 sizeof(fd_gossip_restart_heaviest_fork_t) );
+      restart_heaviest_fork_msg.inner.restart_heaviest_fork.shred_version = fd_gossip_get_shred_version( ctx->gossip );
+
+      FD_TEST( fd_gossip_push_value( ctx->gossip, &restart_heaviest_fork_msg, NULL )==0 );
+      FD_LOG_NOTICE(( "Send out restart_heaviest_fork gossip message with slot=%lu, hash=%s, shred_version=%u",
+                       restart_heaviest_fork_msg.inner.restart_heaviest_fork.last_slot,
+                       FD_BASE58_ENC_32_ALLOCA( &restart_heaviest_fork_msg.inner.restart_heaviest_fork.last_slot_hash ),
+                       restart_heaviest_fork_msg.inner.restart_heaviest_fork.shred_version ));
+
+    }
   }
 
   ushort shred_version = fd_gossip_get_shred_version( ctx->gossip );
@@ -815,9 +840,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_net_create_packet_header_template( ctx->hdr, FD_NET_MTU, ctx->gossip_my_addr.addr, ctx->src_mac_addr, ctx->gossip_listen_port );
 
-  ctx->last_shred_dest_push_time   = 0;
-  ctx->restart_last_vote_msg_sz    = 0;
-  ctx->restart_last_vote_push_time = 0;
+  ctx->last_shred_dest_push_time    = 0;
+  ctx->restart_last_push_time       = 0;
+  ctx->restart_last_vote_msg_sz     = 0;
+  ctx->restart_heaviest_fork_msg_sz = 0;
 
   fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];

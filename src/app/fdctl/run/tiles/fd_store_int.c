@@ -142,6 +142,7 @@ struct fd_store_tile_ctx {
   fd_txn_iter_t * txn_iter_map;
 
   int   in_wen_restart;
+  ulong restart_funk_root;
   ulong restart_heaviest_fork_slot;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
@@ -201,16 +202,17 @@ during_frag( fd_store_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX && ctx->in_wen_restart ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>sizeof(ulong) ) ) {
+    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>sizeof(ulong)*2 ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
     }
 
-    FD_TEST( sz==sizeof(ulong) );
+    FD_TEST( sz==sizeof(ulong)*2 );
     if( FD_UNLIKELY( ctx->restart_heaviest_fork_slot!=0 ) ) {
       FD_LOG_ERR(( "Store tile should only receive heaviest_fork_slot once during wen-restart. Something may have corrupted." ));
     }
     const uchar * buf               = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
     ctx->restart_heaviest_fork_slot = FD_LOAD( ulong, buf );
+    ctx->restart_funk_root          = FD_LOAD( ulong, buf+sizeof(ulong) );
 
     return;
   }
@@ -270,7 +272,8 @@ after_frag( fd_store_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX && ctx->in_wen_restart ) ) {
-    FD_LOG_NOTICE(( "Store tile starts to repair backwards from slot%lu", ctx->restart_heaviest_fork_slot ));
+    FD_LOG_NOTICE(( "Store tile starts to repair backwards from slot%lu, which should be on the same fork as slot%lu",
+                    ctx->restart_heaviest_fork_slot, ctx->restart_funk_root ));
     fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
     return;
   }
@@ -514,10 +517,15 @@ after_credit( fd_store_tile_ctx_t * ctx,
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
 
-    if( FD_UNLIKELY( ctx->in_wen_restart &&
-                     i==ctx->restart_heaviest_fork_slot &&
-                     store_slot_prepare_mode!= FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED) ) {
-      fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+    if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
+      if( FD_UNLIKELY( slot<ctx->restart_funk_root ) ) {
+        FD_LOG_ERR(( "Halting wen-restart because the fork repaired from heaviest_fork_slot(%lu) to %lu is different from the fork for funk root(%lu)",
+                     ctx->restart_heaviest_fork_slot, slot, ctx->restart_funk_root ));
+      }
+      if( FD_UNLIKELY( i==ctx->restart_heaviest_fork_slot &&
+                       store_slot_prepare_mode!=FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED ) ) {
+        fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+      }
     }
   }
 }
@@ -666,6 +674,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
 
   /* Set up ctx states for wen-restart */
+  ctx->restart_funk_root          = 0;
   ctx->restart_heaviest_fork_slot = 0;
   ctx->in_wen_restart             = tile->store_int.in_wen_restart;
 

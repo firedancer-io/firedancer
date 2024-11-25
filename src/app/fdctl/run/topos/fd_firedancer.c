@@ -175,7 +175,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
   /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
   /**/                 fd_topob_link( topo, "replay_gossi", "replay_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
-  /**/                 fd_topob_link( topo, "replay_store", "replay_store", 128UL,                                    sizeof(ulong),                 1UL );
+  /**/                 fd_topob_link( topo, "replay_store", "replay_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
 
   /* gossip_dedup could be FD_TPU_MTU, since txns are not parsed, but better to just share one size for all the ins of dedup */
   /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
@@ -609,7 +609,8 @@ fd_topo_initialize( config_t * config ) {
       }
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       tile->replay.bank_tile_count = config->layout.bank_tile_count;
-      tile->replay.in_wen_restart = config->tiles.replay.in_wen_restart;
+      tile->replay.in_wen_restart  = config->tiles.replay.in_wen_restart;
+      strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
       fd_memcpy( tile->replay.wen_restart_coordinator, config->tiles.replay.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
 
       /* not specified by [tiles.replay] */
