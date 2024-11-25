@@ -485,8 +485,12 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
       if( socket_entry->index>=contact_info->addrs_len) {
         continue;
       }
+
+      /* Annoyingly, fd_gossip_socket_addr->inner and fd_gossip_ip_addr
+         are slightly different, so we can't just 
+         out_addr->ip = contact_info->addrs[ idx ] */
       fd_gossip_ip_addr_t * tmp = &contact_info->addrs[ socket_entry->index ];
-      if( tmp->discriminant == fd_gossip_ip_addr_enum_ip4 ) {
+      if( FD_LIKELY( tmp->discriminant == fd_gossip_ip_addr_enum_ip4 ) ) {
         out_addr->discriminant = fd_gossip_socket_addr_enum_ip4;
         out_addr->inner.ip4.addr = tmp->inner.ip4;
         out_addr->inner.ip4.port = port;
