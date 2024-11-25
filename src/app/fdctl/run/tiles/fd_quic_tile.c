@@ -72,11 +72,15 @@ typedef struct {
     ulong frag_ok_cnt;
     ulong frag_gap_cnt;
     ulong frag_dup_cnt;
-    ulong frag_oversz_cnt;
     long  reasm_active;
     ulong reasm_overrun;
     ulong reasm_abandoned;
     ulong reasm_started;
+    ulong udp_pkt_too_small;
+    ulong udp_pkt_too_large;
+    ulong quic_pkt_too_small;
+    ulong quic_txn_too_small;
+    ulong quic_txn_too_large;
   } metrics;
 } fd_quic_ctx_t;
 
@@ -169,11 +173,16 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_OK,                ctx->metrics.frag_ok_cnt );
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_GAP,               ctx->metrics.frag_gap_cnt );
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_DUP,               ctx->metrics.frag_dup_cnt );
-  FD_MCNT_SET  ( QUIC_TILE, FRAGS_OVERSZ,            ctx->metrics.frag_oversz_cnt );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
   FD_MCNT_SET  ( QUIC_TILE, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
   FD_MGAUGE_SET( QUIC_TILE, TXN_REASMS_ACTIVE,       (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
+
+  FD_MCNT_SET( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, ctx->metrics.udp_pkt_too_small );
+  FD_MCNT_SET( QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE, ctx->metrics.udp_pkt_too_large );
+  FD_MCNT_SET( QUIC_TILE, QUIC_PACKET_TOO_SMALL,     ctx->metrics.quic_pkt_too_small );
+  FD_MCNT_SET( QUIC_TILE, QUIC_TXN_TOO_SMALL,        ctx->metrics.quic_txn_too_small );
+  FD_MCNT_SET( QUIC_TILE, QUIC_TXN_TOO_LARGE,        ctx->metrics.quic_txn_too_large );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -271,14 +280,14 @@ after_frag( fd_quic_ctx_t *     ctx,
     if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
-      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
+      ctx->metrics.udp_pkt_too_small++;
       return;
     }
 
     ulong data_sz = sz - network_hdr_sz;
     if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
       /* Smaller than the smallest possible transaction */
-      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
+      ctx->metrics.udp_pkt_too_small++;
       return;
     }
 
@@ -286,7 +295,7 @@ after_frag( fd_quic_ctx_t *     ctx,
       /* Transaction couldn't possibly be valid if it's longer than transaction
          MTU so drop it. This is not required, as the txn will fail to parse,
          but it's a nice short circuit. */
-      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE, 1UL );
+      ctx->metrics.udp_pkt_too_large++;
       return;
     }
 
@@ -335,14 +344,22 @@ quic_stream_rx( fd_quic_conn_t * conn,
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
 
+  int oversz = offset+data_sz > FD_TPU_MTU;
+
   if( offset==0UL && fin ) {
     /* Fast path */
+    if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
+      ctx->metrics.quic_txn_too_small++;
+      return FD_QUIC_SUCCESS; /* drop */
+    }
+    if( FD_UNLIKELY( oversz ) ) {
+      ctx->metrics.quic_txn_too_large++;
+      return FD_QUIC_SUCCESS; /* drop */
+    }
     int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
     if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
       fd_stem_advance( stem, 0UL );
       ctx->metrics.txns_received_quic_fast++;
-    } else if( err==FD_TPU_REASM_ERR_SZ ) {
-      ctx->metrics.frag_oversz_cnt++;
     }
     return FD_QUIC_SUCCESS;
   }
@@ -357,6 +374,10 @@ quic_stream_rx( fd_quic_conn_t * conn,
       return FD_QUIC_SUCCESS;
     }
     if( data_sz==0 ) return FD_QUIC_SUCCESS; /* ignore empty */
+    if( FD_UNLIKELY( oversz ) ) {
+      ctx->metrics.quic_txn_too_large++;
+      return FD_QUIC_SUCCESS; /* drop */
+    }
 
     /* Was the reasm buffer we evicted busy? */
     fd_tpu_reasm_slot_t * victim      = fd_tpu_reasm_peek_tail( reasm );
@@ -389,13 +410,17 @@ quic_stream_rx( fd_quic_conn_t * conn,
   if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
     int is_gap    = reasm_res==FD_TPU_REASM_ERR_SKIP;
     int is_oversz = reasm_res==FD_TPU_REASM_ERR_SZ;
-    ctx->metrics.frag_gap_cnt    += (ulong)is_gap;
-    ctx->metrics.frag_oversz_cnt += (ulong)is_oversz;
+    ctx->metrics.frag_gap_cnt       += (ulong)is_gap;
+    ctx->metrics.quic_txn_too_large += (ulong)is_oversz;
     return is_gap ? FD_QUIC_FAILED : FD_QUIC_SUCCESS;
   }
   ctx->metrics.frag_ok_cnt++;
 
   if( fin ) {
+    if( FD_UNLIKELY( slot->k.sz < FD_TXN_MIN_SERIALIZED_SZ ) ) {
+      ctx->metrics.quic_txn_too_small++;
+      return FD_QUIC_SUCCESS; /* ignore */
+    }
     int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
     if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
     ulong * rcv_cnt = (offset==0UL && fin) ? &ctx->metrics.txns_received_quic_fast : &ctx->metrics.txns_received_quic_frag;
@@ -436,7 +461,7 @@ quic_tx_aio_send( void *                    _ctx,
 
       /* Ignore if UDP header is too short */
       if( FD_UNLIKELY( udp+8U>packet_end ) ) {
-        FD_MCNT_INC( QUIC_TILE, QUIC_PACKET_TOO_SMALL, 1UL );
+        ctx->metrics.quic_pkt_too_small++;
         continue;
       }
 

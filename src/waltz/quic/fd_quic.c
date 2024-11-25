@@ -3292,7 +3292,7 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
         ulong stream_off = cur_stream->tx_sent;
 
         /* do we still have data we can send? */
-        if( stream_data_sz > 0u || last_byte ) {\
+        if( stream_data_sz > 0u || last_byte ) {
           fd_quic_stream_frame_t frame = {
             .stream_id = cur_stream->stream_id,
 
