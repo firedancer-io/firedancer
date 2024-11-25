@@ -499,8 +499,7 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 /* Service API ********************************************************/
 
 /* fd_quic_get_next_wakeup returns the next requested service time.
-   The returned timestamp is relative to a value previously returned by
-   fd_quic_now_t.  This is only intended for unit tests. */
+   This is only intended for unit tests. */
 
 FD_QUIC_API ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );

@@ -1,9 +1,7 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_common.h"
-#include "../../util/fd_util.h"
 #include "fd_quic_enum.h"
 #include "fd_quic_pkt_meta.h"
-#include "fd_quic_private.h"
 
 /* define a map for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map

@@ -75,6 +75,8 @@ struct fd_quic_conn {
   uint               transport_params_set : 1;
   uint               called_conn_new : 1; /* whether we need to call conn_final on teardown */
   uint               visited : 1;         /* scratch bit, no strict definition */
+  uint               key_phase : 1;
+  uint               key_update : 1;
 
   /* Service queue dlist membership.  All active conns (state not INVALID)
      are in a service queue, FD_QUIC_SVC_TYPE_WAIT by default.
@@ -128,14 +130,16 @@ struct fd_quic_conn {
   /* amount of handshake data ack'ed by peer counted from head of queue */
   ulong hs_ackd_bytes[4];
 
-  /* secret members */
+  /* Keys for header and packet protection
+       secrets:    Contains 'master' secrets used to derive other keys
+       keys:       Current pair of keys for each encryption level
+       new_keys:   App keys to use for the next key update.  Once app
+                   keys are available these are always kept up-to-date
+       keys_avail: Bit set of available keys, LSB indexed by enc level */
   fd_quic_crypto_secrets_t secrets;
-  fd_quic_crypto_keys_t    keys[4][2];  /* a set of keys for each of the encoding levels, and for client/server */
-  fd_quic_crypto_keys_t    new_keys[2]; /* a set of keys for use during key update */
-  uint                     keys_avail;  /* bit set, LSB indexed by encryption level */
-  uint                     key_phase;   /* current key phase - represents the current phase of the
-                                           value of keys */
-  uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
+  fd_quic_crypto_keys_t    keys[FD_QUIC_NUM_ENC_LEVELS][2];
+  fd_quic_crypto_keys_t    new_keys[2];
+  uint                     keys_avail;
 
   fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
   fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
