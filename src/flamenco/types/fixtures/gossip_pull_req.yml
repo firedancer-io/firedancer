@@ -115,44 +115,44 @@ pull_req:
       contact_info_v1: 
         id: 'FtxH6Na6AJk8hM21DzsHtmGCuwgm4qWdUTosAdN9fmTD'
         gossip: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         tvu: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         tvu_fwd: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         repair: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         tpu: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         tpu_fwd: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         tpu_vote: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         rpc: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         rpc_pubsub: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         serve_repair: 
-          addr: 
-            ip4: '0.0.0.0'
-          port: 0
+          ip4: 
+            addr: '0.0.0.0'
+            port: 0
         wallclock: 1660627129489
         shred_version: 0
