@@ -234,6 +234,7 @@ typedef struct {
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
       int   in_wen_restart;
+      char  tower_checkpt[ PATH_MAX ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
       int   plugins_enabled;
 
