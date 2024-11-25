@@ -30,3 +30,4 @@ where
        (e instanceof ConditionalExpr)) and
   included(builtinCall.getLocation())
 select builtinCall, "Use of __builtin_expect() in non-conditional context"
+
