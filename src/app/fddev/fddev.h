@@ -122,4 +122,13 @@ void
 flame_cmd_fn( args_t *         args,
               config_t * const config );
 
+void
+quic_trace_cmd_args( int *    pargc,
+                     char *** pargv,
+                     args_t * args);
+
+void
+quic_trace_cmd_fn( args_t *         args,
+                   config_t * const config );
+
 #endif /* HEADER_fd_src_app_fddev_fddev_h */
