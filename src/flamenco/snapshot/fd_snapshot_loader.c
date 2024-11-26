@@ -114,7 +114,6 @@ fd_snapshot_loader_delete( fd_snapshot_loader_t * loader ) {
   fd_io_istream_file_delete( loader->vfile );
   fd_snapshot_http_delete  ( loader->http  );
   fd_tar_reader_delete     ( loader->tar   );
-  fd_zstd_dstream_delete   ( loader->zstd  );
 
   if( loader->snapshot_fd>=0 ) {
     if( FD_UNLIKELY( 0!=close( loader->snapshot_fd ) ) )
