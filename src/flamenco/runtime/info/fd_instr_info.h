@@ -35,9 +35,6 @@ typedef struct fd_instr_info fd_instr_info_t;
 
 FD_PROTOTYPES_BEGIN
 
-int
-fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx );
-
 void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_txn_instr_t const *  txn_instr,
