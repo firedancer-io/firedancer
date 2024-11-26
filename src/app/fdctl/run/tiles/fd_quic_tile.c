@@ -116,11 +116,16 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_OK,                ctx->metrics.frag_ok_cnt );
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_GAP,               ctx->metrics.frag_gap_cnt );
   FD_MCNT_SET  ( QUIC_TILE, FRAGS_DUP,               ctx->metrics.frag_dup_cnt );
-  FD_MCNT_SET  ( QUIC_TILE, FRAGS_OVERSZ,            ctx->metrics.frag_oversz_cnt );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
   FD_MCNT_SET  ( QUIC_TILE, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
   FD_MCNT_SET  ( QUIC_TILE, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
   FD_MGAUGE_SET( QUIC_TILE, TXN_REASMS_ACTIVE,       (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
+
+  FD_MCNT_SET( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, ctx->metrics.udp_pkt_too_small );
+  FD_MCNT_SET( QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE, ctx->metrics.udp_pkt_too_large );
+  FD_MCNT_SET( QUIC_TILE, QUIC_PACKET_TOO_SMALL,     ctx->metrics.quic_pkt_too_small );
+  FD_MCNT_SET( QUIC_TILE, QUIC_TXN_TOO_SMALL,        ctx->metrics.quic_txn_too_small );
+  FD_MCNT_SET( QUIC_TILE, QUIC_TXN_TOO_LARGE,        ctx->metrics.quic_txn_too_large );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -147,7 +152,8 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
 
-  FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES, ctx->quic->metrics.frame_rx_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES,  ctx->quic->metrics.frame_rx_cnt );
+  FD_MCNT_SET      ( QUIC, FRAME_FAIL_PARSE, ctx->quic->metrics.frame_rx_err_cnt );
 
   FD_MCNT_ENUM_COPY( QUIC, ACK_TX, ctx->quic->metrics.ack_tx );
 
@@ -206,21 +212,26 @@ after_frag( fd_quic_ctx_t *     ctx,
   ulong proto = fd_disco_netmux_sig_proto( sig );
 
   if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
-    fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)sz };
-    fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
+    fd_quic_t * quic = ctx->quic;
+    long dt = -fd_tickcount();
+    fd_quic_process_packet( quic, ctx->buffer, sz );
+    dt += fd_tickcount();
+    fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
+    quic->metrics.net_rx_byte_cnt += sz;
+    quic->metrics.net_rx_pkt_cnt++;
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
-      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
+      ctx->metrics.udp_pkt_too_small++;
       return;
     }
 
     ulong data_sz = sz - network_hdr_sz;
     if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
       /* Smaller than the smallest possible transaction */
-      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
+      ctx->metrics.udp_pkt_too_small++;
       return;
     }
 
@@ -228,7 +239,7 @@ after_frag( fd_quic_ctx_t *     ctx,
       /* Transaction couldn't possibly be valid if it's longer than transaction
          MTU so drop it. This is not required, as the txn will fail to parse,
          but it's a nice short circuit. */
-      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE, 1UL );
+      ctx->metrics.udp_pkt_too_large++;
       return;
     }
 
@@ -277,14 +288,22 @@ quic_stream_rx( fd_quic_conn_t * conn,
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
 
+  int oversz = offset+data_sz > FD_TPU_MTU;
+
   if( offset==0UL && fin ) {
     /* Fast path */
+    if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
+      ctx->metrics.quic_txn_too_small++;
+      return FD_QUIC_SUCCESS; /* drop */
+    }
+    if( FD_UNLIKELY( oversz ) ) {
+      ctx->metrics.quic_txn_too_large++;
+      return FD_QUIC_SUCCESS; /* drop */
+    }
     int err = fd_tpu_reasm_publish_fast( reasm, data, data_sz, mcache, base, seq, tspub );
     if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
       fd_stem_advance( stem, 0UL );
       ctx->metrics.txns_received_quic_fast++;
-    } else if( err==FD_TPU_REASM_ERR_SZ ) {
-      ctx->metrics.frag_oversz_cnt++;
     }
     return FD_QUIC_SUCCESS;
   }
@@ -299,6 +318,10 @@ quic_stream_rx( fd_quic_conn_t * conn,
       return FD_QUIC_SUCCESS;
     }
     if( data_sz==0 ) return FD_QUIC_SUCCESS; /* ignore empty */
+    if( FD_UNLIKELY( oversz ) ) {
+      ctx->metrics.quic_txn_too_large++;
+      return FD_QUIC_SUCCESS; /* drop */
+    }
 
     /* Was the reasm buffer we evicted busy? */
     fd_tpu_reasm_slot_t * victim      = fd_tpu_reasm_peek_tail( reasm );
@@ -320,24 +343,27 @@ quic_stream_rx( fd_quic_conn_t * conn,
     slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub ); /* infallible */
     ctx->metrics.reasm_started++;
     ctx->metrics.reasm_active++;
+    conn->srx->rx_streams_active++;
   } else if( slot->k.state != FD_TPU_REASM_STATE_BUSY ) {
     ctx->metrics.frag_dup_cnt++;
     return FD_QUIC_SUCCESS;
   }
 
-  conn->srx->rx_streams_active++;
-
   int reasm_res = fd_tpu_reasm_frag( reasm, slot, data, data_sz, offset );
   if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
     int is_gap    = reasm_res==FD_TPU_REASM_ERR_SKIP;
     int is_oversz = reasm_res==FD_TPU_REASM_ERR_SZ;
-    ctx->metrics.frag_gap_cnt    += (ulong)is_gap;
-    ctx->metrics.frag_oversz_cnt += (ulong)is_oversz;
+    ctx->metrics.frag_gap_cnt       += (ulong)is_gap;
+    ctx->metrics.quic_txn_too_large += (ulong)is_oversz;
     return is_gap ? FD_QUIC_FAILED : FD_QUIC_SUCCESS;
   }
   ctx->metrics.frag_ok_cnt++;
 
   if( fin ) {
+    if( FD_UNLIKELY( slot->k.sz < FD_TXN_MIN_SERIALIZED_SZ ) ) {
+      ctx->metrics.quic_txn_too_small++;
+      return FD_QUIC_SUCCESS; /* ignore */
+    }
     int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
     if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return FD_QUIC_SUCCESS; /* unreachable */
     ulong * rcv_cnt = (offset==0UL && fin) ? &ctx->metrics.txns_received_quic_fast : &ctx->metrics.txns_received_quic_frag;
@@ -378,7 +404,7 @@ quic_tx_aio_send( void *                    _ctx,
 
       /* Ignore if UDP header is too short */
       if( FD_UNLIKELY( udp+8U>packet_end ) ) {
-        FD_MCNT_INC( QUIC_TILE, QUIC_PACKET_TOO_SMALL, 1UL );
+        ctx->metrics.quic_pkt_too_small++;
         continue;
       }
 
@@ -534,8 +560,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !verify_out->is_reasm || !ctx->reasm ) )
     FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
 
-  ctx->quic        = quic;
-  ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
+  ctx->quic = quic;
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;

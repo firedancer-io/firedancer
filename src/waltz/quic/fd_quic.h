@@ -308,6 +308,7 @@ union fd_quic_metrics {
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
+    ulong frame_rx_err_cnt;        /* number of frames failed */
 
     /* Handshake metrics */
     ulong hs_created_cnt;          /* number of handshake flows created */

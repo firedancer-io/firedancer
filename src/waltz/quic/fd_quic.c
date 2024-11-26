@@ -1629,6 +1629,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                   frame_ptr,
                                   frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "Failed to handle frame (Initial, frame=0x%02x)", frame_ptr[0] )) );
+      quic->metrics.frame_rx_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1789,6 +1791,8 @@ fd_quic_handle_v1_handshake(
                                   frame_ptr,
                                   frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "Failed to handle frame (Handshake, frame=0x%02x)", frame_ptr[0] )) );
+      quic->metrics.frame_rx_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1950,52 +1954,33 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
 }
 
 ulong
-fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
-                           fd_quic_conn_t *      conn,
-                           fd_quic_pkt_t *       pkt,
-                           uchar *         const cur_ptr,
-                           ulong           const tot_sz ) {
+fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
+                           fd_quic_conn_t * conn,
+                           fd_quic_pkt_t *  pkt,
+                           uchar *    const cur_ptr,
+                           ulong      const tot_sz ) {
   if( !conn ) {
     quic->metrics.pkt_no_conn_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* encryption level for one_rtt is "appdata" */
-  uint const enc_level = fd_quic_enc_level_appdata_id;
-
-  /* set on pkt for future processing */
-  pkt->enc_level = enc_level;
-
-  fd_quic_one_rtt_t one_rtt[1];
-
-  /* hidden field needed by decode function */
-  one_rtt->dst_conn_id_len = 8;
-
-  ulong rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, tot_sz );
-  if( rc == FD_QUIC_PARSE_FAIL ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "1-RTT: failed to decode" )) );
+  if( FD_UNLIKELY( tot_sz < (1+FD_QUIC_CONN_ID_SZ+1) ) ) {
+    /* One-RTT header: 1 byte
+       DCID:           FD_QUIC_CONN_ID_SZ
+       Pkt number:     1-4 bytes */
+    quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
+  ulong pn_offset = 1UL + FD_QUIC_CONN_ID_SZ;
 
-  /* generate one_rtt secrets, keys etc */
-
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
+  uint enc_level = pkt->enc_level = fd_quic_enc_level_appdata_id;
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) {
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* decryption */
-
-  /* header protection needs the offset to the packet number */
-  ulong pn_offset        = one_rtt->pkt_num_pnoff;
-
-  ulong pkt_number       = ULONG_MAX;
-  ulong pkt_number_sz    = ULONG_MAX;
-
+  int server = conn->server;
 # if !FD_QUIC_DISABLE_CRYPTO
-    /* this decrypts the header */
-    int server = conn->server;
-
     if( FD_UNLIKELY(
           fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                       pn_offset,
@@ -2006,29 +1991,14 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
-    /* get first byte for future use */
-    uint first = (uint)cur_ptr[0];
-
-    /* number of bytes in the packet header */
-    pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-
-    /* now we have decrypted packet number */
-    pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
-
-    /* packet number space */
-    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
+    uint first         = (uint)cur_ptr[0];
+    uint pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
+    uint key_phase     = fd_quic_one_rtt_key_phase( first );
 
     /* reconstruct packet number */
+    ulong pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
+    uint  pn_space   = fd_quic_enc_level_to_pn_space( enc_level );
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
-
-    /* since the packet number is greater than the highest last seen,
-       do spin bit processing */
-    /* TODO by spec 1 in 16 connections should have this disabled */
-    uint spin_bit = first & (1u << 6u);
-    conn->spin_bit = (uchar)(0xFF&( spin_bit ^ ( (uint)conn->server ^ 1u ) ));
-
-    /* fetch key phase after decrypting header */
-    uint key_phase = ( first >> 2u ) & 1u;
 
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
@@ -2075,14 +2045,12 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   if( FD_UNLIKELY( payload_sz<FD_QUIC_CRYPTO_TAG_SZ ) ) return FD_QUIC_PARSE_FAIL;
   ulong         frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz != 0UL ) {
-    rc = fd_quic_handle_v1_frame( quic,
-                                  conn,
-                                  pkt,
-                                  FD_QUIC_PKT_TYPE_ONE_RTT,
-                                  frame_ptr,
-                                  frame_sz );
+    ulong rc = fd_quic_handle_v1_frame(
+        quic, conn, pkt, FD_QUIC_PKT_TYPE_ONE_RTT,
+        frame_ptr, frame_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "frame failed to parse" )) );
+      FD_DEBUG( FD_LOG_DEBUG(( "Failed to handle frame (1-RTT, frame=0x%02x)", frame_ptr[0] )) );
+      quic->metrics.frame_rx_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -3051,38 +3019,6 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
       flush );
 }
 
-struct fd_quic_pkt_hdr {
-  union {
-    fd_quic_initial_t   initial;
-    fd_quic_handshake_t handshake;
-    fd_quic_one_rtt_t   one_rtt;
-    fd_quic_retry_hdr_t retry;
-    /* don't currently support early data */
-  } quic_pkt;
-  uint enc_level; /* implies the type of quic_pkt */
-};
-typedef struct fd_quic_pkt_hdr fd_quic_pkt_hdr_t;
-
-/* encode packet header into buffer */
-ulong
-fd_quic_pkt_hdr_encode( uchar * cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level ) {
-  /* optimize for the common case */
-  if( FD_LIKELY( enc_level == fd_quic_enc_level_appdata_id ) ) {
-    return fd_quic_encode_one_rtt( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.one_rtt );
-  }
-
-  switch( enc_level ) {
-    case fd_quic_enc_level_initial_id:;
-      return fd_quic_encode_initial( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.initial );
-    case fd_quic_enc_level_handshake_id:
-      return fd_quic_encode_handshake( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.handshake );
-    case fd_quic_enc_level_appdata_id:
-      return fd_quic_encode_one_rtt( cur_ptr, cur_sz, &pkt_hdr->quic_pkt.one_rtt );
-    default:
-      FD_LOG_ERR(( "%s - logic error: unexpected enc_level", __func__ ));
-  }
-}
-
 static ulong
 fd_quic_gen_close_frame( fd_quic_conn_t *     conn,
                          uchar *              payload_ptr,
@@ -3356,7 +3292,7 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
         ulong stream_off = cur_stream->tx_sent;
 
         /* do we still have data we can send? */
-        if( stream_data_sz > 0u || last_byte ) {\
+        if( stream_data_sz > 0u || last_byte ) {
           fd_quic_stream_frame_t frame = {
             .stream_id = cur_stream->stream_id,
 
@@ -3669,11 +3605,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       case fd_quic_enc_level_appdata_id:
       {
         fd_quic_one_rtt_t one_rtt = {0};
-        /* use 1 bit of rand for spin bit */
-        uchar sb = conn->spin_bit;
-
-        /* one_rtt has a short header */
-        one_rtt.h0           = fd_quic_one_rtt_h0( sb, !!key_phase_tx, pkt_num_len );
+        one_rtt.h0           = fd_quic_one_rtt_h0( /* spin */ 0, !!key_phase_tx, pkt_num_len );
         one_rtt.pkt_num_bits = 4 * 8;      /* actual number of bits to encode */
 
         /* destination */
@@ -4358,7 +4290,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->app_reason           = 0;
   conn->int_reason           = 0;
   conn->flags                = 0;
-  conn->spin_bit             = 0;
   conn->upd_pkt_number       = 0;
 
   /* initialize connection members */
@@ -5195,6 +5126,12 @@ fd_quic_frame_handle_stream_frame(
 
   /* ack-eliciting */
   pkt->ack_flag |= ACK_FLAG_RQD;
+
+  /* If !data->{length,offset}_opt then data->{length,offset} may be
+     uninitialized.  GCC 13 falsely reports a 'maybe-uninitialized'
+     warning here.  Suppress it. */
+  if( !data->length_opt ) __asm__( "#NOP" : "=rm" (data->length) );
+  if( !data->offset_opt ) __asm__( "#NOP" : "=rm" (data->offset) );
 
   ulong offset  = fd_ulong_if( data->offset_opt, data->offset, 0UL  );
   ulong data_sz = fd_ulong_if( data->length_opt, data->length, p_sz );

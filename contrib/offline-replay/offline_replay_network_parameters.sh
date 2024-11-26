@@ -13,8 +13,8 @@ case $network in
   "mainnet")
     export BUCKET_ENDPOINT="gs://mainnet-beta-ledger-us-ny5"
     export GENESIS_FILE="https://api.mainnet-beta.solana.com/genesis.tar.bz2"
-    export FUNK_PAGES=750
-    export INDEX_MAX=700000000
+    export FUNK_PAGES=800
+    export INDEX_MAX=750000000
     export PAGES=75
     export AGAVE_TAG=v1.18.23
     export FD_CLUSTER_VERSION=1.18.23

@@ -236,6 +236,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_ba
 
   block_map_entry->height          = slot_bank->block_height;
   block_map_entry->bank_hash       = slot_bank->banks_hash;
+  block_map_entry->block_hash      = slot_bank->poh;
   block_map_entry->flags           = fd_uchar_set_bit(
                                      fd_uchar_set_bit(
                                      fd_uchar_set_bit(
@@ -309,7 +310,7 @@ fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
 static void
 fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t * block ) {
 
-#define MAX_MICROS ( 16 << 10 )
+#define MAX_MICROS ( 1 << 17 )
   fd_block_micro_t micros[MAX_MICROS];
   ulong            micros_cnt = 0;
 #define MAX_TXNS ( 1 << 17 )

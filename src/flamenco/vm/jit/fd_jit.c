@@ -91,13 +91,22 @@ fd_jit_prog_new( fd_jit_prog_t *            jit_prog,
      memory was allocated in scratch and is released on function return.  */
   //dasm_free( &d );
 
+  FD_COMPILER_MFENCE();
+  jit_prog->magic = FD_JIT_PROG_MAGIC;
+  FD_COMPILER_MFENCE();
+
   *out_err = FD_VM_SUCCESS;
   return jit_prog;
 }
 
 void *
 fd_jit_prog_delete( fd_jit_prog_t * prog ) {
-  (void)prog;
+  if( FD_UNLIKELY( prog->magic != FD_JIT_PROG_MAGIC ) ) {
+    FD_LOG_WARNING(( "invalid magic!" ));
+  }
+  FD_COMPILER_MFENCE();
+  prog->magic = 0UL;
+  FD_COMPILER_MFENCE();
   return NULL;
 }
 

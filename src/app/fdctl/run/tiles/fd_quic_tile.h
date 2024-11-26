@@ -10,9 +10,8 @@ typedef struct {
 
   fd_stem_context_t * stem;
 
-  fd_quic_t *      quic;
-  const fd_aio_t * quic_rx_aio;
-  fd_aio_t         quic_tx_aio[1];
+  fd_quic_t * quic;
+  fd_aio_t    quic_tx_aio[1];
 
 # define ED25519_PRIV_KEY_SZ (32)
 # define ED25519_PUB_KEY_SZ  (32)
@@ -52,11 +51,15 @@ typedef struct {
     ulong frag_ok_cnt;
     ulong frag_gap_cnt;
     ulong frag_dup_cnt;
-    ulong frag_oversz_cnt;
     long  reasm_active;
     ulong reasm_overrun;
     ulong reasm_abandoned;
     ulong reasm_started;
+    ulong udp_pkt_too_small;
+    ulong udp_pkt_too_large;
+    ulong quic_pkt_too_small;
+    ulong quic_txn_too_small;
+    ulong quic_txn_too_large;
   } metrics;
 } fd_quic_ctx_t;
 

@@ -344,7 +344,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
   } else if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
-    FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.addr.inner.ip4 ), contact_info->gossip.port ));
+    FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.inner.ip4.addr ), contact_info->gossip.inner.ip4.port ));
 
     fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info->id, NULL );
     if (FD_UNLIKELY(!ele &&
@@ -360,7 +360,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
     fd_gossip_contact_info_v1_t contact_info;
     fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
-    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.addr.inner.ip4 ), contact_info.gossip.port ));
+    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.inner.ip4.addr ), contact_info.gossip.inner.ip4.port ));
 
     fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
     if (FD_UNLIKELY(!ele &&
@@ -562,51 +562,51 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       }
 
       {
-        if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.tvu.addr ) ) {
+        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tvu ) ){
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tvu.addr.inner.ip4==0 ) {
+        if( ele->contact_info.tvu.inner.ip4.addr==0 ) {
           continue;
         }
 
-        tvu_peers[tvu_peer_cnt].ip4_addr = ele->contact_info.tvu.addr.inner.ip4;
-        tvu_peers[tvu_peer_cnt].udp_port = ele->contact_info.tvu.port;
+        tvu_peers[tvu_peer_cnt].ip4_addr = ele->contact_info.tvu.inner.ip4.addr;
+        tvu_peers[tvu_peer_cnt].udp_port = ele->contact_info.tvu.inner.ip4.port;
         memcpy( tvu_peers[tvu_peer_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
 
         tvu_peer_cnt++;
       }
 
       {
-        if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.repair.addr ) ) {
+        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.repair ) ) {
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.serve_repair.addr.inner.ip4 == 0 ) {
+        if( ele->contact_info.serve_repair.inner.ip4.addr == 0 ) {
           continue;
         }
 
-        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.addr.inner.ip4;
-        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.port;
+        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.inner.ip4.addr;
+        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.inner.ip4.port;
         memcpy( repair_peers[repair_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
 
         repair_peers_cnt++;
       }
 
       {
-        if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.tpu_vote.addr ) ) {
+        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tpu_vote ) ) {
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tpu_vote.addr.inner.ip4 == 0 ) {
+        if( ele->contact_info.tpu_vote.inner.ip4.addr == 0 ) {
           continue;
         }
 
-        voter_peers[voter_peers_cnt].ip4_addr = ele->contact_info.tpu_vote.addr.inner.ip4;
-        voter_peers[voter_peers_cnt].udp_port = ele->contact_info.tpu_vote.port;
+        voter_peers[voter_peers_cnt].ip4_addr = ele->contact_info.tpu_vote.inner.ip4.addr;
+        voter_peers[voter_peers_cnt].udp_port = ele->contact_info.tpu_vote.inner.ip4.port;
         memcpy( voter_peers[voter_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
 
         voter_peers_cnt++;
