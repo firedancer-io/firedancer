@@ -320,19 +320,16 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore {
 
   /* Slot metadata */
 
-  ulong min; /* minimum slot in the blockstore with a block. we retain
-                blocks prior to the smr to serve repair and RPC */
-  ulong max; /* maximum slot in the blockstore with a block */
   ulong lps; /* latest processed slot */
   ulong hcs; /* highest confirmed slot */
   ulong smr; /* supermajority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
 
   /* Config limits */
 
-  ulong shred_max; /* max number of temporary shreds */
-  ulong block_max; /* maximum # of blocks that can be saved in memory */
-  ulong idx_max;   /* maximum # of blocks that can be indexed */
-  ulong txn_max;   /* maximum # of transactions to index */
+  ulong shred_max; /* maximum # of shreds that can be held in memory */
+  ulong block_max; /* maximum # of blocks that can be held in memory */
+  ulong idx_max;   /* maximum # of blocks that can be indexed from the archival file */
+  ulong txn_max;   /* maximum # of transactions that can be indexed from blocks */
   ulong alloc_max; /* maximum bytes that can be allocated */
 
   /* Owned */
@@ -520,11 +517,6 @@ fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
 FD_FN_PURE static inline uchar *
 fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-}
-
-FD_FN_PURE static inline ulong
-fd_blockstore_block_cnt( fd_blockstore_t * blockstore ) {
-  return blockstore->max - blockstore->min + 1;
 }
 
 /* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
