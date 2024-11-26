@@ -583,8 +583,8 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &glob->ws;
   fd_blockstore_t * blockstore = glob->blockstore;
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong startslot = blockstore->min;
-    ulong endslot = blockstore->max;
+    ulong startslot = blockstore->smr;
+    ulong endslot = blockstore->lps;
     fd_per_epoch_info_t const * ei = glob->stake_ci->epoch_info;
     startslot = fd_ulong_max( startslot, fd_ulong_min( ei[0].start_slot, ei[1].start_slot ) );
 
@@ -663,10 +663,10 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong endslotn = (endslot == NULL ? ULONG_MAX : (ulong)(*(long*)endslot));
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if (startslotn < blockstore->min)
-    startslotn = blockstore->min;
-  if (endslotn > blockstore->max)
-    endslotn = blockstore->max;
+  if (startslotn < blockstore->smr) /* FIXME query archival file */
+    startslotn = blockstore->smr;
+  if (endslotn > blockstore->hcs)
+    endslotn = blockstore->hcs;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
@@ -715,15 +715,15 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong limitn = (ulong)(*(long*)limit);
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if (startslotn < blockstore->min)
-    startslotn = blockstore->min;
+  if (startslotn < blockstore->smr)  /* FIXME query archival file */
+    startslotn = blockstore->smr;
   if (limitn > 500000)
     limitn = 500000;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   uint skips = 0;
-  for ( ulong i = startslotn; i <= blockstore->max && cnt < limitn && skips < 100U; ++i ) {
+  for ( ulong i = startslotn; i <= blockstore->lps && cnt < limitn && skips < 100U; ++i ) {
     fd_block_map_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
@@ -882,7 +882,7 @@ method_getFirstAvailableBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->min, ctx->call_id);
+                       blockstore->smr, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1111,7 +1111,7 @@ method_getMaxShredInsertSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->max, ctx->call_id);
+                       blockstore->smr, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1826,7 +1826,7 @@ method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       glob->blockstore->min, ctx->call_id);
+                       glob->blockstore->smr, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
