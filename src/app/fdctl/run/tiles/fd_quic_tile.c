@@ -399,12 +399,11 @@ quic_stream_rx( fd_quic_conn_t * conn,
     slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub ); /* infallible */
     ctx->metrics.reasm_started++;
     ctx->metrics.reasm_active++;
+    conn->srx->rx_streams_active++;
   } else if( slot->k.state != FD_TPU_REASM_STATE_BUSY ) {
     ctx->metrics.frag_dup_cnt++;
     return FD_QUIC_SUCCESS;
   }
-
-  conn->srx->rx_streams_active++;
 
   int reasm_res = fd_tpu_reasm_frag( reasm, slot, data, data_sz, offset );
   if( FD_UNLIKELY( reasm_res != FD_TPU_REASM_SUCCESS ) ) {
