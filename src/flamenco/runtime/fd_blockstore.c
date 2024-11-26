@@ -60,8 +60,6 @@ fd_blockstore_new( void * shmem,
 
   blockstore->off  = 0;
 
-  blockstore->min = FD_SLOT_NULL;
-  blockstore->max = FD_SLOT_NULL;
   blockstore->lps = FD_SLOT_NULL;
   blockstore->hcs = FD_SLOT_NULL;
   blockstore->smr = FD_SLOT_NULL;
@@ -261,8 +259,6 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, fd_slot_bank_t const *
 
   ulong smr       = slot_bank->slot;
 
-  blockstore->min = smr;
-  blockstore->max = smr;
   blockstore->lps = smr;
   blockstore->hcs = smr;
   blockstore->smr = smr;
@@ -460,19 +456,11 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
   if( FD_UNLIKELY( !block_map_entry ) ) return;
 
-  /* Update min */
-  while( blockstore->min < blockstore->max &&
-         fd_blockstore_block_map_query( blockstore, blockstore->min ) == NULL ) {
-    blockstore->min++;
-  }
-  if( slot == blockstore->min ) {
-    blockstore->min = slot+1;
-  }
-
   /* It is not safe to remove a replaying block. */
 
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
     FD_LOG_WARNING(( "[%s] slot %lu has replay in progress. not removing.", __func__, slot ));
+    return;
   }
 
   /* Unlink slot from its parent only if it is not published. */
@@ -769,13 +757,6 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
     block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_SHREDDING );
     block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
-
-    if( slot < blockstore->min ) {
-      blockstore->min = slot;
-    }
-    if( slot > blockstore->max ) {
-      blockstore->max = blockstore->hcs = slot;
-    }
 
     return FD_BLOCKSTORE_OK;
   case FD_SHRED_EBATCH:

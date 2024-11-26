@@ -885,8 +885,7 @@ ingest( fd_ledger_args_t * args ) {
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->min = blockstore->max = blockstore->lps =
-      blockstore->hcs = blockstore->smr = slot_ctx->slot_bank.slot;
+    blockstore->lps = blockstore->hcs = blockstore->smr = slot_ctx->slot_bank.slot;
   }
 
   if( args->funk_only ) {
