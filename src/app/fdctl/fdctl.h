@@ -96,6 +96,7 @@ typedef struct fd_caps_ctx fd_caps_ctx_t;
 typedef struct {
   const char * name;
   const char * description;
+  uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
   void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
