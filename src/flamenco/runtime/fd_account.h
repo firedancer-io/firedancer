@@ -399,32 +399,6 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
   return -1;
 }
 
-/* Transaction account APIs *******************************************/
-
-/* https://github.com/anza-xyz/agave/blob/92ad51805862fbb47dc40968dff9f93b57395b51/sdk/program/src/message/legacy.rs#L636 */
-static inline int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
-  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
-  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
-    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
-  }
-
-  if( idx==acct_addr_cnt ) {
-    return 0;
-  }
-
-  if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) 
-      || ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
-    return 0;
-  }
-
-  if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
-    return 0;
-  }
-
-  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
-}
-
 FD_PROTOTYPES_END
 
 #include "fd_account_old.h"

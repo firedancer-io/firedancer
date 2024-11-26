@@ -1473,7 +1473,9 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     int dirty_stake_acc = txn_ctx->dirty_stake_acc;
 
     for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
-      if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+      /* We are only interested in saving writable accounts and the fee
+         payer account. */
+      if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i!=FD_FEE_PAYER_TXN_IDX ) {
         continue;
       }
 
@@ -1818,16 +1820,16 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
            any way, then the full account can be rolled back as it is done now.
            However, most of the time the account data is not changed, and only
            the lamport balance has to change. */
-        fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[0] );
+        fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ] );
 
-        fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
-        memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
+        fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], borrowed_account );
+        memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], sizeof(fd_pubkey_t) );
 
         void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
         borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
-        accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[0];
+        accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
         for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
           if( txn_ctx->nonce_accounts[i] ) {
             ushort                recent_blockhash_off = txn_ctx->txn_descriptor->recent_blockhash_off;
@@ -1849,7 +1851,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         int dirty_stake_acc = txn_ctx->dirty_stake_acc;
 
         for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
-          if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+          /* We are only interested in saving writable accounts and the fee
+             payer account. */
+          if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
             continue;
           }
 
