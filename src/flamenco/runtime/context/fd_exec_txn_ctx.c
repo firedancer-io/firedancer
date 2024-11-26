@@ -157,6 +157,18 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
 }
 
 int
+fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx, 
+                                          fd_borrowed_account_t * * account ) {
+
+  *account = &ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
+
+  if( FD_UNLIKELY( !fd_txn_is_writable( ctx->txn_descriptor, FD_FEE_PAYER_TXN_IDX ) ) ) {
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int
 fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t *        ctx,
                                     uchar                      idx,
                                     ulong                      min_data_sz,
@@ -259,3 +271,52 @@ void
 fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->return_data.len = 0;
 }
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L162 */
+int
+fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
+{
+  uint is_program = 0U;
+  for( ulong j=0UL; j<txn_ctx->txn_descriptor->instr_cnt; j++ ) {
+    if( txn_ctx->txn_descriptor->instr[j].program_id == idx ) {
+      is_program = 1U;
+      break;
+    }
+  }
+
+  uint bpf_upgradeable_in_txn = 0U;
+  for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
+    const fd_pubkey_t * acc = &txn_ctx->accounts[j];
+    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
+      bpf_upgradeable_in_txn = 1U;
+      break;
+    }
+  }
+  return (is_program && !bpf_upgradeable_in_txn);
+}
+
+int
+fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
+
+  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
+  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
+  }
+
+  if( idx==acct_addr_cnt ) {
+    return 0;
+  }
+
+  if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) ||
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && 
+                           fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
+    return 0;
+  }
+
+  if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
+    return 0;
+  }
+
+  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
+}
+
