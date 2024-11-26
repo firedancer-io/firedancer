@@ -98,7 +98,7 @@ struct fd_ledger_args {
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
-  uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  uchar                 *tpool_mem;
   fd_spad_t *           spads[ 128UL ];          /* scratchpad allocators that are eventually assigned to each txn_ctx */
   ulong                 spad_cnt;                /* number of scratchpads, bounded by number of threads */
 
@@ -112,6 +112,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
   ulong tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
+  ledger_args->tpool_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_TPOOL_ALIGN, FD_TPOOL_FOOTPRINT( FD_TILE_MAX ) );
   if( tcnt>=1UL ) {
     tpool = fd_tpool_init( ledger_args->tpool_mem, tcnt );
     if( tpool == NULL ) {

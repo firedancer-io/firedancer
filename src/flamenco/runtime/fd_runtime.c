@@ -1061,7 +1061,7 @@ fd_txn_prep_and_exec_task( void  *tpool,
   /* It is important to note that there is currently a 1-1 mapping between the
      tiles and tpool threads at the time of this comment. Eventually, this will
      change and the transaction context's spad will not be queried by tile
-     index as every tile will correspond to one CPU core. */    
+     index as every tile will correspond to one CPU core. */
   ulong tile_idx = fd_tile_idx();
   task_info->txn_ctx->spad = task_info->spads[ tile_idx ];
   if( FD_UNLIKELY( !task_info->txn_ctx->spad ) ) {
@@ -2390,7 +2390,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int 
+int
 fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                    fd_capture_ctx_t * capture_ctx,
                                    fd_block_info_t const * block_info,
@@ -3881,7 +3881,12 @@ fd_feature_activate( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_INFO(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
       fd_features_set(&slot_ctx->epoch_ctx->features, id, feature->activated_at);
     } else {
-      FD_LOG_INFO(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
+      // If an account gets created with a "has_activated_at" of 0, it causes it to activate automatically
+      // at the next epoch boundry.
+      //
+      // Surprisingly enough, since we write this back into account_db, this also causes a banks hash change which
+      // is the expected behavior.
+      FD_LOG_WARNING(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
 
       FD_BORROWED_ACCOUNT_DECL(modify_acct_rec);
       err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, 0, 0UL, modify_acct_rec);
