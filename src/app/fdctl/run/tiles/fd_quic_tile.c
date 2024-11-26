@@ -209,7 +209,8 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
   FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
 
-  FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES, ctx->quic->metrics.frame_rx_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, RECEIVED_FRAMES,  ctx->quic->metrics.frame_rx_cnt );
+  FD_MCNT_SET      ( QUIC, FRAME_FAIL_PARSE, ctx->quic->metrics.frame_rx_err_cnt );
 
   FD_MCNT_ENUM_COPY( QUIC, ACK_TX, ctx->quic->metrics.ack_tx );
 
