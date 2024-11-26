@@ -13,4 +13,3 @@ s.getParent().(FunctionCall).getTarget() = f and  /* ignores dynamic function ca
 not exists( Attribute attr | attr = f.getAnAttribute() | attr.getName() = "format" ) and
 f.getLocation().getFile().getRelativePath().regexpMatch("src/.*")
 select f, "Likely format string passed to non-format function"
-

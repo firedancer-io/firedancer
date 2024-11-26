@@ -70,6 +70,9 @@ fd_zstd_dstream_delete( fd_zstd_dstream_t * dstream ) {
 
   if( FD_UNLIKELY( !dstream ) ) return NULL;
 
+  if( FD_UNLIKELY( dstream->magic != FD_ZSTD_DSTREAM_MAGIC ) )
+      FD_LOG_CRIT(( "fd_zstd_dstream_t at %p has invalid magic (memory corruption?)", (void *)dstream ));
+
   /* No need to inform libzstd */
 
   FD_COMPILER_MFENCE();
