@@ -663,7 +663,12 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    /* We should propogate the instruction error from fd_vm_prepare_instruction. */
+    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
+    vm->instr_ctx->txn_ctx->exec_err      = err;
+    return err;
+  }
 
   /* Translate account infos ******************************************/
   /* Direct mapping check 
