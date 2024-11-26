@@ -185,13 +185,13 @@ while true; do
             else
                 DONE=0
                 MISMATCH_SLOT=0
+                MISMATCH_LOG=$(grep "mismatch!" "$LOG" | tail -n 1)
 
                 if [ -z "$MISMATCH_LOG" ]; then
                     CURRENT_FAILURE_COUNT=$((CURRENT_FAILURE_COUNT + 1))
                     MISMATCH_SLOT=$(awk '/\[Replay\]/ {getline; if ($1 == "slot:") slot=$2} END {print slot}' "$LOG")
                     send_slack_message "@here Failure occurred on slot: \`$MISMATCH_SLOT\`. Minimizing failure"
                 else
-                    MISMATCH_LOG=$(grep "mismatch!" "$LOG" | tail -n 1)
                     CURRENT_MISMATCH_COUNT=$((CURRENT_MISMATCH_COUNT + 1))
                     MISMATCH_SLOT=$(echo "$MISMATCH_LOG" | awk -F 'slot=' '{print $2}' | awk '{print $1}')
                     send_slack_message "@here Mismatch occurred on slot: \`$MISMATCH_SLOT\`. Minimizing mismatch"
