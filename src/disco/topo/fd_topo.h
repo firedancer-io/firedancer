@@ -178,6 +178,7 @@ typedef struct {
     } pack;
 
     struct {
+      int   lagged_consecutive_leader_start;
       int   plugins_enabled;
       ulong bank_cnt;
       char  identity_key_path[ PATH_MAX ];

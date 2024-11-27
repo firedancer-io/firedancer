@@ -394,6 +394,7 @@ fd_topo_initialize( config_t * config ) {
 
       tile->poh.plugins_enabled = plugins_enabled;
       tile->poh.bank_cnt = config->layout.bank_tile_count;
+      tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
       fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
