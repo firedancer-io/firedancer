@@ -98,8 +98,7 @@ dump_cmd_fn( args_t *         args,
         FD_LOG_NOTICE(( "Skipping %s %lu", link->name, link->kind_id ));
         continue;
       }
-      ulong obj_id = link->dcache ? link->dcache_obj_id : link->reasm_obj_id;
-      void * mem = config->topo.workspaces[ config->topo.objs[ obj_id ].wksp_id ].wksp;
+      void * mem = config->topo.workspaces[ config->topo.objs[ link->dcache_obj_id ].wksp_id ].wksp;
 
       dump_link( out, link, mem );
     }

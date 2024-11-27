@@ -42,16 +42,21 @@ slot_get_idx( fd_tpu_reasm_t const *      reasm,
   return (uint)slot_idx;
 }
 
+static inline ulong
+slot_get_offset( ulong slot_idx ) {
+  return slot_idx * FD_TPU_REASM_MTU;
+}
+
 FD_FN_PURE static inline uchar *
 slot_get_data( fd_tpu_reasm_t * reasm,
                ulong            slot_idx ) {
-  return fd_tpu_reasm_chunks_laddr( reasm ) + (slot_idx * FD_TPU_REASM_MTU);
+  return reasm->dcache + slot_get_offset( slot_idx );
 }
 
 FD_FN_PURE static inline uchar const *
 slot_get_data_const( fd_tpu_reasm_t const * reasm,
                      ulong                  slot_idx ) {
-  return fd_tpu_reasm_chunks_laddr_const( reasm ) + (slot_idx * FD_TPU_REASM_MTU);
+  return reasm->dcache + slot_get_offset( slot_idx );
 }
 
 static FD_FN_UNUSED void

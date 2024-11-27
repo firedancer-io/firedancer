@@ -52,10 +52,14 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
+  ulong depth     = tile->quic.out_depth;
+  ulong reasm_max = tile->quic.reasm_cnt;
+
   fd_quic_limits_t limits = quic_limits( tile ); /* May FD_LOG_ERR */
   ulong            l      = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )      );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )                    );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits )               );
+  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(),     fd_tpu_reasm_footprint( depth, reasm_max ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -473,7 +477,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "insufficient tile scratch space" ));
   }
 
-  if( FD_UNLIKELY( tile->in_cnt<1UL ||
+  if( FD_UNLIKELY( tile->in_cnt!=1UL ||
                    strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -484,7 +488,13 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
+  ulong out_depth = topo->links[ tile->out_link_id[ 0 ] ].depth;
+  if( FD_UNLIKELY( tile->quic.out_depth != out_depth ) )
+    FD_LOG_ERR(( "tile->quic.out_depth (%u) does not match quic_verify link depth (%lu)",
+                 tile->quic.out_depth, out_depth ));
+
+  void * txn_dcache = topo->links[ tile->out_link_id[ 0UL ] ].dcache;
+  if( FD_UNLIKELY( !txn_dcache ) ) FD_LOG_ERR(( "Missing output dcache" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
@@ -502,7 +512,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_quic_limits_t limits = quic_limits( tile );
   fd_quic_t * quic = fd_quic_join( fd_quic_new( FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) ), &limits ) );
-  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_new failed" ));
+
+  ulong  orig      = 0UL; /* fd_tango origin ID */
+  ulong  reasm_max = tile->quic.reasm_cnt;
+  void * reasm_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_align(), fd_tpu_reasm_footprint( out_depth, reasm_max ) );
+  ctx->reasm       = fd_tpu_reasm_join( fd_tpu_reasm_new( reasm_mem, out_depth, reasm_max, orig, txn_dcache ) );
+  if( FD_UNLIKELY( !ctx->reasm ) ) FD_LOG_ERR(( "fd_tpu_reasm_new failed" ));
 
   if( FD_UNLIKELY( tile->quic.ack_delay_millis == 0 ) ) {
     FD_LOG_ERR(( "Invalid `ack_delay_millis`: must be greater than zero" ));
@@ -554,11 +570,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
-  ctx->verify_out_mem = topo->workspaces[ topo->objs[ verify_out->reasm_obj_id ].wksp_id ].wksp;
-
-  ctx->reasm = verify_out->reasm;
-  if( FD_UNLIKELY( !verify_out->is_reasm || !ctx->reasm ) )
-    FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
+  ctx->verify_out_mem = topo->workspaces[ topo->objs[ verify_out->dcache_obj_id ].wksp_id ].wksp;
 
   ctx->quic = quic;
 

@@ -1,7 +1,6 @@
 #include "fd_topo.h"
 
 #include "../metrics/fd_metrics.h"
-#include "../quic/fd_tpu.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
@@ -147,11 +146,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     link->mcache = fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) );
     FD_TEST( link->mcache );
 
-    if( FD_LIKELY( link->is_reasm ) ) {
-      if( FD_UNLIKELY( topo->objs[ link->reasm_obj_id].wksp_id!=wksp->id ) ) continue;
-      link->reasm = fd_tpu_reasm_join( fd_topo_obj_laddr( topo, link->reasm_obj_id ) );
-      FD_TEST( link->reasm );
-    } else if ( link->mtu ) {
+    if( link->mtu ) {
       if( FD_UNLIKELY( topo->objs[ link->dcache_obj_id ].wksp_id!=wksp->id ) ) continue;
       link->dcache = fd_dcache_join( fd_topo_obj_laddr( topo, link->dcache_obj_id ) );
       FD_TEST( link->dcache );
@@ -398,11 +393,7 @@ fd_topo_print_log( int         stdout,
     fd_topo_link_t * link = &topo->links[ i ];
 
     char size[ 24 ];
-    if( FD_UNLIKELY( !strcmp( link->name, "quic_verify" ) ) ) {
-      fd_topo_mem_sz_string( fd_tpu_reasm_footprint( link->depth, link->burst ), size );
-    } else {
-      fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
-    }
+    fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, link->name, link->kind_id, topo->objs[ link->dcache_obj_id ].wksp_id, link->depth, link->mtu, link->burst );
   }
 
