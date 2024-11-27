@@ -968,6 +968,38 @@ dynamic_port_range = "8900-9000"
     # Agave execution engine and is not configurable.
     [tiles.bank]
 
+    # The proof of history tile receives transactions from bank tiles
+    # and mixes their hashes into a continuous stream of hashes that
+    # proves to other validators time is passing.
+    [tiles.poh]
+        # A validator will always be leader for at least four
+        # consecutive slots, which looks like ....
+        #
+        #   +-------------+----+----+----+----+-------------+
+        #   |     ...     | s0 | s1 | s2 | s3 |     ...     |
+        #   +-------------+----+----+----+----+-------------+
+        #                t0    t1
+        #
+        # Leader slots are 400 milliseconds, so in a well behaved
+        # validator the start time of slot s1 (t1) will be 400
+        # milliseconds after s0 (t0).
+        #
+        # Agave validators start late, at some time t0 + 400 + x, where
+        # x is the time it takes the validator to "freeze" slot s0.
+        # This is typically around 100 milliseconds, but can be up to
+        # 300 or so in degenerate cases.  This is not good for the
+        # network because it increases confirmation times and skip
+        # rates, but it is beneficial to the individual validator (a
+        # tragedy of the commons) because the validator is leader
+        # longer, can receive higher paying transactions for longer,
+        # and ultimately generate more fees for the operator.
+        #
+        # Firedancer defaults to matching the Agave behavior here and
+        # starting late, but you can disable the option to use a more
+        # healthy behavior, where taking a long time to "freeze" slots
+        # cuts into your own next slot time, and does not increase it.
+        lagged_consecutive_leader_start = true
+
     # The shred tile distributes processed transactions that have been
     # executed to the rest of the cluster in the form of shred packets.
     [tiles.shred]
