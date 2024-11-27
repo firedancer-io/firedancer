@@ -2,7 +2,7 @@
 #define HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
 
 #include "../../../disco/topo/fd_topo.h"
-#include "../../fdctl/run/tiles/fd_quic_tile.h"
+#include "../../../disco/quic/fd_quic_tile.h"
 
 /* fd_quic_trace_ctx is the relocated fd_quic_ctx_t of the target quic
    tile.  fd_quic_trace_ctx_remote is the original fd_quic_ctx_t, but

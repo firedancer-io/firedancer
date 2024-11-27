@@ -15,7 +15,7 @@
 
 #include "fd_quic_trace.h"
 #include "../fddev.h"
-#include "../../fdctl/run/tiles/fd_quic_tile.h"
+#include "../../../disco/quic/fd_quic_tile.h"
 #include "../../../tango/fseq/fd_fseq.h"
 
 /* Define global variables */

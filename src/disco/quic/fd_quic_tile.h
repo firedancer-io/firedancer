@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h
 #define HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h
 
-#include "../../../../disco/quic/fd_tpu.h"
-#include "../../../../disco/stem/fd_stem.h"
-#include "../../../../waltz/quic/fd_quic.h"
+#include "fd_tpu.h"
+#include "../stem/fd_stem.h"
+#include "../../waltz/quic/fd_quic.h"
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
