@@ -639,7 +639,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
     err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
     if( FD_UNLIKELY( err ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+      return FD_VM_ERR_INVAL;
     }
   }
 
