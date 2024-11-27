@@ -359,7 +359,7 @@ fd_vm_memmove( fd_vm_t * vm,
        vaddrs being in the input data region (since that is the only possible case you could have overlapping, chunked-up memmoves), 
        Agave will iterate backwards in ANY region. If it eventually reaches the end of a region after iterating backwards and 
        hits an access violation, the bytes from [region_begin, start_vaddr] will still be written to, causing fuzzing mismatches. 
-       In this case, if we didn't have ther reverse flag, we would have thrown an access violation before any bytes were copied. 
+       In this case, if we didn't have the reverse flag, we would have thrown an access violation before any bytes were copied. 
        The same logic applies to memmoves that go past the high end of a region - reverse iteration logic would throw an access 
        violation before any bytes were copied, while the current logic would copy the bytes until the end of the region.
        https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mem_ops.rs#L184 */
@@ -391,12 +391,13 @@ fd_vm_memmove( fd_vm_t * vm,
         dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz, ( dst_offset - vm->input_mem_regions[ dst_region_idx ].vaddr_offset ) );
       }
     } else {
-      dst_haddr = (uchar*)FD_VM_MEM_HADDR_ST_FAST( vm, dst_vaddr_begin );
+      dst_haddr = (uchar*)FD_VM_MEM_HADDR_ST_NO_SZ_CHECK( vm, dst_vaddr_begin, FD_VM_ALIGN_RUST_U8 );
 
       if( FD_UNLIKELY( reverse ) ) {
-        /* Bytes remaining is minimum of the offset from the beginning of the current region (+1 for inclusive region beginning)
-           and the number of storable bytes in the region. */
+        /* Bytes remaining is minimum of the offset from the beginning of the current 
+           region (+1 for inclusive region beginning) and the number of storable bytes in the region. */
         dst_bytes_rem_in_cur_region = fd_ulong_min( vm->region_st_sz[ dst_region ], dst_offset + 1UL );
+
       } else {
         /* Bytes remaining is the number of writable bytes left in the region */
         dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->region_st_sz[ dst_region ], dst_offset );
@@ -418,10 +419,11 @@ fd_vm_memmove( fd_vm_t * vm,
         src_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz, ( src_offset - vm->input_mem_regions[ src_region_idx ].vaddr_offset ) );
       }
     } else {
-      src_haddr = (uchar*)FD_VM_MEM_HADDR_LD_FAST( vm, src_vaddr_begin );
+      src_haddr = (uchar*)FD_VM_MEM_HADDR_LD_NO_SZ_CHECK( vm, src_vaddr_begin, FD_VM_ALIGN_RUST_U8 );
 
       if( FD_UNLIKELY( reverse ) ) {
         src_bytes_rem_in_cur_region = fd_ulong_min( vm->region_ld_sz[ src_region ], src_offset + 1UL );
+
       } else {
         src_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->region_ld_sz[ src_region ], src_offset );
       }
