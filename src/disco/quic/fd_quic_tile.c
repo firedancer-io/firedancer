@@ -1,10 +1,10 @@
 #include "fd_quic_tile.h"
-#include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/stem/fd_stem.h"
-#include "../../../../disco/topo/fd_topo.h"
-#include "../../../../disco/quic/fd_tpu.h"
-#include "../../../../waltz/quic/fd_quic_private.h"
-#include "generated/quic_seccomp.h"
+#include "../metrics/fd_metrics.h"
+#include "../stem/fd_stem.h"
+#include "../topo/fd_topo.h"
+#include "fd_tpu.h"
+#include "../../waltz/quic/fd_quic_private.h"
+#include "../../app/fdctl/run/tiles/generated/quic_seccomp.h"
 
 #include <errno.h>
 #include <linux/unistd.h>
@@ -636,7 +636,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
-#include "../../../../disco/stem/fd_stem.c"
+#include "../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_quic = {
   .name                     = "quic",
