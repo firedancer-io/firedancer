@@ -2,7 +2,6 @@
 #define HEADER_fd_src_disco_topo_fd_topo_h
 
 #include "../stem/fd_stem.h"
-#include "../quic/fd_tpu.h"
 #include "../../tango/fd_tango.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
@@ -61,20 +60,17 @@ typedef struct {
   char  name[ 13UL ]; /* The name of this link, like "pack_bank". There can be multiple of each link name in a topology. */
   ulong kind_id;      /* The ID of this link within its name.  If there are N links of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a link, as does "id" on its own. */
 
-  int   is_reasm; /* If the link is a reassembly buffer. */
   ulong depth;    /* The depth of the mcache representing the link. */
   ulong mtu;      /* The MTU of data fragments in the mcache.  A value of 0 means there is no dcache. */
   ulong burst;    /* The max amount of MTU sized data fragments that might be bursted to the dcache. */
 
   ulong mcache_obj_id;
   ulong dcache_obj_id;
-  ulong reasm_obj_id;
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     fd_frag_meta_t * mcache; /* The mcache of this link. */
     void *           dcache; /* The dcache of this link, if it has one. */
-    fd_tpu_reasm_t * reasm;  /* The reassembly buffer of this link, if it has one. */
   };
 } fd_topo_link_t;
 
@@ -152,6 +148,7 @@ typedef struct {
     } net;
 
     struct {
+      uint   out_depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;

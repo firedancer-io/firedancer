@@ -4,6 +4,7 @@
 
 #include "../tiles/fd_replay_notif.h"
 #include "../../../../choreo/fd_choreo_base.h"
+#include "../../../../disco/quic/fd_tpu.h"
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
@@ -151,57 +152,57 @@ fd_topo_initialize( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                           burst */
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_gossip",   "net_gossip",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_repair",   "net_repair",   0,        config->tiles.net.send_buffer_size,  FD_NET_MTU,                    1UL );
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_quic",     "net_quic",     0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_shred",    "net_shred",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                           config->tiles.quic.txn_reassembly_count );
-  FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
-  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
+  /*                                  topo, link_name,      wksp_name,      depth,                                    mtu,                           burst */
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_gossip",   "net_gossip",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_repair",   "net_repair",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_quic",     "net_quic",     config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_shred",    "net_shred",    config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  config->tiles.verify.receive_buffer_size, FD_TPU_REASM_MTU,              config->tiles.quic.txn_reassembly_count );
+  FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
 
-  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    40UL + 40200UL * 40UL,         1UL );
+  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    128UL,                                    40UL + 40200UL * 40UL,         1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_storei", "shred_storei", 0,        65536UL,                                  4UL*FD_SHRED_STORE_MTU,        4UL+config->tiles.shred.max_pending_shred_sets );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_storei", "shred_storei", 65536UL,                                  4UL*FD_SHRED_STORE_MTU,        4UL+config->tiles.shred.max_pending_shred_sets );
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                          1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                          1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                          1UL );
 
-  /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  0,        128UL,                                    2048UL,                        1UL );
-  /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  0,        128UL,                                    64UL,                          1UL );
-  /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 0,        128UL,                                    4UL + 128UL + 8192UL,          1UL );
-  /**/                 fd_topob_link( topo, "replay_gossi", "replay_gossi", 0,        128UL,                                    4UL + 128UL + 8192UL,          1UL );
-  /**/                 fd_topob_link( topo, "replay_store", "replay_store", 0,        128UL,                                    sizeof(ulong),                 1UL );
+  /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  128UL,                                    2048UL,                        1UL );
+  /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
+  /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
+  /**/                 fd_topob_link( topo, "replay_gossi", "replay_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
+  /**/                 fd_topob_link( topo, "replay_store", "replay_store", 128UL,                                    sizeof(ulong),                 1UL );
 
   /* gossip_dedup could be FD_TPU_MTU, since txns are not parsed, but better to just share one size for all the ins of dedup */
-  /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
 
-  /**/                 fd_topob_link( topo, "crds_shred",   "crds_shred",   0,        128UL,                                    8UL  + 40200UL * 38UL,         1UL );
-  /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 0,        128UL,                                    40200UL * 38UL, 1UL );
-  /**/                 fd_topob_link( topo, "gossip_voter", "gossip_voter", 0,        128UL,                                    40200UL * 38UL, 1UL );
+  /**/                 fd_topob_link( topo, "crds_shred",   "crds_shred",   128UL,                                    8UL  + 40200UL * 38UL,         1UL );
+  /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 128UL,                                    40200UL * 38UL, 1UL );
+  /**/                 fd_topob_link( topo, "gossip_voter", "gossip_voter", 128UL,                                    40200UL * 38UL, 1UL );
 
-  /**/                 fd_topob_link( topo, "gossip_net",   "net_gossip",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "voter_net",    "net_voter",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "voter_dedup",  "voter_dedup",  0,        128UL,                                    FD_TPU_DCACHE_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "gossip_net",   "net_gossip",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "voter_net",    "net_voter",    config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "voter_dedup",  "voter_dedup",  128UL,                                    FD_TPU_DCACHE_MTU,             1UL );
 
-  /**/                 fd_topob_link( topo, "store_repair", "store_repair", 0,        1024UL,                                   USHORT_MAX,                    16UL  );
-  /**/                 fd_topob_link( topo, "repair_store", "repair_store", 0,        1024UL*1024UL,                            FD_SHRED_MAX_SZ,               128UL );
-  /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL   );
-  /**/                 fd_topob_link( topo, "repair_sign",  "repair_sign",  0,        128UL,                                    2048UL,                        1UL );
-  /**/                 fd_topob_link( topo, "sign_repair",  "sign_repair",  0,        128UL,                                    64UL,                          1UL );
-  /**/                 fd_topob_link( topo, "store_replay", "store_replay", 0,        128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(ulong)+sizeof(fd_hash_t), 16UL  );
-  FOR(bank_tile_cnt)   fd_topob_link( topo, "replay_poh",   "replay_poh",   0,        128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL  );
-  /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", 0,        FD_REPLAY_NOTIF_DEPTH,                    FD_REPLAY_NOTIF_MTU,           1UL   );
-  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        16384UL,                                  USHORT_MAX,                    1UL   );
-  /**/                 fd_topob_link( topo, "pack_replay",  "pack_replay",  0,        65536UL,                                  USHORT_MAX,                    1UL   );
-  /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   0,        128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
+  /**/                 fd_topob_link( topo, "store_repair", "store_repair", 1024UL,                                   USHORT_MAX,                    16UL  );
+  /**/                 fd_topob_link( topo, "repair_store", "repair_store", 1024UL*1024UL,                            FD_SHRED_MAX_SZ,               128UL );
+  /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    2048UL,                        1UL );
+  /**/                 fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    64UL,                          1UL );
+  /**/                 fd_topob_link( topo, "store_replay", "store_replay", 128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(ulong)+sizeof(fd_hash_t), 16UL  );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "replay_poh",   "replay_poh",   128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL  );
+  /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH,                    FD_REPLAY_NOTIF_MTU,           1UL   );
+  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL   );
+  /**/                 fd_topob_link( topo, "pack_replay",  "pack_replay",  65536UL,                                  USHORT_MAX,                    1UL   );
+  /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
 
-  /**/                 fd_topob_link( topo, "replay_voter", "replay_voter", 0,        128UL,                                    FD_TPU_DCACHE_MTU,             1UL   );
-  /**/                 fd_topob_link( topo, "voter_gossip", "voter_gossip", 0,        128UL,                                    FD_TXN_MTU,                    1UL   );
-  /**/                 fd_topob_link( topo, "voter_sign",   "voter_sign",   0,        128UL,                                    FD_TXN_MTU,                    1UL   );
-  /**/                 fd_topob_link( topo, "sign_voter",   "sign_voter",   0,        128UL,                                    64UL,                          1UL   );
+  /**/                 fd_topob_link( topo, "replay_voter", "replay_voter", 128UL,                                    FD_TPU_DCACHE_MTU,             1UL   );
+  /**/                 fd_topob_link( topo, "voter_gossip", "voter_gossip", 128UL,                                    FD_TXN_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "voter_sign",   "voter_sign",   128UL,                                    FD_TXN_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "sign_voter",   "sign_voter",   128UL,                                    64UL,                          1UL   );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -477,6 +478,7 @@ fd_topo_initialize( config_t * config ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
 
       tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
+      tile->quic.out_depth                      = config->tiles.verify.receive_buffer_size;
       tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
       tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
       tile->quic.ip_addr                        = config->tiles.net.ip_addr;

@@ -1,10 +1,6 @@
-#include "../../../../disco/tiles.h"
 #include "fd_verify.h"
-
-#include "generated/verify_seccomp.h"
-
 #include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/quic/fd_tpu.h"
+#include "generated/verify_seccomp.h"
 
 #include <linux/unistd.h>
 
@@ -178,17 +174,10 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    if( FD_UNLIKELY( link->is_reasm ) ) {
-      fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->reasm_obj_id ].wksp_id ];
-      ctx->in[i].mem = link_wksp->wksp;
-      ctx->in[i].chunk0 = fd_tpu_reasm_chunk0( link->reasm, ctx->in[i].mem );
-      ctx->in[i].wmark  = fd_tpu_reasm_wmark ( link->reasm, ctx->in[i].mem );
-    } else {
-      fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
-      ctx->in[i].mem = link_wksp->wksp;
-      ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
-      ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
-    }
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    ctx->in[i].mem = link_wksp->wksp;
+    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
+    ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
   }
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;

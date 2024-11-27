@@ -22,6 +22,8 @@
 
 #define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
 
+#define FD_TPU_REASM_REQ_DATA_SZ(depth, reasm_max) (((depth)+(reasm_max))*FD_TPU_REASM_MTU)
+
 /* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes.  These values are
    persisted to logs.  Entries should not be renumbered and numeric
    values should never be reused. */
@@ -107,7 +109,7 @@
    mirroring the set of packets exposed downstream (notwithstanding a
    startup transient of up to depth packets).  This also guarantees that
    the number of slots in the FREE and BUSY states is kept at _exactly_
-   burst at all times.
+   reasm_max at all times.
 
    In order to support the above, the 'pub_slots' lookup table tracks
    which published mcache lines (indexed by `seq % depth`) correspond to
@@ -142,10 +144,10 @@ typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
 struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
   ulong magic;  /* ==FD_TPU_REASM_MAGIC */
 
-  ulong slots_off;     /* slots mem     */
-  ulong pub_slots_off; /* pub_slots mem */
-  ulong chunks_off;    /* payload mem   */
-  ulong map_off;       /* map mem */
+  ulong   slots_off;     /* slots mem     */
+  ulong   pub_slots_off; /* pub_slots mem */
+  ulong   map_off;       /* map mem */
+  uchar * dcache;        /* points to first dcache data byte in local address space */
 
   uint   depth;       /* mcache depth */
   uint   burst;       /* max concurrent reassemblies */
@@ -178,21 +180,11 @@ fd_tpu_reasm_pub_slots_laddr( fd_tpu_reasm_t * reasm ) {
   return (uint *)( (ulong)reasm + reasm->pub_slots_off );
 }
 
-static inline FD_FN_PURE uchar *
-fd_tpu_reasm_chunks_laddr( fd_tpu_reasm_t * reasm ) {
-  return (uchar *)( (ulong)reasm + reasm->chunks_off );
-}
-
-static inline FD_FN_PURE uchar const *
-fd_tpu_reasm_chunks_laddr_const( fd_tpu_reasm_t const * reasm ) {
-  return (uchar const *)( (ulong)reasm + reasm->chunks_off );
-}
-
 /* Construction API */
 
 /* fd_tpu_reasm_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as a tpu_reasm that
-   can reassemble up to 'burst' txns concurrently.  'depth' is the
+   can reassemble up to 'reasm_max' txns concurrently.  'depth' is the
    entry count of the target mcache.  mtu is the max sz of a serialized
    txn (usually FD_TXN_MTU). */
 
@@ -200,20 +192,30 @@ FD_FN_CONST ulong
 fd_tpu_reasm_align( void );
 
 FD_FN_CONST ulong
-fd_tpu_reasm_footprint( ulong depth,  /* Assumed in {2^0,2^1,2^2,...,2^31} */
-                        ulong burst   /* Assumed in [1,2^31) */ );
+fd_tpu_reasm_footprint( ulong depth,       /* Assumed in {2^0,2^1,2^2,...,2^31} */
+                        ulong reasm_max ); /* Assumed in [1,2^31) */
+
+FD_FN_CONST static inline ulong
+fd_tpu_reasm_req_data_sz( ulong depth,
+                          ulong reasm_max ) { /* Assumed in [1,2^31) */
+  return (depth+reasm_max) * FD_TPU_REASM_MTU;
+}
 
 /* fd_tpu_reasm_new formats an unused memory region for use as a
    tpu_reasm.  shmem is a non-NULL pointer to this region in the local
    address space with the required footprint and alignment.  {depth,
-   burst,mtu} as described above.  orig is the Tango origin ID of this
-   tpu_reasm. */
+   reasm_max,mtu} as described above.  orig is the Tango origin ID of
+   this tpu_reasm.  dcache is a local join to an fd_dcache that
+   tpu_reasm will write frags to.  dcache should have at least
+   fd_tpu_reasm_req_data_sz() bytes of data_sz.  The dcache app region
+   is ignored and not written to. */
 
 void *
 fd_tpu_reasm_new( void * shmem,
-                  ulong  depth,  /* Assumed in {2^0,2^1,2^2,...,2^32} */
-                  ulong  burst,  /* Assumed in [1,2^32) */
-                  ulong  orig    /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */ );
+                  ulong  depth,     /* Assumed in {2^0,2^1,2^2,...,2^32} */
+                  ulong  reasm_max, /* Assumed in [1,2^32) */
+                  ulong  orig,      /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
+                  void * dcache );
 
 fd_tpu_reasm_t *
 fd_tpu_reasm_join( void * shreasm );
@@ -223,19 +225,6 @@ fd_tpu_reasm_leave( fd_tpu_reasm_t * reasm );
 
 void *
 fd_tpu_reasm_delete( void * shreasm );
-
-/* fd_tpu_reasm_{chunk0,wmark} returns the chunk index of the {lowest,
-   highest} possible chunk value that fd_tpu_reasm_publish will write to
-   an mcache. */
-
-FD_FN_CONST ulong
-fd_tpu_reasm_chunk0( fd_tpu_reasm_t const * reasm,
-                     void const *           base );
-
-
-FD_FN_CONST ulong
-fd_tpu_reasm_wmark( fd_tpu_reasm_t const * reasm,
-                    void const *           base );
 
 /* Accessor API */
 

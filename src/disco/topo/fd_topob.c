@@ -65,7 +65,6 @@ void
 fd_topob_link( fd_topo_t *  topo,
                char const * link_name,
                char const * wksp_name,
-               int          is_reasm,
                ulong        depth,
                ulong        mtu,
                ulong        burst ) {
@@ -82,7 +81,6 @@ fd_topob_link( fd_topo_t *  topo,
   strncpy( link->name, link_name, sizeof(link->name) );
   link->id       = topo->link_cnt;
   link->kind_id  = kind_id;
-  link->is_reasm = is_reasm;
   link->depth    = depth;
   link->mtu      = mtu;
   link->burst    = burst;
@@ -91,18 +89,11 @@ fd_topob_link( fd_topo_t *  topo,
   link->mcache_obj_id = obj->id;
   FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
 
-  if( FD_UNLIKELY( is_reasm ) ) {
-    obj = fd_topob_obj( topo, "reasm", wksp_name );
-    link->reasm_obj_id = obj->id;
-    FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, burst, "obj.%lu.burst", obj->id ) );
-  } else if( FD_UNLIKELY( mtu ) ) {
-    obj = fd_topob_obj( topo, "dcache", wksp_name );
-    link->dcache_obj_id = obj->id;
-    FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, burst, "obj.%lu.burst", obj->id ) );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, mtu, "obj.%lu.mtu", obj->id ) );
-  }
+  obj = fd_topob_obj( topo, "dcache", wksp_name );
+  link->dcache_obj_id = obj->id;
+  FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, burst, "obj.%lu.burst", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, mtu, "obj.%lu.mtu", obj->id ) );
   topo->link_cnt++;
 }
 
@@ -187,9 +178,7 @@ fd_topob_tile_in( fd_topo_t *  topo,
   tile->in_cnt++;
 
   fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  if( FD_UNLIKELY( link->is_reasm ) ) {
-    fd_topob_tile_uses( topo, tile, &topo->objs[ link->reasm_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  } else if( FD_LIKELY( link->mtu ) ) {
+  if( FD_LIKELY( link->mtu ) ) {
     fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 }
@@ -213,9 +202,7 @@ fd_topob_tile_out( fd_topo_t *  topo,
   tile->out_cnt++;
 
   fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-  if( FD_UNLIKELY( link->is_reasm ) ) {
-    fd_topob_tile_uses( topo, tile, &topo->objs[ link->reasm_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-  } else if( FD_LIKELY( link->mtu ) ) {
+  if( FD_LIKELY( link->mtu ) ) {
     fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 }
