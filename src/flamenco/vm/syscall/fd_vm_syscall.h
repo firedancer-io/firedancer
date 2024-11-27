@@ -8,6 +8,14 @@
 #include "../../log_collector/fd_log_collector.h"
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
+
+/* The maximum number of seeds a PDA can have 
+   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L21 */
+#define FD_VM_PDA_SEEDS_MAX    (16UL)
+/* The maximum length of a PDA seed
+   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L19 */
+#define FD_VM_PDA_SEED_MEM_MAX (32UL)
+
 /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */
 
 /* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
@@ -819,12 +827,21 @@ FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
 int
 fd_vm_derive_pda( fd_vm_t *           vm,
                   fd_pubkey_t const * program_id,
-                  ulong               program_id_vaddr,
-                  ulong               seeds_vaddr,
+                  void const * *      seed_haddrs,
+                  ulong *             seed_szs,
                   ulong               seeds_cnt,
                   uchar *             bump_seed,
                   fd_pubkey_t *       out );
 
+int
+fd_vm_translate_and_check_program_address_inputs( fd_vm_t *           vm,
+                                                  ulong               seeds_vaddr,
+                                                  ulong               seeds_cnt,
+                                                  ulong               program_id_vaddr,
+                                                  void const * *      out_seed_haddrs,
+                                                  ulong *             out_seed_szs,
+                                                  fd_pubkey_t const * * out_program_id );
+                
 FD_PROTOTYPES_END
 
 #endif /* HEADER_src_flamenco_vm_syscall_fd_vm_syscall_h */

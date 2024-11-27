@@ -2,13 +2,6 @@
 
 #include "../../../ballet/ed25519/fd_curve25519.h"
 
-/* The maximum number of seeds a PDA can have 
-   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L21 */
-#define FD_VM_PDA_SEEDS_MAX    (16UL)
-/* The maximum length of a PDA seed
-   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L19 */
-#define FD_VM_PDA_SEED_MEM_MAX (32UL)
-
 /* fd_compute_pda derives a PDA given:
    - the vm
    - the program id, which should be provided through either program_id or program_id_vaddr
@@ -27,14 +20,11 @@ The derivation can also fail because of an out-of-bounds memory access, or an in
 int
 fd_vm_derive_pda( fd_vm_t *           vm,
                   fd_pubkey_t const * program_id,
-                  ulong               program_id_vaddr,
-                  ulong               seeds_vaddr,
+                  void const * *      seed_haddrs,
+                  ulong *             seed_szs,
                   ulong               seeds_cnt,
                   uchar *             bump_seed,
                   fd_pubkey_t *       out ) {
-
-  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
-    fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
   /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr. 
      Weirdly they do two checks for seeds cnt - one before PDA derivation, and one during. The first check will
@@ -56,23 +46,16 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   }
 
   fd_sha256_init( vm->sha );
-  for ( ulong i=0UL; i<seeds_cnt; i++ ) {
-    ulong seed_sz = seeds_haddr[i].len;
-
-    /* Another preflight check 
-       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736 */
-    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
-      return FD_VM_ERR_INVAL;
-    }
+  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+    ulong seed_sz = seed_szs[ i ];
 
     /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
        returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. 
        https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L737-L742 */
-    if ( FD_UNLIKELY( seed_sz==0 ) ) {
+    if( FD_UNLIKELY( !seed_sz ) ) {
       continue;
     }
-    void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_haddr[i].addr, FD_VM_ALIGN_RUST_U8, seed_sz );
+    void const * seed_haddr = seed_haddrs[ i ];
     fd_sha256_append( vm->sha, seed_haddr, seed_sz );
   }
 
@@ -81,11 +64,10 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     fd_sha256_append( vm->sha, bump_seed, 1UL );
   }
 
-  if ( program_id != NULL ) {
+  if( FD_LIKELY( program_id )) {
     fd_sha256_append( vm->sha, program_id, FD_PUBKEY_FOOTPRINT );
   } else {
-    fd_pubkey_t const * program_id_translated = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
-    fd_sha256_append( vm->sha, program_id_translated, FD_PUBKEY_FOOTPRINT );
+    FD_LOG_ERR(( "No program id passed in" ));
   }
   
   fd_sha256_append( vm->sha, "ProgramDerivedAddress", 21UL ); /* TODO: use marker constant */
@@ -99,6 +81,49 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   }
 
   return FD_VM_SUCCESS;
+}
+
+/* fd_vm_translate_and_check_program_address_inputs is responsible for doing
+   the preflight checks and translation of the seeds and program id.
+   https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L719 */
+
+int
+fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
+                                                  ulong                 seeds_vaddr,
+                                                  ulong                 seeds_cnt,
+                                                  ulong                 program_id_vaddr,
+                                                  void const * *        out_seed_haddrs,
+                                                  ulong *               out_seed_szs,
+                                                  fd_pubkey_t const * * out_program_id ) {
+
+  fd_vm_vec_t const * untranslated_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
+                                                                     fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
+
+  /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr.
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
+  if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+    return FD_VM_ERR_INVAL;
+
+  }
+  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+    ulong seed_sz = untranslated_seeds[i].len;
+    /* Another preflight check
+       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736 */
+    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+      return FD_VM_ERR_INVAL;
+    }
+    void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, untranslated_seeds[i].addr, FD_VM_ALIGN_RUST_U8, seed_sz );
+    out_seed_haddrs[ i ] = seed_haddr;
+    out_seed_szs   [ i ] = seed_sz;
+  }
+
+  /* We only want to do this check if the user requires it. */
+  if( out_program_id ) {
+    *out_program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
+  }
+  return 0;
 }
 
 /* fd_vm_syscall_sol_create_program_address is the entrypoint for the sol_create_program_address syscall:
@@ -138,8 +163,24 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
+  void const *        seed_haddrs[ FD_VM_PDA_SEEDS_MAX ];
+  ulong               seed_szs   [ FD_VM_PDA_SEEDS_MAX ];
+  fd_pubkey_t const * program_id;
+
+  int err = fd_vm_translate_and_check_program_address_inputs( vm,
+                                                              seeds_vaddr,
+                                                              seeds_cnt,
+                                                              program_id_vaddr,
+                                                              seed_haddrs,
+                                                              seed_szs,
+                                                              &program_id );
+  if( FD_UNLIKELY( err ) ) {
+    *_ret = 0UL;
+    return err;
+  }
+
   fd_pubkey_t derived[1];
-  int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
+  err = fd_vm_derive_pda( vm, program_id, seed_haddrs, seed_szs, seeds_cnt, bump_seed, derived );
   /* Agave does their translation before the calculation, so if the translation fails we should fail
      the syscall.
      
@@ -196,19 +237,31 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
 
   uchar bump_seed[1];
 
-  /* Agave performs preflight checks on the seed lengths and translation before doing any
-     derivation and deducting CUs, whereas we do it on the fly in a single iteration. 
-     To maintain CU conformance at a fuzzing level, we should perform the CU deduction only if 
-     our adjacent preflight checks do not fail. If they do at some point in the derivation,
-     no extra CUs will be charged. */
+  /* First we need to do the preflight checks */
+  void const *        seed_haddrs[ FD_VM_PDA_SEEDS_MAX ];
+  ulong               seed_szs   [ FD_VM_PDA_SEEDS_MAX ];
+  fd_pubkey_t const * program_id;
+
+  int err = fd_vm_translate_and_check_program_address_inputs( vm,
+                                                              seeds_vaddr,
+                                                              seeds_cnt,
+                                                              program_id_vaddr,
+                                                              seed_haddrs,
+                                                              seed_szs,
+                                                              &program_id );
+  if( FD_UNLIKELY( err ) ) {
+    *_ret = 0UL;
+    return err;
+  }
+
   for( ulong i=0UL; i<255UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
     fd_pubkey_t derived[1];
-    int err = fd_vm_derive_pda( vm, NULL, program_id_vaddr, seeds_vaddr, seeds_cnt, bump_seed, derived );
+    err = fd_vm_derive_pda( vm, program_id, seed_haddrs, seed_szs, seeds_cnt, bump_seed, derived );
     if( FD_LIKELY( err==FD_VM_SUCCESS ) ) {
       /* Stop looking if we have found a valid PDA */
-      int err = 0;
+      err = 0;
       fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST_( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t), &err );
       if( FD_UNLIKELY( 0 != err ) ) {
         *_ret = 0UL;
