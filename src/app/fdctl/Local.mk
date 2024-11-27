@@ -24,7 +24,6 @@ $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_
 
 # fdctl tiles
 $(call add-objs,run/tiles/fd_net,fd_fdctl)
-$(call add-objs,run/tiles/fd_quic_tile,fd_fdctl)
 $(call add-objs,run/tiles/fd_verify,fd_fdctl)
 $(call add-objs,run/tiles/fd_dedup,fd_fdctl)
 $(call add-objs,run/tiles/fd_resolv,fd_fdctl)
