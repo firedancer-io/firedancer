@@ -548,7 +548,11 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
    FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a 
    store, but intentionally omits the is_writable checks for the 
-   input region that are done during memory translation. */
+   input region that are done during memory translation. 
+   
+   FD_VM_MEM_HADDR_ST_NO_SZ_CHECK does all of the checks of a load,
+   except for a check on the validity of the size of a load. It only
+   checks that the specific vaddr that is being translated is valid. */
 
 #define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                         \
     fd_vm_t const * _vm       = (vm);                                                                       \
@@ -577,6 +581,11 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     ulong           _vaddr    = (vaddr);                                                                    \
     ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
     (void const *)_haddr;                                                                                   \
+  }))
+
+
+#define FD_VM_MEM_HADDR_LD_NO_SZ_CHECK( vm, vaddr, align ) (__extension__({ \
+  FD_VM_MEM_HADDR_LD( vm, vaddr, align, 1UL );                              \
   }))
 
 static inline void *
@@ -640,6 +649,15 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
     }                                                                                                       \
     (void *)_haddr;                                                                                         \
   }))
+
+
+#define FD_VM_MEM_HADDR_ST_NO_SZ_CHECK( vm, vaddr, align ) (__extension__({                                 \
+    int _err = 0;                                                                                           \
+    void * ret = FD_VM_MEM_HADDR_ST_( vm, vaddr, align, 1UL, &_err );                                       \
+    if ( FD_UNLIKELY( 0 != _err ))                                                                          \
+      return _err;                                                                                          \
+    ret;                                                                                                    \
+}))
 
 
 #define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
