@@ -350,9 +350,6 @@ fd_precompile_secp256r1_verify( fd_exec_txn_ctx_t *    txn_ctx,
 
   /* ... */
   if( FD_UNLIKELY( data_sz < DATA_START ) ) {
-    if( FD_UNLIKELY( data_sz == 2 && data[0] == 0 ) ) {
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
     txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
