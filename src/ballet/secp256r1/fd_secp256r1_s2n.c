@@ -1,4 +1,3 @@
-#include "fd_secp256r1_private.h"
 #include <stdint.h>
 #include <s2n-bignum.h>
 
@@ -14,7 +13,7 @@ fd_secp256r1_scalar_is_zero( fd_secp256r1_scalar_t const * a ) {
 static inline fd_secp256r1_scalar_t *
 fd_secp256r1_scalar_frombytes( fd_secp256r1_scalar_t * r,
                                uchar const             in[ 32 ] ) {
-  memcpy( r, in, 32 );
+  memcpy( r->buf, in, 32 );
   fd_uint256_bswap( r, r );
   if( FD_LIKELY( fd_uint256_cmp( r, fd_secp256r1_const_n )<0 ) ) {
     return r;
@@ -25,7 +24,7 @@ fd_secp256r1_scalar_frombytes( fd_secp256r1_scalar_t * r,
 static inline fd_secp256r1_scalar_t *
 fd_secp256r1_scalar_frombytes_positive( fd_secp256r1_scalar_t * r,
                                         uchar const             in[ 32 ] ) {
-  memcpy( r, in, 32 );
+  memcpy( r->buf, in, 32 );
   fd_uint256_bswap( r, r );
   if( FD_LIKELY( fd_uint256_cmp( r, fd_secp256r1_const_n_m1_half )<=0 ) ) {
     return r;
@@ -36,7 +35,7 @@ fd_secp256r1_scalar_frombytes_positive( fd_secp256r1_scalar_t * r,
 static inline void
 fd_secp256r1_scalar_from_digest( fd_secp256r1_scalar_t * r,
                                  uchar const             in[ 32 ] ) {
-  memcpy( r, in, 32 );
+  memcpy( r->buf, in, 32 );
   fd_uint256_bswap( r, r );
   bignum_mod_n256_4( r->limbs, r->limbs );
 }
@@ -74,7 +73,7 @@ fd_secp256r1_fp_set( fd_secp256r1_fp_t * r,
 static inline fd_secp256r1_fp_t *
 fd_secp256r1_fp_frombytes( fd_secp256r1_fp_t * r,
                            uchar const             in[ 32 ] ) {
-  memcpy( r, in, 32 );
+  memcpy( r->buf, in, 32 );
   fd_uint256_bswap( r, r );
   if( FD_LIKELY( fd_uint256_cmp( r, fd_secp256r1_const_p )<0 ) ) {
     return r;
@@ -120,7 +119,7 @@ fd_secp256r1_fp_sqrt( fd_secp256r1_fp_t *       r,
 static inline fd_secp256r1_point_t *
 fd_secp256r1_point_frombytes( fd_secp256r1_point_t * r,
                               uchar const            in[ 33 ] ) {
-  fd_secp256r1_fp_t y2[1], neg_y[1];
+  fd_secp256r1_fp_t y2[1], demont_y[1];
 
   uchar sgn = in[0];
   if( FD_UNLIKELY( sgn!=2U && sgn!=3U ) ) {
@@ -145,9 +144,9 @@ fd_secp256r1_point_frombytes( fd_secp256r1_point_t * r,
   }
 
   /* choose y or -y */
-  bignum_neg_p256( neg_y->limbs, r->y->limbs );
-  ulong cond = fd_uint256_cmp( neg_y, r->y ) == (sgn == 2 ? -1 : 1);
-  bignum_mux_4( cond, r->y->limbs, r->y->limbs, neg_y->limbs );
+  bignum_demont_p256( demont_y->limbs, r->y->limbs );
+  ulong cond = (demont_y->limbs[0] % 2) != (sgn == 3U);
+  bignum_optneg_p256( r->y->limbs, cond, r->y->limbs );
 
   fd_secp256r1_fp_set( r->z, fd_secp256r1_const_one_mont );
 
