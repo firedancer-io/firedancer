@@ -222,13 +222,10 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
 
 
     if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ) ) {
-      FD_LOG_ERR(( "[%s] idx full. key_cnt == key_max. offset: %lu", __func__, off ));
+      FD_LOG_ERR(( "[%s] existing archival file exceeded idx_max. offset: %lu", __func__, off ));
     }
-    FD_LOG_NOTICE(( "key_cnt: %lu, key_max: %lu", fd_block_idx_key_cnt( block_idx ), fd_block_idx_key_max( block_idx ) ));
-    FD_LOG_NOTICE(( "inserting %lu", block_map_out.slot ));
-
     if ( FD_UNLIKELY( fd_block_idx_query( block_idx, block_map_out.slot, NULL ) ) ) {
-      FD_LOG_ERR(( "[%s] attempted to reinsert slot %lu into idx", __func__, block_map_out.slot ));
+      FD_LOG_ERR(( "[%s] existing archival file contained duplicates of slot %lu", __func__, block_map_out.slot ));
     }
 
     fd_block_idx_t * idx_entry = fd_block_idx_insert( block_idx, block_map_out.slot );
@@ -612,31 +609,39 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
       fd_block_t * block = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block_map_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
 
-      int err;
-      ulong wsz;
-      ulong off = blockstore->off;
-      err = fd_io_write( fd, block_map_entry, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &wsz );
-      off += wsz;
-      err = fd_io_write( fd, block, sizeof(fd_block_t), sizeof(fd_block_t), &wsz );
-      off += wsz;
-      err = fd_io_write( fd, data, block->data_sz, block->data_sz, &wsz );
-      off += wsz;
-      if( FD_LIKELY( err==0 ) ) FD_LOG_DEBUG(( "[%s] archived block %lu", __func__, slot ));
-      else FD_LOG_ERR(( "[%s] failed to archive block %lu", __func__, slot ));
+      fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
 
-      /* Successfully archived block, so update index and offset. */
+      if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ) ) {
+        FD_LOG_WARNING(( "[%s] reached blockstore idx_max limit. not archiving finalized block: %lu", __func__, slot ));
+      } else if( FD_UNLIKELY( fd_block_idx_query( block_idx, slot, NULL ) ) ) {
+        FD_LOG_ERR(( "[%s] invariant violation. attempted to re-archive finalized block: %lu", __func__, slot ));
+      } else {
+        int err;
+        ulong wsz;
+        ulong off = blockstore->off;
+        err = fd_io_write( fd, block_map_entry, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &wsz );
+        off += wsz;
+        err = fd_io_write( fd, block, sizeof(fd_block_t), sizeof(fd_block_t), &wsz );
+        off += wsz;
+        err = fd_io_write( fd, data, block->data_sz, block->data_sz, &wsz );
+        off += wsz;
+        if( FD_LIKELY( err==0 ) ) FD_LOG_DEBUG(( "[%s] archived block %lu", __func__, slot ));
+        else FD_LOG_ERR(( "[%s] failed to archive block %lu", __func__, slot ));
 
-      fd_block_idx_t * idx_entry = fd_block_idx_insert( fd_blockstore_block_idx( blockstore ), slot );
-      idx_entry->off             = blockstore->off;
-      blockstore->off            = off;
-      idx_entry->block_hash      = block_map_entry->block_hash;
-      idx_entry->bank_hash       = block_map_entry->bank_hash;
+        /* Successfully archived block, so update index and offset. */
+
+        fd_block_idx_t * idx_entry = fd_block_idx_insert( fd_blockstore_block_idx( blockstore ), slot );
+        idx_entry->off             = blockstore->off;
+        blockstore->off            = off;
+        idx_entry->block_hash      = block_map_entry->block_hash;
+        idx_entry->bank_hash       = block_map_entry->bank_hash;
+      }
     }
 
     fd_blockstore_slot_remove( blockstore, slot );
   }
 
-  /* Clean up any orphaned blocks or shreds that are lying around. */
+  /* Scan to clean up any orphaned blocks or shreds < new SMR. */
 
   for (ulong slot = blockstore->smr; slot < smr; slot++) {
     fd_blockstore_slot_remove( blockstore, slot );
