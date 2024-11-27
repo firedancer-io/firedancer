@@ -1501,7 +1501,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       ushort serve_repair_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.serve_repair );
       ushort tvu_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tvu );
       ushort tpu_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu );
-      ushort tpu_quic_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu ) + 6;
+      ushort tpu_quic_port = (ushort)(fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu ) + 6);
       ushort tpu_vote_port = fd_gossip_port_from_socketaddr( &glob->my_contact_info.tpu_vote );
       if( gossip_port > 0 && gossip_port > last_port && gossip_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
