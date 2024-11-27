@@ -165,7 +165,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 }
 
 /* fd_vm_syscall_sol_try_find_program_address is the entrypoint for the sol_try_find_program_address syscall:
-https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L727
+https://github.com/anza-xyz/agave/blob/v2.1.1/programs/bpf_loader/src/syscalls/mod.rs#L791
 
 This syscall creates a valid program derived address, searching for a valid ed25519 curve point by
 iterating through 255 possible bump seeds.
@@ -201,7 +201,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
      To maintain CU conformance at a fuzzing level, we should perform the CU deduction only if 
      our adjacent preflight checks do not fail. If they do at some point in the derivation,
      no extra CUs will be charged. */
-  ulong owed_cus = 0UL;
   for( ulong i=0UL; i<255UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
@@ -212,13 +211,11 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
       int err = 0;
       fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST_( vm, out_vaddr, FD_VM_ALIGN_RUST_U8, sizeof(fd_pubkey_t), &err );
       if( FD_UNLIKELY( 0 != err ) ) {
-        FD_VM_CU_UPDATE( vm, owed_cus );
         *_ret = 0UL;
         return err;
       }
       uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST_( vm, out_bump_seed_vaddr, FD_VM_ALIGN_RUST_U8, 1UL, &err );
       if( FD_UNLIKELY( 0 != err ) ) {
-        FD_VM_CU_UPDATE( vm, owed_cus );
         *_ret = 0UL;
         return err;
       }
@@ -229,18 +226,14 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
       memcpy( out_haddr, derived, sizeof(fd_pubkey_t) );
       *out_bump_seed_haddr = (uchar)*bump_seed;
 
-      FD_VM_CU_UPDATE( vm, owed_cus );
-
       *_ret = 0UL;
       return FD_VM_SUCCESS;
     } else if( FD_UNLIKELY( err!=FD_VM_ERR_INVALID_PDA ) ) {
       return err;
     }
 
-    owed_cus = fd_ulong_sat_add( owed_cus, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
+    FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
   }
-
-  FD_VM_CU_UPDATE( vm, owed_cus );
 
   *_ret = 1UL;
   return FD_VM_SUCCESS;
