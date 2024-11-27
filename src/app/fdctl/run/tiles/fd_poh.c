@@ -424,6 +424,7 @@ typedef struct {
      to prevent clock drift.  If we didn't do this, our 2nd slot would
      end 400ms + `time_for_replay_to_move_slot_and_reset_poh` after
      our 1st, rather than just strictly 400ms. */
+  int  lagged_consecutive_leader_start;
   ulong expect_sequential_leader_slot;
 
   /* There's a race condition ... let's say two banks A and B, bank A
@@ -1065,7 +1066,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   }
 
   ctx->leader_bank_start_ns = fd_log_wallclock(); /* safe to call from Rust */
-  if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==(completed_bank_slot+1UL) ) ) {
+  if( FD_UNLIKELY( !ctx->lagged_consecutive_leader_start && ctx->expect_sequential_leader_slot==(completed_bank_slot+1UL) ) ) {
     /* If we are being reset onto a slot, it means some block was fully
        processed, so we reset to build on top of it.  Typically we want
        to update the reset_slot_start_ns to the current time, because
@@ -1950,6 +1951,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->reset_slot            = ULONG_MAX;
 
+  ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   ctx->microblocks_lower_bound = 0UL;

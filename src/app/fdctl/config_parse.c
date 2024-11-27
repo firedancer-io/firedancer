@@ -305,6 +305,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
 
+  CFG_POP      ( bool,   tiles.poh.lagged_consecutive_leader_start        );
+
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
 

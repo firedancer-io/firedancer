@@ -246,6 +246,10 @@ typedef struct {
     } pack;
 
     struct {
+      int lagged_consecutive_leader_start;
+    } poh;
+
+    struct {
       uint   max_pending_shred_sets;
       ushort shred_listen_port;
     } shred;
