@@ -1250,16 +1250,11 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     return;
   }
 
-  ctx.data = buf;
-  ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
-    FD_LOG_ERR(("fd_crds_data_encode failed"));
-    return;
-  }
-
+  /* Verify signature against the encoded CRDS data */
+  uchar* data_buf = &buf[ sizeof(fd_signature_t) ];
   fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+  if (fd_ed25519_verify( /* msg */ data_buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - data_buf),
                          /* sig */ crd->signature.uc,
                          /* public_key */ pubkey->uc,
                          sha )) {
@@ -1277,7 +1272,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->wallclock = wallclock;
   fd_hash_copy(&msg->origin, pubkey);
 
-  /* We store the serialized form for convenience */
+  /* We store the serialized form of the full CRDS value */
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
