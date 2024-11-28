@@ -373,7 +373,7 @@ fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
       fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
   return fd_alloc_virtual( alloc );
@@ -1407,7 +1407,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), FD_ALLOC_TAG );
   if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, FD_ALLOC_TAG );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, FD_ALLOC_TAG );
   args->alloc = alloc;
   #undef FD_ALLOC_TAG
