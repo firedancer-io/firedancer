@@ -398,12 +398,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  sz ) {
   (void)seq;
 
-  /* Incoming packet from store tile. Format:
-   * Parent slot (ulong - 8 bytes)
-   * Updated block hash/PoH hash (fd_hash_t - 32 bytes)
-   * Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t))
-   */
-
   ctx->skip_frag = 0;
 
   if( in_idx == STORE_IN_IDX ) {
@@ -467,7 +461,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     FD_LOG_DEBUG(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
   } else if( in_idx==GOSSIP_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>RESTART_MAX_MSG_BYTES+sizeof(uint) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
     }
 
     fd_memcpy( ctx->restart_gossip_msg, fd_chunk_to_laddr( ctx->gossip_in_mem, chunk ), sz );
@@ -877,10 +871,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
-  (void)in_idx;
   (void)sig;
   (void)sz;
-  (void)tsorig;
 
   if( FD_UNLIKELY( in_idx==GOSSIP_IN_IDX ) ) {
     if( FD_UNLIKELY( !ctx->in_wen_restart ) ) {
@@ -907,10 +899,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
-  ulong curr_slot = ctx->curr_slot;
+  ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
-  ulong flags     = ctx->flags;
-  ulong bank_idx = ctx->bank_idx;
+  ulong flags       = ctx->flags;
+  ulong bank_idx    = ctx->bank_idx;
   if ( FD_UNLIKELY( curr_slot < ctx->tower->root ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our root %lu.", curr_slot, parent_slot, ctx->tower->root ));
     return;
@@ -952,7 +944,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
   if( ctx->capture_ctx )
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
-  // Execute all txns which were succesfully prepared
+  // Execute all txns which were successfully prepared
   long execute_time_ns = -fd_log_wallclock();
 
     int res = 0UL;
@@ -1653,12 +1645,12 @@ unprivileged_init( fd_topo_t *      topo,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
         FD_FUNK_OVERWRITE, NULL );
   }
-  if( funk == NULL ) {
+  if( FD_UNLIKELY( funk == NULL ) ) {
     FD_LOG_ERR(( "no funk loaded" ));
   }
   ctx->funk = funk;
   ctx->funk_wksp = fd_funk_wksp( funk );
-  if( ctx->funk_wksp == NULL ) {
+  if( FD_UNLIKELY( ctx->funk_wksp == NULL ) ) {
     FD_LOG_ERR(( "no funk wksp" ));
   }
 
@@ -1684,12 +1676,12 @@ unprivileged_init( fd_topo_t *      topo,
   /* TOML paths                                                         */
   /**********************************************************************/
 
-  ctx->blockstore_checkpt = tile->replay.blockstore_checkpt;
+  ctx->blockstore_checkpt  = tile->replay.blockstore_checkpt;
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
-  ctx->funk_checkpt       = tile->replay.funk_checkpt;
-  ctx->genesis            = tile->replay.genesis;
-  ctx->incremental        = tile->replay.incremental;
-  ctx->snapshot           = tile->replay.snapshot;
+  ctx->funk_checkpt        = tile->replay.funk_checkpt;
+  ctx->genesis             = tile->replay.genesis;
+  ctx->incremental         = tile->replay.incremental;
+  ctx->snapshot            = tile->replay.snapshot;
 
   /**********************************************************************/
   /* alloc                                                              */
@@ -1697,7 +1689,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
   if( FD_UNLIKELY( !alloc_shalloc ) ) {
-    FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+    FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   ctx->alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !ctx->alloc ) ) {
     FD_LOG_ERR( ( "fd_alloc_join failed" ) );

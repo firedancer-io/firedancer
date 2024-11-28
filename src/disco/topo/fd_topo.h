@@ -25,7 +25,7 @@
 /* Maximum number of additional ip addresses */
 #define FD_NET_MAX_SRC_ADDR 4
 
-/* A workspace is a Firedance specific memory management structure that
+/* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
 typedef struct {
@@ -746,10 +746,10 @@ FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t * topo );
 
 /* Same as fd_topo_mlock_max_tile, but for loading the entire topology
-   topology into one process, rather than a separate process per tile.
-   This is used, for example, by the configuration code when it creates
-   all the workspaces, or the monitor that maps the entire system into
-   one address space. */
+   into one process, rather than a separate process per tile.  This is
+   used, for example, by the configuration code when it creates all the
+   workspaces, or the monitor that maps the entire system into one
+   address space. */
 FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo );
 
