@@ -342,7 +342,6 @@ fd_flamenco_yaml_walk( void *       _self,
     break;
   default:
     FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
-    break;
   }
 
   /* Remember that we processed an element in the current level */

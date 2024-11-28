@@ -438,7 +438,6 @@ calculate_reward_points_partitioned(
             int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec);
             if ( err != FD_ACC_MGR_SUCCESS && err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
                 FD_LOG_ERR(( "failed to read stake account from funk" ));
-                continue;
             }
             if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
                 FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
@@ -573,7 +572,6 @@ calculate_stake_vote_rewards_account(
         fd_vote_state_versioned_t vote_state_versioned[1] = {0};
         if( fd_vote_state_versioned_decode( vote_state_versioned, &decode ) != 0 ) {
             FD_LOG_ERR(( "failed to decode vote state" ));
-            return;
         }
 
         /* Note, this doesn't actually redeem any rewards.. this is a misnomer. */

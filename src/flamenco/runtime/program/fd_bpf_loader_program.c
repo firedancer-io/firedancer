@@ -886,7 +886,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       uchar bump_seed = 0;
       err = fd_pubkey_find_program_address( instr_ctx, program_id, 1UL, seeds, &seed_sz, derived_address, &bump_seed );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "Unable to find a viable program address bump seed" )); // Solana panics, error code is undefined
+        FD_LOG_WARNING(( "fd_pubkey_find_program_address failed. Agave would panic here. Continuing ..." ));
         return err;
       }
       if( FD_UNLIKELY( memcmp( derived_address, programdata_key, sizeof(fd_pubkey_t) ) ) ) {

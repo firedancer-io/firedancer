@@ -279,7 +279,6 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
     FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
-    return -1;
   }
 
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
@@ -322,7 +321,6 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
 
   if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
     FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
-    return -1;
   }
 
   slot_ctx->funk_txn = parent_txn;
@@ -345,7 +343,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
-    FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
+    FD_LOG_WARNING(( "fd_funk_txn_prepare() failed" ));
     return -1;
   }
 
@@ -373,7 +371,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
 
   if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
-    FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
+    FD_LOG_WARNING(( "fd_funk_txn_publish_into_parent() failed" ));
     return -1;
   }
 

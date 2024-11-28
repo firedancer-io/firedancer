@@ -130,7 +130,6 @@ fd_snapshot_load( const char *         snapshotfile,
   switch (snapshot_type) {
   case FD_SNAPSHOT_TYPE_UNSPECIFIED:
     FD_LOG_ERR(("fd_snapshot_load(\"%s\", verify-hash=%s, check-hash=%s, FD_SNAPSHOT_TYPE_UNSPECIFIED)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
-    break;
   case FD_SNAPSHOT_TYPE_FULL:
     FD_LOG_NOTICE(("fd_snapshot_load(\"%s\", verify-hash=%s, check-hash=%s, FD_SNAPSHOT_TYPE_FULL)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
     break;
@@ -139,7 +138,6 @@ fd_snapshot_load( const char *         snapshotfile,
     break;
   default:
     FD_LOG_ERR(("fd_snapshot_load(\"%s\", verify-hash=%s, check-hash=%s, huh?)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
-    break;
   }
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );

@@ -1906,7 +1906,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
     // TODO: we need to use the txn ctx funk_txn, valloc, etc.
     int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, accounts_to_save, acc_idx, tpool );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed to save edits to accounts" ));
+      FD_LOG_WARNING(( "failed to save edits to accounts" ));
       return -1;
     }
 
@@ -2848,9 +2848,9 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
       fd_funk_start_write(funk);
-      ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
-      if (publish_err == 0) {
-        FD_LOG_ERR(("publish err"));
+      ulong publish_err = fd_funk_txn_publish( funk, txn, 1 );
+      if( publish_err == 0 ) {
+        FD_LOG_WARNING(( "fd_funk_txn_publish failed" ));
         return -1;
       }
       if( slot_ctx->status_cache ) {

@@ -183,7 +183,6 @@ fd_vm_disasm_instr_jmp( fd_sbpf_instr_t            instr,
   case FD_SBPF_OPCODE_SOURCE_MODE_REG:
     OUT_PRINTF( "%s%s r%d, r%d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.src_reg, (long)pc+(long)instr.offset+1L );
     return FD_VM_SUCCESS;
-    break;
   default: break;
   }
 

@@ -249,9 +249,9 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
    address. */
 
 static void
-fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
+fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
                     fd_feature_id_t const * id,
-                    uchar const       acct[ static 32 ] ) {
+                    uchar const             acct[ static 32 ] ) {
 
   FD_BORROWED_ACCOUNT_DECL(acct_rec);
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec);
@@ -273,9 +273,8 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
         .valloc = fd_scratch_virtual(),
     };
     int decode_err = fd_feature_decode(feature, &ctx);
-    if (FD_UNLIKELY(decode_err != FD_BINCODE_SUCCESS))
-    {
-      FD_LOG_ERR(("Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err));
+    if( FD_UNLIKELY( decode_err != FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_WARNING(( "Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
       return;
     }
 
