@@ -908,6 +908,15 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
 
+  if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start ) ) {
+    /* If we are mirroring Agave behavior, the wall clock gets reset
+       here so we don't count time spent waiting for a bank to freeze
+       or replay stage to actually start the slot towards our 400ms.
+       
+       See extended comments in the config file on this option. */
+    ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
+  }
+
   long slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
 
   /* No need to check flow control, there are always credits became when we
@@ -1066,7 +1075,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   }
 
   ctx->leader_bank_start_ns = fd_log_wallclock(); /* safe to call from Rust */
-  if( FD_UNLIKELY( !ctx->lagged_consecutive_leader_start && ctx->expect_sequential_leader_slot==(completed_bank_slot+1UL) ) ) {
+  if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==(completed_bank_slot+1UL) ) ) {
     /* If we are being reset onto a slot, it means some block was fully
        processed, so we reset to build on top of it.  Typically we want
        to update the reset_slot_start_ns to the current time, because
