@@ -136,7 +136,7 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
       fd_rpcserver_args_t * args = &ctx->args;
       args->funk = fd_funk_open_file(
         ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
-      if( args->funk == NULL ) {
+      if( FD_UNLIKELY( args->funk == NULL ) ) {
         FD_LOG_ERR(( "failed to join a funky" ));
       }
 
@@ -195,7 +195,7 @@ privileged_init( fd_topo_t *      topo,
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
   if( FD_UNLIKELY( !alloc_shalloc ) ) {
-    FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+    FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) {
     FD_LOG_ERR( ( "fd_alloc_join failed" ) );

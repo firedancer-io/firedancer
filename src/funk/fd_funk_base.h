@@ -9,7 +9,7 @@
 
    - keys are a fixed length fd_funk_rec_key_t.
 
-   - values are variable size arbitrary binary data with a upper bound
+   - values are variable size arbitrary binary data with an upper bound
      to the size.
 
    - Records are indexed by key.

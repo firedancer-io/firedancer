@@ -28,26 +28,26 @@ fd_funk_open_file( const char * filename,
       void * shmem = info.join;
       fd_wksp_t * wksp = fd_wksp_join( shmem );
       if( FD_UNLIKELY( !wksp ) ) {
-        FD_LOG_ERR(( "fd_wksp_join(%p) failed", shmem ));
+        FD_LOG_WARNING(( "fd_wksp_join(%p) failed", shmem ));
         return NULL;
       }
 
       fd_wksp_tag_query_info_t info2;
-      if( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info2, 1 ) ) {
-        FD_LOG_ERR(( "%s does not contain a funky", filename ));
+      if( FD_UNLIKELY( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info2, 1 ) ) ) {
+        FD_LOG_WARNING(( "%s does not contain a funky", filename ));
         return NULL;
       }
 
       void * funk_shmem = fd_wksp_laddr_fast( wksp, info2.gaddr_lo );
       fd_funk_t * funk = fd_funk_join( funk_shmem );
-      if( funk == NULL ) {
-        FD_LOG_ERR(( "failed to join a funky" ));
+      if( FD_UNLIKELY( funk == NULL ) ) {
+        FD_LOG_WARNING(( "failed to join a funky" ));
         return NULL;
       }
 
       FD_LOG_NOTICE(( "reopened funk with %lu records", fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ) ));
 
-      if( close_args_out != NULL ) {
+      if( FD_UNLIKELY( close_args_out != NULL ) ) {
         close_args_out->shmem = shmem;
         close_args_out->fd = -1;
         close_args_out->total_sz = 0;
@@ -62,7 +62,7 @@ fd_funk_open_file( const char * filename,
   switch (mode) {
   case FD_FUNK_READONLY:
     if( filename == NULL  || filename[0] == '\0' ) {
-      FD_LOG_ERR(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace, funk file required" ));
+      FD_LOG_WARNING(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace, funk file required" ));
       return NULL;
     }
     open_flags = O_RDWR; /* We mark the memory as read-only after we are done setting up */
@@ -72,7 +72,7 @@ fd_funk_open_file( const char * filename,
     break;
   case FD_FUNK_READ_WRITE:
     if( filename == NULL  || filename[0] == '\0' ) {
-      FD_LOG_ERR(( "mode FD_FUNK_READ_WRITE can not be used with an anonymous workspace, funk file required" ));
+      FD_LOG_WARNING(( "mode FD_FUNK_READ_WRITE can not be used with an anonymous workspace, funk file required" ));
       return NULL;
     }
     open_flags = O_RDWR;
@@ -99,12 +99,12 @@ fd_funk_open_file( const char * filename,
     do_new = 1;
     break;
   default:
-    FD_LOG_ERR(( "invalid mode when opening %s", filename ));
+    FD_LOG_WARNING(( "invalid mode when opening %s", filename ));
     return NULL;
   }
 
   int fd;
-  if( filename == NULL || filename[0] == '\0'  ) {
+  if( FD_UNLIKELY( filename == NULL || filename[0] == '\0' ) ) {
     fd = -1; /* Anonymous */
     do_new = 1;
   } else {
@@ -112,8 +112,8 @@ fd_funk_open_file( const char * filename,
     /* Open the file */
     FD_LOG_DEBUG(( "opening %s", filename ));
     fd = open( filename, open_flags, S_IRUSR|S_IWUSR );
-    if( fd < 0 ) {
-      FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
+    if( FD_UNLIKELY( fd < 0 ) ) {
+      FD_LOG_WARNING(( "error opening %s: %s", filename, strerror(errno) ));
       return NULL;
     }
 
@@ -121,16 +121,16 @@ fd_funk_open_file( const char * filename,
 
     struct stat statbuf;
     int r = fstat( fd, &statbuf );
-    if( r < 0 ) {
-      FD_LOG_ERR(( "error opening %s: %s", filename, strerror(errno) ));
+    if( FD_UNLIKELY( r < 0 ) ) {
+      FD_LOG_WARNING(( "error opening %s: %s", filename, strerror(errno) ));
       close( fd );
       return NULL;
     }
     if( (can_create && statbuf.st_size == 0) ||
         (can_resize && statbuf.st_size != (off_t)total_sz) ) {
       FD_LOG_DEBUG(( "resizing %s to %lu", filename, total_sz ));
-      if( ftruncate( fd, (off_t)total_sz ) < 0 ) {
-        FD_LOG_ERR(( "error resizing %s: %s", filename, strerror(errno) ));
+      if( FD_UNLIKELY( ftruncate( fd, (off_t)total_sz ) < 0 ) ) {
+        FD_LOG_WARNING(( "error resizing %s: %s", filename, strerror(errno) ));
         close( fd );
         return NULL;
       }
@@ -140,22 +140,22 @@ fd_funk_open_file( const char * filename,
     }
   }
 
-  if( total_sz & (PAGESIZE-1) ) {
-    FD_LOG_ERR(( "file size must be a multiple of a %lu", PAGESIZE ));
+  if( FD_UNLIKELY( total_sz & (PAGESIZE-1) ) ) {
+    FD_LOG_WARNING(( "file size must be a multiple of a %lu", PAGESIZE ));
     close( fd );
     return NULL;
   }
 
   /* Force all the disk blocks to be physically allocated to avoid major faults in the future */
 
-  if( do_new && fd != -1 ) {
+  if( do_new & (fd != -1) ) {
     FD_LOG_DEBUG(( "zeroing %s", (filename ? filename : "(NULL)") ));
     uchar zeros[4<<20];
     memset( zeros, 0, sizeof(zeros) );
     for( ulong i = 0; i < total_sz; ) {
       ulong sz = fd_ulong_min( sizeof(zeros), total_sz - i );
-      if( pwrite( fd, zeros, sz, (__off_t)i ) < (ssize_t)sz ) {
-        FD_LOG_ERR(( "error zeroing %s: %s", (filename ? filename : "(NULL)"), strerror(errno) ));
+      if( FD_UNLIKELY( pwrite( fd, zeros, sz, (__off_t)i ) < (ssize_t)sz ) ) {
+        FD_LOG_WARNING(( "error zeroing %s: %s", (filename ? filename : "(NULL)"), strerror(errno) ));
         close( fd );
         return NULL;
       }
@@ -169,8 +169,8 @@ fd_funk_open_file( const char * filename,
   FD_LOG_DEBUG(( "mapping %s", (filename ? filename : "(NULL)") ));
   void * shmem = mmap( NULL, total_sz, (PROT_READ|PROT_WRITE),
                        (fd == -1 ? (MAP_ANONYMOUS|MAP_PRIVATE) : MAP_SHARED), fd, 0 );
-  if( shmem == NULL || shmem == MAP_FAILED ) {
-    FD_LOG_ERR(( "error mapping %s: %s", (filename ? filename : "(NULL)"), strerror(errno) ));
+  if( FD_UNLIKELY ( shmem == MAP_FAILED ) ) {
+    FD_LOG_WARNING(( "error mapping %s: %s", (filename ? filename : "(NULL)"), strerror(errno) ));
     close( fd );
     return NULL;
   }
@@ -181,7 +181,7 @@ fd_funk_open_file( const char * filename,
 
     ulong part_max = fd_wksp_part_max_est( total_sz, 1U<<18U );
     if( FD_UNLIKELY( !part_max ) ) {
-      FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,64KiB) failed", total_sz ));
+      FD_LOG_WARNING(( "fd_wksp_part_max_est(%lu,64KiB) failed", total_sz ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -189,7 +189,7 @@ fd_funk_open_file( const char * filename,
 
     ulong data_max = fd_wksp_data_max_est( total_sz, part_max );
     if( FD_UNLIKELY( !data_max ) ) {
-      FD_LOG_ERR(( "part_max (%lu) too large for footprint %lu", part_max, total_sz ));
+      FD_LOG_WARNING(( "part_max (%lu) too large for footprint %lu", part_max, total_sz ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -198,7 +198,7 @@ fd_funk_open_file( const char * filename,
     FD_LOG_DEBUG(( "creating workspace in %s", (filename ? filename : "(NULL)") ));
     void * shwksp = fd_wksp_new( shmem, "funk", (uint)seed, part_max, data_max );
     if( FD_UNLIKELY( !shwksp ) ) {
-      FD_LOG_ERR(( "fd_wksp_new(%p,\"%s\",%lu,%lu,%lu) failed", shmem, "funk", seed, part_max, data_max ));
+      FD_LOG_WARNING(( "fd_wksp_new(%p,\"%s\",%lu,%lu,%lu) failed", shmem, "funk", seed, part_max, data_max ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -206,7 +206,7 @@ fd_funk_open_file( const char * filename,
 
     fd_wksp_t * wksp = fd_wksp_join( shwksp );
     if( FD_UNLIKELY( !wksp ) ) {
-      FD_LOG_ERR(( "fd_wksp_join(%p) failed", shwksp ));
+      FD_LOG_WARNING(( "fd_wksp_join(%p) failed", shwksp ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -221,16 +221,16 @@ fd_funk_open_file( const char * filename,
 
     FD_LOG_DEBUG(( "creating funk in %s", (filename ? filename : "(NULL)") ));
     void * funk_shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), wksp_tag );
-    if( funk_shmem == NULL ) {
-      FD_LOG_ERR(( "failed to allocate a funky" ));
+    if( FD_UNLIKELY(funk_shmem == NULL ) ) {
+      FD_LOG_WARNING(( "failed to allocate a funky" ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
     }
 
     fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_shmem, wksp_tag, seed, txn_max, rec_max ) );
-    if( funk == NULL ) {
-      FD_LOG_ERR(( "failed to allocate a funky" ));
+    if( FD_UNLIKELY( funk == NULL ) ) {
+      FD_LOG_WARNING(( "failed to allocate a funky" ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -238,7 +238,7 @@ fd_funk_open_file( const char * filename,
 
     FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (filename ? filename : "(NULL)") ));
 
-    if( close_args_out != NULL ) {
+    if( FD_UNLIKELY( close_args_out != NULL ) ) {
       close_args_out->shmem = shmem;
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
@@ -247,11 +247,11 @@ fd_funk_open_file( const char * filename,
 
   } else {
 
-    /* Join the data existiing structures */
+    /* Join the data existing structures */
 
     fd_wksp_t * wksp = fd_wksp_join( shmem );
     if( FD_UNLIKELY( !wksp ) ) {
-      FD_LOG_ERR(( "fd_wksp_join(%p) failed", shmem ));
+      FD_LOG_WARNING(( "fd_wksp_join(%p) failed", shmem ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -260,13 +260,13 @@ fd_funk_open_file( const char * filename,
     ulong page_sz  = PAGESIZE;
     ulong page_cnt = total_sz/PAGESIZE;
     int join_err = fd_shmem_join_anonymous( "funk", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, shmem, page_sz, page_cnt );
-    if( join_err ) {
+    if( FD_UNLIKELY( join_err )  ) {
       FD_LOG_WARNING(( "fd_shmem_join_anonymous failed" ));
     }
 
     fd_wksp_tag_query_info_t info;
-    if( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info, 1 ) ) {
-      FD_LOG_ERR(( "%s does not contain a funky", filename ));
+    if( FD_UNLIKELY( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info, 1 ) ) ) {
+      FD_LOG_WARNING(( "%s does not contain a funky", filename ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -274,8 +274,8 @@ fd_funk_open_file( const char * filename,
 
     void * funk_shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
     fd_funk_t * funk = fd_funk_join( funk_shmem );
-    if( funk == NULL ) {
-      FD_LOG_ERR(( "failed to join a funky" ));
+    if( FD_UNLIKELY( funk == NULL ) ) {
+      FD_LOG_WARNING(( "failed to join a funky" ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
@@ -289,7 +289,7 @@ fd_funk_open_file( const char * filename,
 
     FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (filename ? filename : "(NULL)") ));
 
-    if( close_args_out != NULL ) {
+    if( FD_UNLIKELY( close_args_out != NULL ) ) {
       close_args_out->shmem = shmem;
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
@@ -309,8 +309,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   ulong part_max;
   ulong data_max;
   int err = fd_wksp_restore_preview( checkpt_filename, &seed, &part_max, &data_max );
-  if( err ) {
-    FD_LOG_ERR(( "unable to preview %s", checkpt_filename ));
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "unable to preview %s", checkpt_filename ));
     return NULL;
   }
   ulong total_sz = fd_wksp_footprint( part_max, data_max );
@@ -323,8 +323,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
     /* Open the file */
     fd = open( funk_filename, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR );
-    if( fd < 0 ) {
-      FD_LOG_ERR(( "error opening %s: %s", funk_filename, strerror(errno) ));
+    if( FD_UNLIKELY( fd < 0 ) ) {
+      FD_LOG_WARNING(( "error opening %s: %s", funk_filename, strerror(errno) ));
       return NULL;
     }
 
@@ -332,14 +332,14 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
     struct stat statbuf;
     int r = fstat( fd, &statbuf );
-    if( r < 0 ) {
-      FD_LOG_ERR(( "error opening %s: %s", funk_filename, strerror(errno) ));
+    if( FD_UNLIKELY( r < 0 ) ) {
+      FD_LOG_WARNING(( "error opening %s: %s", funk_filename, strerror(errno) ));
       close( fd );
       return NULL;
     }
     if( statbuf.st_size != (off_t)total_sz ) {
-      if( ftruncate( fd, (off_t)total_sz ) < 0 ) {
-        FD_LOG_ERR(( "error resizing %s: %s", funk_filename, strerror(errno) ));
+      if( FD_UNLIKELY( ftruncate( fd, (off_t)total_sz ) < 0 ) ) {
+        FD_LOG_WARNING(( "error resizing %s: %s", funk_filename, strerror(errno) ));
         close( fd );
         return NULL;
       }
@@ -351,8 +351,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
     memset( zeros, 0, sizeof(zeros) );
     for( ulong i = 0; i < total_sz; ) {
       ulong sz = fd_ulong_min( sizeof(zeros), total_sz - i );
-      if( pwrite( fd, zeros, sz, (__off_t)i ) < (ssize_t)sz ) {
-        FD_LOG_ERR(( "error zeroing %s: %s", (funk_filename ? funk_filename : "(NULL)"), strerror(errno) ));
+      if( FD_UNLIKELY ( pwrite( fd, zeros, sz, (__off_t)i ) < (ssize_t)sz ) ) {
+        FD_LOG_WARNING(( "error zeroing %s: %s", (funk_filename ? funk_filename : "(NULL)"), strerror(errno) ));
         close( fd );
         return NULL;
       }
@@ -366,8 +366,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   void * shmem = mmap( NULL, total_sz, PROT_READ|PROT_WRITE,
                        (fd == -1 ? (MAP_ANONYMOUS|MAP_PRIVATE) : MAP_SHARED), fd, 0 );
 
-  if( shmem == NULL || shmem == MAP_FAILED ) {
-    FD_LOG_ERR(( "error mapping %s: %s", (funk_filename ? funk_filename : "(NULL)"), strerror(errno) ));
+  if( FD_UNLIKELY( shmem == MAP_FAILED ) ) {
+    FD_LOG_WARNING(( "error mapping %s: %s", (funk_filename ? funk_filename : "(NULL)"), strerror(errno) ));
     close( fd );
     return NULL;
   }
@@ -376,7 +376,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
   void * shwksp = fd_wksp_new( shmem, "funk", seed, part_max, data_max );
   if( FD_UNLIKELY( !shwksp ) ) {
-    FD_LOG_ERR(( "fd_wksp_new(%p,\"%s\",%u,%lu,%lu) failed", shmem, "funk", seed, part_max, data_max ));
+    FD_LOG_WARNING(( "fd_wksp_new(%p,\"%s\",%u,%lu,%lu) failed", shmem, "funk", seed, part_max, data_max ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -384,7 +384,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
   fd_wksp_t * wksp = fd_wksp_join( shwksp );
   if( FD_UNLIKELY( !wksp ) ) {
-    FD_LOG_ERR(( "fd_wksp_join(%p) failed", shwksp ));
+    FD_LOG_WARNING(( "fd_wksp_join(%p) failed", shwksp ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -393,8 +393,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   ulong page_sz  = PAGESIZE;
   ulong page_cnt = total_sz/PAGESIZE;
   int join_err = fd_shmem_join_anonymous( "funk", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, shmem, page_sz, page_cnt );
-  if( join_err ) {
-    FD_LOG_ERR(( "fd_shmem_join_anonymous failed" ));
+  if( FD_UNLIKELY( join_err ) ) {
+    FD_LOG_WARNING(( "fd_shmem_join_anonymous failed" ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -403,7 +403,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   /* Restore the checkpoint */
 
   if( fd_wksp_restore( wksp, checkpt_filename, seed ) ) {
-    FD_LOG_ERR(( "restoring %s failed", checkpt_filename ));
+    FD_LOG_WARNING(( "restoring %s failed", checkpt_filename ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -412,8 +412,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   /* Let's play find the funk */
 
   fd_wksp_tag_query_info_t info;
-  if( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info, 1 ) ) {
-    FD_LOG_ERR(( "%s does not contain a funky", checkpt_filename ));
+  if( FD_UNLIKELY( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info, 1 ) ) ) {
+    FD_LOG_WARNING(( "%s does not contain a funky", checkpt_filename ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -421,8 +421,8 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
   void * funk_shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
   fd_funk_t * funk = fd_funk_join( funk_shmem );
-  if( funk == NULL ) {
-    FD_LOG_ERR(( "failed to join a funky" ));
+  if( FD_UNLIKELY( funk == NULL ) ) {
+    FD_LOG_WARNING(( "failed to join a funky" ));
     munmap( shmem, total_sz );
     close( fd );
     return NULL;
@@ -430,7 +430,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
 
   FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (funk_filename ? funk_filename : "(NULL)") ));
 
-  if( close_args_out != NULL ) {
+  if( FD_UNLIKELY( close_args_out != NULL ) ) {
     close_args_out->shmem = shmem;
     close_args_out->fd = fd;
     close_args_out->total_sz = total_sz;

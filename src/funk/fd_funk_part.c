@@ -117,7 +117,6 @@ fd_funk_repartition(fd_funk_t *            funk,
   partvec = (fd_funk_partvec_t *)fd_alloc_malloc_at_least( alloc, fd_funk_partvec_align(), fd_funk_partvec_footprint(num_part), &tmp_max );
   if( FD_UNLIKELY( !partvec ) ) {
     FD_LOG_ERR(( "partvec alloc failed" ));
-    return;
   }
   partvec->num_part = num_part;
   funk->partvec_gaddr = fd_wksp_gaddr_fast( wksp, partvec );

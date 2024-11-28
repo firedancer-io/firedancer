@@ -74,7 +74,7 @@ fd_funk_val_safe( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's 
 
    The returned pointer is in the caller's address space and, if
    non-NULL, the value at the pointer is stable for its lifetime or
-   until it it is modified.
+   until it is modified.
 
    IMPORTANT SAFETY TIP!  There are _no_ alignment guarantees on the
    returned value (even if off itself is aligned).

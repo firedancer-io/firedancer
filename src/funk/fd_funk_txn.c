@@ -25,7 +25,7 @@
 
    This is debatably overkill but, given this code is the pointy end of
    the stick for keeping transaction histories clean (i.e. cancelling a
-   a wrong transaction could lose information and publishing a wrong
+   wrong transaction could lose information and publishing a wrong
    transaction is even worse), the overhead for the detection is
    minimal, and these operations aren't particularly performance
    critical anyway, seems a more-than-worthwhile safeguard.  Likewise,

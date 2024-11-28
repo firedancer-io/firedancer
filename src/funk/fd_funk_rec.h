@@ -7,7 +7,7 @@
 #include "fd_funk_txn.h" /* Includes fd_funk_base.h */
 
 /* FD_FUNK_REC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
-   a fd_funk_rec_t.  ALIGN will be an power of 2, footprint will be a
+   a fd_funk_rec_t.  ALIGN will be a power of 2, footprint will be a
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
@@ -212,7 +212,7 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
        not from funk, etc)
 
      FD_FUNK_ERR_KEY - the record did not appear to be a live record.
-       Specifically rec's (xid,key) did not resolve to to itself.
+       Specifically rec's (xid,key) did not resolve to itself.
 
      FD_FUNK_ERR_XID - memory corruption was detected in testing rec
 
