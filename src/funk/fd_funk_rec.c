@@ -393,7 +393,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   if( FD_UNLIKELY( !first_born ) ) {
     if( FD_UNLIKELY( rec_prev_idx>=rec_max ) )
       FD_LOG_CRIT(( "memory corruption detected (bad_idx)" ));
-    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_prev_idx ].txn_cidx!=txn_idx ) ) )
+    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_prev_idx ].txn_cidx )!=txn_idx  ) )
       FD_LOG_CRIT(( "memory corruption detected (mismatch)" ));
   }
 
