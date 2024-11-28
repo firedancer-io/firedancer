@@ -933,7 +933,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
             Penalty treap                1.0 at <= 100 transactions, then sqrt(100/N)
 
        We'll also use M=8. */
-    float worst_score = INFINITY;
+    float worst_score = FLT_MAX;
     fd_pack_ord_txn_t * worst = NULL;
     for( ulong i=0UL; i<8UL; i++ ) {
       ulong sample_i = fd_rng_uint_roll( pack->rng, (uint)(pack->pack_depth+1UL) );
