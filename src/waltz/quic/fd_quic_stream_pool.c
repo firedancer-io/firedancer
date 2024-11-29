@@ -1,7 +1,4 @@
 #include "fd_quic_stream_pool.h"
-#include "fd_quic_private.h"
-
-#include "../../util/fd_util.h"
 
 /* returns the required footprint of fd_quic_stream_pool_t
 

@@ -106,19 +106,36 @@ typedef struct fd_quic_state_private fd_quic_state_t;
    (i.e. outlasts joins, until fd_quic_delete) */
 
 struct __attribute__((aligned(16UL))) fd_quic_limits {
-  ulong  conn_cnt;              /* instance-wide, max concurrent conn count              */
-  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count         */
+  ulong  conn_cnt;              /* instance-wide, max concurrent conn count      */
+  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count */
+  ulong  log_depth;             /* instance-wide, depth of shm log cache         */
 
-  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
-  ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count              */
-  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
+  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)         */
+  ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count      */
+  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count           */
 
-  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                        */
+  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                */
   /* the user consumes rx directly from the network buffer */
 
   ulong  stream_pool_cnt;  /* instance-wide, number of streams in stream pool */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
+
+/* fd_quic_layout_t is an offset table describing the memory layout of
+   an fd_quic_t object.  It is deived from fd_quic_limits_t. */
+
+struct fd_quic_layout {
+  ulong meta_sz;         /* size of this struct */
+  ulong log_off;         /* offset to quic_log */
+  ulong conns_off;       /* offset of connection mem region  */
+  ulong conn_footprint;  /* sizeof a conn                    */
+  ulong conn_map_off;    /* offset of conn map mem region    */
+  int   lg_slot_cnt;     /* see conn_map_new                 */
+  ulong hs_pool_off;     /* offset of the handshake pool     */
+  ulong stream_pool_off; /* offset of the stream pool        */
+};
+
+typedef struct fd_quic_layout fd_quic_layout_t;
 
 /* fd_quic_now_t is the clock source used internally by quic for
    scheduling events.  context is an arbitrary pointer earlier provided
@@ -334,8 +351,9 @@ typedef union fd_quic_metrics fd_quic_metrics_t;
 /* fd_quic_t memory layout ********************************************/
 
 struct fd_quic {
-  ulong magic; /* ==FD_QUIC_MAGIC */
+  ulong magic;   /* ==FD_QUIC_MAGIC */
 
+  fd_quic_layout_t    layout;  /* position-independent, persistent,    read only */
   fd_quic_limits_t    limits;  /* position-independent, persistent,    read only */
   fd_quic_config_t    config;  /* position-independent, persistent,    writable pre init */
   fd_quic_callbacks_t cb;      /* position-dependent,   reset on join, writable pre init  */

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_tests_fd_quic_sandbox_h
 
 #include "../fd_quic.h"
+#include "../log/fd_quic_log_private.h"
 #include "../../../tango/mcache/fd_mcache.h"
 #include "../../../tango/dcache/fd_dcache.h"
 #include "../../../util/net/fd_ip4.h"
@@ -191,6 +192,38 @@ fd_quic_sandbox_packet_data( fd_quic_sandbox_t *    sandbox,
 }
 
 FD_PROTOTYPES_END
+
+/* Shared Memory Logs *************************************************/
+
+struct fd_quic_log_rec {
+  fd_frag_meta_t const * meta;
+  union {
+    void const *              data;
+    fd_quic_log_hdr_t const * hdr;
+  };
+};
+
+typedef struct fd_quic_log_rec fd_quic_log_rec_t;
+
+FD_FN_UNUSED static fd_quic_log_t *
+fd_quic_sandbox_get_log( fd_quic_sandbox_t * sandbox ) {
+  void *          log_mem = (void *)( (ulong)sandbox->quic + sandbox->quic->layout.log_off );
+  fd_quic_log_t * log     = fd_quic_log_join( log_mem );
+  fd_quic_logger_sync( fd_type_pun( log ) );
+  return log;
+}
+
+FD_FN_UNUSED static fd_quic_log_rec_t
+fd_quic_sandbox_log_tail( fd_quic_sandbox_t * sandbox,
+                          ulong               idx ) {
+  /* FIXME optimize this boilerplate away */
+  fd_quic_log_t *        log    = fd_quic_sandbox_get_log( sandbox );
+  fd_frag_meta_t const * events = fd_mcache_join( fd_quic_log_mcache( log ) ); FD_TEST( events );
+  ulong                  seq    = (*fd_mcache_seq_laddr_const( events ))-1-idx;
+  fd_frag_meta_t const * meta   = events + fd_mcache_line_idx( seq, log->depth );
+  void const *           data   = fd_chunk_to_laddr_const( log, meta->chunk );
+  return (fd_quic_log_rec_t){ .meta=meta, .data=data };
+}
 
 /* Mock API ***********************************************************/
 
