@@ -5,40 +5,30 @@
    from an fd_quic instance.
 
    This header does not provide APIs to write logs.  For those, look in
-   fd_quic_log_private.h (as the name implies, currently not stable). */
+   fd_quic_log_internal.h (as the name implies, currently not stable). */
+
+#include "fd_quic_log.h"
+#include "../../../tango/mcache/fd_mcache.h"
 
 /* FIXME: Consider custom ring buffer layout instead of using mainline
           fd_frag_meta_t?  Would allow moving most log information into
           the metadata ring, obsoleting the need for a separate data
           cache ring. */
 
-/* FIXME: Consider providing higher level API? */
+/* fd_quic_log_rx_t contains parameters of a consumer-side join to a
+   quic_log interface. */
 
-#include "../../../tango/mcache/fd_mcache.h"
-
-/* fd_quic_log_t describes the memory layout of a log cache. */
-
-struct fd_quic_log {
-  ulong magic; /* ==FD_QUIC_LOG_MAGIC */
-  uint  mcache_off;
-  uint  depth;
+struct fd_quic_log_rx {
+  fd_frag_meta_t const * mcache;
+  ulong const *          mcache_seq;
+  void *                 base;
+  ulong                  data_lo_laddr;
+  ulong                  data_hi_laddr;
+  ulong                  seq;
+  ulong                  depth;
 };
 
-typedef struct fd_quic_log fd_quic_log_t;
-
-/* FIXME document */
-
-struct fd_quic_log_hdr {
-  /* 0x00 */ ulong  conn_id;
-  /* 0x08 */ ulong  pkt_num;
-  /* 0x10 */ uchar  ip4_saddr[4]; /* big endian */
-  /* 0x14 */ ushort udp_sport;    /* little endian */
-  /* 0x16 */ uchar  enc_level;
-  /* 0x17 */ uchar  flags;
-  /* 0x18 */
-};
-
-typedef struct fd_quic_log_hdr fd_quic_log_hdr_t;
+typedef struct fd_quic_log_rx fd_quic_log_rx_t;
 
 /* FD_QUIC_LOG_ALIGN describes the expected alignment of a quic_log. */
 
@@ -51,38 +41,44 @@ typedef struct fd_quic_log_hdr fd_quic_log_hdr_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* FIXME document these */
+/* fd_quic_log_rx_join joins the caller to a quic_log as a consumer.
+   shmlog points to a quic_log_abi object in the local address space.
+   On success, fills rx with join info and returns rx.  On failure,
+   returns NULL.  Reasons for failure include shmlog is a NULL pointer,
+   misaligned, or does obviously not point to a quic_log_abi object. */
 
-fd_quic_log_t *
-fd_quic_log_join( void * shmlog );
+fd_quic_log_rx_t *
+fd_quic_log_rx_join( fd_quic_log_rx_t * rx,
+                     void *             shmlog );
+
+/* fd_quic_log_rx_leave leaves a local consumer-side join to a quic_log. */
 
 void *
-fd_quic_log_leave( fd_quic_log_t * log );
+fd_quic_log_rx_leave( fd_quic_log_rx_t * log );
 
-/* fd_quic_log_mcache returns a pointer to the metadata ring.  Each log
-   message corresponds to an frag_meta entry.  Log message contents are
-   extracted using fd_chunk_to_laddr( log, frag->chunk ) where log is
-   the pointer to the fd_quic_log_t. */
-
-static inline fd_frag_meta_t *
-fd_quic_log_mcache( fd_quic_log_t * log ) {
-  return (fd_frag_meta_t *)( (ulong)log + log->mcache_off );
-}
-
-/* fd_quic_log_data{,_const} return a pointer to the data record.  log
+/* fd_quic_log_rx_data_const returns a pointer to the data record.  log
    is a local join to a quic_log object.  The chunk value is taken from
    a frag_meta received via the mcache of this quic_log object/ */
 
-FD_FN_CONST static inline void *
-fd_quic_log_data( fd_quic_log_t * log,
-                  uint            chunk ) {
-  return fd_chunk_to_laddr( log, chunk );
+FD_FN_CONST static inline void const *
+fd_quic_log_rx_data_const( fd_quic_log_rx_t const * rx,
+                           ulong                    chunk ) {
+  return fd_chunk_to_laddr_const( rx->base, chunk );
 }
 
-FD_FN_CONST static inline void const *
-fd_quic_log_data_const( fd_quic_log_t const * log,
-                        uint                  chunk ) {
-  return fd_chunk_to_laddr_const( log, chunk );
+/* fd_quic_log_rx_is_safe returns 0 if a log message read is guaranteed
+   to be out of bounds.  Otherwise returns 1 (does not imply that the
+   read is guaranteed to be within bounds, though). */
+
+FD_FN_PURE static inline int
+fd_quic_log_rx_is_safe( fd_quic_log_rx_t const * rx,
+                        ulong                    chunk,
+                        ulong                    sz ) {
+  ulong msg_lo  = (ulong)fd_chunk_to_laddr_const( rx->base, chunk );
+  ulong msg_hi  = msg_lo + sz;
+  ulong msg_min = rx->data_lo_laddr;
+  ulong msg_max = rx->data_hi_laddr;
+  return msg_lo>=msg_min && msg_hi<=msg_max && msg_lo<=msg_hi;
 }
 
 /* fd_quic_log_sig_event extracts the event ID from the 'sig' field of
@@ -91,6 +87,19 @@ fd_quic_log_data_const( fd_quic_log_t const * log,
 static inline uint
 fd_quic_log_sig_event( ulong sig ) {
   return (uint)( sig & USHORT_MAX );
+}
+
+/* FIXME high-level API for reads */
+
+/* fd_quic_log_rx_tail reads the last record relative to seq[0].
+   This function is only useful when producer and consumer run on the
+   same thread. */
+
+static inline fd_frag_meta_t const *
+fd_quic_log_rx_tail( fd_quic_log_rx_t const * rx,
+                     ulong                    idx ) {
+  ulong seq = fd_mcache_seq_query( rx->mcache_seq ) - 1UL - idx;
+  return rx->mcache + fd_mcache_line_idx( seq, rx->depth );
 }
 
 FD_PROTOTYPES_END

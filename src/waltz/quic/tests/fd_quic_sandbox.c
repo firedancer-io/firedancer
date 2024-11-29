@@ -146,7 +146,7 @@ fd_quic_sandbox_footprint( fd_quic_limits_t const * quic_limits,
   return FD_LAYOUT_FINI( l, root_align );
 }
 
-void *
+fd_quic_sandbox_t *
 fd_quic_sandbox_new( void *                   mem,
                      fd_quic_limits_t const * quic_limits,
                      ulong                    pkt_cnt,
@@ -190,27 +190,14 @@ fd_quic_sandbox_new( void *                   mem,
     .pkt_seq_r  = seq0,
     .pkt_mtu    = mtu
   };
+  void * shmlog = (void *)( (ulong)sandbox->quic + sandbox->quic->layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_rx_join( sandbox->log_rx, shmlog ) ) ) {
+    FD_LOG_CRIT(( "Failed to join the log of a newly created quic" ));
+  }
 
   FD_COMPILER_MFENCE();
   sandbox->magic = FD_QUIC_SANDBOX_MAGIC;
   FD_COMPILER_MFENCE();
-
-  return sandbox;
-}
-
-fd_quic_sandbox_t *
-fd_quic_sandbox_join( void * mem ) {
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  fd_quic_sandbox_t * sandbox = (fd_quic_sandbox_t *)mem;
-  if( FD_UNLIKELY( sandbox->magic != FD_QUIC_SANDBOX_MAGIC ) ) {
-    FD_LOG_WARNING(( "invalid magic" ));
-    return NULL;
-  }
 
   return sandbox;
 }
@@ -253,19 +240,14 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   sandbox->pkt_chunk = fd_dcache_compact_chunk0( sandbox, sandbox->pkt_dcache );
 
   /* skip ahead the log seq no */
-  fd_quic_logger_t * logger = fd_type_pun( fd_quic_sandbox_get_log( sandbox ) );
-  logger->seq += 4093; /* prime */
+  fd_quic_log_tx_t * log_tx = fd_quic_get_state( quic )->log_tx;
+  log_tx->seq += 4093; /* prime */
 
   return sandbox;
 }
 
 void *
-fd_quic_sandbox_leave( fd_quic_sandbox_t * sandbox ) {
-  return (void *)sandbox;
-}
-
-void *
-fd_quic_sandbox_delete( void * mem ) {
+fd_quic_sandbox_delete( fd_quic_sandbox_t * mem ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -397,4 +379,6 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
 
   fd_quic_lazy_ack_pkt( sandbox->quic, conn, &pkt_meta );
 
+  /* Synchronize log seq[0] from tx to rx */
+  fd_quic_log_tx_seq_update( fd_quic_get_state( sandbox->quic )->log_tx );
 }

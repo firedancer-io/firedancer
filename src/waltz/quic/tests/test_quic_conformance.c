@@ -39,10 +39,10 @@ test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->reason == FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
 
   /* Test shm log infra */
-  fd_quic_log_rec_t rec = fd_quic_sandbox_log_tail( sandbox, 0UL );
-  FD_TEST( fd_quic_log_sig_event( rec.meta->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
-  FD_TEST( rec.meta->sz == sizeof(fd_quic_log_error_t) );
-  fd_quic_log_error_t const * error = rec.data;
+  fd_frag_meta_t const * log_rec = fd_quic_log_rx_tail( sandbox->log_rx, 0UL );
+  FD_TEST( fd_quic_log_sig_event( log_rec->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  FD_TEST( log_rec->sz == sizeof(fd_quic_log_error_t) );
+  fd_quic_log_error_t const * error = fd_quic_log_rx_data_const( sandbox->log_rx, log_rec->chunk );
   FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
   FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
   FD_LOG_DEBUG(( "Flow control error emitted by %s(%u)", error->src_file, error->src_line ));
@@ -76,10 +76,9 @@ test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->reason == FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
 
   /* Test shm log infra */
-  fd_quic_log_rec_t rec = fd_quic_sandbox_log_tail( sandbox, 0UL );
-  FD_TEST( fd_quic_log_sig_event( rec.meta->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
-  FD_TEST( rec.meta->sz == sizeof(fd_quic_log_error_t) );
-  fd_quic_log_error_t const * error = rec.data;
+  fd_frag_meta_t const * log_rec = fd_quic_log_rx_tail( sandbox->log_rx, 0UL );
+  FD_TEST( fd_quic_log_sig_event( log_rec->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t const * error = fd_quic_log_rx_data_const( sandbox->log_rx, log_rec->chunk );
   FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
   FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
   FD_LOG_DEBUG(( "Stream limit error emitted by %s(%u)", error->src_file, error->src_line ));
@@ -296,8 +295,7 @@ main( int     argc,
       /* size  */ fd_quic_sandbox_footprint( &quic_limits, pkt_cnt, pkt_mtu ),
       /* tag   */ 1UL );
 
-  fd_quic_sandbox_t * sandbox = fd_quic_sandbox_join( fd_quic_sandbox_new(
-      sandbox_mem, &quic_limits, pkt_cnt, pkt_mtu ) );
+  fd_quic_sandbox_t * sandbox = fd_quic_sandbox_new( sandbox_mem, &quic_limits, pkt_cnt, pkt_mtu );
   FD_TEST( sandbox );
 
   /* Run tests */
@@ -310,7 +308,7 @@ main( int     argc,
 
   /* Wind down */
 
-  fd_wksp_free_laddr( fd_quic_sandbox_delete( fd_quic_sandbox_leave( sandbox ) ) );
+  fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );
   fd_wksp_delete_anonymous( wksp );
   fd_rng_delete( fd_rng_leave( rng ) );
 

@@ -3,7 +3,6 @@
 #include "fd_quic_common.h"
 #include "fd_quic_conn_id.h"
 #include "fd_quic_enum.h"
-#include "log/fd_quic_log_private.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
@@ -134,11 +133,11 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
     layout->stream_pool_off = 0UL;
   }
 
-  /* allocate space for quic_log */
-  offs = fd_ulong_align_up( offs, fd_quic_logger_align() );
+  /* allocate space for quic_log_buf */
+  offs = fd_ulong_align_up( offs, fd_quic_log_buf_align() );
   layout->log_off = offs;
-  ulong log_footprint = fd_quic_logger_footprint( log_depth );
-  if( FD_UNLIKELY( !log_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_logger_footprint for depth %lu", log_depth )); return 0UL; }
+  ulong log_footprint = fd_quic_log_buf_footprint( log_depth );
+  if( FD_UNLIKELY( !log_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_log_buf_footprint for depth %lu", log_depth )); return 0UL; }
   offs += log_footprint;
 
   return offs;
@@ -196,8 +195,11 @@ fd_quic_new( void * mem,
   quic->limits = *limits;
   quic->layout = layout;
 
-  /* Init logger (persists across init calls) */
-  fd_quic_logger_new( (void *)( (ulong)quic + quic->layout.log_off ), limits->log_depth );
+  /* Init log buffer (persists across init calls) */
+  void * shmlog = (void *)( (ulong)quic + quic->layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_buf_new( shmlog, limits->log_depth ) ) ) {
+    return NULL;
+  }
 
   FD_COMPILER_MFENCE();
   quic->magic = FD_QUIC_MAGIC;
@@ -385,7 +387,11 @@ fd_quic_init( fd_quic_t * quic ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
   memset( state, 0, sizeof(fd_quic_state_t) );
-  state->logger = (fd_quic_logger_t *)( (ulong)quic + layout.log_off );
+
+  void * shmlog = (void *)( (ulong)quic + layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_tx_join( state->log_tx, shmlog ) ) ) {
+    FD_LOG_CRIT(( "fd_quic_log_tx_join failed, indicating memory corruption" ));
+  }
 
   /* State: initialize each connection, and add to free list */
 
@@ -753,37 +759,6 @@ fd_quic_log_full_hdr( fd_quic_conn_t const * conn,
   return hdr;
 }
 
-#if FD_HAS_AVX
-#define fd_quic_log_publish fd_mcache_publish_avx
-#elif FD_HAS_SSE
-#define fd_quic_log_publish fd_mcache_publish_sse
-#else
-#define fd_quic_log_publish fd_mcache_publish
-#endif
-
-#define FD_QUIC_LOGGER_BEGIN( log, record, event, ts )                 \
-  do {                                                                 \
-    fd_quic_logger_t * _log = (log);                                   \
-    fd_frag_meta_t * _mcache = fd_quic_logger_mcache( log );           \
-    uint   chunk   = _log->chunk;                                      \
-    uint   depth   = _log->abi.depth;                                  \
-    ulong  seq     = _log->seq;                                        \
-    ulong  sig     = fd_quic_log_sig( (event) );                       \
-    ulong  ctl     = fd_frag_meta_ctl( 0, 1, 1, 0 );                   \
-    ulong  ts_comp = fd_frag_meta_ts_comp( (ts) );                     \
-    void * record  = fd_chunk_to_laddr( _log, chunk );                 \
-    do
-      /* user code goes here */
-#define FD_QUIC_LOGGER_END( sz )                                                        \
-    while(0);                                                                           \
-    fd_quic_log_publish( _mcache, depth, seq, sig, chunk, sz, ctl, ts_comp, ts_comp );  \
-    _log->seq   = fd_seq_inc( seq, 1UL );                                               \
-    _log->chunk = (uint)fd_dcache_compact_next( chunk, sz, _log->chunk0, _log->wmark ); \
-  } while(0)
-
-#define FD_QUIC_LOGGER_BEGIN1( state, record, event ) \
-  FD_QUIC_LOGGER_BEGIN( (state)->logger, record, event, (long)((state)->now) )
-
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
    the connection to be freed during a later fd_quic_service call.
@@ -809,16 +784,16 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
   fd_quic_conn_error1( conn, reason );
 
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-  FD_QUIC_LOGGER_BEGIN1( state, record, FD_QUIC_EVENT_CONN_QUIC_CLOSE ) {
-    fd_quic_log_error_t * frame = record;
-    *frame = (fd_quic_log_error_t) {
-      .hdr      = fd_quic_log_conn_hdr( conn ),
-      .code     = { reason, 0UL },
-      .src_file = "fd_quic.c",
-      .src_line = error_line,
-    };
-  }
-  FD_QUIC_LOGGER_END( sizeof(fd_quic_log_error_t) );
+
+  ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
+  *frame = (fd_quic_log_error_t) {
+    .hdr      = fd_quic_log_conn_hdr( conn ),
+    .code     = { reason, 0UL },
+    .src_file = "fd_quic.c",
+    .src_line = error_line,
+  };
+  fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
 }
 
 struct fd_quic_frame_context {
@@ -833,21 +808,22 @@ static void
 fd_quic_frame_error( fd_quic_frame_context_t const * ctx,
                      uint                            reason,
                      uint                            error_line ) {
-  fd_quic_t *           quic = ctx->quic;
-  fd_quic_conn_t *      conn = ctx->conn;
-  fd_quic_pkt_t const * pkt  = ctx->pkt;
+  fd_quic_t *           quic  = ctx->quic;
+  fd_quic_conn_t *      conn  = ctx->conn;
+  fd_quic_pkt_t const * pkt   = ctx->pkt;
+  fd_quic_state_t *     state = fd_quic_get_state( quic );
+
   fd_quic_conn_error1( conn, reason );
-  fd_quic_logger_t *    logger = fd_quic_get_state( quic )->logger;
-  FD_QUIC_LOGGER_BEGIN( logger, record, FD_QUIC_EVENT_CONN_QUIC_CLOSE, (long)pkt->rcv_time ) {
-    fd_quic_log_error_t * frame = record;
-    *frame = (fd_quic_log_error_t) {
-      .hdr      = fd_quic_log_full_hdr( conn, pkt ),
-      .code     = { reason, 0UL },
-      .src_file = "fd_quic.c",
-      .src_line = error_line,
-    };
-  }
-  FD_QUIC_LOGGER_END( sizeof(fd_quic_log_error_t) );
+
+  ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
+  *frame = (fd_quic_log_error_t) {
+    .hdr      = fd_quic_log_full_hdr( conn, pkt ),
+    .code     = { reason, 0UL },
+    .src_file = "fd_quic.c",
+    .src_line = error_line,
+  };
+  fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
 }
 
 /* returns the encoding level we should use for the next tx quic packet
@@ -1065,6 +1041,12 @@ fd_quic_delete( fd_quic_t * quic ) {
 
   if( FD_UNLIKELY( quic->magic!=FD_QUIC_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  void * shmlog = (void *)( (ulong)quic + quic->layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_buf_delete( shmlog ) ) ) {
+    FD_LOG_WARNING(( "fd_quic_log_buf_delete failed" ));
     return NULL;
   }
 
@@ -5699,116 +5681,4 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
     pkt_meta = pkt_meta->next;
   }
   return cnt;
-}
-
-FD_FN_CONST ulong
-fd_quic_logger_align( void ) {
-  return FD_QUIC_LOGGER_ALIGN;
-}
-
-FD_FN_CONST ulong
-fd_quic_logger_footprint( ulong depth ) {
-  if( FD_UNLIKELY( depth>INT_MAX ) ) return 0UL;
-  depth = fd_ulong_max( depth, FD_MCACHE_BLOCK );
-
-  ulong mcache_footprint = fd_mcache_footprint( depth, 0 );
-  ulong req_data_sz      = fd_dcache_req_data_sz( FD_QUIC_LOG_MTU, depth, 1, 1 );
-  ulong dcache_footprint = fd_dcache_footprint( req_data_sz, 0UL );
-
-  if( FD_UNLIKELY( !mcache_footprint ) ) return 0UL;
-  if( FD_UNLIKELY( !req_data_sz      ) ) return 0UL;
-  if( FD_UNLIKELY( !dcache_footprint ) ) return 0UL;
-
-  if( FD_UNLIKELY( mcache_footprint > INT_MAX ) ) return 0UL;
-  if( FD_UNLIKELY( dcache_footprint > INT_MAX ) ) return 0UL;
-
-  /* Keep this in sync with FD_QUIC_LOGGER_FOOTPRINT */
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_QUIC_LOGGER_ALIGN, sizeof(fd_quic_logger_t) );
-  l = FD_LAYOUT_APPEND( l, FD_MCACHE_ALIGN,      mcache_footprint         );
-  l = FD_LAYOUT_APPEND( l, FD_DCACHE_ALIGN,      dcache_footprint         );
-  l = FD_LAYOUT_FINI( l, FD_QUIC_LOGGER_ALIGN );
-  return l;
-}
-
-void *
-fd_quic_logger_new( void * shmlog,
-                    ulong  depth ) {
-
-  depth = fd_ulong_max( depth, FD_MCACHE_BLOCK );
-  if( FD_UNLIKELY( !shmlog ) ) {
-    FD_LOG_WARNING(( "NULL shmlog" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmlog, FD_QUIC_LOG_ALIGN ) ) ) {
-    FD_LOG_WARNING(( "misaligned shmlog" ));
-    return NULL;
-  }
-  ulong sz = fd_quic_logger_footprint( depth );
-  if( FD_UNLIKELY( !sz ) ) {
-    FD_LOG_WARNING(( "invalid footprint for depth %lu", depth ));
-    return NULL;
-  }
-  fd_memset( shmlog, 0, sz );
-
-  /* Keep this in sync with FD_QUIC_LOGGER_FOOTPRINT */
-  ulong mcache_footprint = fd_mcache_footprint( depth, 0 );
-  ulong req_data_sz      = fd_dcache_req_data_sz( FD_QUIC_LOG_MTU, depth, 1, 1 );
-  ulong dcache_footprint = fd_dcache_footprint( req_data_sz, 0UL );
-  FD_SCRATCH_ALLOC_INIT( l, shmlog );
-  fd_quic_logger_t * log        = FD_SCRATCH_ALLOC_APPEND( l, FD_QUIC_LOGGER_ALIGN, sizeof(fd_quic_logger_t) );
-  void *             mcache_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_MCACHE_ALIGN,      mcache_footprint         );
-  void *             dcache_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_DCACHE_ALIGN,      dcache_footprint         );
-  FD_SCRATCH_ALLOC_FINI( l, FD_QUIC_LOGGER_ALIGN );
-
-  ulong            seq0   = 1UL;
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mcache_mem, depth, 0UL, seq0 ) );
-  void *           dcache = fd_dcache_join( fd_dcache_new( dcache_mem, req_data_sz, 0UL ) );
-  if( FD_UNLIKELY( !mcache ) ) return NULL;
-  if( FD_UNLIKELY( !dcache ) ) return NULL;
-
-  log->abi.mcache_off = (uint)( (ulong)mcache_mem - (ulong)log );
-  log->seq            = 1UL;
-  log->chunk0         = (uint)fd_dcache_compact_chunk0( log, dcache );
-  log->wmark          = (uint)fd_dcache_compact_wmark( log, dcache, FD_QUIC_LOG_MTU );
-  log->abi.depth      = (uint)depth;
-  log->chunk          = log->chunk0;
-
-  FD_COMPILER_MFENCE();
-  log->abi.magic = FD_QUIC_LOG_MAGIC;
-  FD_COMPILER_MFENCE();
-  /* FIXME add second magic number identifying that this is the fd_quic_logger specialization of the fd_quic_log interface */
-
-  return shmlog;
-}
-
-fd_quic_log_t *
-fd_quic_log_join( void * shmlog ) {
-
-  if( FD_UNLIKELY( !shmlog ) ) {
-    FD_LOG_WARNING(( "NULL shmlog" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmlog, FD_QUIC_LOG_ALIGN ) ) ) {
-    FD_LOG_WARNING(( "misaligned shmlog" ));
-    return NULL;
-  }
-
-  fd_quic_log_t * log = shmlog;
-  if( FD_UNLIKELY( log->magic != FD_QUIC_LOG_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic" ));
-    return NULL;
-  }
-
-  return log;
-}
-
-void *
-fd_quic_log_leave( fd_quic_log_t * log ) {
-  return log;
-}
-
-void
-fd_quic_logger_sync( fd_quic_logger_t * log ) {
-  *fd_mcache_seq_laddr( fd_quic_logger_mcache( log ) ) = log->seq;
 }
