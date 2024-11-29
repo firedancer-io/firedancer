@@ -176,7 +176,6 @@ struct fd_quic_conn {
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
-  uint int_reason; /* internal reason */
 
   fd_quic_ack_gen_t ack_gen[1];
   ulong             unacked_sz;  /* Number of received stream frame payload bytes pending ACK */
