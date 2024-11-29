@@ -203,5 +203,10 @@
   {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
   {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8"},
   {"name": "enable_secp256r1_precompile","pubkey":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"},
-  {"name": "get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq"}
+  {"name": "get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq"},
+  {"name": "disable_sbpf_v0_execution", "pubkey": "XTestFeature1111111111111111111111111111111","comment":"IMPORTANT: NEED REKEY"},
+  {"name": "reenable_sbpf_v0_execution", "pubkey": "TestFeature21111111111111111111111111111111","comment":"for test only"},
+  {"name": "enable_sbpf_v1_deployment_and_execution", "pubkey": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG"},
+  {"name": "enable_sbpf_v2_deployment_and_execution", "pubkey": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP"},
+  {"name": "enable_sbpf_v3_deployment_and_execution", "pubkey": "C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw"}
 ]

@@ -1586,7 +1586,7 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
 
   do{
 
-    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks, FD_SBPF_MAX_VERSION ) ) ) {
+    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks, FD_SBPF_V0, FD_SBPF_V3 ) ) ) {
       /* return incomplete effects on execution failures */
       break;
     }
