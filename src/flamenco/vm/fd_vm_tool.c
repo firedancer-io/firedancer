@@ -60,7 +60,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   /* Extract ELF info */
 
   fd_sbpf_elf_info_t elf_info;
-  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, /* deploy checks */ 0, FD_SBPF_MAX_VERSION ) );
+  FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, /* deploy checks */ 0, FD_SBPF_V0, FD_SBPF_V3 ) );
 
   /* Allocate rodata segment */
 

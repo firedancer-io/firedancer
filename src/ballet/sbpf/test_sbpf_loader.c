@@ -39,7 +39,7 @@ void test_duplicate_entrypoint_entry( void ) {
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_sbpf_elf_info_t info;
 
-  fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, /* deploy checks */ 1, FD_SBPF_MAX_VERSION );
+  fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, /* deploy checks */ 1, FD_SBPF_V0, FD_SBPF_V3 );
 
   void* rodata = fd_valloc_malloc( valloc, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
   FD_TEST( rodata );

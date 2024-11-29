@@ -1241,6 +1241,36 @@ fd_feature_id_t const ids[] = {
     .name       = "get_sysvar_syscall_enabled",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index      = offsetof(fd_features_t, disable_sbpf_v0_execution)>>3,
+    .id         = {"\x07\xcd\x8f\x9c\x60\x1f\xb5\x1d\xe6\xc6\x4a\x0c\x80\xee\x74\x45\xb1\x33\x0c\x00\xc8\x85\x66\xfd\xbf\x9c\x04\xb1\x80\x00\x00\x00"},
+                  /* XTestFeature1111111111111111111111111111111 */
+    .name       = "disable_sbpf_v0_execution",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, reenable_sbpf_v0_execution)>>3,
+    .id         = {"\x06\xd3\xed\xd5\x9d\x7c\x93\xe5\xc4\xb1\xe9\xad\x79\x2d\x34\x27\xa1\xc3\x2f\xac\xb9\xbc\x05\x2d\xe0\x6c\x4b\x91\x80\x00\x00\x00"},
+                  /* TestFeature21111111111111111111111111111111 */
+    .name       = "reenable_sbpf_v0_execution",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, enable_sbpf_v1_deployment_and_execution)>>3,
+    .id         = {"\xff\xf3\x40\x2b\x9c\xcb\xc2\xef\x87\x25\xc8\xa9\xa3\x0d\x78\x88\xc0\xd9\xaf\xad\x60\x5e\x1a\xdf\xe8\x84\x65\xac\x59\xd5\xe4\xd5"},
+                  /* JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG */
+    .name       = "enable_sbpf_v1_deployment_and_execution",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, enable_sbpf_v2_deployment_and_execution)>>3,
+    .id         = {"\xd1\x6a\x9a\x26\x8a\x6a\x8e\x40\xcc\xea\xc9\x39\xd6\x21\x78\x58\x7e\x9e\x51\x6c\x8c\xab\x5a\xec\x85\xb1\x18\x7f\xa6\xd2\xb5\xdc"},
+                  /* F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP */
+    .name       = "enable_sbpf_v2_deployment_and_execution",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, enable_sbpf_v3_deployment_and_execution)>>3,
+    .id         = {"\xa5\x5e\x2c\x94\xda\x8b\xc0\xbe\x92\x50\x5b\xcc\xed\xd1\xab\x88\x9c\xed\xbd\xa6\xc9\x36\xa1\xf2\x60\x13\x3e\x95\xba\x9e\x4f\xf8"},
+                  /* C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw */
+    .name       = "enable_sbpf_v3_deployment_and_execution",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 
@@ -1457,6 +1487,11 @@ fd_feature_id_query( ulong prefix ) {
   case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
   case 0x2c38e34ff071060d: return &ids[ 203 ];
   case 0x829062f252ef5ba8: return &ids[ 204 ];
+  case 0x1db51f609c8fcd07: return &ids[ 205 ];
+  case 0xe5937c9dd5edd306: return &ids[ 206 ];
+  case 0xefc2cb9c2b40f3ff: return &ids[ 207 ];
+  case 0x408e6a8a269a6ad1: return &ids[ 208 ];
+  case 0xbec08bda942c5ea5: return &ids[ 209 ];
   default: break;
   }
 
@@ -1670,5 +1705,10 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_legacy_vote_ixs            
 FD_STATIC_ASSERT( offsetof( fd_features_t, partitioned_epoch_rewards_superfeature                  )>>3==202UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_secp256r1_precompile                             )>>3==203UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, get_sysvar_syscall_enabled                              )>>3==204UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_sbpf_v0_execution                               )>>3==205UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_sbpf_v0_execution                              )>>3==206UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sbpf_v1_deployment_and_execution                 )>>3==207UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sbpf_v2_deployment_and_execution                 )>>3==208UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sbpf_v3_deployment_and_execution                 )>>3==209UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

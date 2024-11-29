@@ -22,7 +22,6 @@
 #define FD_SBPF_V1 (1UL)
 #define FD_SBPF_V2 (2UL)
 #define FD_SBPF_V3 (3UL)
-#define FD_SBPF_MAX_VERSION FD_SBPF_V0
 
 /* Program struct *****************************************************/
 
@@ -159,14 +158,15 @@ FD_PROTOTYPES_BEGIN
    impossible to retroactively enforce these checks on already deployed programs,
    a guard flag is used to enable these checks only when deploying programs.
 
-   sbpf_max_version: determine the max SBPF version allowed, version
-   is retrieved from the ELF header. See SIMD-0161. */
+   sbpf_min_version, sbpf_max_version: determine the min, max SBPF version
+   allowed, version is retrieved from the ELF header. See SIMD-0161. */
 
 fd_sbpf_elf_info_t *
 fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                bin_sz,
                   int                  elf_deploy_checks,
+                  uint                 sbpf_min_version,
                   uint                 sbpf_max_version );
 
 /* fd_sbpf_program_{align,footprint} return the alignment and size
