@@ -722,7 +722,8 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   blockstore->lps = slot;
   blockstore->hcs = slot;
-  blockstore->smr = slot;
+  /* FIXME: this is the wrong thing to do. we should use the blockstore api's properly */
+  // blockstore->smr = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
     block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
