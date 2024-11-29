@@ -369,18 +369,6 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
                       fd_quic_conn_t *      conn,
                       fd_quic_pkt_t const * pkt );
 
-/* fd_quic_conn_error sets the connection state to aborted.  This does
-   not destroy the connection object.  Rather, it will eventually cause
-   the connection to be freed during a later fd_quic_service call.
-   reason is an RFC 9000 QUIC error code.  error_line is an
-   implementation defined error code for internal use (usually the
-   source line of code in fd_quic.c) */
-
-void
-fd_quic_conn_error( fd_quic_conn_t * conn,
-                    uint             reason,
-                    uint             error_line );
-
 static inline fd_quic_conn_t *
 fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
   ulong addr = quic_state->conn_base;
