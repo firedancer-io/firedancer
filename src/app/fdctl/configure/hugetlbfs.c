@@ -20,15 +20,6 @@ fini_perm( fd_caps_ctx_t *  caps,
   (void)config;
   fd_caps_check_root( caps, "hugetlbfs", "remove directories from `/mnt`" );
   fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "unmount hugetlbfs filesystems" );
-
-}
-
-void
-try_defragment_memory( void ) {
-  write_uint_file( "/proc/sys/vm/compact_memory", 1 );
-  /* Sleep a little to give the OS some time to perform the
-     compaction. */
-  nanosleep1( 0, 250000000 /* 250 millis */ );
 }
 
 static const char * ERR_MSG = "please confirm your host is configured for gigantic pages,";
@@ -74,7 +65,6 @@ init( config_t * const config ) {
 
       /* There is a TOCTOU race condition here, but it's not avoidable. There's
          no way to atomically increment the page count. */
-      try_defragment_memory();
       FD_TEST( required_pages[ j ]<=UINT_MAX );
       if( FD_UNLIKELY( free_pages<required_pages[ j ] ) ) {
         char total_page_path[ PATH_MAX ];
@@ -85,7 +75,31 @@ init( config_t * const config ) {
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
         write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
         uint raised_free_pages = read_uint_file( free_page_path, ERR_MSG );
-        if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) )
+        if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
+          /* Well.. usually this is due to memory being fragmented,
+             rather than not having enough memory.  See something like
+             https://tatref.github.io/blog/2023-visual-linux-memory-compact/
+             for the sequence we do here. */
+          FD_LOG_WARNING(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Compacting memory before trying again.",
+                           PAGE_NAMES[ j ],
+                           i ));
+          FD_LOG_NOTICE(( "RUN: `echo \"1\" > /proc/sys/vm/compact_memory" ));
+          write_uint_file( "/proc/sys/vm/compact_memory", 1 );
+          /* Sleep a little to give the OS some time to perform the
+             compaction. */
+          nanosleep1( 0, 500000000 /* 500 millis */ );
+          FD_LOG_NOTICE(( "RUN: `echo \"3\" > /proc/sys/vm/drop_caches" ));
+          write_uint_file( "/proc/sys/vm/drop_caches", 3 );
+          nanosleep1( 0, 500000000 /* 500 millis */ );
+          FD_LOG_NOTICE(( "RUN: `echo \"1\" > /proc/sys/vm/compact_memory" ));
+          write_uint_file( "/proc/sys/vm/compact_memory", 1 );
+          nanosleep1( 0, 500000000 /* 500 millis */ );
+        }
+
+        FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
+        write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
+        raised_free_pages = read_uint_file( free_page_path, ERR_MSG );
+        if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
           FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Your Firedancer "
                        "configuration requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) "
                        "pages on this NUMA node but only %u %s pages were available according to `%s` (raised from %lu). If your "
@@ -104,6 +118,7 @@ init( config_t * const config ) {
                        free_pages,
                        PAGE_NAMES[ j ],
                        total_page_path ));
+        }
       }
     }
   }
