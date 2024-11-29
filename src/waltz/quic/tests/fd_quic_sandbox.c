@@ -252,6 +252,10 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   sandbox->pkt_mcache[0].seq = ULONG_MAX;  /* mark first entry as unpublished */
   sandbox->pkt_chunk = fd_dcache_compact_chunk0( sandbox, sandbox->pkt_dcache );
 
+  /* skip ahead the log seq no */
+  fd_quic_logger_t * logger = fd_type_pun( fd_quic_sandbox_get_log( sandbox ) );
+  logger->seq += 4093; /* prime */
+
   return sandbox;
 }
 
@@ -354,8 +358,7 @@ fd_quic_sandbox_send_frame( fd_quic_sandbox_t * sandbox,
   ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return;
   if( FD_UNLIKELY( rc==0UL || rc>frame_sz ) ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
-    return;
+    FD_LOG_CRIT(( "Invalid fd_quic_handle_v1_frame return value (rc=%#lx frame_sz=%#lx)", rc, frame_sz ));
   }
 
 }

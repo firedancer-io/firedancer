@@ -5,6 +5,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_stream.h"
+#include "log/fd_quic_log_private.h"
 #include "fd_quic_pkt_meta.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
@@ -74,6 +75,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Various internal state */
 
+  fd_quic_logger_t *      logger;
   uint                    free_conn_list; /* free list of unused connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_tls_t           tls[1];
