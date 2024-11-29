@@ -90,6 +90,7 @@ _fd_int_store_if_negative( int * p,
 static int
 fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
                     ulong                 elf_sz,
+                    uint                  min_version,
                     uint                  max_version ) {
 
   /* Validate ELF magic */
@@ -114,6 +115,7 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
          & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
          & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
          & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
+         & ( ehdr->e_flags >= min_version                          )
          & ( max_version
              ? ( ehdr->e_flags <= max_version )
              : ( ehdr->e_flags != FD_ELF_EF_SBPF_V2 )
@@ -482,6 +484,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                elf_sz,
                   int                  elf_deploy_checks,
+                  uint                 sbpf_min_version,
                   uint                 sbpf_max_version ) {
 
   /* ELFs must have a file header */
@@ -515,7 +518,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   int err;
 
   /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_max_version ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_min_version, sbpf_max_version ))!=0 ) )
     return NULL;
 
   /* Program headers */
