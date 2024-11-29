@@ -2,7 +2,7 @@
 #define HEADER_fd_src_waltz_quic_tests_fd_quic_sandbox_h
 
 #include "../fd_quic.h"
-#include "../log/fd_quic_log_private.h"
+#include "../log/fd_quic_log_user.h"
 #include "../../../tango/mcache/fd_mcache.h"
 #include "../../../tango/dcache/fd_dcache.h"
 #include "../../../util/net/fd_ip4.h"
@@ -26,6 +26,7 @@ struct fd_quic_sandbox {
   fd_frag_meta_t * pkt_mcache;  /* captured packet descriptor */
   void *           pkt_dcache;  /* captured packet data */
   ulong            pkt_mtu;     /* captured packet max payload sz */
+  fd_quic_log_rx_t log_rx[1];
 
   /* State */
 
@@ -96,21 +97,11 @@ fd_quic_sandbox_footprint( fd_quic_limits_t const * quic_limits,
    Returns mem on success.  On failure, returns NULL and logs reason for
    failure. */
 
-void *
+fd_quic_sandbox_t *
 fd_quic_sandbox_new( void *                   mem,
                      fd_quic_limits_t const * quic_limits,
                      ulong                    pkt_cnt,
                      ulong                    mtu );
-
-/* fd_quic_sandbox_join joins the caller to the fd_quic_sandbox_t
-   at 'mem' and returns the handle (not necessarily the same pointer).
-
-   NOTE: Before using any API functions, call fd_quic_sandbox_init
-         first.  The fd_quic_sandbox_t is uninitialized on the first
-         join! */
-
-fd_quic_sandbox_t *
-fd_quic_sandbox_join( void * mem );
 
 /* fd_quic_sandbox_init resets the fd_quic_sandbox_t to a common state.
 
@@ -129,18 +120,11 @@ fd_quic_sandbox_t *
 fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
                       int                 role );
 
-/* fd_quic_sandbox_leave undoes a local join to the fd_quic_sandbox_t
-   and returns a pointer to the first byte of the memory region (same
-   as the 'mem' argument in join). */
-
-void *
-fd_quic_sandbox_leave( fd_quic_sandbox_t * sandbox );
-
 /* fd_quic_sandbox_delete destroys an fd_quic_sandbox_t object and
    releases the memory region back to the caller. */
 
 void *
-fd_quic_sandbox_delete( void * mem );
+fd_quic_sandbox_delete( fd_quic_sandbox_t * mem );
 
 FD_PROTOTYPES_END
 
@@ -192,38 +176,6 @@ fd_quic_sandbox_packet_data( fd_quic_sandbox_t *    sandbox,
 }
 
 FD_PROTOTYPES_END
-
-/* Shared Memory Logs *************************************************/
-
-struct fd_quic_log_rec {
-  fd_frag_meta_t const * meta;
-  union {
-    void const *              data;
-    fd_quic_log_hdr_t const * hdr;
-  };
-};
-
-typedef struct fd_quic_log_rec fd_quic_log_rec_t;
-
-FD_FN_UNUSED static fd_quic_log_t *
-fd_quic_sandbox_get_log( fd_quic_sandbox_t * sandbox ) {
-  void *          log_mem = (void *)( (ulong)sandbox->quic + sandbox->quic->layout.log_off );
-  fd_quic_log_t * log     = fd_quic_log_join( log_mem );
-  fd_quic_logger_sync( fd_type_pun( log ) );
-  return log;
-}
-
-FD_FN_UNUSED static fd_quic_log_rec_t
-fd_quic_sandbox_log_tail( fd_quic_sandbox_t * sandbox,
-                          ulong               idx ) {
-  /* FIXME optimize this boilerplate away */
-  fd_quic_log_t *        log    = fd_quic_sandbox_get_log( sandbox );
-  fd_frag_meta_t const * events = fd_mcache_join( fd_quic_log_mcache( log ) ); FD_TEST( events );
-  ulong                  seq    = (*fd_mcache_seq_laddr_const( events ))-1-idx;
-  fd_frag_meta_t const * meta   = events + fd_mcache_line_idx( seq, log->depth );
-  void const *           data   = fd_chunk_to_laddr_const( log, meta->chunk );
-  return (fd_quic_log_rec_t){ .meta=meta, .data=data };
-}
 
 /* Mock API ***********************************************************/
 

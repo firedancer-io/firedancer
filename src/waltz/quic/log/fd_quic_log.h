@@ -1,9 +1,35 @@
 #ifndef HEADER_fd_src_waltz_quic_log_fd_quic_log_event_h
 #define HEADER_fd_src_waltz_quic_log_fd_quic_log_event_h
 
-/* fd_quic_log_event.h contains fd_quic event definitions. */
+/* fd_quic_log.h contains ABI definitions for quic shm logging. */
 
-#include "fd_quic_log_user.h"
+#include "../../../util/fd_util_base.h"
+
+/* fd_quic_log_abi_t contains all parameters required to consume log
+   messages out from a quic_log interface. */
+
+struct fd_quic_log_abi {
+  ulong magic; /* ==FD_QUIC_LOG_MAGIC */
+  ulong mcache_off;
+  uint  chunk0;
+  uint  chunk1;
+};
+
+typedef struct fd_quic_log_abi fd_quic_log_abi_t;
+
+/* FIXME document */
+
+struct fd_quic_log_hdr {
+  /* 0x00 */ ulong  conn_id;
+  /* 0x08 */ ulong  pkt_num;
+  /* 0x10 */ uchar  ip4_saddr[4]; /* big endian */
+  /* 0x14 */ ushort udp_sport;    /* little endian */
+  /* 0x16 */ uchar  enc_level;
+  /* 0x17 */ uchar  flags;
+  /* 0x18 */
+};
+
+typedef struct fd_quic_log_hdr fd_quic_log_hdr_t;
 
 /* Event IDs **********************************************************/
 
