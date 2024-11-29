@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 
+/* TODO:
+- Seperate out common logic used by both fd_ledger and fd_replay tile */
+
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/tiles.h"
@@ -389,6 +392,9 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
+/* during_frag is called after the replay tile has received a new frag, but before it has checked if it was overrun.
+   
+   not invoked if the replay tile was backpressured. */
 static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -401,7 +407,13 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   ctx->skip_frag = 0;
 
   if( in_idx == STORE_IN_IDX ) {
+    /* If the frag is from the store tile:
+    - Copy the parent slot into ctx->parent_slot
+    - Copy the blockhash into ctx->blockhash
+    - Copy the microblock txns into ctx->bank_out */
+
     if( FD_UNLIKELY( chunk<ctx->store_in_chunk0 || chunk>ctx->store_in_wmark || sz>MAX_TXNS_PER_REPLAY ) ) {
+      /* FIXME: FD_LOG_ERR will error out */
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->store_in_chunk0, ctx->store_in_wmark ));
     }
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->store_in_mem, chunk );
@@ -412,6 +424,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
     ctx->curr_slot = fd_disco_replay_sig_slot( sig );
     if( FD_UNLIKELY( ctx->curr_slot < ctx->tower->root ) ) {
+      /* FIXME: what to do in this case? should we execute it? */
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
     }
     ctx->flags = fd_disco_replay_sig_flags( sig );
@@ -421,13 +434,16 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     src += sizeof(ulong);
     memcpy( ctx->blockhash.uc, src, sizeof(fd_hash_t) );
     src += sizeof(fd_hash_t);
-    ctx->bank_idx = 0UL;
+    ctx->bank_idx = 0UL; /* FIXME: why is this 0? */
     fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ ctx->bank_idx ];
     uchar * dst_poh = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
     fd_memcpy( dst_poh, src, sz * sizeof(fd_txn_p_t) );
 
     FD_LOG_INFO(( "other microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, sz ));
   } else if( in_idx == PACK_IN_IDX ) {
+    /* If the frag is from the pack tile:
+    - Copy the microblock txns into  */
+
     if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
     }
@@ -453,6 +469,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
       fd_microblock_bank_trailer_t * t = (fd_microblock_bank_trailer_t *)src;
       ctx->parent_slot = (ulong)t->bank;
     } else {
+      /* FIXME: when can this happen? */
       FD_LOG_WARNING(("OTHER PACKET TYPE: %lu", fd_disco_poh_sig_pkt_type( sig )));
       ctx->skip_frag = 1;
       return;
@@ -863,6 +880,14 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   ctx->poh_init_done = 1;
 }
 
+/* 
+after_frag is called immediately after during_frag, with a check that the reader was not
+overrun while handling the frag. if the reader was overran, this function will never be called
+for that frag. the frag data should've been copied out during the during_frag callback, and can
+be safely used if this function is called.
+
+Messages received:
+-  */
 static void
 after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  in_idx,
@@ -876,6 +901,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_idx==GOSSIP_IN_IDX ) ) {
     if( FD_UNLIKELY( !ctx->in_wen_restart ) ) {
+      /* FIXME: is this true? what's ensuring that the gossip messages are for
+         wen-restart? what happens if we receive a different type of gossip message? */
       FD_LOG_WARNING(( "Received gossip messages for wen-restart while FD is not in wen-restart mode" ));
     } else {
       ulong heaviest_fork_found = 0;
@@ -1382,6 +1409,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_NOTICE( ( "total stake %lu", bank_hash_cmp->total_stake ) );
 }
 
+/* init_snapshot  */
 void
 init_snapshot( fd_replay_tile_ctx_t * ctx,
                fd_stem_context_t *    stem ) {
@@ -1395,16 +1423,22 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
   ctx->slot_ctx->status_cache = ctx->status_cache;
 
+  /* Initialize the replay tile from the snapshot */
   FD_SCRATCH_SCOPE_BEGIN {
+    /* Read a snapshot in, if a snapshot is configured in the genesis toml */
     uchar is_snapshot = strlen( ctx->snapshot ) > 0;
     if( is_snapshot ) {
       read_snapshot( ctx, ctx->snapshot, ctx->incremental );
     }
 
+    /* Initialize from genesis, if configured in the toml.
+       This does nothing if a genesis isn't specified in the 
+       configuration. */
     fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
     init_after_snapshot( ctx );
 
+    /* publish the stake weights so that other tiles can read them */
     publish_stake_weights( ctx, stem, ctx->slot_ctx );
   } FD_SCRATCH_SCOPE_END;
 
@@ -1434,6 +1468,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
+  /* Call init_snapshot once. init_snapshot can never fail, so this is really
+     a one-time setup thing and should probably be moved out of this function */
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
     init_snapshot( ctx, stem );
     ctx->snapshot_init_done = 1;
@@ -1500,7 +1536,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-
+/* during_housekeeping is called infrequently, and expensive tasks should be done
+   in here. */
 static void
 during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
