@@ -37,6 +37,16 @@ test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
   FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
   FD_TEST( conn->reason == FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
+
+  /* Test shm log infra */
+  fd_quic_log_rec_t rec = fd_quic_sandbox_log_tail( sandbox, 0UL );
+  FD_TEST( fd_quic_log_sig_event( rec.meta->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  FD_TEST( rec.meta->sz == sizeof(fd_quic_log_error_t) );
+  fd_quic_log_error_t const * error = rec.data;
+  FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
+  FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
+  FD_LOG_DEBUG(( "Flow control error emitted by %s(%u)", error->src_file, error->src_line ));
+
 }
 
 /* RFC 9000 Section 4.6. Controlling Concurrency
@@ -64,6 +74,15 @@ test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
   FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
   FD_TEST( conn->reason == FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+
+  /* Test shm log infra */
+  fd_quic_log_rec_t rec = fd_quic_sandbox_log_tail( sandbox, 0UL );
+  FD_TEST( fd_quic_log_sig_event( rec.meta->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  FD_TEST( rec.meta->sz == sizeof(fd_quic_log_error_t) );
+  fd_quic_log_error_t const * error = rec.data;
+  FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+  FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
+  FD_LOG_DEBUG(( "Stream limit error emitted by %s(%u)", error->src_file, error->src_line ));
 }
 
 /* Ensure that worst-case stream pool allocations are bounded.

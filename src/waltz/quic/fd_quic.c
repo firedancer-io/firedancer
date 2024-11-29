@@ -728,19 +728,126 @@ fd_quic_svc_validate( fd_quic_t * quic ) {
   }
 }
 
-/* set a connection to aborted, and set a reason code */
-void
-fd_quic_conn_error( fd_quic_conn_t * conn,
-                    uint             reason,
-                    uint             error_line ) {
+/* Helpers for generating fd_quic_log entries */
+
+static fd_quic_log_hdr_t
+fd_quic_log_conn_hdr( fd_quic_conn_t const * conn ) {
+  fd_quic_log_hdr_t hdr = {
+    .conn_id = conn->our_conn_id,
+    .flags   = 0
+  };
+  return hdr;
+}
+
+static fd_quic_log_hdr_t
+fd_quic_log_full_hdr( fd_quic_conn_t const * conn,
+                      fd_quic_pkt_t const *  pkt ) {
+  fd_quic_log_hdr_t hdr = {
+    .conn_id   = conn->our_conn_id,
+    .pkt_num   = pkt->pkt_number,
+    .udp_sport = pkt->udp->net_sport,
+    .enc_level = (uchar)pkt->enc_level,
+    .flags     = 0
+  };
+  memcpy( hdr.ip4_saddr, pkt->ip4->saddr_c, 4 );
+  return hdr;
+}
+
+#if FD_HAS_AVX
+#define fd_quic_log_publish fd_mcache_publish_avx
+#elif FD_HAS_SSE
+#define fd_quic_log_publish fd_mcache_publish_sse
+#else
+#define fd_quic_log_publish fd_mcache_publish
+#endif
+
+#define FD_QUIC_LOGGER_BEGIN( log, record, event, ts )                 \
+  do {                                                                 \
+    fd_quic_logger_t * _log = (log);                                   \
+    fd_frag_meta_t * _mcache = fd_quic_logger_mcache( log );           \
+    uint   chunk   = _log->chunk;                                      \
+    uint   depth   = _log->abi.depth;                                  \
+    ulong  seq     = _log->seq;                                        \
+    ulong  sig     = fd_quic_log_sig( (event) );                       \
+    ulong  ctl     = fd_frag_meta_ctl( 0, 1, 1, 0 );                   \
+    ulong  ts_comp = fd_frag_meta_ts_comp( (ts) );                     \
+    void * record  = fd_chunk_to_laddr( _log, chunk );                 \
+    do
+      /* user code goes here */
+#define FD_QUIC_LOGGER_END( sz )                                                        \
+    while(0);                                                                           \
+    fd_quic_log_publish( _mcache, depth, seq, sig, chunk, sz, ctl, ts_comp, ts_comp );  \
+    _log->seq   = fd_seq_inc( seq, 1UL );                                               \
+    _log->chunk = (uint)fd_dcache_compact_next( chunk, sz, _log->chunk0, _log->wmark ); \
+  } while(0)
+
+#define FD_QUIC_LOGGER_BEGIN1( state, record, event ) \
+  FD_QUIC_LOGGER_BEGIN( (state)->logger, record, event, (long)((state)->now) )
+
+/* fd_quic_conn_error sets the connection state to aborted.  This does
+   not destroy the connection object.  Rather, it will eventually cause
+   the connection to be freed during a later fd_quic_service call.
+   reason is an RFC 9000 QUIC error code.  error_line is the source line
+   of code in fd_quic.c */
+
+static void
+fd_quic_conn_error1( fd_quic_conn_t * conn,
+                     uint             reason ) {
   if( FD_UNLIKELY( !conn || conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
 
   conn->state  = FD_QUIC_CONN_STATE_ABORT;
   conn->reason = reason;
-  conn->int_reason = error_line;
 
   /* set connection to be serviced ASAP */
   fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+}
+
+static void
+fd_quic_conn_error( fd_quic_conn_t * conn,
+                    uint             reason,
+                    uint             error_line ) {
+  fd_quic_conn_error1( conn, reason );
+
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+  FD_QUIC_LOGGER_BEGIN1( state, record, FD_QUIC_EVENT_CONN_QUIC_CLOSE ) {
+    fd_quic_log_error_t * frame = record;
+    *frame = (fd_quic_log_error_t) {
+      .hdr      = fd_quic_log_conn_hdr( conn ),
+      .code     = { reason, 0UL },
+      .src_file = "fd_quic.c",
+      .src_line = error_line,
+    };
+  }
+  FD_QUIC_LOGGER_END( sizeof(fd_quic_log_error_t) );
+}
+
+struct fd_quic_frame_context {
+  fd_quic_t *      quic;
+  fd_quic_conn_t * conn;
+  fd_quic_pkt_t *  pkt;
+};
+
+typedef struct fd_quic_frame_context fd_quic_frame_context_t;
+
+static void
+fd_quic_frame_error( fd_quic_frame_context_t const * ctx,
+                     uint                            reason,
+                     uint                            error_line ) {
+  fd_quic_t *           quic = ctx->quic;
+  fd_quic_conn_t *      conn = ctx->conn;
+  fd_quic_pkt_t const * pkt  = ctx->pkt;
+  fd_quic_conn_error1( conn, reason );
+  fd_quic_logger_t *    logger = fd_quic_get_state( quic )->logger;
+  FD_QUIC_LOGGER_BEGIN( logger, record, FD_QUIC_EVENT_CONN_QUIC_CLOSE, (long)pkt->rcv_time ) {
+    fd_quic_log_error_t * frame = record;
+    *frame = (fd_quic_log_error_t) {
+      .hdr      = fd_quic_log_full_hdr( conn, pkt ),
+      .code     = { reason, 0UL },
+      .src_file = "fd_quic.c",
+      .src_line = error_line,
+    };
+  }
+  FD_QUIC_LOGGER_END( sizeof(fd_quic_log_error_t) );
 }
 
 /* returns the encoding level we should use for the next tx quic packet
@@ -855,14 +962,6 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   return ~0u;
 }
 
-struct fd_quic_frame_context {
-  fd_quic_t *      quic;
-  fd_quic_conn_t * conn;
-  fd_quic_pkt_t *  pkt;
-};
-
-typedef struct fd_quic_frame_context fd_quic_frame_context_t;
-
 /* Include frame code generator */
 
 #include "templ/fd_quic_frame.c"
@@ -885,7 +984,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
      first byte. */
   uint id = buf[0];
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
   quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
@@ -902,7 +1001,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
     /* FIXME this should be unreachable, but gracefully handle this case as defense-in-depth */
     /* unknown frame types are PROTOCOL_VIOLATION errors */
     FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %u", id )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -2719,9 +2818,9 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
          otherwise, send INTERNAL_ERROR */
       uint alert = conn->tls_hs->alert;
       if( alert == 0u ) {
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
+        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
       } else {
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
+        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
       }
 
       /* don't process any more frames on this connection */
@@ -4299,7 +4398,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
   conn->reason               = 0;
   conn->app_reason           = 0;
-  conn->int_reason           = 0;
   conn->flags                = 0;
   conn->upd_pkt_number       = 0;
 
@@ -4942,7 +5040,7 @@ fd_quic_frame_handle_ack_frame(
 
   if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
     /* this is a protocol violation, so inform the peer */
-    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -4982,7 +5080,7 @@ fd_quic_frame_handle_ack_frame(
                      ( length > ( ~0x3UL ) ) ) ) {
       /* This is an unreasonably large value, so fail with protocol violation
          It's also likely impossible due to the encoding method */
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -4995,7 +5093,7 @@ fd_quic_frame_handle_ack_frame(
     /* verify the skip and length values are valid */
     if( FD_UNLIKELY( skip + length > cur_pkt_number ) ) {
       /* this is a protocol violation, so inform the peer */
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -5156,14 +5254,14 @@ fd_quic_frame_handle_stream_frame(
   if( FD_UNLIKELY( stream_type != ( conn->server ? FD_QUIC_STREAM_TYPE_UNI_CLIENT : FD_QUIC_STREAM_TYPE_UNI_SERVER ) ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Received forbidden stream type" )); )
     /* Technically should switch between STREAM_LIMIT_ERROR and STREAM_STATE_ERROR here */
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
   /* length check */
   if( FD_UNLIKELY( data_sz > p_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Stream header indicates %lu bytes length, but only have %lu", data_sz, p_sz )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5172,7 +5270,7 @@ fd_quic_frame_handle_stream_frame(
   /* stream_id outside allowed range - protocol error */
   if( FD_UNLIKELY( stream_id >= conn->srx->rx_sup_stream_id ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Stream ID violation detected" )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5180,7 +5278,7 @@ fd_quic_frame_handle_stream_frame(
      violates the advertised connection or stream data limits */
   if( FD_UNLIKELY( quic->config.initial_rx_max_stream_data < offset + data_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Stream data limit exceeded" )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5501,7 +5599,7 @@ fd_quic_frame_handle_handshake_done_frame(
 
   /* servers must treat receipt of HANDSHAKE_DONE as a protocol violation */
   if( FD_UNLIKELY( conn->server ) ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
