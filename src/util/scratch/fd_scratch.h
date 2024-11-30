@@ -179,12 +179,13 @@ fd_scratch_attach( void * smem,
   fd_scratch_private_frame_max = depth;
 
 # if FD_HAS_DEEPASAN
-  /* Poison the entire smem region. Underpoison the boundaries to respect 
+  /* Poison the entire smem region. Underpoison the boundaries to respect
      alignment requirements. */
   ulong aligned_start = fd_ulong_align_up( fd_scratch_private_start, FD_ASAN_ALIGN );
   ulong aligned_end   = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_end - aligned_start );
 # endif
+  fd_msan_poison( (void*)fd_scratch_private_start, fd_scratch_private_stop - fd_scratch_private_start );
 }
 
 /* fd_scratch_detach detaches the calling thread from its current
@@ -278,6 +279,7 @@ fd_scratch_reset( void ) {
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
 # endif
+  fd_msan_poison( (void*)fd_scratch_private_start, fd_scratch_private_stop - fd_scratch_private_start );
 }
 
 /* fd_scratch_push creates a new scratch frame and makes it the current
@@ -304,7 +306,7 @@ fd_scratch_push( void ) {
   ulong aligned_start = fd_ulong_align_up( fd_scratch_private_free, FD_ASAN_ALIGN );
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
-# endif 
+# endif
 }
 
 /* fd_scratch_pop frees all allocations in the current scratch frame,
@@ -324,7 +326,9 @@ fd_scratch_pop( void ) {
   if( FD_UNLIKELY( !fd_scratch_private_frame_cnt ) ) FD_LOG_ERR(( "unmatched pop" ));
   fd_scratch_in_prepare = 0;
 # endif
+  ulong old_free          = fd_scratch_private_free;
   fd_scratch_private_free = fd_scratch_private_frame[ --fd_scratch_private_frame_cnt ];
+  fd_msan_poison( (void *)old_free, fd_scratch_private_free - old_free );
 
 # if FD_HAS_DEEPASAN
   /* On a pop() operation, the entire range from fd_scratch_private_free to the
@@ -411,7 +415,7 @@ fd_scratch_prepare( ulong align ) {
      always going to be at least 8 byte aligned. */
   ulong aligned_sz = fd_ulong_align_up( fd_scratch_private_stop - smem, FD_ASAN_ALIGN );
   fd_asan_unpoison( (void*)smem, aligned_sz );
-# endif 
+# endif
 
   fd_scratch_private_free = smem;
   return (void *)smem;
@@ -433,7 +437,7 @@ fd_scratch_publish( void * _end ) {
   /* Poison everything that is trimmed off. Conservatively poison potentially
      less than the region that is trimmed to respect alignment requirements. */
   ulong aligned_end  = fd_ulong_align_up( end, FD_ASAN_ALIGN );
-  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN ); 
+  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_end, aligned_stop - aligned_end );
 # endif
 
