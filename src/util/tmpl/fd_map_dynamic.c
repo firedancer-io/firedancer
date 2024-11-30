@@ -337,8 +337,16 @@ MAP_(new)( void *  shmem,
 
   MAP_T * slot = map->slot; FD_COMPILER_FORGET( slot );
 
-  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ )
+  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) {
     slot[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
+
+  # if MAP_MEMOIZE && MAP_KEY_EQUAL_IS_SLOW
+    /* Allow speculative reads of uninitialized MAP_HASH value. */
+    fd_msan_unpoison( &slot[ slot_idx ].MAP_HASH, sizeof(MAP_HASH_T) );
+    slot[ slot_idx ].MAP_HASH = 0;
+  # endif
+
+  }
 
   return map;
 }
