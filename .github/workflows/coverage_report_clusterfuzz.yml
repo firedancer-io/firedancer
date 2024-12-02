@@ -8,7 +8,7 @@ on:
   workflow_call:
 jobs:
   coverage-report-clusterfuzz:
-    timeout-minutes: 30
+    timeout-minutes: 60
     name: Coverage Report (ClusterFuzz)
     runs-on: ubuntu-latest
     env:
