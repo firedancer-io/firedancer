@@ -5,6 +5,7 @@
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
 
+
 /* TODO This should be called fd_txn_acct. */
 
 struct __attribute__((aligned(8UL))) fd_borrowed_account {
@@ -90,6 +91,18 @@ fd_borrowed_account_raw_size( fd_borrowed_account_t const * borrowed_account ) {
 fd_borrowed_account_t *
 fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account,
                                      void *                  buf );
+
+/* In Agave, dummy accounts are sometimes created that contain metadata
+   that differs from what's in the accounts DB.  For example, see
+   handling of the executable bit in
+   fd_executor_load_transaction_accounts().
+   This allows us to emulate that by modifying metadata of read-only
+   borrowed accounts without those modification writing through to
+   funk.
+ */
+fd_borrowed_account_t *
+fd_borrowed_account_make_readonly_copy( fd_borrowed_account_t * borrowed_account,
+                                        void *                  buf );
 
 void *
 fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account );
