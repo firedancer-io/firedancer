@@ -137,7 +137,7 @@ fetch () {
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "efa579c"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
+    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.7.4"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
     checkout_repo luajit    https://github.com/LuaJIT/LuaJIT          "v2.0.5"
   fi
