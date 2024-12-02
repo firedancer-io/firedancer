@@ -8,7 +8,7 @@
 #include "fd_funk_base.h"
 
 /* FD_FUNK_TXN_{ALIGN,FOOTPRINT} describe the alignment and footprint of
-   a fd_funk_txn_t.  ALIGN will be an power of 2, footprint will be a
+   a fd_funk_txn_t.  ALIGN will be a power of 2, footprint will be a
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
@@ -23,7 +23,7 @@
 
 #define FD_FUNK_TXN_IDX_NULL ((ulong)UINT_MAX)
 
-/* A fd_funk_txn_t is an opaque handle of a in-preparation funk
+/* A fd_funk_txn_t is an opaque handle of an in-preparation funk
    transaction.  The details are exposed here to facilitate inlining
    various operations. */
 
@@ -80,7 +80,7 @@ static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
 
 static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
 
-/* Generate a globally unique psuedo-random xid */
+/* Generate a globally unique pseudo-random xid */
 fd_funk_txn_xid_t fd_funk_generate_xid(void);
 
 /* Accessors */

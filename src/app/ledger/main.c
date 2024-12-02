@@ -522,7 +522,7 @@ fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
       fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
   return fd_alloc_virtual( alloc );
@@ -824,12 +824,12 @@ init_blockstore( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "joined blockstore" ));
   } else {
     ulong txn_max = 1 << 22UL;
-    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, txn_max ), blockstore_tag );
+    shmem = fd_wksp_alloc_laddr( args->wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 0, txn_max ), blockstore_tag );
     if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
     args->blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
-                                                              args->slot_history_max, txn_max ) );
+                                                              args->slot_history_max, 16, txn_max ) );
     if( args->blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -1049,8 +1049,7 @@ ingest( fd_ledger_args_t * args ) {
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->min = blockstore->max = blockstore->lps =
-      blockstore->hcs = blockstore->smr = slot_ctx->slot_bank.slot;
+    blockstore->lps = blockstore->hcs = blockstore->smr = slot_ctx->slot_bank.slot;
   }
 
   if( args->funk_only ) {
@@ -1192,7 +1191,7 @@ replay( fd_ledger_args_t * args ) {
 
   fd_ledger_main_setup( args );
 
-  fd_blockstore_init( args->blockstore, &args->slot_ctx->slot_bank );
+  fd_blockstore_init( args->blockstore, -1, &args->slot_ctx->slot_bank );
 
   if( !args->on_demand_block_ingest ) {
     ingest_rocksdb( args->alloc, args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot, args->blockstore, 0, args->trash_hash );
@@ -1258,12 +1257,12 @@ prune( fd_ledger_args_t * args ) {
   }
   /* Create blockstore */
   fd_blockstore_t * pruned_blockstore;
-  void * shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 1UL << 22UL ), FD_BLOCKSTORE_MAGIC );
+  void * shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint( args->shred_max, args->slot_history_max, 0, 1UL << 22UL ), FD_BLOCKSTORE_MAGIC );
   if( shmem == NULL ) {
     FD_LOG_ERR(( "failed to allocate a blockstore" ));
   }
   pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
-                                                             args->slot_history_max, 1UL << 22UL ) );
+                                                             args->slot_history_max, 0, 1UL << 22UL ) );
   if( pruned_blockstore == NULL ) {
     fd_wksp_free_laddr( shmem );
     FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -1587,7 +1586,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), FD_ALLOC_TAG );
   if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, FD_ALLOC_TAG );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, FD_ALLOC_TAG );
   args->alloc = alloc;
   #undef FD_ALLOC_TAG

@@ -4,8 +4,6 @@ IFS=$'\n\t'
 
 cd ../test-ledger
 
-PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1 | head -n1)
-# RPC_URL="http:/n/$PRIMARY_IP:8899/"
 RPC_URL="http://localhost:8899/"
 AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 

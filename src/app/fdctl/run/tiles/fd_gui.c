@@ -160,13 +160,11 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)chunk;
   (void)sz;
   (void)tsorig;
   (void)stem;

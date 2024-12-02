@@ -74,8 +74,8 @@ add_bench_topo( fd_topo_t  * topo,
                 int          no_quic ) {
 
   fd_topob_wksp( topo, "bench" );
-  fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
-  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 0, 65536UL, FD_TXN_MTU, 1UL );
+  fd_topob_link( topo, "bencho_out", "bench", 128UL, 64UL, 1UL );
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 65536UL, FD_TXN_MTU, 1UL );
 
   int is_bench_auto_affinity = !strcmp( affinity, "auto" );
 

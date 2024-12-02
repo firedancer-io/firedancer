@@ -6,45 +6,45 @@ push_msg:
         contact_info_v1: 
           id: 'Hm5NNNZpBgAo5j3gRwJtkHXihpLzdCyP3WRWHLzcPSup'
           gossip: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1024
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1024
           tvu: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1025
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1025
           tvu_fwd: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1026
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1026
           repair: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1035
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1035
           tpu: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1027
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1027
           tpu_fwd: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1028
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1028
           tpu_vote: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1029
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1029
           rpc: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 8899
+            ip4: 
+              addr: '127.0.0.1'
+              port: 8899
           rpc_pubsub: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 8900
+            ip4: 
+              addr: '127.0.0.1'
+              port: 8900
           serve_repair: 
-            addr: 
-              ip4: '127.0.0.1'
-            port: 1032
+            ip4: 
+              addr: '127.0.0.1'
+              port: 1032
           wallclock: 1702312087747
           shred_version: 22793
     - signature: '3TQ3239FjdmUrLnGTu9ezQC5gnU9k511iY8wRyRkDhYp16H5b7CFPeRwiaWUtTTH6pMAT5UDcn7AzSznV5nmx3Uq'

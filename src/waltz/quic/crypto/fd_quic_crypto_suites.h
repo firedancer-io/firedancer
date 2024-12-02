@@ -78,8 +78,7 @@ struct fd_quic_crypto_secrets {
   uchar secret[FD_QUIC_NUM_ENC_LEVELS][2][FD_QUIC_SECRET_SZ];
 
   /* new secret for switching keys during key update */
-  uchar new_secret   [2][FD_QUIC_SECRET_SZ];
-  uchar new_secret_sz[2];
+  uchar new_secret[2][FD_QUIC_SECRET_SZ];
 };
 
 /* fd_quic_gen_initial_secret generates the initial secret according to spec
@@ -104,16 +103,9 @@ fd_quic_gen_secrets(
     fd_quic_crypto_secrets_t * secrets,
     uint                       enc_level );
 
-
-/* generate new secrets
-
-   Used during key update to generate new secrets from the
-   existing secrets
-
-   see rfc9001 section 6, rfc8446 section 7.2 */
 void
-fd_quic_gen_new_secrets( fd_quic_crypto_secrets_t * secrets );
-
+fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
+                           fd_quic_crypto_keys_t      new_keys[2] );
 
 /* fd_quic_gen_keys
 
@@ -128,15 +120,6 @@ fd_quic_gen_keys(
     fd_quic_crypto_keys_t * keys,
     uchar const             secret[ 32 ] );
 
-
-/* generates packet key and iv key
-   used by key update
-
-   TODO this overlaps with fd_quic_gen_keys, split into gen_hp_keys and gen_pkt_keys */
-void
-fd_quic_gen_new_keys(
-    fd_quic_crypto_keys_t * keys,
-    uchar const             secret[ 32 ] );
 
 /* encrypt a packet according to rfc9001 packet protection and header protection
 

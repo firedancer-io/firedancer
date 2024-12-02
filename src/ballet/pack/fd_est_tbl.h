@@ -134,6 +134,9 @@ fd_est_tbl_join  ( void         * _tbl ) {
 }
 static inline void         * fd_est_tbl_leave ( fd_est_tbl_t *  tbl ) { return (void         *) tbl; }
 static inline void         * fd_est_tbl_delete( fd_est_tbl_t *  tbl ) {
+  if( FD_UNLIKELY( tbl->magic != FD_EST_TBL_MAGIC ) ) {
+      FD_LOG_WARNING(( "invalid magic!" ));
+  }
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tbl->magic ) = 0UL;
   FD_COMPILER_MFENCE();

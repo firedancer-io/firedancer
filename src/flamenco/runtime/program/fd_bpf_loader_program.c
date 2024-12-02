@@ -252,7 +252,9 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
 
   /* Load executable */
   fd_sbpf_elf_info_t  _elf_info[ 1UL ];
-  fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, programdata, programdata_size, deploy_mode, FD_SBPF_MAX_VERSION );
+  uint min_sbpf_version, max_sbpf_version;
+  fd_bpf_get_sbpf_versions( &min_sbpf_version, &max_sbpf_version, instr_ctx->slot_ctx );
+  fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, programdata, programdata_size, deploy_mode, min_sbpf_version, max_sbpf_version );
   if( FD_UNLIKELY( !elf_info ) ) {
     //TODO: actual log, this is a custom Firedancer msg
     fd_log_collector_msg_literal( instr_ctx, "Failed to load or verify Elf" );

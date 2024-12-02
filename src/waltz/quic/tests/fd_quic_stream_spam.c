@@ -63,7 +63,7 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     /* Generate stream payload */
     uchar payload_buf[ 4096UL ];
     fd_aio_pkt_info_t batch[1] = { { .buf=payload_buf, .buf_sz=4096UL } };
-    spam->gen_fn( /* ctx */ NULL, &batch[ 0 ], stream );
+    spam->gen_fn( /* ctx */ NULL, &batch[ 0 ], stream_id );
 
     /* Send data */
     int rc = fd_quic_stream_send( stream, payload_buf, batch->buf_sz, /* fin */ 1 );
@@ -112,12 +112,12 @@ fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
 void
 fd_quic_stream_spam_gen( void *              ctx,
                          fd_aio_pkt_info_t * pkt,
-                         fd_quic_stream_t *  stream ) {
+                         ulong               stream_id ) {
   (void)ctx;
 
   /* Derive random bytes to send */
   fd_rng_t _rng[1];
-  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)stream->stream_id, 0UL ) );
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)stream_id, 0UL ) );
 
   ulong data_sz = fd_rng_ulong_roll( rng, pkt->buf_sz );
   pkt->buf_sz   = (ushort)data_sz;

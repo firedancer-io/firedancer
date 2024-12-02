@@ -34,7 +34,7 @@
    These are the main technical innovations that enable Solana to work
    well.
 
-   What about Proof of History? 
+   What about Proof of History?
 
    One particular niche problem is about the leader schedule.  When the
    leader computer is moving from one bank to another, the new bank must
@@ -82,10 +82,10 @@
     (1) Whenever any other leader in the network finishes a slot, and
         the slot is determined to be the best one to build off of, this
         tile gets "reset" onto that block, the so called "reset slot".
-    
+
     (2) The tile is constantly doing busy work, hash(hash(hash(...))) on
         top of the last reset slot, even when it is not leader.
-    
+
     (3) When the tile becomes leader, it continues hashing from where it
         was.  Typically, the prior leader finishes their slot, so the
         reset slot will be the parent one, and this tile only publishes
@@ -186,7 +186,7 @@
         The leader needs to periodically checkpoint the hash value
         associated with a given hashcnt so that they can publish it to
         other nodes for verification.
-        
+
         On mainnet-beta, testnet, and devnet this occurs once every
         62,500 hashcnts, or approximately once every 6.4 microseconds.
         This value is determined at genesis time, and according to the
@@ -424,6 +424,7 @@ typedef struct {
      to prevent clock drift.  If we didn't do this, our 2nd slot would
      end 400ms + `time_for_replay_to_move_slot_and_reset_poh` after
      our 1st, rather than just strictly 400ms. */
+  int  lagged_consecutive_leader_start;
   ulong expect_sequential_leader_slot;
 
   /* There's a race condition ... let's say two banks A and B, bank A
@@ -906,6 +907,15 @@ publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+
+  if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start ) ) {
+    /* If we are mirroring Agave behavior, the wall clock gets reset
+       here so we don't count time spent waiting for a bank to freeze
+       or replay stage to actually start the slot towards our 400ms.
+       
+       See extended comments in the config file on this option. */
+    ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
+  }
 
   long slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
 
@@ -1465,7 +1475,7 @@ after_credit( fd_poh_ctx_t *      ctx,
   FD_TEST( target_hashcnt <= restricted_hashcnt );
 
   if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return; /* Nothing to do, don't publish a tick twice */
-  
+
   *charge_busy = 1;
 
   while( ctx->hashcnt<target_hashcnt ) {
@@ -1597,7 +1607,7 @@ during_frag( fd_poh_ctx_t * ctx,
   int is_frag_for_prior_leader_slot = 0;
   if( FD_LIKELY( pkt_type==POH_PKT_TYPE_DONE_PACKING || pkt_type==POH_PKT_TYPE_MICROBLOCK ) ) {
     /* The following sequence is possible...
-    
+
         1. We become leader in slot 10
         2. While leader, we switch to a fork that is on slot 8, where
             we are leader
@@ -1690,13 +1700,11 @@ after_frag( fd_poh_ctx_t *      ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)chunk;
   (void)tsorig;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
@@ -1913,7 +1921,7 @@ out1( fd_topo_t const *      topo,
     if( !strcmp( link->name, name ) ) {
       if( FD_UNLIKELY( idx!=ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had multiple output links named %s but expected one", tile->name, tile->kind_id, name ));
       idx = i;
-    } 
+    }
   }
 
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had no output link named %s", tile->name, tile->kind_id, name ));
@@ -1952,6 +1960,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->reset_slot            = ULONG_MAX;
 
+  ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   ctx->microblocks_lower_bound = 0UL;

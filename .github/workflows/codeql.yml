@@ -7,7 +7,7 @@ on:
 jobs:
   analyze:
     name: Analyze (${{matrix.language}})
-    runs-on: 'ubuntu-latest'
+    runs-on: 1T
 
     strategy:
       fail-fast: false
@@ -15,33 +15,48 @@ jobs:
         include:
         - language: c-cpp
           build-mode: manual
+          compiler: clang
+          machine: linux_clang_x86_64
+          compiler-version: 15.0.6
+          extras: rpath no-agave
+    env:
+      MACHINE: ${{ matrix.machine }}
+      EXTRAS: ${{ matrix.extras || '' }}
+      CC: ${{ matrix.compiler }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Install system dependencies
-      shell: bash
-      run: |
-        sudo apt-get install -y gettext autopoint gcc-multilib protobuf-compiler llvm lcov libudev-dev cmake libclang-dev
-    - name: Install dependencies
-      shell: bash
-      run: |
-        echo "y" | ./deps.sh
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
-        queries: ./contrib/codeql/
-        config: |
-            disable-default-queries: true
-    - if: matrix.build-mode == 'manual'
-      shell: bash
-      run: |
-        MACHINE=linux_clang_noarch64 make -j unit-test
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: "/language:${{matrix.language}}"
-        upload: 'always'
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/deps
+        with:
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+      - uses: dtolnay/rust-toolchain@1.73.0
+      - name: clean targets
+        run: |
+          make clean --silent >/dev/null
+      - uses: ./.github/actions/submodule
+        with:
+          machine: ${{ matrix.machine }}
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+        if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: ./contrib/codeql/
+          config: |
+              disable-default-queries: true
+      - if: matrix.build-mode == 'manual'
+        shell: bash
+        run: |
+          make -j fddev
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+          upload: 'always'
+

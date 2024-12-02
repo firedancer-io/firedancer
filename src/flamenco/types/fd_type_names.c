@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 229
+#define FD_TYPE_NAME_COUNT 232
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -172,6 +172,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_gossip_ip_addr",
  "fd_gossip_prune_data",
  "fd_gossip_prune_sign_data",
+ "fd_gossip_socket_addr_old",
+ "fd_gossip_socket_addr_ip4",
+ "fd_gossip_socket_addr_ip6",
  "fd_gossip_socket_addr",
  "fd_gossip_contact_info_v1",
  "fd_gossip_vote",

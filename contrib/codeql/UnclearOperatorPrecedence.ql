@@ -13,3 +13,4 @@ where
     bit.hasOperands(rel, other) and
     not rel.isParenthesised()
 select rel, "Operator precedence and paranthese hint at a likely issue"
+

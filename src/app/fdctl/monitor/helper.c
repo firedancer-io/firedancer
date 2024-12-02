@@ -55,10 +55,10 @@ printf_heart( char ** buf,
 char const *
 sig_color( ulong sig ) {
   switch( sig ) {
-  case FD_CNC_SIGNAL_BOOT: return TEXT_BLUE;   break; /* Blue -> waiting for tile to start */
-  case FD_CNC_SIGNAL_HALT: return TEXT_YELLOW; break; /* Yellow -> waiting for tile to process */
-  case FD_CNC_SIGNAL_RUN:  return TEXT_GREEN;  break; /* Green -> Normal */
-  case FD_CNC_SIGNAL_FAIL: return TEXT_RED;    break; /* Red -> Definitely abnormal */
+  case FD_CNC_SIGNAL_BOOT: return TEXT_BLUE;   /* Blue -> waiting for tile to start */
+  case FD_CNC_SIGNAL_HALT: return TEXT_YELLOW; /* Yellow -> waiting for tile to process */
+  case FD_CNC_SIGNAL_RUN:  return TEXT_GREEN;  /* Green -> Normal */
+  case FD_CNC_SIGNAL_FAIL: return TEXT_RED;    /* Red -> Definitely abnormal */
   default: break; /* Unknown, don't colorize */
   }
   return TEXT_NORMAL;

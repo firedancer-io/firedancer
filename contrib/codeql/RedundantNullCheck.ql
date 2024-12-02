@@ -218,4 +218,4 @@
 
  select checked, deref, checked, "This null check is redundant because $@ in any case.", deref,
    "the value is dereferenced"
- 
+

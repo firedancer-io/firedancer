@@ -15,6 +15,8 @@
 #include "../features/fd_features.h"
 #include "fd_runtime.h"
 
+#define FD_FEE_PAYER_TXN_IDX (0UL)
+
 /* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx
    and fails in case of error. */
 #define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \

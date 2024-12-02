@@ -176,6 +176,11 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
                     ulong *                   opt_batch_idx,
                     int                       flush );
 
+/* fd_quic_test_now is a fd_quic clock source based on fd_log_wallclock */
+
+ulong
+fd_quic_test_now( void * context );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_tests_fd_quic_helpers_h */

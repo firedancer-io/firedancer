@@ -4,24 +4,23 @@
 
 static ulong recvd = 0;
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)fin;
 
   /* Derive expected payload */
 
   uchar payload_buf[ 4096UL ];
   fd_aio_pkt_info_t pkt = { .buf=payload_buf, .buf_sz=4096UL };
-  fd_quic_stream_spam_gen( NULL, &pkt, stream );
+  fd_quic_stream_spam_gen( NULL, &pkt, stream_id );
 
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
-        stream->stream_id, data_sz, offset ));
+        stream_id, data_sz, offset ));
 
   if( FD_UNLIKELY( ( offset+data_sz != pkt.buf_sz && fin ) ||
                    ( offset+data_sz >  pkt.buf_sz        ) ) ) {
@@ -36,6 +35,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   }
 
   recvd++;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -106,7 +106,6 @@ main( int     argc,
     .conn_cnt           = 2,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      = 20,
     .inflight_pkt_cnt   = 100,
     .tx_buf_sz          = 1<<15,
     .stream_pool_cnt    = 512
@@ -120,7 +119,7 @@ main( int     argc,
     .conn_cnt           = 2,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      = 20,
+    .stream_id_cnt      = 20,
     .inflight_pkt_cnt   = 100,
     .tx_buf_sz          = 1<<15,
     .stream_pool_cnt    = 512
@@ -130,7 +129,7 @@ main( int     argc,
 
   server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
-  server_quic->cb.stream_receive   = my_stream_receive_cb;
+  server_quic->cb.stream_rx        = my_stream_rx_cb;
 
   client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
@@ -156,8 +155,7 @@ main( int     argc,
   fd_quic_conn_t * client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port,
-      server_quic->config.sni );
+      server_quic->config.net.listen_udp_port );
   FD_TEST( client_conn );
 
   /* do general processing */

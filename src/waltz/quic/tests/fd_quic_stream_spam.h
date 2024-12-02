@@ -14,7 +14,7 @@
 typedef void
 (* fd_quic_stream_gen_spam_t)( void *              ctx,
                                fd_aio_pkt_info_t * pkt,
-                               fd_quic_stream_t *  stream );
+                               ulong               stream_id );
 
 /* fd_quic_stream_spam_t is a simple load generator that sends sub-MTU
    size unidirectional streams at max rate. */
@@ -67,7 +67,7 @@ fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
 void
 fd_quic_stream_spam_gen( void *              ctx,
                          fd_aio_pkt_info_t * pkt,
-                         fd_quic_stream_t *  stream );
+                         ulong               stream_id );
 
 FD_PROTOTYPES_END
 

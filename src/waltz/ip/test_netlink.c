@@ -147,7 +147,6 @@ main( int argc, char **argv ) {
 
   if( fd_nl_init( nl, 1234U ) ) {
     FD_LOG_ERR(( "Unable to initialize netlink fd_nl_init" ));
-    exit(1);
   }
 
 #define ROUTE_TABLE_CAP 32

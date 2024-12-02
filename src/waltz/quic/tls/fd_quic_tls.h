@@ -199,7 +199,6 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
                     fd_quic_tls_t *    quic_tls,
                     void *             context,
                     int                is_server,
-                    char const *       hostname,
                     fd_quic_transport_params_t const * self_transport_params );
 
 void

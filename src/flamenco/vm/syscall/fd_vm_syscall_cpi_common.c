@@ -618,10 +618,29 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS );
     return FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS;
   }
+
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
-    int err = fd_vm_derive_pda( vm, caller_program_id, 0UL, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
+
+    /* This function will precompute the memory translation required and do
+       some preflight checks. */
+    void const * signer_seed_haddrs[ FD_VM_PDA_SEEDS_MAX ];
+    ulong        signer_seed_lens  [ FD_VM_PDA_SEEDS_MAX ];
+
+    int err = fd_vm_translate_and_check_program_address_inputs( vm, 
+                                                                signers_seeds[i].addr, 
+                                                                signers_seeds[i].len,
+                                                                0UL,
+                                                                signer_seed_haddrs,
+                                                                signer_seed_lens ,
+                                                                NULL );
     if( FD_UNLIKELY( err ) ) {
       return err;
+    }
+
+    err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
+    if( FD_UNLIKELY( err ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
+      return FD_VM_ERR_INVAL;
     }
   }
 
@@ -663,7 +682,12 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    /* We should propogate the instruction error from fd_vm_prepare_instruction. */
+    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
+    vm->instr_ctx->txn_ctx->exec_err      = err;
+    return err;
+  }
 
   /* Translate account infos ******************************************/
   /* Direct mapping check 

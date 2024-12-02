@@ -212,43 +212,6 @@ handshake_complete( fd_quic_conn_t * conn,
 }
 
 
-/* quic_stream_new is called back by the QUIC engine whenever an open
-   connection creates a new stream, at the time this is called, both the
-   client and server must have agreed to open the stream.  In case the
-   client has opened this stream, it is assumed that the QUIC
-   implementation has verified that the client has the necessary stream
-   quota to do so. */
-
-static void
-quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx ) {
-  /* we don't expect the server to initiate streams */
-  (void)stream;
-  (void)_ctx;
-}
-
-/* quic_stream_receive is called back by the QUIC engine when any stream
-   in any connection being serviced receives new data.  Currently we
-   simply copy received data out of the xsk (network device memory) into
-   a local dcache. */
-
-static void
-quic_stream_receive( fd_quic_stream_t * stream,
-                     void *             stream_ctx,
-                     uchar const *      data,
-                     ulong              data_sz,
-                     ulong              offset,
-                     int                fin ) {
-  /* we're not expecting to receive anything */
-  (void)stream;
-  (void)stream_ctx;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
-}
-
-
 static void
 quic_stream_notify( fd_quic_stream_t * stream,
                     void *             stream_ctx,
@@ -282,7 +245,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->inflight_pkt_cnt = 1500;
-  limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
+  limits->tx_buf_sz = FD_TXN_MTU;
   limits->stream_pool_cnt = 1UL<<16;
   limits->stream_id_cnt = 1UL<<16;
 }
@@ -358,7 +321,7 @@ during_frag( fd_benchs_ctx_t * ctx,
       uint   dest_ip   = 0;
       ushort dest_port = fd_ushort_bswap( ctx->quic_port );
 
-      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, "client" );
+      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port );
 
       /* failed? try later */
       if( FD_UNLIKELY( !ctx->quic_conn ) ) {
@@ -564,8 +527,6 @@ unprivileged_init( fd_topo_t *      topo,
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
     quic->cb.conn_final       = conn_final;
-    quic->cb.stream_new       = quic_stream_new;
-    quic->cb.stream_receive   = quic_stream_receive;
     quic->cb.stream_notify    = quic_stream_notify;
     quic->cb.now              = quic_now;
     quic->cb.now_ctx          = NULL;

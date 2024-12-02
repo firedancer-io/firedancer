@@ -34,7 +34,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
   fd_sbpf_elf_info_t info;
-  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size, 0, FD_SBPF_MAX_VERSION ) ) )
+  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size, 0, FD_SBPF_V0, FD_SBPF_V3 ) ) )
     return -1;
 
   /* Allocate objects */

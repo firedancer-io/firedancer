@@ -105,6 +105,29 @@ fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_borrowed_account_t *
   return 0;
 }
 
+void
+fd_bpf_get_sbpf_versions( uint *                     sbpf_min_version,
+                          uint *                     sbpf_max_version,
+                          fd_exec_slot_ctx_t const * slot_ctx ) {
+  int disable_v0  = FD_FEATURE_ACTIVE( slot_ctx, disable_sbpf_v0_execution );
+  int reenable_v0 = FD_FEATURE_ACTIVE( slot_ctx, reenable_sbpf_v0_execution );
+  int enable_v0   = !disable_v0 || reenable_v0;
+  int enable_v1   = FD_FEATURE_ACTIVE( slot_ctx, enable_sbpf_v1_deployment_and_execution );
+  int enable_v2   = FD_FEATURE_ACTIVE( slot_ctx, enable_sbpf_v2_deployment_and_execution );
+  int enable_v3   = FD_FEATURE_ACTIVE( slot_ctx, enable_sbpf_v3_deployment_and_execution );
+
+  *sbpf_min_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
+  if( enable_v3 ) {
+    *sbpf_max_version = FD_SBPF_V3;
+  } else if( enable_v2 ) {
+    *sbpf_max_version = FD_SBPF_V2;
+  } else if( enable_v1 ) {
+    *sbpf_max_version = FD_SBPF_V1;
+  } else {
+    *sbpf_max_version = FD_SBPF_V0;
+  }
+}
+
 int
 fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
                                        fd_borrowed_account_t * program_acc ) {
@@ -134,7 +157,9 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, FD_SBPF_MAX_VERSION ) == NULL ) {
+    uint min_sbpf_version, max_sbpf_version;
+    fd_bpf_get_sbpf_versions( &min_sbpf_version, &max_sbpf_version, slot_ctx );
+    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }

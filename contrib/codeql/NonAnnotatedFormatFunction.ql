@@ -1,6 +1,6 @@
 /**
  * Find calls to functions that likely expect a format string but are not annotated as such.
- * @id cpp/non-annotated-format-function
+ * @id asymmetric-research/non-annotated-format-function
  * @kind problem
  * @severity warning
  */

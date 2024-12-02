@@ -3,5 +3,5 @@
  */
 import cpp
 predicate included(Location loc) {
-  loc.getFile().getRelativePath().prefix(5) != "agave/"
+  loc.getFile().getRelativePath().prefix(6) != "agave/"
 }

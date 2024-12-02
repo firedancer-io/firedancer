@@ -657,7 +657,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L436 */
   fd_borrowed_account_t * fee_payer_rec = NULL;
-  err = fd_txn_borrowed_account_modify_idx( txn_ctx, 0, 0UL, &fee_payer_rec );
+  err = fd_txn_borrowed_account_modify_fee_payer( txn_ctx, &fee_payer_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -1274,7 +1274,11 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     memcpy( borrowed_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
 
-    if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+    /* Create a borrowed account for all writable accounts and the fee payer
+       account which is almost always writable, but doesn't have to be.
+       
+       TODO: The borrowed account semantics should better match Agave's. */
+    if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
       void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
 

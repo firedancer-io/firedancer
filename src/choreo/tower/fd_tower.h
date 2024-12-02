@@ -2,15 +2,14 @@
 #define HEADER_fd_src_choreo_tower_fd_tower_h
 
 
-/* Tower implements Solana's TowerBFT algorithm.
+/* fd_tower presents an API for Solana's TowerBFT algorithm.
 
-   Starting with some intuition, the goal of TowerBFT is for a
-   supermajority of the validator cluster to pick the same fork. As we
-   know, we receive and execute blocks during replay.
+   What is TowerBFT? TowerBFT is an algorithm for converging a
+   supermajority of stake in the validator cluster on the same fork.
 
         /-- 3-- 4 (A)
    1-- 2
-        \-- 5 (B)
+        \-- 5     (B)
 
    Here, is a diagram of a fork. The leader for slot 5 decided to build
    off slot 2, rather than slot 4. This can happen for various reasons,
@@ -22,12 +21,12 @@
    “heaviest”. Validators vote for blocks during replay, and
    simultaneously use other validator’s votes to determine which block
    to vote for. This encourages convergence, because as one fork gathers
-   more votes, more and more votes pile on, solidifying its position as
+   more votes, more and more votes pile-on, solidifying its position as
    the heaviest fork.
 
          /-- 3-- 4 (10%)
    1-- 2
-         \-- 5 (9%)
+         \-- 5     (9%)
 
    However, network propagation delay of votes can lead us to think one
    fork is heaviest, before observing new votes that indicate another
@@ -36,11 +35,11 @@
 
          /-- 3-- 4 (10%)
    1-- 2
-         \-- 5 (15%)
+         \-- 5     (15%)
 
    At the same time we don’t want excessive switching. The more often
-   validators switch, the more difficult it will be to achieve that pile
-   on effect I just described.
+   validators switch, the more difficult it will be to achieve that
+   pile-on effect I just described.
 
    Note that to switch forks, you need to rollback a given slot and its
    descendants on that fork. In the example above, to switch to 1, 2, 5,
@@ -173,13 +172,13 @@
              slot | conf
    (before)  -----------
              50   | 1
-             ...  | ... <- 29 votes elided
+             ...  | ... (29 votes elided)
              1    | 4
 
              slot | conf
    (after)  -----------
              53   | 1
-             ...  | ... <- 29 votes elided
+             ...  | ... (29 votes elided)
              1    | 4
 
    So the tower is really a double-ended queue rather than a stack.
@@ -331,8 +330,6 @@
         connect back to the SMR.  This can happen if we get locked out
         for a long time by voting for (and confirming) a minority fork.
 
-     2. We have a latest vote slot that is older than the SMR, meaning
-        the cluster has rooted past our latest vote.  This can happen
         when we don't vote for a while (e.g. this validator was not
         running or we were stuck waiting for lockouts.) */
 

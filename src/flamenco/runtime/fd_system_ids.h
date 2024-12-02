@@ -55,7 +55,7 @@ extern const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id;
    
    Instead of maintaining a map of sysvars and builtins, Agave recommends checking the sysvar owner account, or checking
    the reserved keys below. 
-   https://github.com/anza-xyz/agave/blob/66c126b41ec2b55b3f747a4ac4e3ee6b439164a5/sdk/program/src/sysvar/mod.rs#L127-L130 */
+   https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/src/reserved_account_keys.rs */
 int 
 fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct );
 

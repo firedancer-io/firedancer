@@ -69,12 +69,12 @@
    As such, it is not possible to modify the records in transactions
    strictly before the last published transaction.  However, it is
    possible to modify the records of the last published transaction if
-   there no transactions in preparation.  This is useful, for example,
-   loading up a transaction from a checkpointed state on startup.  A
-   common idiom at start of a block though is to fork the potential
-   transaction of that block from its parent (freezing its parent) and
-   then fork a child of the the potential transaction that will hold
-   updates to the block that are incrementally "merged" into the
+   there is no transactions in preparation.  This is useful, for
+   example, loading up a transaction from a checkpointed state on
+   startup.  A common idiom at start of a block though is to fork the
+   potential transaction of that block from its parent (freezing its
+   parent) and then fork a child of the potential transaction that will
+   hold updates to the block that are incrementally "merged" into the
    potential transaction as block processing progresses.
 
    Critically, in-preparation transactions form a tree of dependent and
@@ -123,7 +123,7 @@
    that it is also persistent and remotely inspectable.  For example, a
    process attached to a funk instance can be terminated and a new
    process can resume exactly where the original process left off
-   instantly (e.g. no file I/O).  Or a real-time monitor could
+   instantly (e.g. no file I/O).  Or a real-time monitor could be
    visualizing the ongoing activity in a database non-invasively (e.g.
    forks in flight, records updated by forks, etc).  Or an auxiliary
    process could be lazily and non-invasively writing all published
@@ -490,8 +490,8 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
 
 /* Misc */
 
-/* Enable/disable "speed load mode". When in this mode, record values
-   are bump allocated and never freed. This speeds up the case where
+/* Enable/disable "speed load mode".  When in this mode, record values
+   are bump allocated and never freed.  This speeds up the case where
    we are initializing the database with a vast number of
    mostly read-only records. */
 

@@ -90,6 +90,7 @@ _fd_int_store_if_negative( int * p,
 static int
 fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
                     ulong                 elf_sz,
+                    uint                  min_version,
                     uint                  max_version ) {
 
   /* Validate ELF magic */
@@ -108,14 +109,18 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
          & ( ehdr->e_type                      ==FD_ELF_ET_DYN     )
          & ( ( ehdr->e_machine                 ==FD_ELF_EM_BPF   )
            | ( ehdr->e_machine                 ==FD_ELF_EM_SBPF  ) )
-         & ( ehdr->e_version                   >=1                 )
-         & ( ehdr->e_version                   <=max_version       )
+         & ( ehdr->e_version                   ==1                 )
   /* Coherence checks */
          & ( ehdr->e_ehsize   ==sizeof(fd_elf64_ehdr)              )
          & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
          & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
          & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
-         & ( ehdr->e_flags    !=FD_ELF_EF_SBPF_V2                  ) );
+         & ( ehdr->e_flags >= min_version                          )
+         & ( max_version
+             ? ( ehdr->e_flags <= max_version )
+             : ( ehdr->e_flags != FD_ELF_EF_SBPF_V2 )
+           )
+  );
 
   /* Bounds check program header table */
 
@@ -479,6 +484,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                elf_sz,
                   int                  elf_deploy_checks,
+                  uint                 sbpf_min_version,
                   uint                 sbpf_max_version ) {
 
   /* ELFs must have a file header */
@@ -512,7 +518,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   int err;
 
   /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_max_version ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_min_version, sbpf_max_version ))!=0 ) )
     return NULL;
 
   /* Program headers */
@@ -523,8 +529,8 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz, elf_deploy_checks ))!=0 ) )
     return NULL;
 
-  /* Set SBPF version from ELF header */
-  info->sbpf_version = elf->ehdr.e_version;
+  /* Set SBPF version from ELF e_flags */
+  info->sbpf_version = sbpf_max_version ? elf->ehdr.e_flags : 0UL;
 
   return info;
 }

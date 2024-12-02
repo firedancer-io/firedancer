@@ -404,14 +404,12 @@ after_frag( fd_net_ctx_t *      ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)chunk;
   (void)tsorig;
   (void)stem;
 

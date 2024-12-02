@@ -13,7 +13,7 @@ OBJDIR=${OBJDIR:-build/native/${CC}}
 
 cleanup() {
   sudo killall -9 -q fddev || true
-  $FD_DIR/$OBJDIR/bin/fddev configure fini all
+#   $FD_DIR/$OBJDIR/bin/fddev configure fini all --config fddev.toml
 }
 trap cleanup EXIT SIGINT SIGTERM
 
@@ -34,6 +34,9 @@ done
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
 SHRED_VERS=`grep shred_version: validator.log | sed -e 's@.*shred_version: \([0-9]*\).*@\1@'`
 
+sudo rm -f /tmp/localnet.funk
+sudo rm -f /tmp/localnet.blockstore
+
 echo "
 name = \"fd1\"
 [layout]
@@ -48,27 +51,36 @@ name = \"fd1\"
         entrypoints = [\"$PRIMARY_IP\"]
         peer_ports = [8001]
         gossip_listen_port = 8700
-
     [tiles.repair]
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
     [tiles.replay]
         capture = \"fddev.solcap\"
-        blockstore_checkpt = \"fddev-blockstore.checkpt\"
-        blockstore_publish = true
         snapshot = \"$FULL_SNAPSHOT\"
         tpool_thread_count = 8
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
-        cluster_version = \"2.0.3\"
-    [tiles.store_int]
-        blockstore_shred_max = 1024
-        blockstore_block_max = 300
-        blockstore_txn_max = 1024
-        blockstore_alloc_max = 100000000
+        funk_file = \"/tmp/localnet.funk\"
+        cluster_version = \"2.0.14\"
     [tiles.pack]
         use_consumed_cus = false
+[consensus]
+    expected_shred_version = $SHRED_VERS
+    vote = true
+    identity_path = \"fd-identity-keypair.json\"
+    vote_account_path = \"fd-vote-keypair.json\"
+[blockstore]
+    shred_max = 1024
+    block_max = 300
+    idx_max = 1024
+    txn_max = 1024
+    alloc_max = 10737418240
+    file = \"/tmp/localnet.blockstore\"
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
 [log]
     path = \"fddev.log\"
     level_stderr = \"INFO\"
@@ -77,11 +89,6 @@ name = \"fd1\"
 [rpc]
     port = 8123
     extended_tx_metadata_storage = true
-[consensus]
-    expected_shred_version = $SHRED_VERS
-    vote = true
-    identity_path = \"fd-identity-keypair.json\"
-    vote_account_path = \"fd-vote-keypair.json\"
 " > fddev.toml
 
 sudo $FD_DIR/$OBJDIR/bin/fddev configure init kill --config $(readlink -f fddev.toml)

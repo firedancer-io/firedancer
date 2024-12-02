@@ -533,8 +533,6 @@ fdctl_obj_new( fd_topo_t const *     topo,
     FD_TEST( fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
     FD_TEST( fd_cnc_new( laddr, 0UL, 0, fd_tickcount() ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    FD_TEST( fd_tpu_reasm_new( laddr, VAL("depth"), VAL("burst"), 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     FD_TEST( fd_fseq_new( laddr, ULONG_MAX ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
@@ -542,10 +540,9 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("txn_max") ) );
-    // } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    /* TODO:FIXME: Change into joining the file backed funk. */
-    // FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
+    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   } else {
