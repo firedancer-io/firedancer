@@ -1933,8 +1933,8 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
 }
 
 // ??
-static ulong
-query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
+ulong
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
   fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
   key.elem.key                                  = *pubkey;
   fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find(
@@ -1965,7 +1965,7 @@ process_vote_state_update( ulong                         vote_acct_idx,
           lockout->slot,
           &vote_state_update->hash,
           0,
-          query_pubkey_stake( vote_account->pubkey,
+          fd_query_pubkey_stake( vote_account->pubkey,
             &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
 
       if( FD_LIKELY( vote_state_update->has_root ) ) {

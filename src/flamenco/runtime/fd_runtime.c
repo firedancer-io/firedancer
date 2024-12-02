@@ -4032,6 +4032,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 
   // Update the epoch bank vote_accounts with the latest values from the slot bank
   // FIXME: resize the vote_accounts_pool if necessary
+  ulong total_epoch_stake = 0UL;
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
     slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool,
     slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
@@ -4043,17 +4044,19 @@ FD_SCRATCH_SCOPE_BEGIN {
     fd_memcpy( &key.elem.key, &n->elem.key, FD_PUBKEY_FOOTPRINT );
     fd_vote_accounts_pair_t_mapnode_t * epoch_cache_node = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key );
     if( epoch_cache_node == NULL ) {
-      fd_vote_accounts_pair_t_mapnode_t * new_entry = fd_vote_accounts_pair_t_map_acquire( stakes->vote_accounts.vote_accounts_pool );
+      epoch_cache_node = fd_vote_accounts_pair_t_map_acquire( stakes->vote_accounts.vote_accounts_pool );
 
-      fd_memcpy(&new_entry->elem.key, &n->elem.key, sizeof(fd_pubkey_t));
-      fd_memcpy(&new_entry->elem.stake, &n->elem.stake, sizeof(ulong));
-      fd_memcpy(&new_entry->elem.value, &n->elem.value, sizeof(fd_solana_account_t));
+      fd_memcpy(&epoch_cache_node->elem.key, &n->elem.key, sizeof(fd_pubkey_t));
+      fd_memcpy(&epoch_cache_node->elem.stake, &n->elem.stake, sizeof(ulong));
+      fd_memcpy(&epoch_cache_node->elem.value, &n->elem.value, sizeof(fd_solana_account_t));
 
-      fd_vote_accounts_pair_t_map_insert( stakes->vote_accounts.vote_accounts_pool, &stakes->vote_accounts.vote_accounts_root, new_entry );
+      fd_vote_accounts_pair_t_map_insert( stakes->vote_accounts.vote_accounts_pool, &stakes->vote_accounts.vote_accounts_root, epoch_cache_node );
     } else {
       epoch_cache_node->elem.stake = n->elem.stake;
     }
+    total_epoch_stake += epoch_cache_node->elem.stake;
   }
+  slot_ctx->epoch_ctx->total_epoch_stake = total_epoch_stake;
 
   fd_bincode_destroy_ctx_t destroy_slot = {.valloc = slot_ctx->valloc};
   fd_vote_accounts_destroy( &slot_ctx->slot_bank.vote_account_keys, &destroy_slot );
