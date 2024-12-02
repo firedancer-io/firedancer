@@ -1,4 +1,5 @@
 #include "fd_vm_syscall.h"
+#include "../../runtime/program/fd_vote_program.h"
 #include "../../runtime/sysvar/fd_sysvar.h"
 #include "../../runtime/sysvar/fd_sysvar_clock.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -245,6 +246,40 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
 
   fd_memcpy( out_haddr, sysvar_buf + offset, sz );
   *_ret = 0;
+  return FD_VM_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2043-L2118 */
+int
+fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
+                                   /**/            ulong   var_addr,
+                                   FD_PARAM_UNUSED ulong   r2,
+                                   FD_PARAM_UNUSED ulong   r3,
+                                   FD_PARAM_UNUSED ulong   r4,
+                                   FD_PARAM_UNUSED ulong   r5,
+                                   /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  /* Var addr of 0 returns the total active stake on the cluster.
+  
+     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2057-L2075 */
+  if( FD_UNLIKELY( var_addr==0UL ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2065-L2066 */
+    FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
+    *_ret = vm->instr_ctx->epoch_ctx->total_epoch_stake;
+    return FD_VM_SUCCESS;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2083-L2091 */
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_MEM_OP_BASE_COST,
+                       fd_ulong_sat_add( FD_VM_SYSCALL_BASE_COST, FD_PUBKEY_FOOTPRINT / FD_VM_CPI_BYTES_PER_UNIT ) ) );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
+  const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
+  *_ret = fd_query_pubkey_stake( vote_address, &vm->instr_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts );
+
   return FD_VM_SUCCESS;
 }
 

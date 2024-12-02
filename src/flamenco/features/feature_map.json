@@ -211,5 +211,6 @@
   {"name":"enable_sbpf_v3_deployment_and_execution", "pubkey": "C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw"},
   {"name":"migrate_feature_gate_program_to_core_bpf","pubkey":"4eohviozzEeivk1y9UbrnekbAFMDQyJz5JjA9Y6gyvky"},
   {"name":"migrate_config_program_to_core_bpf","pubkey":"2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV"},
-  {"name":"migrate_address_lookup_table_program_to_core_bpf","pubkey":"C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm"}
+  {"name":"migrate_address_lookup_table_program_to_core_bpf","pubkey":"C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm"},
+  {"name":"enable_get_epoch_stake_syscall","pubkey":"7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np"}
 ]

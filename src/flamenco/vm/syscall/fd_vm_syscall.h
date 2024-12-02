@@ -16,6 +16,27 @@
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L19 */
 #define FD_VM_PDA_SEED_MEM_MAX (32UL)
 
+/* PYTHON3 CODE FOR COMPUTING THE SYSCALL MURMUR3 HASH (e.g. sol_get_epoch_stake):
+  ```
+  import mmh3
+  import ctypes
+
+  def compute_murmur3_hash(input_string):
+      # Compute the Murmur3 hash of the input string
+      hash_value = mmh3.hash(input_string)
+      # Convert the hash value to a 32-bit unsigned integer
+      u32_hash_value = ctypes.c_uint32(hash_value).value
+      return u32_hash_value
+
+  input_string = b"sol_get_epoch_stake"
+  hash_value = compute_murmur3_hash(input_string)
+  print(f"The Murmur3 hash of '{input_string}' as u32 is: {hex(hash_value)}")
+  
+  Output: 
+  The Murmur3 hash of 'b'sol_get_epoch_stake'' as u32 is: 0x5be92f4a 
+  ```
+*/
+
 /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */
 
 /* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
@@ -478,11 +499,43 @@ FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
       - *_ret = 2 if sysvar id is not in {clock,schedule,rewards,rent,slot hashes,stake history,last restart slot}
                   OR sysvar account does not exist.
       - *_ret = 1 if [offset,offset+sz) is outside of sysvar data buffer. 
-      = *_ret = 0 if success.
+      - *_ret = 0 if success.
 
      On return, sz bytes of appropriate offset sysvar data will be copied into 
      haddr belonging to out_vaddr. */
 FD_VM_SYSCALL_DECL( sol_get_sysvar );
+
+/* syscall(5be92f4a) "sol_get_epoch_stake"
+
+   Gets a vote account's delegated stake for the current epoch, or the total active stake
+   on the cluster for the current epoch.
+
+   Inputs:
+
+     r1 - var_addr, vote pubkey VM pointer
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
+
+   Return:
+
+     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     *_ret unchanged.  vm->cu unchanged.
+
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
+
+     FD_VM_ERR_SIGSEGV: bad var_addr. _ret unchanged. vm->cu unchanged.
+
+     FD_VM_ERR_ABORT: offset+sz overflow.  *_ret unchanged.
+
+     FD_VM_SUCCESS: success. vm->cu decremented and vm->cu>0.
+      - *_ret = 0 if success. 
+      - if var_addr == 0, returns the total active stake on the cluster. Otherwise, 
+        returns the vote account's delegated stake. */
+
+FD_VM_SYSCALL_DECL( sol_get_epoch_stake );
 
 /* syscall(85532d94) "sol_get_stack_height"
 

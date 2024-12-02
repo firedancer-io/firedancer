@@ -46,6 +46,11 @@ FD_PROTOTYPES_BEGIN
 int
 fd_vote_program_execute( fd_exec_instr_ctx_t * ctx );
 
+/* Queries the delegated stake amount for the given vote account pubkey,
+   given the vote accounts map. Returns 0 if nonexistent. */
+ulong
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts );
+
 int
 fd_vote_get_state( fd_borrowed_account_t const * self,
                    fd_valloc_t                   valloc,

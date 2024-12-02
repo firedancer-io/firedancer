@@ -1289,6 +1289,12 @@ fd_feature_id_t const ids[] = {
     .name       = "migrate_address_lookup_table_program_to_core_bpf",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index      = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
+    .id         = {"\x64\x88\xa2\xd0\x5a\xcc\xbb\xae\xa0\x4e\xa8\xaf\xeb\x15\xfb\x71\xa7\x5b\x27\x71\x96\x6c\x2f\x05\x0d\xfe\xf3\x44\xbb\x07\x3b\x21"},
+                  /* 7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np */
+    .name       = "enable_get_epoch_stake_syscall",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 
@@ -1513,6 +1519,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xf46b1f18665c4236: return &ids[ 210 ];
   case 0xa9a90df1904da912: return &ids[ 211 ];
   case 0x2434a84be5b684a5: return &ids[ 212 ];
+  case 0xaebbcc5ad0a28864: return &ids[ 213 ];
   default: break;
   }
 
@@ -1734,5 +1741,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sbpf_v3_deployment_and_executi
 FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_feature_gate_program_to_core_bpf                )>>3==210UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_config_program_to_core_bpf                      )>>3==211UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_address_lookup_table_program_to_core_bpf        )>>3==212UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_get_epoch_stake_syscall                          )>>3==213UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
