@@ -394,7 +394,9 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 
 /* during_frag is called after the replay tile has received a new frag, but before it has checked if it was overrun.
    
-   not invoked if the replay tile was backpressured. */
+   not invoked if the replay tile was backpressured.
+   
+   This copies the txn data from the microblocks into the ctx->bank_out mcache/dcache. */
 static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -442,7 +444,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     FD_LOG_INFO(( "other microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, sz ));
   } else if( in_idx == PACK_IN_IDX ) {
     /* If the frag is from the pack tile:
-    - Copy the microblock txns into  */
+    - Copy the microblock txns into the appropiate banks POH output */
 
     if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
@@ -485,20 +487,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
-  //   /* We do not know the parent slot, pick one from fork selection */
-  //   ulong max_slot = 0; /* FIXME: default to snapshot slot/smr */
-  //   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( ctx->forks->frontier, ctx->forks->pool );
-  //      !fd_fork_frontier_iter_done( iter, ctx->forks->frontier, ctx->forks->pool );
-  //      iter = fd_fork_frontier_iter_next( iter, ctx->forks->frontier, ctx->forks->pool ) ) {
-  //     fd_exec_slot_ctx_t * ele = &fd_fork_frontier_iter_ele( iter, ctx->forks->frontier, ctx->forks->pool )->slot_ctx;
-  //     if ( max_slot < ele->slot_bank.slot ) {
-  //       max_slot = ele->slot_bank.slot;
-  //     }
-  //   }
-  //   ctx->parent_slot = max_slot;
-  // }
-
+  /* Check to see if the block has already been processed or is a deadblock (the cluster failed to replay it) */
   fd_blockstore_start_read( ctx->blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
   if( FD_LIKELY( block_map_entry ) ) {
@@ -771,6 +760,12 @@ is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulong prev_slo
   return ( prev_epoch < new_epoch || slot_idx == 0 );
 }
 
+/* prepare_new_block_execution:
+- removes the latest slot context from the frontier
+- sends out stake weights if we are at an epoch boundary
+- create a new funk transaction
+- read the slot history into the slot context
+- publish stake weights if we are at an epoch boundary */
 static fd_fork_t *
 prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              fd_stem_context_t *    stem,
@@ -779,6 +774,9 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   long prepare_time_ns = -fd_log_wallclock();
 
   int is_new_epoch_in_new_block = 0;
+  
+  /* re-use the slot context from the previous frontier of this fork, updating the slot number */
+  /* re-insert the slot context into the frontier */
   fd_fork_t * fork = fd_forks_prepare( ctx->forks, ctx->parent_slot, ctx->acc_mgr, ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
   // Remove slot ctx from frontier
   fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
@@ -788,6 +786,8 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the frontier", curr_slot ) );
   }
   fd_fork_frontier_ele_insert( ctx->forks->frontier, child, ctx->forks->pool );
+
+  /* mark the fork as being actively executed */
   fork->lock = 1;
   FD_TEST( fork == child );
 
@@ -822,6 +822,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.status_cache        = ctx->status_cache;
   fd_funk_txn_xid_t xid = { 0 };
 
+  /* set the xid to zero if the block is a packed microblock */
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
     memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
   } else {
@@ -839,7 +840,11 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     FD_LOG_ERR(( "block prep execute failed" ));
   }
 
-  /* Read slot history into slot ctx */
+  /* Read slot history into slot ctx
+     TODO: do we need to do this?
+           probably for publishing the stake weights?
+           can we push this out?
+           I don't think we need to do this */
   res = fd_sysvar_slot_history_read( &fork->slot_ctx, fork->slot_ctx.valloc, fork->slot_ctx.slot_history );
 
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -899,6 +904,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   (void)sig;
   (void)sz;
 
+  /* wen_restart messages */
   if( FD_UNLIKELY( in_idx==GOSSIP_IN_IDX ) ) {
     if( FD_UNLIKELY( !ctx->in_wen_restart ) ) {
       /* FIXME: is this true? what's ensuring that the gossip messages are for
@@ -941,7 +947,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
-  /* do a replay */
+  
+  /* ------------------------------- do a replay ---------------------------------- */
   ulong        txn_cnt    = ctx->txn_cnt;
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
 
@@ -969,6 +976,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     fork = prepare_new_block_execution( ctx, stem, curr_slot, flags );
   }
 
+  /* set the solcap capture context slot */
   if( ctx->capture_ctx )
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
   // Execute all txns which were successfully prepared
@@ -976,12 +984,17 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     int res = 0UL;
     FD_SCRATCH_SCOPE_BEGIN {
+
+      /* if the microblock is a transaction that we have packed, execute it with fd_exec_packed_txns_task */
       if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
         // FD_LOG_WARNING(("MBLK4: %lu %lu %lu", ctx->curr_slot, seq, bank_idx+1));
         fd_tpool_wait( ctx->tpool, bank_idx+1 );
 
         fd_tpool_exec( ctx->tpool, bank_idx+1, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], (ulong)ctx->spads[ bank_idx ] );
       } else {
+        /* if the microblock is a transaction that we have received from the store tile (shreds),
+           execute it with fd_runtime_execute_txns_in_waves_tpool */
+
         for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
           fd_tpool_wait( ctx->tpool, i+1 );
         }
