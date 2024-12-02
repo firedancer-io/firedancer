@@ -759,16 +759,23 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      We have inlined the anza function update_caller_account_perms here.
      TODO: consider factoring this out */
   if( vm->direct_mapping ) {
-    for( ulong i=0UL; i<vm->instr_ctx->instr->acct_cnt; i++ ) {
+    for( ulong i=0UL; i<acct_info_cnt; i++ ) {
+      ulong acct_idx;
+      for( acct_idx=0UL; acct_idx<vm->instr_ctx->instr->acct_cnt; acct_idx++ ) {
+        if ( !memcmp( (const void *)acc_infos[i].pubkey_addr, vm->instr_ctx->instr->acct_pubkeys, 32 ) ) {
+          break;
+        }
+      }
+
       /* https://github.com/firedancer-io/solana/blob/508f325e19c0fd8e16683ea047d7c1a85f127e74/programs/bpf_loader/src/syscalls/cpi.rs#L939-L943 */
       /* Anza only even attemps to update the account permissions if it is a
          "caller account". Only writable accounts are caller accounts. */
-      if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, i ) ) {
+      if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, acct_idx ) ) {
 
-        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx->instr, i, &err );
+        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx->instr, acct_idx, &err );
         /* Lookup memory regions for the account data and the realloc region. */
-        ulong data_region_idx    = vm->acc_region_metas[i].has_data_region ? vm->acc_region_metas[i].region_idx : 0;
-        ulong realloc_region_idx = vm->acc_region_metas[i].has_resizing_region ? vm->acc_region_metas[i].region_idx : 0;
+        ulong data_region_idx    = vm->acc_region_metas[acct_idx].has_data_region ? vm->acc_region_metas[acct_idx].region_idx : 0;
+        ulong realloc_region_idx = vm->acc_region_metas[acct_idx].has_resizing_region ? vm->acc_region_metas[acct_idx].region_idx : 0;
         if( data_region_idx && realloc_region_idx ) {
           realloc_region_idx++;
         }
