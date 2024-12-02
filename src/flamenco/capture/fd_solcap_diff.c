@@ -162,27 +162,27 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff, ulong start_slot, ulong end_sl
   ulong prev_slot0 = diff->preimage[ 0 ].slot;
   ulong prev_slot1 = diff->preimage[ 1 ].slot;
 
+  int res;
   for(;;) {
     ulong slot0 = diff->preimage[ 0 ].slot;
     ulong slot1 = diff->preimage[ 1 ].slot;
 
     /* Handle cases where slot is skipped in one or the other */
-    if ( FD_UNLIKELY( prev_slot0 < slot1 && slot0 > slot1 ) ) {
+    if( FD_UNLIKELY( prev_slot0 < slot1 && slot0 > slot1 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n",
                       prev_slot0, slot0, diff->file_paths[0]));
     }
-    else if ( FD_UNLIKELY( prev_slot1 < slot0 && slot1 > slot0 ) ) {
+    else if( FD_UNLIKELY( prev_slot1 < slot0 && slot1 > slot0 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n",
                       prev_slot1, slot1, diff->file_paths[1]));
     }
 
     if( slot0 == slot1 ) {
       if ( slot0 < start_slot ) {
-        int res;
         res = fd_solcap_differ_advance( diff, 0 );
-        if( FD_UNLIKELY( res <= 0 ) ) return res;
+        if( FD_UNLIKELY( res <= 0 ) ) break;
         res = fd_solcap_differ_advance( diff, 1 );
-        if( FD_UNLIKELY( res <= 0 ) ) return res;
+        if( FD_UNLIKELY( res <= 0 ) ) break;
       }
       else if ( slot0 > end_slot ) {
         return 0;
@@ -193,14 +193,14 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff, ulong start_slot, ulong end_sl
     }
     else {
       ulong idx = slot0>slot1;
-      int res = fd_solcap_differ_advance( diff, idx );
-      if( FD_UNLIKELY( res<=0 ) ) return res;
+      res = fd_solcap_differ_advance( diff, idx );
+      if( FD_UNLIKELY( res<=0 ) ) break;
     }
     prev_slot0 = slot0;
     prev_slot1 = slot1;
   }
 
-  return 0;
+  return res;
 }
 
 static int

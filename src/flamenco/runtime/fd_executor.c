@@ -1444,7 +1444,7 @@ fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
 
     int ret = fd_acc_mgr_save_non_tpool( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc_rec );
     if( ret != FD_ACC_MGR_SUCCESS ) {
-      FD_LOG_ERR(( "failed to save edits to accounts" ));
+      FD_LOG_WARNING(( "failed to save edits to accounts" ));
       return -1;
     }
 

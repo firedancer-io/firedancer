@@ -144,7 +144,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   default:
     /* unknown variant */
     abort();
-    break;
   }
 
 # undef BOUNDS_CHECK

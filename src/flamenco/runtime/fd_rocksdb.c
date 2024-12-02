@@ -361,8 +361,6 @@ fd_rocksdb_get_slot( ulong cf_idx, char const * key ) {
     default: /* all other cfs have the slot at the start */
       return fd_ulong_bswap( *((ulong *)&key[0]) ); /* The key is just the slot number */
   }
-
-  return fd_ulong_bswap( *((ulong *)key) );
 }
 
 void
