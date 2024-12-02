@@ -1116,6 +1116,12 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     }
   }
 
+  /* When we reset, we need to allow PoH to tick freely again rather
+     than being constrained.  If we are leader after the reset, this
+     is OK because we won't tick until we get a bank, and the lower
+     bound will be reset with the value from the bank. */
+  ctx->microblocks_lower_bound = ctx->max_microblocks_per_slot;
+
   if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
