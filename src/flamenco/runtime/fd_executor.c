@@ -484,6 +484,8 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       }
 
       /* Set readonly account's executable status (lol) */
+      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      fd_borrowed_account_make_readonly_copy( program_account, borrowed_account_data );
       fd_account_meta_t * meta = (fd_account_meta_t *)program_account->const_meta;
       meta->info.executable = 1;
     }
