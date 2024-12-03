@@ -415,6 +415,73 @@ int wv_test( wv_t v, ulong v0, ulong v1, ulong v2, ulong v3 ) {
   return 1;
 }
 
+int wh_test( wh_t h, ushort const * hj ) {
+  int volatile _[1];
+  ushort       m[151] W_ATTR;
+  wh_t         l;
+
+  if( wh_extract( h,  0 )!=hj[ 0] ) return 0;
+  if( wh_extract( h,  1 )!=hj[ 1] ) return 0;
+  if( wh_extract( h,  2 )!=hj[ 2] ) return 0;
+  if( wh_extract( h,  3 )!=hj[ 3] ) return 0;
+  if( wh_extract( h,  4 )!=hj[ 4] ) return 0;
+  if( wh_extract( h,  5 )!=hj[ 5] ) return 0;
+  if( wh_extract( h,  6 )!=hj[ 6] ) return 0;
+  if( wh_extract( h,  7 )!=hj[ 7] ) return 0;
+  if( wh_extract( h,  8 )!=hj[ 8] ) return 0;
+  if( wh_extract( h,  9 )!=hj[ 9] ) return 0;
+  if( wh_extract( h, 10 )!=hj[10] ) return 0;
+  if( wh_extract( h, 11 )!=hj[11] ) return 0;
+  if( wh_extract( h, 12 )!=hj[12] ) return 0;
+  if( wh_extract( h, 13 )!=hj[13] ) return 0;
+  if( wh_extract( h, 14 )!=hj[14] ) return 0;
+  if( wh_extract( h, 15 )!=hj[15] ) return 0;
+
+  for( int j=0; j<16; j++ ) { _[0]=j; if( wh_extract_variable( h, _[0] )!=hj[j] ) return 0; }
+
+  wh_st(  m,     h ); /*   Aligned store to aligned   */
+  wh_stu( m+16,  h ); /* Unaligned store to aligned   */
+  wh_stu( m+33,  h ); /* Unaligned store to aligned+1 */
+  wh_stu( m+50,  h ); /* Unaligned store to aligned+2 */
+  wh_stu( m+67,  h ); /* Unaligend store to aligned+3 */
+  wh_stu( m+84,  h ); /* Unaligned store to aligned+4 */
+  wh_stu( m+101, h ); /* Unaligned store to aligned+5 */
+  wh_stu( m+118, h ); /* Unaligned store to aligned+6 */
+  wh_stu( m+135, h ); /* Unaligned store to aligned+7 */
+
+  l = wh_ld(  m     ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+33  ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+50  ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+67  ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+84  ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+101 ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+118 ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+  l = wh_ldu( m+135 ); if( _mm256_movemask_epi8( wh_eq( h, l ) )!=-1 ) return 0;
+
+  l = wh_insert( wh_zero(), 0, hj[ 0] );
+  l = wh_insert( l,         1, hj[ 1] );
+  l = wh_insert( l,         2, hj[ 2] );
+  l = wh_insert( l,         3, hj[ 3] );
+  l = wh_insert( l,         4, hj[ 4] );
+  l = wh_insert( l,         5, hj[ 5] );
+  l = wh_insert( l,         6, hj[ 6] );
+  l = wh_insert( l,         7, hj[ 7] );
+  l = wh_insert( l,         8, hj[ 8] );
+  l = wh_insert( l,         9, hj[ 9] );
+  l = wh_insert( l,        10, hj[10] );
+  l = wh_insert( l,        11, hj[11] );
+  l = wh_insert( l,        12, hj[12] );
+  l = wh_insert( l,        13, hj[13] );
+  l = wh_insert( l,        14, hj[14] );
+  l = wh_insert( l,        15, hj[15] ); if( _mm256_movemask_epi8( wh_ne( h, l ) ) ) return 0;
+
+  l = wh_zero();
+  for( int j=0; j<16; j++ ) { _[0]=j; l=wh_insert_variable( l, _[0], hj[j] ); }
+  if( _mm256_movemask_epi8( wh_ne( h, l ) ) ) return 0;
+
+  return 1;
+}
+
 int wb_test( wb_t b, uchar const * bi ) {
   int volatile _[1];
   uchar        m[295] W_ATTR;
