@@ -806,17 +806,10 @@ interp_exec:
     ulong vaddr = reg_src;
     ulong region = vaddr >> 32;
     ulong align  = vaddr & 7UL;
-    pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
+    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
 
-    /* Note: BRANCH_END will implicitly handle a pc that fell outside
-       the text section (below via unsigned wraparoud or above) as
-       sigtext */
-
-    /* FIXME: when static_syscalls are enabled, check that the call destination is valid */
-    /* FIXME: sigbus for misaligned? */
-
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigcall; /* Note: untaken branches don't consume BTB */
-
+    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    pc = target_pc;
     pc--;
 
   } FD_VM_INTERP_BRANCH_END;
@@ -828,16 +821,21 @@ interp_exec:
     ulong vaddr = reg[ imm & 15U ];
     ulong region = vaddr >> 32;
     ulong align  = vaddr & 7UL;
-    pc = ((vaddr & 0xffffffffUL)/8UL) - text_word_off;
+    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
 
     /* Note: BRANCH_END will implicitly handle a pc that fell outside
        the text section (below via unsigned wraparoud or above) as
-       sigtext */
+       sigtext.
 
-    /* FIXME: sigbus for misaligned? */
+       Agave performs a check prior to updating the pc, thus
+       we need a temporary variable prior to updating
+       the pc in order to match the VM state on error.
 
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigcall; /* Note: untaken branches don't consume BTB */
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L684-L691
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L443-L453 */
 
+    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    pc = target_pc;
     pc--;
 
   } FD_VM_INTERP_BRANCH_END;
