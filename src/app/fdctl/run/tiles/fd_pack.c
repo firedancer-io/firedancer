@@ -204,6 +204,7 @@ typedef struct {
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
+  fd_histf_t complete_duration[ 1 ];
 
   struct {
     uint metric_state;
@@ -272,6 +273,7 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
+  FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
 
   fd_pack_metrics_write( ctx->pack );
 }
@@ -464,10 +466,13 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
-    /* TODO: You can maybe make the case that this should happen as soon
+    /* You can maybe make the case that this should happen as soon
        as we detect the bank has become idle, but doing it now probably
        helps with account locality. */
+    long complete_duration = -fd_tickcount();
     fd_pack_microblock_complete( ctx->pack, (ulong)i );
+    complete_duration      += fd_tickcount();
+    fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
@@ -477,6 +482,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
+      ulong tsorig = (ulong)fd_frag_meta_ts_comp( now            ); /* A bound on when we observed bank was idle */
       ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
       ulong chunk  = ctx->out_chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
@@ -485,7 +491,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       trailer->microblock_idx = ctx->slot_microblock_cnt;
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
+      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, tsorig, tspub );
       ctx->bank_expect[ i ] = stem->seqs[0]-1UL;
       ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
@@ -841,6 +847,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                        FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS  ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing, '\0', 16*sizeof(long) );
