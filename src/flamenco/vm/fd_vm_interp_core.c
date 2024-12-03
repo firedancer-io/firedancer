@@ -485,7 +485,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x37depr) /* FD_SBPF_OP_DIV64_IMM */
-    reg[ dst ] = reg_dst / (ulong)imm;
+    reg[ dst ] = reg_dst / (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x3cdepr) /* FD_SBPF_OP_DIV_REG */

@@ -1744,11 +1744,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     is_deprecated,
     FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping ) );
 
-  // Setup the vm state for execution
-  if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
-    goto error;
-  }
-
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously
   vm->reg[0] = input->vm_ctx.r0;
