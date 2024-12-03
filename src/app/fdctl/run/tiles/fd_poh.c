@@ -1544,9 +1544,9 @@ after_credit( fd_poh_ctx_t *      ctx,
 
 static inline void
 metrics_write( fd_poh_ctx_t * ctx ) {
-  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
-  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
-  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
+  FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
+  FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
 static int
@@ -2018,12 +2018,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Agave client" ));
 
-  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
-                                                        FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ),
-                                                            FD_MHIST_SECONDS_MAX( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
-  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH_TILE, SLOT_DONE_DELAY_SECONDS  ),
-                                                     FD_MHIST_SECONDS_MAX( POH_TILE, SLOT_DONE_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH, BEGIN_LEADER_DELAY_SECONDS ),
+                                                        FD_MHIST_SECONDS_MAX( POH, BEGIN_LEADER_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ),
+                                                            FD_MHIST_SECONDS_MAX( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH, SLOT_DONE_DELAY_SECONDS  ),
+                                                     FD_MHIST_SECONDS_MAX( POH, SLOT_DONE_DELAY_SECONDS  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

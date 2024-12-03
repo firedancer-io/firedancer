@@ -128,11 +128,11 @@ metric introduced.
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
 </enum>
 
-<group name="Link" link="all" linkside="out">
+<linkout>
     <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
-</group>
+</linkout>
 
-<group name="Link" link="all" linkside="in">
+<linkin>
     <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment." />
     <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer." />
     <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed." />
@@ -141,24 +141,21 @@ metric introduced.
     <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
     <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading." />
-</group>
+</linkin>
 
-<group name="Tile" tile="all">
+<common>
     <gauge name="Pid" summary="The process ID of the tile." />
     <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
-</group>
-
-<group name="Stem" tile="all">
     <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
     <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
     <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
     <counter name="RegimeDurationNanos" enum="StemRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
-</group>
+</common>
 
-<group name="NetTile" tile="net">
+<tile name="net">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
     <counter name="SentPackets" summary="Number of IP packets sent." />
@@ -166,7 +163,7 @@ metric introduced.
     <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
-</group>
+</tile>
 
 <enum name="TpuRecvType">
     <int value="0" name="Udp" label="TPU/UDP" />
@@ -174,7 +171,7 @@ metric introduced.
     <int value="2" name="QuicFrag" label="TPU/QUIC fragmented" />
 </enum>
 
-<group name="QuicTile" tile="quic">
+<tile name="quic">
     <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
     <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
     <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active." />
@@ -190,9 +187,46 @@ metric introduced.
 
     <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
     <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
-</group>
 
-<group name="BankTile" tile="bank">
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
+
+    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
+    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
+    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
+    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
+    <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
+    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
+    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
+    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
+
+    <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
+    <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
+    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
+
+    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
+    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
+
+    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
+    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+
+    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
+
+    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
+
+    <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent in service</summary>
+    </histogram>
+    <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent receiving packets</summary>
+    </histogram>
+
+    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
+</tile>
+
+<tile name="bank">
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
 
@@ -205,9 +239,9 @@ metric introduced.
     <counter name="TransactionExecuting" enum="TransactionError" summary="Result of executing a transaction. Could be a failure or success." />
     <counter name="TransactionExecuted" enum="TransactionError" summary="When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail." />
     <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
-</group>
+</tile>
 
-<group name="PohTile" tile="poh">
+<tile name="poh">
   <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
     <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
   </histogram>
@@ -217,7 +251,7 @@ metric introduced.
   <histogram name="SlotDoneDelaySeconds" min="0.001" max="0.6" converter="seconds">
     <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
   </histogram>
-</group>
+</tile>
 
 <enum name="QuicFrameType">
   <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
@@ -261,55 +295,16 @@ metric introduced.
   <int value="4" name="Cancel" label="ACK suppressed by handler" />
 </enum>
 
-<group name="Quic" tile="quic">
-    <counter name="ReceivedPackets" summary="Number of IP packets received." />
-    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
-    <counter name="SentPackets" summary="Number of IP packets sent." />
-    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
-
-    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
-    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
-    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
-    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
-    <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
-    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
-    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
-    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
-
-    <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
-    <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
-    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
-
-    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
-    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
-
-    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
-    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
-
-    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
-
-    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
-
-    <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-      <summary>Duration spent in service</summary>
-    </histogram>
-    <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-      <summary>Duration spent receiving packets</summary>
-    </histogram>
-
-    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
-</group>
-
-<group name="Verify" tile="verify">
+<tile name="verify">
     <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
     <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
     <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
-</group>
+</tile>
 
-<group name="Dedup" tile="dedup">
+<tile name="dedup">
   <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
   <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
-</group>
+</tile>
 
 <enum name="LutResolveResult">
   <int value="-5" name="InvalidLookupIndex" label="The transaction referenced an index in a LUT that didn't exist" />
@@ -320,13 +315,13 @@ metric introduced.
   <int value="0" name="Success" label="Resolved successfully" />
 </enum>
 
-<group name="Resolv" tile="resolv">
+<tile name="resolv">
   <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
   <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
   <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
-</group>
+</tile>
 
-<group name="Pack" tile="pack">
+<tile name="pack">
   <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of scheduling one microblock</summary>
   </histogram>
@@ -370,8 +365,7 @@ metric introduced.
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
-
-</group>
+</tile>
 
 <enum name="ShredProcessingResult">
   <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
@@ -384,7 +378,7 @@ metric introduced.
   <int value="1" name="Completes" label="Shred accepted and resulted in a valid, complete FEC set" />
 </enum>
 
-<group name="Shred" tile="shred">
+<tile name="shred">
   <histogram name="ClusterContactInfoCnt" min="0" max="40200">
     <summary>Number of contact infos in the cluster contact info message</summary>
   </histogram>
@@ -405,27 +399,10 @@ metric introduced.
   <counter name="FecSetSpilled" summary="The number of FEC sets that were spilled because they didn't complete in time and we needed space" />
   <counter name="ShredRejectedInitial" summary="The number shreds that were rejected before any resources were allocated for the FEC set" />
   <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
-</group>
+</tile>
 
-<group name="StoreTile" tile="store">
+<tile name="store">
   <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
-</group>
-
-<group name="Replay" tile="storei" full="true">
-  <gauge name="Behind"   summary="The total number of slots we are behind" />
-  <gauge name="CaughtUp" summary="Boolean value which indicates if we have caught up" />
-  <gauge name="Slot"     summary="The current turbine slot" />
-</group>
-
-<enum name="SnapshotStatus">
-  <int value="1" name="SnapshotBegin" label="Set immediately before the call to fd_snapshot_load" />
-  <int value="2" name="SnapshotEnd" label="Set after fd_snapshot_load has completed" />
-  <int value="3" name="IncrementalBegin" label="Set immediately before the call to fd_snapshot_load" />
-  <int value="4" name="IncrementalEnd" label="Set after fd_snapshot_load has completed" />
-</enum>
-
-<group name="Replay" tile="replay" full="true">
-  <counter name="SnapshotStatus" enum="SnapshotStatus" summary="The snapshot and incremental snapshot progress" />
-</group>
+</tile>
 
 </metrics>
