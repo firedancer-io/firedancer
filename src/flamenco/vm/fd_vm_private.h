@@ -302,6 +302,9 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              uchar           write,
                              ulong           sentinel,
                              uchar *         is_multi_region ) {
+  if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) {
+    return sentinel; /* Access is too large */
+  }
 
   /* Binary search to find the correct memory region.  If direct mapping is not
      enabled, then there is only 1 memory region which spans the input region. */

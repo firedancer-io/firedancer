@@ -150,7 +150,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     return 0UL;
   }
 
-  if( !( input->has_vm_ctx && input->has_syscall_invocation ) ) {
+  if( !( input->has_vm_ctx ) ) {
     fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
     return 0UL;
   }
@@ -229,7 +229,7 @@ do{
     rodata_sz, /* text_sz */
     input->vm_ctx.entry_pc,
     calldests,
-    TEST_VM_DEFAULT_SBPF_VERSION,
+    input->vm_ctx.sbpf_version,
     syscalls,
     trace, /* trace */
     NULL, /* sha */
@@ -254,7 +254,7 @@ do{
   vm->reg[8]  = input->vm_ctx.r8;
   vm->reg[9]  = input->vm_ctx.r9;
   // vm->reg[10]  = input->vm_ctx.r10; // set in fd_vm_init
-  vm->reg[11] = input->vm_ctx.r11;
+  // vm->reg[11]  = input->vm_ctx.r11; // set in fd_vm_init
 
   // Propagate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
@@ -262,7 +262,7 @@ do{
 
   // Validate the vm
   if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
-    effects->error = -1;
+    effects->error = -2;
     break;
   }
 
@@ -295,7 +295,18 @@ do{
   /* Capture outputs */
   effects->cu_avail    = vm->cu;
   effects->frame_count = vm->frame_cnt;
-  effects->r0          = exec_res ? 0 : vm->reg[0]; /* Only capture r0 if no error */
+  /* Only capture registers if no error */;
+  effects->r0          = exec_res ? 0 : vm->reg[0];
+  effects->r1          = exec_res ? 0 : vm->reg[1];
+  effects->r2          = exec_res ? 0 : vm->reg[2];
+  effects->r3          = exec_res ? 0 : vm->reg[3];
+  effects->r4          = exec_res ? 0 : vm->reg[4];
+  effects->r5          = exec_res ? 0 : vm->reg[5];
+  effects->r6          = exec_res ? 0 : vm->reg[6];
+  effects->r7          = exec_res ? 0 : vm->reg[7];
+  effects->r8          = exec_res ? 0 : vm->reg[8];
+  effects->r9          = exec_res ? 0 : vm->reg[9];
+  effects->r10         = exec_res ? 0 : vm->reg[10];
 
   /* skip logs since syscalls are stubbed */
 
