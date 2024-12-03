@@ -141,9 +141,9 @@ wi_insert_variable( wi_t a, int n, int v ) {
 /* Binary operations */
 
 /* Note: wi_shl/wi_shr/wi_shru is a left/signed right/unsigned right
-   shift by imm bits; imm must be a compile time constant in 0:63.  The
-   variable variants are slower but do not require the shift amount to
-   be known at compile time (should still be in 0:63). */
+   shift by imm bits; imm must be a compile time constant in [0,31].
+   The variable variants are slower but do not require the shift amount
+   to be known at compile time (should still be in [0,31]). */
 
 #define wi_not(a) _mm256_xor_si256( _mm256_set1_epi32( -1 ), (a) ) /* [ ~a0 ~a1 ... ~a7 ] */
 
