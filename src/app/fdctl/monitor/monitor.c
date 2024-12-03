@@ -86,7 +86,7 @@ tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,til
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
     fd_topo_tile_t * tile = &topo->tiles[ tile_idx ];
-    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_STEM_HEARTBEAT_OFF ];
+    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF ];
 
     fd_metrics_register( tile->metrics );
 
@@ -94,10 +94,10 @@ tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,til
     snap->pid       = FD_MGAUGE_GET( TILE, PID );
     snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT );
     snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT );
-    snap->in_backp  = FD_MGAUGE_GET( STEM, IN_BACKPRESSURE );
-    snap->backp_cnt = FD_MCNT_GET( STEM, BACKPRESSURE_COUNT );
+    snap->in_backp  = FD_MGAUGE_GET( TILE, IN_BACKPRESSURE );
+    snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE_COUNT );
     for( ulong i=0UL; i<9UL; i++ ) {
-      snap->regime_ticks[ i ] = fd_metrics_tl[ MIDX(COUNTER, STEM, REGIME_DURATION_NANOS)+i ];
+      snap->regime_ticks[ i ] = fd_metrics_tl[ MIDX(COUNTER, TILE, REGIME_DURATION_NANOS)+i ];
     }
     FD_COMPILER_MFENCE();
   }
