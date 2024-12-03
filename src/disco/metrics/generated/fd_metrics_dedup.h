@@ -14,6 +14,5 @@
 #define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_DESC "Count of simple vote transactions received over gossip instead of via the normal TPU path"
 #define FD_METRICS_COUNTER_DEDUP_GOSSIPED_VOTES_RECEIVED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-
 #define FD_METRICS_DEDUP_TOTAL (2UL)
 extern const fd_metrics_meta_t FD_METRICS_DEDUP[FD_METRICS_DEDUP_TOTAL];
