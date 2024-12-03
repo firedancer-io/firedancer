@@ -4,7 +4,7 @@
 
 /* Vector double API **************************************************/
 
-/* A vd_t is a vector where each adjacent pair of 32-bit wide lanes
+/* A wd_t is a vector where each adjacent pair of 32-bit wide lanes
    (e.g. 0-1 / 2-3 / 4-5 / 6-7) hold a double precision IEEE 754
    floating point value (a "double").
 
