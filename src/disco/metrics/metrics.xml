@@ -328,6 +328,9 @@ metric introduced.
   <histogram name="InsertTransactionDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of inserting one transaction into the pool of available transactions</summary>
   </histogram>
+  <histogram name="CompleteMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+    <summary>Duration of the computation associated with marking one microblock as complete</summary>
+  </histogram>
   <histogram name="TotalTransactionsPerMicroblockCount" min="0" max="64">
     <summary>Count of transactions in a scheduled microblock, including both votes and non-votes</summary>
   </histogram>

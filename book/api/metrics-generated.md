@@ -143,6 +143,7 @@
 |--------|------|-------------|
 | pack_&#8203;schedule_&#8203;microblock_&#8203;duration_&#8203;seconds | `histogram` | Duration of scheduling one microblock |
 | pack_&#8203;insert_&#8203;transaction_&#8203;duration_&#8203;seconds | `histogram` | Duration of inserting one transaction into the pool of available transactions |
+| pack_&#8203;complete_&#8203;microblock_&#8203;duration_&#8203;seconds | `histogram` | Duration of the computation associated with marking one microblock as complete |
 | pack_&#8203;total_&#8203;transactions_&#8203;per_&#8203;microblock_&#8203;count | `histogram` | Count of transactions in a scheduled microblock, including both votes and non-votes |
 | pack_&#8203;votes_&#8203;per_&#8203;microblock_&#8203;count | `histogram` | Count of simple vote transactions in a scheduled microblock |
 | pack_&#8203;normal_&#8203;transaction_&#8203;received | `counter` | Count of transactions received via the normal TPU path |
