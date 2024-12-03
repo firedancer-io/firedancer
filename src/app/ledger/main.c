@@ -65,7 +65,6 @@ struct fd_ledger_args {
   int                   funk_only;               /* determine if only funk should be ingested */
   char const *          shredcap;                /* path to replay using shredcap instead of rocksdb */
   int                   abort_on_mismatch;       /* determine if execution should abort on mismatch*/
-  ulong                 on_demand_block_history; /* how many blocks should the blockstore hold at once */
   ulong                 pages_pruned;            /* ledger pruning: how many pages should the pruned wksp have */
   ulong                 index_max_pruned;        /* ledger pruning: how large should the pruned funk index be */
   fd_funk_t *           pruned_funk;             /* ledger pruning: funk used by the pruned wksp */
@@ -209,8 +208,12 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
       }
+
+      /* Publish this block */
+      fd_blockstore_start_write( blockstore );
+      fd_blockstore_publish( blockstore, -1, slot );
+      fd_blockstore_end_write( blockstore );
     }
-    fd_blockstore_slot_remove( blockstore, slot - ledger_args->on_demand_block_history );
 
     fd_blockstore_start_read( blockstore );
     fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
@@ -1339,7 +1342,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
   char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
-  ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
   int          dump_txn_to_pb          = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-txn-to-pb",          NULL, 0         );
   ulong        dump_proto_start_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-proto-start-slot",   NULL, 0         );
@@ -1437,7 +1439,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->checkpt_mismatch        = checkpt_mismatch;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
-  args->on_demand_block_history = on_demand_block_history;
   args->dump_insn_to_pb         = dump_insn_to_pb;
   args->dump_txn_to_pb          = dump_txn_to_pb;
   args->dump_proto_start_slot   = dump_proto_start_slot;
