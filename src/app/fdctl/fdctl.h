@@ -89,6 +89,10 @@ typedef union {
     float   contending_fraction;
     float   cu_price_spread;
   } load;
+
+  struct {
+    int event;
+  } quic_trace;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;
