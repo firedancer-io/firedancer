@@ -69,9 +69,6 @@
 #include "../../util/simd/fd_sse.h"
 
 #define ws_adjust_sign(a,b) _mm256_sign_epi16( (a), (b) ) /* scales elements in a by the sign of the corresponding element of b */
-#define ws_shl(a,imm)       _mm256_slli_epi16( (a), (imm) )
-#define ws_and(a,b)         _mm256_and_si256(    (a), (b) )
-#define ws_shru(a,imm)      _mm256_srli_epi16( (a), (imm) )
 
 static inline ws_t
 ws_mod255( ws_t x ) {
@@ -79,7 +76,7 @@ ws_mod255( ws_t x ) {
      (x%255) == 0xFF & ( x + (x*0x8081)>>23).
      We need at least 31 bits of precision for the product, so
      mulh_epu16 is perfect. */
-  return ws_and( ws_bcast( 0xFF ), ws_add( x, ws_shru( ws_mulhi( x, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  return ws_and( ws_bcast( 0xFF ), ws_add( x, ws_shru( wh_mulhi( x, ws_bcast( (short)0x8081 ) ), 7 ) ) );
 }
 
 /* The following macros implement the unscaled Fast Walsh-Hadamard
@@ -468,7 +465,7 @@ fd_reedsol_private_gen_pi_16( uchar const * is_erased,
      (x%255) == 0xFF & ( x + (x*0x8081)>>23).
      We need at least 31 bits of precision for the product, so
      mulh_epu16 is perfect. */
-  log_pi = ws_and( ws_bcast( 0xFF ), ws_add( log_pi, ws_shru( ws_mulhi( log_pi, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi = ws_and( ws_bcast( 0xFF ), ws_add( log_pi, ws_shru( wh_mulhi( log_pi, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   /* Now 0<=log_pi < 255 */
 
   /* Since our FWHT implementation is unscaled, we've computed a value
@@ -494,7 +491,7 @@ fd_reedsol_private_gen_pi_16( uchar const * is_erased,
   ws_t product = ws_mullo( transformed, ws_ld( fwht_l_twiddle_16 ) );
 
   /* Compute mod 255, using the same approach as above. */
-  product = ws_and( ws_bcast( 0xFF ), ws_add( product, ws_shru( ws_mulhi( product, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product = ws_and( ws_bcast( 0xFF ), ws_add( product, ws_shru( wh_mulhi( product, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   wb_t compact_product = compact_ws( product, ws_zero() );
 
   FD_REEDSOL_FWHT_16( compact_product );
@@ -548,8 +545,8 @@ fd_reedsol_private_gen_pi_32( uchar const * is_erased,
      (x%255) == 0xFF & ( x + (x*0x8081)>>23).
      We need at least 31 bits of precision for the product, so
      mulh_epu16 is perfect. */
-  log_pi0 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi0, ws_shru( ws_mulhi( log_pi0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi1 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi1, ws_shru( ws_mulhi( log_pi1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi0 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi0, ws_shru( wh_mulhi( log_pi0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi1 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi1, ws_shru( wh_mulhi( log_pi1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   /* Now 0<=log_pi < 255 */
 
   /* Since our FWHT implementation is unscaled, we've computed a value
@@ -578,8 +575,8 @@ fd_reedsol_private_gen_pi_32( uchar const * is_erased,
   ws_t product1 = ws_mullo( transformed1, ws_ld( fwht_l_twiddle_32 + 16UL ) );
 
   /* Compute mod 255, using the same approach as above. */
-  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( ws_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( ws_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( wh_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( wh_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   wb_t compact_product = compact_ws( product0, product1 );
 
   FD_REEDSOL_FWHT_32( compact_product );
@@ -646,10 +643,10 @@ fd_reedsol_private_gen_pi_64( uchar const * is_erased,
      (x%255) == 0xFF & ( x + (x*0x8081)>>23).
      We need at least 31 bits of precision for the product, so
      mulh_epu16 is perfect. */
-  log_pi0 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi0, ws_shru( ws_mulhi( log_pi0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi1 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi1, ws_shru( ws_mulhi( log_pi1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi2 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi2, ws_shru( ws_mulhi( log_pi2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi3 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi3, ws_shru( ws_mulhi( log_pi3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi0 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi0, ws_shru( wh_mulhi( log_pi0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi1 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi1, ws_shru( wh_mulhi( log_pi1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi2 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi2, ws_shru( wh_mulhi( log_pi2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi3 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi3, ws_shru( wh_mulhi( log_pi3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   /* Now 0<=log_pi < 255 */
 
   /* Since our FWHT implementation is unscaled, we've computed a value
@@ -689,10 +686,10 @@ fd_reedsol_private_gen_pi_64( uchar const * is_erased,
   ws_t product3 = ws_mullo( transformed3, ws_ld( fwht_l_twiddle_64 + 48UL ) );
 
   /* Compute mod 255, using the same approach as above. */
-  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( ws_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( ws_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product2 = ws_and( ws_bcast( 0xFF ), ws_add( product2, ws_shru( ws_mulhi( product2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product3 = ws_and( ws_bcast( 0xFF ), ws_add( product3, ws_shru( ws_mulhi( product3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( wh_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( wh_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product2 = ws_and( ws_bcast( 0xFF ), ws_add( product2, ws_shru( wh_mulhi( product2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product3 = ws_and( ws_bcast( 0xFF ), ws_add( product3, ws_shru( wh_mulhi( product3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
 
   wb_t compact_product0 = compact_ws( product0, product1 );
   wb_t compact_product1 = compact_ws( product2, product3 );
@@ -763,14 +760,14 @@ fd_reedsol_private_gen_pi_128( uchar const * is_erased,
   product6 = ws_add( product6, ws_bcast( (short)64*255 ) );
   product7 = ws_add( product7, ws_bcast( (short)64*255 ) );
 
-  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( ws_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( ws_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product2 = ws_and( ws_bcast( 0xFF ), ws_add( product2, ws_shru( ws_mulhi( product2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product3 = ws_and( ws_bcast( 0xFF ), ws_add( product3, ws_shru( ws_mulhi( product3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product4 = ws_and( ws_bcast( 0xFF ), ws_add( product4, ws_shru( ws_mulhi( product4, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product5 = ws_and( ws_bcast( 0xFF ), ws_add( product5, ws_shru( ws_mulhi( product5, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product6 = ws_and( ws_bcast( 0xFF ), ws_add( product6, ws_shru( ws_mulhi( product6, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product7 = ws_and( ws_bcast( 0xFF ), ws_add( product7, ws_shru( ws_mulhi( product7, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( wh_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( wh_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product2 = ws_and( ws_bcast( 0xFF ), ws_add( product2, ws_shru( wh_mulhi( product2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product3 = ws_and( ws_bcast( 0xFF ), ws_add( product3, ws_shru( wh_mulhi( product3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product4 = ws_and( ws_bcast( 0xFF ), ws_add( product4, ws_shru( wh_mulhi( product4, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product5 = ws_and( ws_bcast( 0xFF ), ws_add( product5, ws_shru( wh_mulhi( product5, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product6 = ws_and( ws_bcast( 0xFF ), ws_add( product6, ws_shru( wh_mulhi( product6, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product7 = ws_and( ws_bcast( 0xFF ), ws_add( product7, ws_shru( wh_mulhi( product7, ws_bcast( (short)0x8081 ) ), 7 ) ) );
 
   /* Now 0 <= product < 255 */
 
@@ -810,14 +807,14 @@ fd_reedsol_private_gen_pi_128( uchar const * is_erased,
      (x%255) == 0xFF & ( x + (x*0x8081)>>23).
      We need at least 31 bits of precision for the product, so
      mulh_epu16 is perfect. */
-  log_pi0 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi0, ws_shru( ws_mulhi( log_pi0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi1 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi1, ws_shru( ws_mulhi( log_pi1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi2 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi2, ws_shru( ws_mulhi( log_pi2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi3 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi3, ws_shru( ws_mulhi( log_pi3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi4 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi4, ws_shru( ws_mulhi( log_pi4, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi5 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi5, ws_shru( ws_mulhi( log_pi5, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi6 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi6, ws_shru( ws_mulhi( log_pi6, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  log_pi7 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi7, ws_shru( ws_mulhi( log_pi7, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi0 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi0, ws_shru( wh_mulhi( log_pi0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi1 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi1, ws_shru( wh_mulhi( log_pi1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi2 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi2, ws_shru( wh_mulhi( log_pi2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi3 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi3, ws_shru( wh_mulhi( log_pi3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi4 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi4, ws_shru( wh_mulhi( log_pi4, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi5 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi5, ws_shru( wh_mulhi( log_pi5, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi6 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi6, ws_shru( wh_mulhi( log_pi6, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  log_pi7 = ws_and( ws_bcast( 0xFF ), ws_add( log_pi7, ws_shru( wh_mulhi( log_pi7, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   /* Now 0<=log_pi < 255 */
 
   /* Since our FWHT implementation is unscaled, we've computed a value
@@ -875,14 +872,14 @@ fd_reedsol_private_gen_pi_128( uchar const * is_erased,
   ws_t product7 = ws_mullo( transformed7, ws_ld( fwht_l_twiddle_128 + 112UL ) );
 
   /* Compute mod 255, using the same approach as above. */
-  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( ws_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( ws_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product2 = ws_and( ws_bcast( 0xFF ), ws_add( product2, ws_shru( ws_mulhi( product2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product3 = ws_and( ws_bcast( 0xFF ), ws_add( product3, ws_shru( ws_mulhi( product3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product4 = ws_and( ws_bcast( 0xFF ), ws_add( product4, ws_shru( ws_mulhi( product4, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product5 = ws_and( ws_bcast( 0xFF ), ws_add( product5, ws_shru( ws_mulhi( product5, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product6 = ws_and( ws_bcast( 0xFF ), ws_add( product6, ws_shru( ws_mulhi( product6, ws_bcast( (short)0x8081 ) ), 7 ) ) );
-  product7 = ws_and( ws_bcast( 0xFF ), ws_add( product7, ws_shru( ws_mulhi( product7, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product0 = ws_and( ws_bcast( 0xFF ), ws_add( product0, ws_shru( wh_mulhi( product0, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product1 = ws_and( ws_bcast( 0xFF ), ws_add( product1, ws_shru( wh_mulhi( product1, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product2 = ws_and( ws_bcast( 0xFF ), ws_add( product2, ws_shru( wh_mulhi( product2, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product3 = ws_and( ws_bcast( 0xFF ), ws_add( product3, ws_shru( wh_mulhi( product3, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product4 = ws_and( ws_bcast( 0xFF ), ws_add( product4, ws_shru( wh_mulhi( product4, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product5 = ws_and( ws_bcast( 0xFF ), ws_add( product5, ws_shru( wh_mulhi( product5, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product6 = ws_and( ws_bcast( 0xFF ), ws_add( product6, ws_shru( wh_mulhi( product6, ws_bcast( (short)0x8081 ) ), 7 ) ) );
+  product7 = ws_and( ws_bcast( 0xFF ), ws_add( product7, ws_shru( wh_mulhi( product7, ws_bcast( (short)0x8081 ) ), 7 ) ) );
   wb_t compact_product0 = compact_ws( product0, product1 );
   wb_t compact_product1 = compact_ws( product2, product3 );
   wb_t compact_product2 = compact_ws( product4, product5 );

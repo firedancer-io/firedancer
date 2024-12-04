@@ -89,6 +89,41 @@ ws_insert_variable( ws_t a, int n, short v ) {
 #define ws_mulhi(a,b) _mm256_mulhi_epi16( (a), (b) ) /* [ (a0*b0)>>16 (a1*b1)>>16 ... (a15*b15)>>16 ] */
 #define ws_mul(a,b)   ws_mullo((a),(b))
 
+/* Binary operations */
+
+/* Note: ws_hl/ws_shr/ws_shru is a left/signed right/unsigned right
+   shift by imm bits; imm must be a compile tiem constant in [0,15].
+   The variable variants are slower but do not require the shift amount
+   to be known at compile time (should still be in [0,15]). */
+
+#define ws_not(a) _mm256_xor_si256( _mm256_set1_epi16( -1 ), (a) ) /* [ ~a0 ~a1 ... ~a7 ] */
+
+#define ws_shl(a,imm)  _mm256_slli_epi16( (a), (imm) ) /* [ a0<<imm a1<<imm ... a7<<imm ] */
+#define ws_shr(a,imm)  _mm256_srai_epi16( (a), (imm) ) /* [ a0>>imm a1>>imm ... a7>>imm ] (treat a as signed)*/
+#define ws_shru(a,imm) _mm256_srli_epi16( (a), (imm) ) /* [ a0>>imm a1>>imm ... a7>>imm ] (treat a as unsigned) */
+
+#define ws_shl_variable(a,n)  _mm256_sll_epi16( (a), _mm_insert_epi64( _mm_setzero_si128(), (n), 0 ) )
+#define ws_shr_variable(a,n)  _mm256_sra_epi16( (a), _mm_insert_epi64( _mm_setzero_si128(), (n), 0 ) )
+#define ws_shru_variable(a,n) _mm256_srl_epi16( (a), _mm_insert_epi64( _mm_setzero_si128(), (n), 0 ) )
+
+#define ws_shl_vector(a,b)  _mm256_sllv_epi16( (a), (b) ) /* [ a0<<b0 a1<<b1 ... a7<<b7 ] */
+#define ws_shr_vector(a,b)  _mm256_srav_epi16( (a), (b) ) /* [ a0>>b0 a1>>b1 ... a7>>b7 ] (treat a as signed) */
+#define ws_shru_vector(a,b) _mm256_srlv_epi16( (a), (b) ) /* [ a0>>b0 a1>>b1 ... a7>>b7 ] (treat a as unsigned) */
+
+#define ws_and(a,b)    _mm256_and_si256(    (a), (b) ) /* [   a0 &b0    a1& b1 ...   a7& b7 ] */
+#define ws_andnot(a,b) _mm256_andnot_si256( (a), (b) ) /* [ (~a0)&b0  (~a1)&b1 ... (~a7)&b7 ] */
+#define ws_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a7 |b7 ] */
+#define ws_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a7 ^b7 ] */
+
+/* ws_rol(x,n) returns ws( rotate_left (x0,n), rotate_left (x1,n), ... )
+   ws_ror(x,n) returns ws( rotate_right(x0,n), rotate_right(x1,n), ... ) */
+
+static inline ws_t ws_rol( ws_t a, int imm ) { return ws_or( ws_shl(  a, imm & 15 ), ws_shru( a, (-imm) & 15 ) ); }
+static inline ws_t ws_ror( ws_t a, int imm ) { return ws_or( ws_shru( a, imm & 15 ), ws_shl(  a, (-imm) & 15 ) ); }
+
+static inline ws_t ws_rol_variable( ws_t a, int n ) { return ws_or( ws_shl_variable(  a, n&15 ), ws_shru_variable( a, (-n)&15 ) ); }
+static inline ws_t ws_ror_variable( ws_t a, int n ) { return ws_or( ws_shru_variable( a, n&15 ), ws_shl_variable(  a, (-n)&15 ) ); }
+
 /* Logical operations */
 
 #define ws_eq(a,b) _mm256_cmpeq_epi16( (a), (b) )                                              /* [ a0==b0 a1==b1 ... a15==b15 ] */
