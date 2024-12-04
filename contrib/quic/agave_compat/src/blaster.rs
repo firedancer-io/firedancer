@@ -5,7 +5,7 @@ use solana_client::connection_cache::ConnectionCache;
 use solana_connection_cache::client_connection::ClientConnection;
 use std::net::ToSocketAddrs;
 
-fn blast(dst: String) {
+pub(crate) fn blast(dst: String) {
     let sa = dst.to_socket_addrs().unwrap().next().unwrap();
     const BUF: [u8; 1193] = [
         0x01, 0xb1, 0x53, 0xc3, 0xda, 0xb0, 0x9a, 0x51, 0xf8, 0xb2, 0xc4, 0xbd, 0x32, 0xdf, 0xdd, 0x8c,
@@ -107,25 +107,5 @@ fn blast(dst: String) {
             eprintln!("Sent: {}", sent);
             sent_stat = sent;
         }
-    }
-}
-
-static USAGE: &str = r"Usage: ./firedancer-agave-quic-test <command>
-
-Available commands are:
-
-  blast <endpoint:port>";
-
-fn main() {
-    env_logger::init();
-    let arg = if let Some(arg) = std::env::args().nth(1) {
-        arg
-    } else {
-        eprintln!("{}", USAGE);
-        std::process::exit(1);
-    };
-    match arg.as_str() {
-        "blast" => blast(std::env::args().nth(2).unwrap()),
-        _ => panic!("Unknown arg"),
     }
 }
