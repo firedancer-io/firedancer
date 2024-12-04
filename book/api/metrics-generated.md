@@ -187,6 +187,8 @@
 | pack_&#8203;available_&#8203;transactions | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled |
 | pack_&#8203;available_&#8203;vote_&#8203;transactions | `gauge` | The number of pending simple vote transactions in pack's pool that are available to be scheduled |
 | pack_&#8203;pending_&#8203;transactions_&#8203;heap_&#8203;size | `gauge` | The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions. |
+| pack_&#8203;conflicting_&#8203;transactions | `gauge` | The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions |
+| pack_&#8203;smallest_&#8203;pending_&#8203;transaction | `gauge` | A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling |
 | pack_&#8203;microblock_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because the limit on microblocks/block had been reached |
 | pack_&#8203;data_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;taken | `counter` | Result of trying to consider a transaction for scheduling (Pack included the transaction in the microblock) |
