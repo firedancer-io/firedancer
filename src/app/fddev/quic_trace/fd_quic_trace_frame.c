@@ -78,8 +78,9 @@ fd_quic_trace_stream_frame(
   ulong offset = fd_ulong_if( frame->offset_opt, frame->offset, 0UL );
   ulong length = fd_ulong_if( frame->length_opt, frame->length, p_sz );
   if( FD_UNLIKELY( length>p_sz ) ) return FD_QUIC_PARSE_FAIL;
+  (void)context; (void)offset;
 
-  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=%4lu (%s) len=%4lu (%s) fin=%d\n",
+  /*printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=%4lu (%s) len=%4lu (%s) fin=%d\n",
           fd_log_wallclock(),
           context->conn_id,
           fd_uint_bswap( context->src_ip ),
@@ -90,7 +91,7 @@ fd_quic_trace_stream_frame(
           frame->offset_opt ? "e" : "i",
           length,
           frame->length_opt ? "e" : "i",
-          frame->fin_opt );
+          frame->fin_opt );*/
 
   return length;
 }

@@ -6,6 +6,7 @@
 #include "fd_quic_trace.h"
 #include "../../../waltz/quic/fd_quic_private.h"
 #include "../../../waltz/quic/templ/fd_quic_parse_util.h"
+#include "../../../waltz/quic/fd_quic_proto.c"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
@@ -54,8 +55,7 @@ during_frag( void * _ctx FD_FN_UNUSED,
 }
 
 static void
-fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
-                    uchar * data,
+fd_quic_trace_1rtt( uchar * data,
                     ulong   data_sz,
                     uint    ip4_saddr,
                     ushort  udp_sport ) {
@@ -97,16 +97,71 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   (void)ip4_saddr; (void)conn;
 }
 
+static uchar *
+fd_quic_trace_initial( uchar * data,
+                       ulong   data_sz,
+                       uint    ip4_saddr FD_PARAM_UNUSED,
+                       ushort  udp_sport FD_PARAM_UNUSED ) {
+  uchar * end = data+data_sz;
+
+  fd_quic_initial_t initial[1];
+  ulong rc = fd_quic_decode_initial( initial, data, data_sz );
+  if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return end;
+  fd_quic_conn_id_t dcid = fd_quic_conn_id_new( initial->dst_conn_id, initial->dst_conn_id_len );
+
+  ulong pktnum_off = initial->pkt_num_pnoff;
+  ulong len        = (ulong)( pktnum_off + initial->len );
+  if( FD_UNLIKELY( len>data_sz ) ) return end;
+
+  fd_quic_crypto_secrets_t secrets[1];
+  fd_quic_crypto_keys_t    keys[FD_QUIC_NUM_ENC_LEVELS][2];
+  fd_quic_gen_initial_secret_and_keys( secrets, keys, &dcid );
+
+  if( FD_UNLIKELY( fd_quic_crypto_decrypt_hdr( data, len, pktnum_off, &keys[0][0] ) != FD_QUIC_SUCCESS ) ) {
+    return end;
+  }
+
+  ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] ) + 1u;
+  ulong pktnum_comp = fd_quic_pktnum_decode( data+pktnum_off, pktnum_sz );
+  ulong pktnum      = fd_quic_reconstruct_pkt_num( pktnum_comp, pktnum_sz, 1UL /* FIXME */ );
+
+  if( FD_UNLIKELY( fd_quic_crypto_decrypt( data, len, pktnum_off, pktnum, &keys[0][0] ) != FD_QUIC_SUCCESS ) ) {
+    return end;
+  }
+
+  ulong hdr_sz  = pktnum_off + pktnum_sz;
+  ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return end;
+
+  FD_LOG_HEXDUMP_NOTICE(( "initial", data+hdr_sz, wrap_sz ));
+
+  return data+len;
+}
+
 static void
-fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
-                   uchar *         data,
-                   ulong           data_sz,
-                   uint            ip4_saddr,
-                   ushort          udp_sport ) {
-  /* FIXME: for now, only handle 1-RTT */
-  int is_long = fd_quic_h0_hdr_form( data[0] );
-  if( is_long ) return;
-  fd_quic_trace_1rtt( ctx, data, data_sz, ip4_saddr, udp_sport );
+fd_quic_trace_pkt( fd_quic_ctx_t * const ctx FD_PARAM_UNUSED,
+                   uchar *         const data,
+                   ulong           const data_sz,
+                   uint            const ip4_saddr,
+                   ushort          const udp_sport ) {
+  uchar * cur = data;
+  uchar * end = data+data_sz;
+  while( cur<end ) {
+    ulong cur_sz = (ulong)(end-cur);
+    int is_long = fd_quic_h0_hdr_form( cur[0] );
+    if( is_long ) {
+      uint long_type = fd_quic_h0_long_packet_type( cur[0] );
+      if( long_type==FD_QUIC_PKT_TYPE_INITIAL ) {
+        cur = fd_quic_trace_initial( cur, cur_sz, ip4_saddr, udp_sport );
+      } else {
+        /* FIXME todo */
+        break;
+      }
+    } else {
+      fd_quic_trace_1rtt( cur, cur_sz, ip4_saddr, udp_sport );
+      break;
+    }
+  }
 }
 
 static void

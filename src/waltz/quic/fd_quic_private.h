@@ -309,6 +309,17 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level );
 
+void
+fd_quic_gen_initial_secret_and_keys(
+    fd_quic_crypto_secrets_t * secrets,
+    fd_quic_crypto_keys_t      keys[FD_QUIC_NUM_ENC_LEVELS][2],
+    fd_quic_conn_id_t const *  dst_conn_id );
+
+FD_FN_CONST ulong
+fd_quic_reconstruct_pkt_num( ulong pkt_number_comp,
+                             ulong pkt_number_sz,
+                             ulong exp_pkt_number );
+
 ulong
 fd_quic_send_retry( fd_quic_t *                  quic,
                     fd_quic_pkt_t *              pkt,

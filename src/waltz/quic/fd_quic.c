@@ -558,11 +558,10 @@ fd_quic_enc_level_to_pn_space( uint enc_level ) {
 }
 
 /* This code is directly from rfc9000 A.3 */
-static void
-fd_quic_reconstruct_pkt_num( ulong * pkt_number,
-                             ulong   pkt_number_sz,
-                             ulong   exp_pkt_number ) {
-  ulong truncated_pn = *pkt_number;
+FD_FN_CONST ulong
+fd_quic_reconstruct_pkt_num( ulong truncated_pn,
+                             ulong pkt_number_sz,
+                             ulong exp_pkt_number ) {
   ulong pn_nbits     = pkt_number_sz << 3u;
   ulong pn_win       = 1ul << pn_nbits;
   ulong pn_hwin      = pn_win >> 1ul;
@@ -581,17 +580,15 @@ fd_quic_reconstruct_pkt_num( ulong * pkt_number,
   ulong candidate_pn = ( exp_pkt_number & ~pn_mask ) | truncated_pn;
   if( candidate_pn + pn_hwin <= exp_pkt_number &&
       candidate_pn + pn_win  < ( 1ul << 62ul ) ) {
-    *pkt_number = candidate_pn + pn_win;
-    return;
+    return candidate_pn + pn_win;
   }
 
   if( candidate_pn >  exp_pkt_number + pn_hwin &&
       candidate_pn >= pn_win ) {
-    *pkt_number = candidate_pn - pn_win;
-    return;
+    return candidate_pn - pn_win;
   }
 
-  *pkt_number = candidate_pn;
+  return candidate_pn;
 }
 
 static void
@@ -1287,26 +1284,25 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
 
 void
 fd_quic_gen_initial_secret_and_keys(
-    fd_quic_conn_t *          conn,
-    fd_quic_conn_id_t const * dst_conn_id ) {
+    fd_quic_crypto_secrets_t * secrets,
+    fd_quic_crypto_keys_t      keys[FD_QUIC_NUM_ENC_LEVELS][2],
+    fd_quic_conn_id_t const *  dst_conn_id ) {
 
   fd_quic_gen_initial_secret(
-      &conn->secrets,
+      secrets,
       dst_conn_id->conn_id, dst_conn_id->sz );
 
   fd_quic_gen_secrets(
-      &conn->secrets,
+      secrets,
       fd_quic_enc_level_initial_id ); /* generate initial secrets */
 
-  /* gen initial keys */
   fd_quic_gen_keys(
-      &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
-      conn->secrets.secret[ fd_quic_enc_level_initial_id ][ 0 ] );
+      &keys[ fd_quic_enc_level_initial_id ][ 0 ],
+      secrets->secret[ fd_quic_enc_level_initial_id ][ 0 ] );
 
-  /* gen initial keys */
   fd_quic_gen_keys(
-      &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
-      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
+      &keys[ fd_quic_enc_level_initial_id ][ 1 ],
+      secrets->secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
 }
 
 ulong
@@ -1614,7 +1610,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn->tls_hs = tls_hs;
       quic->metrics.hs_created_cnt++;
 
-      fd_quic_gen_initial_secret_and_keys( conn, conn_id );
+      fd_quic_gen_initial_secret_and_keys( &conn->secrets, conn->keys, conn_id );
     } else {
       /* connection may have been torn down */
       FD_DEBUG( FD_LOG_DEBUG(( "unknown connection ID" )); )
@@ -1635,16 +1631,15 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong   body_sz          = initial->len;  /* not a protected field */
                                             /* length of payload + num packet bytes */
 
-  ulong   pkt_number       = ULONG_MAX;
   ulong   pkt_number_sz    = ULONG_MAX;
-  ulong   tot_sz           = ULONG_MAX;
+  ulong   tot_sz           = pn_offset + body_sz;
 
 # if !FD_QUIC_DISABLE_CRYPTO
     /* this decrypts the header */
     int server = conn->server;
 
     if( FD_UNLIKELY(
-          fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+          fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                       pn_offset,
                                       &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       /* As this is an INITIAL packet, change the status to DEAD, and allow
@@ -1663,17 +1658,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* number of bytes in the packet header */
     pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-    tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
-    pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
+    ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
     FD_DEBUG( FD_LOG_DEBUG(( "initial pkt_number: %lu", (ulong)pkt_number )) );
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
 
     /* reconstruct packet number */
-    fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
+    ulong pkt_number = fd_quic_reconstruct_pkt_num( pktnum_comp, pkt_number_sz, conn->exp_pkt_number[pn_space] );
 
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
@@ -1785,8 +1779,9 @@ fd_quic_handle_v1_handshake(
 
   /* len indicated the number of bytes after the packet number offset
      so verify this value is within the packet */
-  ulong len = (ulong)( handshake->pkt_num_pnoff + handshake->len );
-  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  ulong body_sz = handshake->len;
+  ulong tot_sz  = (ulong)( handshake->pkt_num_pnoff + handshake->len );
+  if( FD_UNLIKELY( tot_sz > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
 
   /* connection ids should already be in the relevant structures */
 
@@ -1803,14 +1798,7 @@ fd_quic_handle_v1_handshake(
   /* decryption */
 
   /* header protection needs the offset to the packet number */
-  ulong    pn_offset        = handshake->pkt_num_pnoff;
-
-  ulong    body_sz          = handshake->len;  /* not a protected field */
-                                               /* length of payload + num packet bytes */
-
-  ulong    pkt_number       = ULONG_MAX;
-  ulong    pkt_number_sz    = ULONG_MAX;
-  ulong    tot_sz           = ULONG_MAX;
+  ulong pn_offset = handshake->pkt_num_pnoff;
 
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
@@ -1826,17 +1814,16 @@ fd_quic_handle_v1_handshake(
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
   /* number of bytes in the packet header */
-  pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-  tot_sz        = pn_offset + body_sz; /* total including header and payload */
+  ulong pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
 
   /* now we have decrypted packet number */
-  pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
+  ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
 
   /* packet number space */
   uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
 
   /* reconstruct packet number */
-  fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
+  ulong pkt_number = fd_quic_reconstruct_pkt_num( pktnum_comp, pkt_number_sz, conn->exp_pkt_number[pn_space] );
 
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
@@ -1957,7 +1944,7 @@ fd_quic_handle_v1_retry(
   conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
 
   /* Need to regenerate keys using the retry source connection id */
-  fd_quic_gen_initial_secret_and_keys( conn, &conn->retry_src_conn_id );
+  fd_quic_gen_initial_secret_and_keys( &conn->secrets, conn->keys, &conn->retry_src_conn_id );
 
   /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
   conn->token_len = retry_token_sz;
@@ -2088,9 +2075,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     uint key_phase     = fd_quic_one_rtt_key_phase( first );
 
     /* reconstruct packet number */
-    ulong pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
-    uint  pn_space   = fd_quic_enc_level_to_pn_space( enc_level );
-    fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
+    ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
+    uint  pn_space    = fd_quic_enc_level_to_pn_space( enc_level );
+    ulong pkt_number  = fd_quic_reconstruct_pkt_num( pktnum_comp, pkt_number_sz, conn->exp_pkt_number[pn_space] );
 
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
@@ -4238,7 +4225,7 @@ fd_quic_connect( fd_quic_t *  quic,
 
   conn->tls_hs = tls_hs;
 
-  fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id );
+  fd_quic_gen_initial_secret_and_keys( &conn->secrets, conn->keys, &peer_conn_id );
 
   fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
 
