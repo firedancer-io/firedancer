@@ -131,9 +131,15 @@ fd_quic_trace_initial( uchar * data,
 
   ulong hdr_sz  = pktnum_off + pktnum_sz;
   ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
-  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return end;
+  if( FD_UNLIKELY( len<wrap_sz ) ) return end;
+  ulong body_sz = len-wrap_sz;
 
-  FD_LOG_HEXDUMP_NOTICE(( "initial", data+hdr_sz, wrap_sz ));
+  fd_quic_trace_frame_ctx_t frame_ctx = {
+    .pkt_num  = pktnum,
+    .src_ip   = ip4_saddr,
+    .src_port = udp_sport,
+  };
+  fd_quic_trace_frames( &frame_ctx, data+hdr_sz, body_sz );
 
   return data+len;
 }

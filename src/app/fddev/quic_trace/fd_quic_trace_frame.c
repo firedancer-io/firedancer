@@ -60,9 +60,10 @@ static ulong
 fd_quic_trace_crypto_frame(
     void *                    context FD_PARAM_UNUSED,
     fd_quic_crypto_frame_t *  frame,
-    uchar const *             p       FD_PARAM_UNUSED,
+    uchar const *             p,
     ulong                     p_sz ) {
   if( FD_UNLIKELY( frame->length > p_sz ) ) return FD_QUIC_PARSE_FAIL;
+  FD_LOG_HEXDUMP_NOTICE(( "crypto", p, frame->length ));
   return frame->length;
 }
 
