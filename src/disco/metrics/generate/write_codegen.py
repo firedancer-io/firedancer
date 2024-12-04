@@ -20,7 +20,7 @@ def _write_metric(f: TextIO, metric: Metric, prefix: str):
         for value in metric.enum.values:
             value_name = re.sub(r'(?<!^)(?=[A-Z])', '_', value.name).upper()
             f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{value_name.upper()}_OFF  ({metric.offset+offset}UL)\n')
-            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{value_name.upper()}_NAME "{prefix}_{full_name.lower()}_{value.name.lower()}"\n')
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{value_name.upper()}_NAME "{prefix}_{full_name.lower()}_{value_name.lower()}"\n')
             f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{value_name.upper()}_TYPE (FD_METRICS_TYPE_{metric.type.name})\n')
             f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{value_name.upper()}_DESC "{description} ({value.label})"\n')
             f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{value_name.upper()}_CVT  (FD_METRICS_CONVERTER_{converter})\n\n')
