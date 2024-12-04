@@ -1078,6 +1078,10 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
   } else {
     ord->root = fd_int_if( is_vote, FD_ORD_TXN_ROOT_PENDING_VOTE, FD_ORD_TXN_ROOT_PENDING );
+
+    fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
+    smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est       );
+    smallest->bytes = fd_ulong_min( smallest->bytes, txne->txnp->payload_sz );
   }
 
   pack->pending_txn_cnt++;
@@ -1086,10 +1090,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
-
-  fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
-  smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est       );
-  smallest->bytes = fd_ulong_min( smallest->bytes, txne->txnp->payload_sz );
 
   if( FD_LIKELY( is_vote ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
@@ -1103,8 +1103,11 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
-  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
+  ulong pending_votes = treap_ele_cnt( pack->pending_votes );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,       pack->pending_txn_cnt                                                  );
+  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS,  pending_votes                                                          );
+  FD_MGAUGE_SET( PACK, CONFLICTING_TRANSACTIONS,     pack->pending_txn_cnt - treap_ele_cnt( pack->pending ) - pending_votes );
+  FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION, pack->pending_smallest->cus                                            );
 }
 
 typedef struct {
@@ -1505,6 +1508,9 @@ fd_pack_microblock_complete( fd_pack_t * pack,
         treap_ele_remove( best_penalty->penalty_treap, best, pack->pool );
         best->root = FD_ORD_TXN_ROOT_PENDING;
         treap_ele_insert( pack->pending,               best, pack->pool );
+
+        pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est             );
+        pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
 
         if( FD_UNLIKELY( !treap_ele_cnt( best_penalty->penalty_treap ) ) ) {
           treap_delete( treap_leave( best_penalty->penalty_treap ) );
