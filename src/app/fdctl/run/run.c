@@ -612,7 +612,7 @@ initialize_workspaces( config_t * const config ) {
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static void
+void
 initialize_stacks( config_t * const config ) {
   /* Switch to non-root uid/gid for workspace creation.  Permissions
      checks are still done as the current user. */
