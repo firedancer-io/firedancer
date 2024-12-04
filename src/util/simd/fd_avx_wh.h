@@ -89,6 +89,38 @@ wh_insert_variable( wh_t a, int n, ushort v ) {
 #define wh_mulhi(a,b) _mm256_mulhi_epu16( (a), (b) ) /* [ (a0*b0)>>16 (a1*b1)>>16 ... (a15*b15)>>16 ] */
 #define wh_mul(a,b)   wh_mullo((a),(b))
 
+/* Binary operations */
+
+/* Note: wh_shl/wh_shr is an unsigned left/right shift by imm bits; imm
+   must be a compile time constant in [0,15].  The variable variants are
+   slower but do not require the shift amount to be known at compile
+   time (should still be in [0,15]). */
+
+#define wh_not(a) _mm256_xor_si256( _mm256_set1_epi16( -1 ), (a) ) /* [ ~a0 ~a1 ... ~a15 ] */
+
+#define wh_shl(a,imm)  _mm256_slli_epi16( (a), (imm) ) /* [ a0<<imm a1<<imm ... a15<<imm ] */
+#define wh_shr(a,imm)  _mm256_srli_epi16( (a), (imm) ) /* [ a0>>imm a1>>imm ... a15>>imm ] */
+
+#define wh_shl_variable(a,n) _mm256_sll_epi16( (a), _mm_insert_epi64( _mm_setzero_si128(), (n), 0 ) )
+#define wh_shr_variable(a,n) _mm256_srl_epi16( (a), _mm_insert_epi64( _mm_setzero_si128(), (n), 0 ) )
+
+#define wh_shl_vector(a,b)   _mm256_sllv_epi16( (a), (b) ) /* [ a0<<b0 a1<<b1 ... a15<<b15 ] */
+#define wh_shr_vector(a,b)   _mm256_srlv_epi16( (a), (b) ) /* [ a0>>b0 a1>>b1 ... a15>>b15 ] */
+
+#define wh_and(a,b)    _mm256_and_si256(    (a), (b) ) /* [   a0 &b0    a1& b1 ...   a15& b15 ] */
+#define wh_andnot(a,b) _mm256_andnot_si256( (a), (b) ) /* [ (~a0)&b0  (~a1)&b1 ... (~a15)&b15 ] */
+#define wh_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a15 |b15 ] */
+#define wh_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a15 ^b15 ] */
+
+/* wh_rol(x,n) returns wh( rotate_left (x0,n), rotate_left (x1,n), ... )
+   wh_ror(x,n) returns wh( rotate_right(x0,n), rotate_right(x1,n), ... ) */
+
+static inline wh_t wh_rol( wh_t a, int imm ) { return wh_or( wh_shl( a, imm & 15 ), wh_shr( a, (-imm) & 15 ) ); }
+static inline wh_t wh_ror( wh_t a, int imm ) { return wh_or( wh_shr( a, imm & 15 ), wh_shl( a, (-imm) & 15 ) ); }
+
+static inline wh_t wh_rol_variable( wh_t a, int n ) { return wh_or( wh_shl_variable( a, n&15 ), wh_shr_variable( a, (-n)&15 ) ); }
+static inline wh_t wh_ror_variable( wh_t a, int n ) { return wh_or( wh_shr_variable( a, n&15 ), wh_shl_variable( a, (-n)&15 ) ); }
+
 /* Logical operations */
 
 #define wh_eq(a,b) _mm256_cmpeq_epi16( (a), (b) )                                              /* [ a0==b0 a1==b1 ... a15==b15 ] */

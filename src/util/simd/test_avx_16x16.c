@@ -57,6 +57,42 @@ main( int     argc,
     /*                                                */ FD_TEST( ws_test( ws_mullo( x, y ), si ) );
     INIT_SI( (short)((((int)xi[j])*((int)yi[j]))>>16) ); FD_TEST( ws_test( ws_mulhi( x, y ), si ) );
 
+    /* Bit operations */
+
+    INIT_SI( (short)~yi[j] ); FD_TEST( ws_test( ws_not( y ), si ) );
+
+#   define SHRU(x,n) (short)( (ushort)(x)>>(n) )
+#   define ROL(x,n)  fd_short_rotate_left ( (x), (n) )
+#   define ROR(x,n)  fd_short_rotate_right( (x), (n) )
+
+#   define _(n)                                                              \
+    INIT_SI( (short)(yi[j]<<n) ); FD_TEST( ws_test( ws_shl(  y, n ), si ) ); \
+    INIT_SI( (short)(yi[j]>>n) ); FD_TEST( ws_test( ws_shr(  y, n ), si ) ); \
+    INIT_SI( SHRU( yi[j], n )  ); FD_TEST( ws_test( ws_shru( y, n ), si ) ); \
+    INIT_SI( ROL( yi[j], n )   ); FD_TEST( ws_test( ws_rol(  y, n ), si ) ); \
+    INIT_SI( ROR( yi[j], n )   ); FD_TEST( ws_test( ws_ror(  y, n ), si ) )
+    _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7);
+    _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
+#   undef _
+
+    for( int n=0; n<16; n++ ) {
+      int volatile m[1]; m[0] = n;
+      INIT_SI( (short)(yi[j]<<n ) ); FD_TEST( ws_test( ws_shl_variable(  y, m[0] ), si ) );
+      INIT_SI( (short)(yi[j]>>n ) ); FD_TEST( ws_test( ws_shr_variable(  y, m[0] ), si ) );
+      INIT_SI( SHRU( yi[j], n )   ); FD_TEST( ws_test( ws_shru_variable( y, m[0] ), si ) );
+      INIT_SI( ROL( yi[j], n )    ); FD_TEST( ws_test( ws_rol_variable(  y, m[0] ), si ) );
+      INIT_SI( ROR( yi[j], n )    ); FD_TEST( ws_test( ws_ror_variable(  y, m[0] ), si ) );
+    }
+
+#   undef SHRU
+#   undef ROR
+#   undef ROL
+
+    INIT_SI(          xi[j]  & yi[j] ); FD_TEST( ws_test( ws_and(    x, y ), si ) );
+    INIT_SI( ((short)~xi[j]) & yi[j] ); FD_TEST( ws_test( ws_andnot( x, y ), si ) );
+    INIT_SI(          xi[j]  | yi[j] ); FD_TEST( ws_test( ws_or(     x, y ), si ) );
+    INIT_SI(          xi[j]  ^ yi[j] ); FD_TEST( ws_test( ws_xor(    x, y ), si ) );
+
     /* Logical operations */
 
     /* TODO: eliminate this hack (see note in fd_avx_wc.h about
@@ -108,6 +144,38 @@ main( int     argc,
     INIT_HJ( (ushort)(xi[j]*yi[j])                       ); FD_TEST( wh_test( wh_mul(   x, y ), hj ) );
     /*                                                   */ FD_TEST( wh_test( wh_mullo( x, y ), hj ) );
     INIT_HJ( (ushort)((((uint)xi[j])*((uint)yi[j]))>>16) ); FD_TEST( wh_test( wh_mulhi( x, y ), hj ) );
+
+    /* Bit operations */
+
+    INIT_HJ( (ushort)~yi[j] ); FD_TEST( wh_test( wh_not( y ), hj ) );
+
+#   define ROL(x,n) fd_ushort_rotate_left ( (x), (n) )
+#   define ROR(x,n) fd_ushort_rotate_right( (x), (n) )
+
+#   define _(n)                                                              \
+    INIT_HJ( (ushort)(yi[j]<<n) ); FD_TEST( wh_test( wh_shl( y, n ), hj ) ); \
+    INIT_HJ( (ushort)(yi[j]>>n) ); FD_TEST( wh_test( wh_shr( y, n ), hj ) ); \
+    INIT_HJ( ROL( yi[j], n )    ); FD_TEST( wh_test( wh_rol( y, n ), hj ) ); \
+    INIT_HJ( ROR( yi[j], n )    ); FD_TEST( wh_test( wh_ror( y, n ), hj ) )
+    _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7);
+    _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
+#   undef _
+
+    for( int n=0; n<16; n++ ) {
+      int volatile m[1]; m[0] = n;
+      INIT_HJ( (ushort)(yi[j]<<n ) ); FD_TEST( wh_test( wh_shl_variable( y, m[0] ), hj ) );
+      INIT_HJ( (ushort)(yi[j]>>n ) ); FD_TEST( wh_test( wh_shr_variable( y, m[0] ), hj ) );
+      INIT_HJ( ROL( yi[j], n )     ); FD_TEST( wh_test( wh_rol_variable( y, m[0] ), hj ) );
+      INIT_HJ( ROR( yi[j], n )     ); FD_TEST( wh_test( wh_ror_variable( y, m[0] ), hj ) );
+    }
+
+#   undef ROR
+#   undef ROL
+
+    INIT_HJ(           xi[j]  & yi[j] ); FD_TEST( wh_test( wh_and(    x, y ), hj ) );
+    INIT_HJ( ((ushort)~xi[j]) & yi[j] ); FD_TEST( wh_test( wh_andnot( x, y ), hj ) );
+    INIT_HJ(           xi[j]  | yi[j] ); FD_TEST( wh_test( wh_or(     x, y ), hj ) );
+    INIT_HJ(           xi[j]  ^ yi[j] ); FD_TEST( wh_test( wh_xor(    x, y ), hj ) );
 
     /* Logical operations */
 
