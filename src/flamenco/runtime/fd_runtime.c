@@ -4534,8 +4534,16 @@ void fd_process_new_epoch(
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick2))
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
+  /* Get the new rate activation epoch */
+  int _err[1];
+  ulong * new_rate_activation_epoch = fd_scratch_alloc( alignof(ulong), sizeof(ulong) );
+  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx, new_rate_activation_epoch, _err );
+  if( FD_UNLIKELY( !is_some ) ) {
+    new_rate_activation_epoch = NULL;
+  }
+
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( slot_ctx );
+  fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch );
 
   /* Update the stakes epoch value to the new epoch */
   epoch_bank->stakes.epoch = epoch;
@@ -4560,7 +4568,7 @@ void fd_process_new_epoch(
   fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
-  refresh_vote_accounts( slot_ctx, history );
+  refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch );
   fd_update_stake_delegations( slot_ctx );
 
   /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
