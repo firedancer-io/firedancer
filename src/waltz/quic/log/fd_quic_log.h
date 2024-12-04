@@ -39,7 +39,6 @@ typedef struct fd_quic_log_hdr fd_quic_log_hdr_t;
 #define FD_QUIC_EVENT_CONN_ESTABLISHED (0x02) /* connection established (handshake done) */
 #define FD_QUIC_EVENT_CONN_QUIC_CLOSE  (0x03) /* connection closed (due to QUIC) */
 #define FD_QUIC_EVENT_CONN_APP_CLOSE   (0x04) /* connection closed (due to app request) */
-#define FD_QUIC_EVENT_TLS_HS_FAIL      (0x06) /* TLS handshake fail */
 
 /* Event group: Object pool alloc failures */
 
@@ -58,10 +57,8 @@ typedef struct fd_quic_log_hdr fd_quic_log_hdr_t;
 
      CONN_QUIC_CLOSE: code[0] is a QUIC Transport Error Code
                         (https://www.iana.org/assignments/quic/quic.xhtml#quic-transport-error-codes)
-     CONN_APP_CLOSE:  code[0] is the error code set by the application
-     TLS_HS_FAIL:     code[0] is the TLS Alert code
-                        (https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-6)
-                      code[1] is an fd_tls specific error code (only if flags&1==0) */
+                      code[1] is an fd_tls specific error code, if code[0] in [0x0100,0x01ff]
+     CONN_APP_CLOSE:  code[0] is the error code set by the application */
 
 struct fd_quic_log_error {
   /* 0x00 */ fd_quic_log_hdr_t hdr;
