@@ -36,8 +36,9 @@ cd ../..
 LOG=$LOG_PATH/test_exec_syscall
 cat contrib/test/test-vectors-fixtures/syscall-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
-# LOG=$LOG_PATH/test_exec_interp
-# cat contrib/test/test-vectors-fixtures/vm-interp-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+LOG=$LOG_PATH/test_exec_interp
+cat contrib/test/test-vectors-fixtures/vm-interp-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+find dump/test-vectors/vm_interp/fixtures/v0_alpha -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG {} +
 
 LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/test-vectors-fixtures/precompile-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
