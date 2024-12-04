@@ -203,6 +203,7 @@ typedef struct {
 
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
+  fd_histf_t no_sched_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
   fd_histf_t complete_duration[ 1 ];
 
@@ -272,6 +273,7 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
+  FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
   FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
 
@@ -470,15 +472,15 @@ after_credit( fd_pack_ctx_t *     ctx,
        as we detect the bank has become idle, but doing it now probably
        helps with account locality. */
     long complete_duration = -fd_tickcount();
-    fd_pack_microblock_complete( ctx->pack, (ulong)i );
+    int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
     complete_duration      += fd_tickcount();
-    fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
+    if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
     schedule_duration      += fd_tickcount();
-    fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
+    fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
@@ -845,6 +847,8 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
   fd_histf_join( fd_histf_new( ctx->schedule_duration, FD_MHIST_SECONDS_MIN( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->no_sched_duration, FD_MHIST_SECONDS_MIN( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
   fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
