@@ -29,7 +29,8 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
 
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global );
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
+                          ulong *               new_rate_activation_epoch );
 
 fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch );
 
@@ -47,7 +48,8 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 
 void
 refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                       fd_stake_history_t const * history );
+                       fd_stake_history_t const * history,
+                       ulong *                    new_rate_activation_epoch );
 
 FD_PROTOTYPES_END
 
