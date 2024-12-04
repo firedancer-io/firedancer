@@ -18,6 +18,7 @@ fn main() {
         "fd_quic",
         "fd_waltz", // net
         "fd_tls",
+        "fd_tango", // spmc queues
         "fd_ballet", // crypto
         "fd_util",
     ] {
