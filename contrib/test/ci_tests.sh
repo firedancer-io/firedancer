@@ -2,6 +2,7 @@
 
 # ci_tests.sh builds and runs the tests that are required on every CI
 # commit.  May optionally export coverage data.
+# NOTE: Use EXTRAS=fuzz-stubs to build stubbed binaries for fuzz tests.
 #
 # WARNING: Running this script will destroy your build directory.
 
