@@ -137,6 +137,7 @@
 | resolv_&#8203;lut_&#8203;resolved_&#8203;account_&#8203;not_&#8203;found | `counter` | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
 | resolv_&#8203;lut_&#8203;resolved_&#8203;success | `counter` | Count of address lookup tables resolved (Resolved successfully) |
 | resolv_&#8203;blockhash_&#8203;expired | `counter` | Count of transactions that failed to resolve because the blockhash was expired |
+| resolv_&#8203;blockhash_&#8203;unknown | `counter` | Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus. |
 
 ## Pack Tile
 | Metric | Type | Description |

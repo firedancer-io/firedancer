@@ -319,6 +319,7 @@ metric introduced.
   <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
   <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
   <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
+  <counter name="BlockhashUnknown" summary="Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." />
 </tile>
 
 <tile name="pack">
