@@ -323,15 +323,26 @@ do{
 
   effects->pc = vm->pc;
 
-  effects->heap       = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  if( vm->heap_max > 0 ) {
+    effects->heap       = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    effects->heap->size = (uint)vm->heap_max;
+    fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  }
 
-  effects->stack       = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
-  effects->stack->size = (uint)FD_VM_STACK_MAX;
-  fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
+  /* Compress stack by removing right-most 0s.
+     This reduces the total size of effects/fixtures when stack is not used,
+     otherwise each would waste 256kB. */
+  int rtrim_sz;
+  for( rtrim_sz=FD_VM_STACK_MAX-1; rtrim_sz>=0; rtrim_sz-- ) {
+    if( vm->stack[rtrim_sz] != 0 ) break;
+  }
+  if( rtrim_sz > 0 || (vm->stack[0] != 0) ) {
+    effects->stack       = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+    effects->stack->size = (uint)rtrim_sz+1;
+    fd_memcpy( effects->stack->bytes, vm->stack, (ulong)rtrim_sz+1 );
+  }
 
   effects->rodata       = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
