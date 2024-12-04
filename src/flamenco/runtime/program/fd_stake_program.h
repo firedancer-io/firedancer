@@ -15,6 +15,11 @@
 
 FD_PROTOTYPES_BEGIN
 
+int
+fd_new_warmup_cooldown_rate_epoch( fd_exec_slot_ctx_t const * slot_ctx,
+                                   /* out */ ulong *          epoch,
+                                   int *                      err );
+
 /* fd_stake_program_execute is the instruction processing entrypoint
    for the stake program.  On return, ctx.txn_ctx->dirty_stake_acc==1 if
    a stake account may have been modified. */
