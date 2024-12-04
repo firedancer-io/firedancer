@@ -68,6 +68,7 @@ typedef struct {
   struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
     ulong blockhash_expired;
+    ulong blockhash_unknown;
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -105,6 +106,7 @@ fd_ext_resolv_tile_cnt( void ) {
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
+  FD_MCNT_SET( RESOLV, BLOCKHASH_UNKNOWN, ctx->metrics.blockhash_unknown );
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
 }
 
@@ -217,6 +219,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
       ctx->metrics.blockhash_expired++;
       return;
     }
+  } else {
+    ctx->metrics.blockhash_unknown++;
   }
 
   if( FD_UNLIKELY( txn->addr_table_adtl_cnt ) ) {
@@ -238,7 +242,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
     sz = txn_t_sz+txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t)+sizeof(ushort);
   }
 
-  fd_stem_publish( stem, 0UL, reference_slot, ctx->out_chunk, sz, 0UL, tsorig, 0UL );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, 0UL, reference_slot, ctx->out_chunk, sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
