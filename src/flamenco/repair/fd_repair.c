@@ -71,7 +71,7 @@ typedef uint fd_repair_nonce_t;
 /* Active table element. This table is all validators that we are
    asking for repairs. */
 struct fd_active_elem {
-    fd_pubkey_t key;  /* Public indentifier and map key */
+    fd_pubkey_t key;  /* Public identifier and map key */
     ulong next; /* used internally by fd_map_giant */
 
     fd_repair_peer_addr_t addr;
@@ -452,7 +452,7 @@ fd_repair_sign_and_send( fd_repair_t *           glob,
 static void
 fd_repair_send_requests( fd_repair_t * glob ) {
   /* Garbage collect old requests */
-  long expire = glob->now - (long)5000e6; /* 1 seconds */
+  long expire = glob->now - (long)5e9; /* 5 seconds */
   fd_repair_nonce_t n;
   for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
@@ -576,7 +576,7 @@ static void fd_actives_shuffle( fd_repair_t * repair );
 int
 fd_repair_continue( fd_repair_t * glob ) {
   fd_repair_lock( glob );
-  if ( glob->now - glob->last_sends > (long)1e6 ) { /* 10 millisecs */
+  if ( glob->now - glob->last_sends > (long)1e6 ) { /* 1 millisecond */
     fd_repair_send_requests( glob );
     glob->last_sends = glob->now;
   }
