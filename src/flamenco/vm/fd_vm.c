@@ -414,8 +414,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* Source register */
     if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG;
 
-    /* Special R11 register */
-    if( instr.dst_reg==11U
+    /* Special R10 register allowed for ADD64_IMM */
+    if( instr.dst_reg==10U
         && FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version )
         && instr.opcode.raw == 0x07
         && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
@@ -615,7 +615,10 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   /* FIXME: Zero out shadow, stack and heap here? */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm->reg[11] = vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  /* https://github.com/solana-labs/rbpf/blob/4ad935be45e5663be23b30cfc750b1ae1ad03c44/src/vm.rs#L326-L333 */
+  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START +
+    ( FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ? FD_VM_STACK_MAX : FD_VM_STACK_FRAME_SZ );
+  /* Note: Agave uses r11 as pc, we don't */
 
   /* Set execution state */
   vm->pc        = vm->entry_pc;

@@ -50,7 +50,7 @@
   interp_jump_table[ 0x37 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x37 : &&interp_0x37depr;
   interp_jump_table[ 0x3f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x3f : &&interp_0x3fdepr;
 
-  // /* SIMD-0173: LDXB, STB, STXB */
+  /* SIMD-0173: LDXB, STB, STXB */
   interp_jump_table[ 0x71 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x2c;
   interp_jump_table[ 0x72 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x27;
   interp_jump_table[ 0x73 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x2f;
@@ -58,7 +58,7 @@
   interp_jump_table[ 0x27 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x27 : &&interp_0x27depr;
   interp_jump_table[ 0x2f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x2f : &&interp_0x2fdepr;
 
-  // /* SIMD-0173: LDXDW, STDW, STXDW */
+  /* SIMD-0173: LDXDW, STDW, STXDW */
   interp_jump_table[ 0x79 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x9c;
   interp_jump_table[ 0x7a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x97;
   interp_jump_table[ 0x7b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&sigill : &&interp_0x9f;
@@ -284,8 +284,7 @@
   shadow[ frame_cnt ].r10= reg[10];                                                                         \
   shadow[ frame_cnt ].pc = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[11] += vm->stack_frame_size;                   \
-  reg[10] = reg[11];
+  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[10] += vm->stack_frame_size;
 
   /* We subtract the heap cost in the BPF loader */
 
@@ -443,7 +442,7 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x36) /* FD_SBPF_OP_UHMUL64_IMM */
-    reg[ dst ] = (ulong)(( (uint128)reg_dst * (uint128)(ulong)(long)(int)imm ) >> 64 );
+    reg[ dst ] = (ulong)(( (uint128)reg_dst * (uint128)(ulong)imm ) >> 64 );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
@@ -874,7 +873,6 @@ interp_exec:
     reg[9]   = shadow[ frame_cnt ].r9;
     reg[10]  = shadow[ frame_cnt ].r10;
     pc       = shadow[ frame_cnt ].pc;
-    if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[11] -= vm->stack_frame_size;
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x96) /* FD_SBPF_OP_LMUL64_IMM */
@@ -887,7 +885,7 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)imm, is_multi_region );
+    fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)(long)(int)imm, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
 
