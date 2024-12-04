@@ -815,11 +815,14 @@ fd_quic_frame_error( fd_quic_frame_context_t const * ctx,
 
   fd_quic_conn_error1( conn, reason );
 
+  uint tls_reason = 0U;
+  if( conn->tls_hs ) tls_reason = conn->tls_hs->hs.base.reason;
+
   ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
   fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
   *frame = (fd_quic_log_error_t) {
     .hdr      = fd_quic_log_full_hdr( conn, pkt ),
-    .code     = { reason, 0UL },
+    .code     = { reason, tls_reason },
     .src_file = "fd_quic.c",
     .src_line = error_line,
   };
