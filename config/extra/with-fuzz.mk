@@ -1,3 +1,4 @@
+include config/extra/with-fuzz-stubs.mk
 FD_HAS_FUZZ:=1
 
 CPPFLAGS+=-fno-omit-frame-pointer
