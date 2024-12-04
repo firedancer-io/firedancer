@@ -1560,15 +1560,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   sched_return_t status, status1;
 
-  /* Try to schedule non-vote transactions */
-  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       use_by_bank_txn, out+scheduled );
-
-  scheduled                   += status.txns_scheduled;            txn_limit  -= status.txns_scheduled;
-  pack->cumulative_block_cost += status.cus_scheduled;             cu_limit   -= status.cus_scheduled;
-  pack->data_bytes_consumed   += status.bytes_scheduled;           byte_limit -= status.bytes_scheduled;
-  use_by_bank_txn += status.txns_scheduled;
-
-
   /* Schedule vote transactions */
   status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
 
