@@ -68,22 +68,10 @@
 
 #include "../../util/simd/fd_sse.h"
 
-#define ws_t __m256i
-#define ws_add(a,b)         _mm256_add_epi16( (a), (b) )
-#define ws_sub(a,b)         _mm256_sub_epi16( (a), (b) )
-#define ws_bcast(s0)        _mm256_set1_epi16( (s0) )
 #define ws_adjust_sign(a,b) _mm256_sign_epi16( (a), (b) ) /* scales elements in a by the sign of the corresponding element of b */
-#define ws_mullo(a,b)       _mm256_mullo_epi16( (a), (b) )
-#define ws_mulhi(a,b)       _mm256_mulhi_epu16( (a), (b) )
 #define ws_shl(a,imm)       _mm256_slli_epi16( (a), (imm) )
 #define ws_and(a,b)         _mm256_and_si256(    (a), (b) )
 #define ws_shru(a,imm)      _mm256_srli_epi16( (a), (imm) )
-#define ws_zero()           _mm256_setzero_si256() /* Return [ 0 0 0 0 0 ... 0 0 ] */
-
-FD_FN_UNUSED static inline ws_t ws_ld(  short const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
-FD_FN_UNUSED static inline ws_t ws_ldu( short const * p   ) { return _mm256_loadu_si256( (__m256i const *)p ); }
-FD_FN_UNUSED static inline void ws_st(  short * p, ws_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
-FD_FN_UNUSED static inline void ws_stu( short * p, ws_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
 
 static inline ws_t
 ws_mod255( ws_t x ) {
