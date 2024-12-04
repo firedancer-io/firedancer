@@ -208,12 +208,22 @@ after_frag( fd_bank_ctx_t *     ctx,
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
+    /* Stash the result in the flags value so that pack can inspect it.
+       We actually have enough bits to store all the results, but just
+       one is fine.  We or in at most one that's non-zero, since the
+       rest will trigger a break. */
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)load_results[ sanitized_idx ]<<24);
+
     sanitized_idx++;
     ctx->metrics.txn_load[ load_results[ sanitized_idx-1 ] ]++;
     if( FD_UNLIKELY( load_results[ sanitized_idx-1 ] ) ) continue;
 
+    txn->flags |= (uint)executing_results[ sanitized_idx-1 ]<<24;
+
     ctx->metrics.txn_executing[ executing_results[ sanitized_idx-1 ] ]++;
     if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
+
+    txn->flags |= (uint)executed_results[ sanitized_idx-1 ]<<24;
 
     ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
     txn->flags                      |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
