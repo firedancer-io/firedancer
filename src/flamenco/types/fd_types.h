@@ -1221,8 +1221,8 @@ typedef struct fd_bank_hash_stats_off fd_bank_hash_stats_off_t;
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_bank_hash_info {
-  fd_hash_t hash;
-  fd_hash_t snapshot_hash;
+  fd_hash_t accounts_delta_hash;
+  fd_hash_t accounts_hash;
   fd_bank_hash_stats_t stats;
 };
 typedef struct fd_bank_hash_info fd_bank_hash_info_t;
@@ -1230,8 +1230,8 @@ typedef struct fd_bank_hash_info fd_bank_hash_info_t;
 #define FD_BANK_HASH_INFO_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_bank_hash_info_off {
-  uint hash_off;
-  uint snapshot_hash_off;
+  uint accounts_delta_hash_off;
+  uint accounts_hash_off;
   uint stats_off;
 };
 typedef struct fd_bank_hash_info_off fd_bank_hash_info_off_t;

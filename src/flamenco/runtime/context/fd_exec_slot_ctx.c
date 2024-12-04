@@ -258,7 +258,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   slot_bank->lamports_per_signature = manifest->lamports_per_signature;
   slot_ctx->prev_lamports_per_signature = manifest->lamports_per_signature;
-  slot_ctx->parent_signature_cnt = oldbank->signature_count;
+  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
   if( oldbank->hashes_per_tick )
     epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
   else

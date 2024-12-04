@@ -1,5 +1,6 @@
 /* Gossip verify tile sits before the gossip (dedup?) tile to verify incoming
    gossip packets */
+#include <unistd.h>
 #define _GNU_SOURCE
 
 #include "../../../../disco/tiles.h"
@@ -28,6 +29,7 @@ struct fd_snapshot_tile_ctx {
   ulong         * is_constipated;
 
   int             tmp_fd;
+  int             tmp_inc_fd;
   int             full_snapshot_fd;
   int             incremental_snapshot_fd;
 
@@ -37,6 +39,9 @@ struct fd_snapshot_tile_ctx {
   fd_tpool_t *    tpool;
 
   int activated;
+
+  fd_hash_t last_hash;
+  ulong     last_capitalization;
 };
 typedef struct fd_snapshot_tile_ctx fd_snapshot_tile_ctx_t;
 
@@ -95,6 +100,12 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
     FD_LOG_ERR(( "Failed to format directory string" ));
   }
 
+  char tmp_inc_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
+  err = snprintf( tmp_inc_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->snaps.out_dir, FD_SNAPSHOT_TMP_INCR_ARCHIVE );
+  if( FD_UNLIKELY( err<0 ) ) {
+    FD_LOG_ERR(( "Failed to format directory string" ));
+  }
+
   char zstd_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
   err = snprintf( zstd_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->snaps.out_dir, FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
   if( FD_UNLIKELY( err<0 ) ) {
@@ -111,6 +122,11 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 
   tile->snaps.tmp_fd = open( tmp_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
   if( FD_UNLIKELY( tile->snaps.tmp_fd==-1 ) ) {
+    FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
+  }
+
+  tile->snaps.tmp_inc_fd = open( tmp_inc_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( tile->snaps.tmp_inc_fd==-1 ) ) {
     FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
   }
 
@@ -152,6 +168,7 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   ctx->incremental_interval    = tile->snaps.incremental_interval;
   ctx->out_dir                 = tile->snaps.out_dir;
   ctx->tmp_fd                  = tile->snaps.tmp_fd;
+  ctx->tmp_inc_fd              = tile->snaps.tmp_inc_fd;
   ctx->full_snapshot_fd        = tile->snaps.full_snapshot_fd;
   ctx->incremental_snapshot_fd = tile->snaps.incremental_snapshot_fd;
 
@@ -282,7 +299,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
       ctx->last_full_snap = snapshot_slot;
     }
     
-    FD_LOG_WARNING(("CREATING SNAPSHOT %lu %lu", is_incremental, snapshot_slot));
+    FD_LOG_WARNING(("CREATING SNAPSHOT incremental=%lu %lu", is_incremental, snapshot_slot));
 
     uchar * mem = fd_valloc_malloc( fd_scratch_virtual(), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
 
@@ -293,10 +310,12 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
       .valloc         = fd_scratch_virtual(),
       .acc_mgr        = fd_acc_mgr_new( mem, ctx->funk ),
       .status_cache   = ctx->status_cache,
-      .tmp_fd         = ctx->tmp_fd,
+      .tmp_fd         = is_incremental ? ctx->tmp_inc_fd              : ctx->tmp_fd,
       .snapshot_fd    = is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd,
       .tpool          = ctx->tpool,
       .last_snap_slot = is_incremental ? ctx->last_full_snap : 0UL,
+      .last_snap_hash = &ctx->last_hash,
+      .last_snap_capitalization = ctx->last_capitalization
     };
 
     if( !is_incremental ) {
@@ -311,7 +330,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     snprintf( prev_filename, FD_SNAPSHOT_DIR_MAX, "/proc/self/fd/%d", is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd );
     char temp_filename[FD_SNAPSHOT_DIR_MAX]; // Temporary buffer for the path
     long len = readlink(prev_filename, temp_filename, FD_SNAPSHOT_DIR_MAX);
-    if( FD_UNLIKELY( len==-1L ) ) {
+    if( FD_UNLIKELY( len<=0L ) ) {
       FD_LOG_ERR(( "Failed to readlink the snapshot file" ));
     }
     prev_filename[ len ] = '\0';
@@ -319,11 +338,19 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     char new_filename[ FD_SNAPSHOT_DIR_MAX ];
     snprintf( new_filename, FD_SNAPSHOT_DIR_MAX, "%s/%s", ctx->out_dir, is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD : FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
 
+    rename( temp_filename, new_filename );
+    FD_LOG_WARNING(("PREV FILENAME %s %s", temp_filename, new_filename ));
 
-    rename( prev_filename, new_filename );
+    int err = ftruncate( snapshot_ctx.tmp_fd, 0UL );
+    FD_TEST( err!=-1 );
+    lseek( snapshot_ctx.tmp_fd, 0UL, SEEK_SET );
 
-    if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( &snapshot_ctx ) ) ) {
+    if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( &snapshot_ctx, &ctx->last_hash, &ctx->last_capitalization ) ) ) {
       FD_LOG_ERR(( "Failed to create a new snapshot" ));
+    }
+
+    if( is_incremental ) {
+      FD_LOG_ERR(("ASDF"));
     }
 
     FD_LOG_NOTICE(( "Done creating a snapshot" ));
@@ -341,9 +368,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   (void)topo;
 
-  FD_LOG_WARNING(("DONE HERE 4"));
-
-  populate_sock_filter_policy_snaps( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)tile->snaps.tmp_fd, (uint)tile->snaps.full_snapshot_fd, (uint)tile->snaps.incremental_snapshot_fd );
+  populate_sock_filter_policy_snaps( out_cnt, 
+                                     out,
+                                     (uint)fd_log_private_logfile_fd(),
+                                     (uint)tile->snaps.tmp_fd,
+                                     (uint)tile->snaps.tmp_inc_fd,
+                                     (uint)tile->snaps.full_snapshot_fd,
+                                     (uint)tile->snaps.incremental_snapshot_fd );
   return sock_filter_policy_snaps_instr_cnt;
 }
 
@@ -355,8 +386,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  FD_LOG_WARNING(("DONE HERE 5"));
-
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) {
     FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   }
@@ -367,6 +396,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
   out_fds[ out_cnt++ ] = tile->snaps.tmp_fd;
+  out_fds[ out_cnt++ ] = tile->snaps.tmp_inc_fd;
   out_fds[ out_cnt++ ] = tile->snaps.full_snapshot_fd;
   out_fds[ out_cnt++ ] = tile->snaps.incremental_snapshot_fd;
   return out_cnt;

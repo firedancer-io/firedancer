@@ -114,6 +114,8 @@ struct fd_ledger_args {
   fd_tpool_t *          snapshot_tpool;          /* thread pool for snapshot creation */
   fd_tpool_t *          snapshot_bg_tpool;       /* thread pool for snapshot creation */
   ulong                 last_snapshot_slot;      /* last snapshot slot */
+  fd_hash_t             last_snapshot_hash;      /* last snapshot hash */
+  ulong                 last_snapshot_capitalization;/* last snapshot account hash */
   int                   is_snapshotting;         /* determine if a snapshot is being created */
 
   char const *      lthash;
@@ -132,11 +134,16 @@ fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
                          ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
 
   fd_snapshot_ctx_t * snapshot_ctx = (fd_snapshot_ctx_t *)t0;
-  fd_ledger_args_t * ledger_args = (fd_ledger_args_t *)t1;
+  fd_ledger_args_t *  ledger_args  = (fd_ledger_args_t *)t1;
+
+  fd_hash_t * out_hash           = (fd_hash_t *)n0;
+  ulong *     out_capitalization = (ulong *)n1;
 
   FD_LOG_WARNING(("Starting snapshot creation at slot=%lu", snapshot_ctx->slot));
 
-  int err = fd_snapshot_create_new_snapshot_offline( snapshot_ctx );
+  int err = fd_snapshot_create_new_snapshot_offline( snapshot_ctx, 
+                                                     &ledger_args->last_snapshot_hash, 
+                                                     &ledger_args->last_snapshot_capitalization );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "failed to create snapshot" ));
   }

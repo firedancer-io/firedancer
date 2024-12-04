@@ -94,14 +94,27 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version
    is used by the snapshot service which doesn't have access to a slot_ctx 
-   handle. However, it retains a copy of funk, slot_bank, and epoch_bank. */
+   handle. However, it retains a copy of funk, slot_bank, and epoch_bank. 
+   Do the same for the incremental hash. */
 int
 fd_snapshot_service_hash( fd_hash_t       * accounts_hash,
+                          fd_hash_t       * snapshot_hash,
                           fd_slot_bank_t  * slot_bank,
                           fd_epoch_bank_t * epoch_bank,
                           fd_funk_t       * funk,
                           fd_tpool_t      * tpool,
                           fd_valloc_t       valloc );
+
+int
+fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
+                              fd_hash_t *                 snapshot_hash,
+                              fd_slot_bank_t *            slot_bank,
+                              fd_epoch_bank_t *           epoch_bank,
+                              fd_funk_t *                 funk,
+                              fd_funk_rec_key_t const * * pubkeys,
+                              ulong                       pubkeys_len,
+                              fd_valloc_t                 valloc );
+
 void
 fd_accounts_check_lthash( fd_funk_t     *  funk,
                           fd_funk_txn_t *  funk_txn,

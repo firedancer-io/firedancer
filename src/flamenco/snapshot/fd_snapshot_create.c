@@ -1,5 +1,6 @@
 #include "fd_snapshot_create.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/fd_system_ids.h"
 #include "../runtime/fd_hashes.h"
 
 #include <stdio.h>
@@ -12,7 +13,8 @@ static uchar padding [ FD_SNAPSHOT_ACC_ALIGN ] = {0};
 static inline int
 fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapshot_ctx,
                                       fd_solana_manifest_serializable_t * manifest,
-                                      fd_tar_writer_t                   * writer ) {
+                                      fd_tar_writer_t                   * writer,
+                                      ulong                             * out_cap ) {
 
   /* The append vecs need to be described in an index in the manifest so a
      reader knows what account files to look for. These files are technically
@@ -69,6 +71,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
         continue;
       }
       incremental_keys[ incremental_key_cnt++ ] = rec->pair.key;
+      *out_cap += metadata->info.lamports;
     }
 
     /* We know that all of the accounts from the snapshot slot can fit into
@@ -123,22 +126,28 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
   int err;
   if( !snapshot_ctx->is_incremental ) {
-    err = fd_snapshot_service_hash( &accounts_db->bank_hash_info.snapshot_hash, 
-                                    &snapshot_ctx->slot_bank,
-                                    &snapshot_ctx->epoch_bank, 
+    err = fd_snapshot_service_hash( &accounts_db->bank_hash_info.accounts_hash, 
+                                    &snapshot_ctx->hash,
+                                    &snapshot_ctx->slot_bank, 
+                                    &snapshot_ctx->epoch_bank,
                                     snapshot_ctx->acc_mgr->funk,
                                     snapshot_ctx->tpool,
                                     snapshot_ctx->valloc );
   } else {
     FD_LOG_WARNING(("STARTING INCREMENTAL HASH %lu", incremental_key_cnt ));
-    err = fd_accounts_hash_inc_no_txn( snapshot_ctx->acc_mgr->funk,
-                                       snapshot_ctx->valloc, 
-                                       &accounts_db->bank_hash_info.snapshot_hash,
-                                       incremental_keys,
-                                       incremental_key_cnt,
-                                       0UL );
+
+    err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash, 
+                                        &snapshot_ctx->hash,
+                                        &snapshot_ctx->slot_bank, 
+                                        &snapshot_ctx->epoch_bank,
+                                        snapshot_ctx->acc_mgr->funk,
+                                        incremental_keys,
+                                        incremental_key_cnt,
+                                        snapshot_ctx->valloc );
     fd_valloc_free( snapshot_ctx->valloc, incremental_keys );
     FD_LOG_WARNING(("FINISHING INCREMENTAL HASH"));
+    /* Propogate snapshot hash to the snapshot_ctx. */
+    fd_memset( &accounts_db->bank_hash_info.accounts_hash, 0, sizeof(fd_hash_t) );
   }
 
   if( FD_UNLIKELY( err ) ) {
@@ -147,12 +156,17 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   }
   fd_memset( &accounts_db->bank_hash_info.stats, 0, sizeof(fd_bank_hash_stats_t) );
 
-  /* Propogate snapshot hash to the snapshot_ctx. */
-
-  snapshot_ctx->hash = accounts_db->bank_hash_info.snapshot_hash;
-
   /* Because the files are serially written out for tar, we must reserve space
      in the archive for the solana manifest. */
+
+  if( snapshot_ctx->is_incremental ) {
+    manifest->bank_incremental_snapshot_persistence = fd_valloc_malloc( snapshot_ctx->valloc,
+                                                                        FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN, 
+                                                                        sizeof(fd_bank_incremental_snapshot_persistence_t) );
+  }
+
+  FD_LOG_WARNING(("ACC HASH %s SNAPSHOT HASH %s", FD_BASE58_ENC_32_ALLOCA(&accounts_db->bank_hash_info.accounts_hash),
+                                                  FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->hash) ));
 
   ulong manifest_sz = fd_solana_manifest_serializable_size( manifest ); 
 
@@ -788,9 +802,25 @@ fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t *  snapshot_ctx ) {
     return -1;
   }
 
+  /* Registers all roots and unconstipates the status cache */
   fd_txncache_flush_constipated_slots( snapshot_ctx->status_cache );
 
   fd_valloc_free( snapshot_ctx->valloc, out_status_cache );
+
+
+  FD_BORROWED_ACCOUNT_DECL( sysvar_slot_history );
+  fd_acc_mgr_view( snapshot_ctx->acc_mgr, NULL, &fd_sysvar_slot_history_id, sysvar_slot_history );
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = sysvar_slot_history->const_data,
+    .dataend = sysvar_slot_history->const_data + sysvar_slot_history->const_meta->dlen,
+    .valloc  = snapshot_ctx->valloc
+  };
+
+  fd_slot_history_t slot_history = {0};
+  fd_slot_history_decode( &slot_history, &ctx);
+
+  FD_LOG_WARNING(("slot_history %lu", slot_history.next_slot));
 
   return 0;
 
@@ -799,7 +829,9 @@ fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t *  snapshot_ctx ) {
 }
 
 static inline int
-fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t  * snapshot_ctx ) {
+fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx,
+                                                fd_hash_t *         out_hash,
+                                                ulong *             out_capitalization ) {
 
 
   fd_solana_manifest_serializable_t manifest = {0};
@@ -815,7 +847,6 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t  * snapshot_ct
   /* Populate the rest of the manifest, except for the append vec index. */
 
   manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
-  manifest.bank_incremental_snapshot_persistence = NULL;
   manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
   /* TODO: The versioned epoch stakes needs to be implemented */
   manifest.versioned_epoch_stakes_len            = 0UL;
@@ -823,7 +854,8 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t  * snapshot_ct
 
   /* Populate the append vec index and write out the corresponding acc files. */
 
-  err = fd_snapshot_create_populate_acc_vecs( snapshot_ctx, &manifest, snapshot_ctx->writer );
+  ulong capitalization = 0UL;
+  err = fd_snapshot_create_populate_acc_vecs( snapshot_ctx, &manifest, snapshot_ctx->writer, &capitalization );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to populate the account vectors" ));
     return -1;
@@ -833,6 +865,20 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t  * snapshot_ct
      vec index is populated in the manifest. We have already reserved space
      in the archive for the manifest. All we need to do now is encode the 
      manifest and write it in.  */
+
+  FD_LOG_WARNING(("ASDF"));
+  if( snapshot_ctx->is_incremental ) {
+    FD_LOG_WARNING(("INC slot %lu cap %lu hash %s", snapshot_ctx->last_snap_slot, snapshot_ctx->last_snap_capitalization, FD_BASE58_ENC_32_ALLOCA(snapshot_ctx->last_snap_hash)));
+    manifest.bank_incremental_snapshot_persistence->full_slot                  = snapshot_ctx->last_snap_slot;
+    fd_memcpy( &manifest.bank_incremental_snapshot_persistence->full_hash, snapshot_ctx->last_snap_hash, sizeof(fd_hash_t) );
+    manifest.bank_incremental_snapshot_persistence->full_capitalization        = snapshot_ctx->last_snap_capitalization;
+    manifest.bank_incremental_snapshot_persistence->incremental_hash           = snapshot_ctx->acc_hash;
+    manifest.bank_incremental_snapshot_persistence->incremental_capitalization = capitalization;
+  } else {
+    memcpy( out_hash, &manifest.accounts_db.bank_hash_info.accounts_hash, sizeof(fd_hash_t) );
+    *out_capitalization = snapshot_ctx->slot_bank.capitalization;
+    FD_LOG_WARNING(("FULL slot %lu cap %lu hash %s", snapshot_ctx->slot, snapshot_ctx->slot_bank.capitalization, FD_BASE58_ENC_32_ALLOCA(out_hash)));
+  }
 
   ulong   manifest_sz  = fd_solana_manifest_serializable_size( &manifest ); 
   uchar * out_manifest = fd_valloc_malloc( snapshot_ctx->valloc, FD_SOLANA_MANIFEST_SERIALIZABLE_ALIGN, manifest_sz );
@@ -847,7 +893,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t  * snapshot_ct
     FD_LOG_WARNING(( "Failed to encode the manifest" ));
     return -1;
   }
-
+  
   err = fd_tar_writer_fill_space( snapshot_ctx->writer, out_manifest, manifest_sz );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to write out the manifest" ));
@@ -877,6 +923,9 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t  * snapshot_ct
   fd_valloc_free( snapshot_ctx->valloc, manifest.bank.epoch_stakes );
   fd_epoch_bank_destroy( &snapshot_ctx->epoch_bank, &destroy );
   fd_slot_bank_destroy( &snapshot_ctx->slot_bank, &destroy );
+  if( snapshot_ctx->is_incremental ) {
+    fd_valloc_free( snapshot_ctx->valloc, manifest.bank_incremental_snapshot_persistence );
+  }
   fd_valloc_free( snapshot_ctx->valloc, out_manifest );  
 
   return 0;
@@ -915,6 +964,10 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     err = -1;
     goto cleanup;
   }
+
+  err = ftruncate( snapshot_ctx->snapshot_fd, 0 );
+  FD_TEST( err!=-1 );
+  lseek( snapshot_ctx->snapshot_fd, 0, SEEK_SET );
 
   /* At this point, the tar archive and the new zstd file is open. The zstd
      streamer is still open. Now, we are ready to read in bytes and stream
@@ -1016,7 +1069,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   err = rename( tmp_directory_buf_zstd, directory_buf_zstd );
   if( FD_UNLIKELY( err<0 ) ) {
-    FD_LOG_WARNING(( "Failed to rename file (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "Failed to rename file from %s to %s (%i-%s)", tmp_directory_buf_zstd, directory_buf_zstd, errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
@@ -1024,7 +1077,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
 }
 
 int
-fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx ) {
+fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx, fd_hash_t * out_hash, ulong * out_capitalization ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
 
@@ -1066,7 +1119,7 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   /* Populate and write out the manifest and append vecs. */
 
-  err = fd_snapshot_create_write_manifest_and_acc_vecs( snapshot_ctx );
+  err = fd_snapshot_create_write_manifest_and_acc_vecs( snapshot_ctx, out_hash, out_capitalization );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1084,7 +1137,7 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx ) {
 }
 
 int
-fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx ) {
+fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx, fd_hash_t * out_hash, ulong * out_capitalization ) {
 
   /* Write out the snapshot tar archive to a temporary location that will be 
      written to when the snapshot account hash is recalculated.
@@ -1120,7 +1173,7 @@ fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   /* Now that all of the files are open, create a snapshot. */
 
-  if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( snapshot_ctx ) ) ) {
+  if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( snapshot_ctx, out_hash, out_capitalization ) ) ) {
     FD_LOG_ERR(( "Failed to create the snapshot" ));
   }
 

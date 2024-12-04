@@ -529,9 +529,8 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    //if( slot_ctx->slot_bank.slot < 254462500 ) {
     if( false ) {
-    fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec), 1);
+      fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec), 1);
     }
 
   }
@@ -1233,36 +1232,59 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
 
 int
 fd_snapshot_service_hash( fd_hash_t       * accounts_hash,
+                          fd_hash_t       * snapshot_hash,
                           fd_slot_bank_t  * slot_bank,
                           fd_epoch_bank_t * epoch_bank,
                           fd_funk_t       * funk,
                           fd_tpool_t      * tpool,
                           fd_valloc_t       valloc ) {
 
+  fd_sha256_t h;
+  fd_accounts_hash( funk, slot_bank, valloc, tpool, accounts_hash );
 
-  int should_include_eah = 1;   // We need to find the correct logic
-  if( FD_UNLIKELY( epoch_bank->eah_start_slot!=ULONG_MAX ||
-                   epoch_bank->eah_stop_slot ==ULONG_MAX ) ) {
-    should_include_eah = 0;
-  }
+  int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
 
-  fd_hash_t hash;
   if( should_include_eah ) {
-    fd_sha256_t h;
-    fd_accounts_hash( funk, slot_bank, valloc, tpool, &hash );
-
+    FD_LOG_WARNING(("SHOULD INCLUDE"));
     fd_sha256_init( &h );
-    fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
     fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
-    fd_sha256_fini( &h, accounts_hash );
-
+    fd_sha256_fini( &h, snapshot_hash );
   } else {
-    fd_accounts_hash( funk, slot_bank, valloc, tpool, accounts_hash );
+    FD_LOG_WARNING(("SHOULDNT INCLUDE"));
+    snapshot_hash = accounts_hash;
   }
 
   return 0;
-  
+}
 
+int
+fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
+                              fd_hash_t *                 snapshot_hash,
+                              fd_slot_bank_t *            slot_bank,
+                              fd_epoch_bank_t *           epoch_bank,
+                              fd_funk_t *                 funk,
+                              fd_funk_rec_key_t const * * pubkeys,
+                              ulong                       pubkeys_len,
+                              fd_valloc_t                 valloc ) {
+
+  fd_sha256_t h;
+  fd_accounts_hash_inc_no_txn( funk, valloc, accounts_hash, pubkeys, pubkeys_len, 0UL );
+
+  int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
+
+  if( should_include_eah ) {
+    FD_LOG_WARNING(("SHOULD INCLUDE"));
+    fd_sha256_init( &h );
+    fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_fini( &h, snapshot_hash );
+  } else {
+    FD_LOG_WARNING(("SHOULDNT INCLUDE"));
+    snapshot_hash = accounts_hash;
+  }
+
+  return 0;
 }
 
 /* Re-computes the lthash from the current slot */

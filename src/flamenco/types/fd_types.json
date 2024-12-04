@@ -541,8 +541,8 @@
       "name": "bank_hash_info",
       "type": "struct",
       "fields": [
-        { "name": "hash", "type": "hash" },
-        { "name": "snapshot_hash", "type": "hash" },
+        { "name": "accounts_delta_hash", "type": "hash" },
+        { "name": "accounts_hash", "type": "hash" },
         { "name": "stats", "type": "bank_hash_stats" }
       ]
     },

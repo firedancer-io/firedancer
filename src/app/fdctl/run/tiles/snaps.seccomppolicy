@@ -3,7 +3,7 @@
 # tmp_fd: This is used to write out a tar archive file
 # full_snapshot_fd: This is used to create a final snapshot by compressing
                the contents of tmp_fd
-unsigned int logfile_fd, unsigned int tmp_fd, unsigned int full_snapshot_fd, unsigned int incremental_snapshot_fd
+unsigned int logfile_fd, unsigned int tmp_fd, unsigned int tmp_inc_fd, unsigned int full_snapshot_fd, unsigned int incremental_snapshot_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -15,6 +15,7 @@ unsigned int logfile_fd, unsigned int tmp_fd, unsigned int full_snapshot_fd, uns
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
            (eq (arg 0) tmp_fd)
+           (eq (arg 0) tmp_inc_fd)
            (eq (arg 0) full_snapshot_fd)
            (eq (arg 0) incremental_snapshot_fd))
 
@@ -48,7 +49,8 @@ fchmod: (eq (arg 1) "S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH")
 # We want to truncate the tmp file and the snapshot file everytime we try to
 # create a new snapshot. If we do truncate it, we only want to be able to 
 # truncate to a length of zero.
-ftruncate: (and (or (eq (arg 0) tmp_fd) 
+ftruncate: (and (or (eq (arg 0) tmp_fd)
+                    (eq (arg 0) tmp_inc_fd)
                     (eq (arg 0) full_snapshot_fd)
                     (eq (arg 0) incremental_snapshot_fd)) 
                 (eq (arg 1) 0))
@@ -58,6 +60,7 @@ ftruncate: (and (or (eq (arg 0) tmp_fd)
 # The tar writer that the snapshot creation logic uses requires seek access 
 # in the two snapshot related files.
 lseek: (or (eq (arg 0) tmp_fd) 
+           (eq (arg 0) tmp_inc_fd)
            (eq (arg 0) full_snapshot_fd)
            (eq (arg 0) incremental_snapshot_fd))
 
@@ -65,4 +68,8 @@ lseek: (or (eq (arg 0) tmp_fd)
 #
 # The tar writer that the snapshot creation logic uses requires reads of the 
 # existing tar archive file.
-read: (eq (arg 0) tmp_fd)
+read: (or (eq (arg 0) tmp_fd)
+          (eq (arg 0) tmp_inc_fd))
+
+# snapshot
+readlink: 

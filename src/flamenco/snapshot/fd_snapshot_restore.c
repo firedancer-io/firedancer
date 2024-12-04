@@ -270,6 +270,17 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
     return EINVAL;
   }
 
+  if( manifest->bank_incremental_snapshot_persistence ) {
+    FD_LOG_WARNING(("HAS IT INC SNAP PERSISTENCE"));
+    FD_LOG_WARNING(("HAS IT %s", FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash)));
+    FD_LOG_WARNING(("ACCOUNTS HASH %s", FD_BASE58_ENC_32_ALLOCA(&manifest->accounts_db.bank_hash_info.accounts_hash)));
+    FD_LOG_WARNING(("INCR HASH %s", FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->incremental_hash)));
+
+  } else {
+    FD_LOG_WARNING(("DOESNT HAVE INC SNAP PERSISTENCE DOESNT HAVE IT"));
+    FD_LOG_WARNING(("ACCOUNTS HASH %s", FD_BASE58_ENC_32_ALLOCA(&manifest->accounts_db.bank_hash_info.accounts_hash)));
+  }
+
   /* Move over accounts DB fields */
 
   fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;

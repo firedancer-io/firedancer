@@ -557,6 +557,8 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
+  FD_LOG_WARNING(("SMR %lu", smr));
+
   /* When we are trying to root for an smr that we would snapshot on, we need
      to constipate funk as well as the txncache. The snapshot tile will notify
      the replay tile that funk is ready to be unconstipated via the 
@@ -600,6 +602,25 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
   //ulong is_funk_constipated = fd_fseq_query( ctx->is_funk_constipated );
 
+  
+    /* For the status cache, we stop rooting until the status cache has been 
+     written out to the current snapshot. */
+
+  fd_funk_txn_t * txn = root_txn;
+  while( txn ) {
+    ulong slot = txn->xid.ul[0];
+    if( FD_LIKELY( ctx->slot_ctx->status_cache ) ) {
+      if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
+        FD_LOG_WARNING(("REGISTERING SLOT %lu", slot));
+        fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
+      } else {
+        FD_LOG_WARNING(("REGISTERING CONSTIPATED SLOT %lu", slot));
+        fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
+      }
+    }
+    txn = fd_funk_txn_parent( txn, txn_map );
+  }
+
   if( !ctx->is_caught_up || !fd_fseq_query( ctx->is_funk_constipated ) ) {
     FD_LOG_WARNING(("PUBLISHING SLOT %lu", smr));
 
@@ -624,25 +645,12 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
   fd_funk_end_write( ctx->funk );
 
-
-  /* For the status cache, we stop rooting until  */
-
-  if( FD_LIKELY( ctx->slot_ctx->status_cache ) ) {
-    if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
-      fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, smr );
-    } else {
-      fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, smr );
-    }
-  }
-
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
   if( smr >= epoch_bank->eah_start_slot ) {
     fd_accounts_hash( ctx->slot_ctx->acc_mgr->funk, &ctx->slot_ctx->slot_bank,
                       ctx->slot_ctx->valloc, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash );
     epoch_bank->eah_start_slot = FD_SLOT_NULL;
   }
-
-  FD_LOG_WARNING(("PUBLISHING SLOT %lu", smr));
 
   /* We are ready for a snapshot if either we are on or just passed a snapshot
      interval and no snapshot is currently in progress. This is to handle the
@@ -658,6 +666,9 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
     ulong updated_fseq = 0UL;
     if( is_full_snapshot_ready || is_inc_snapshot_ready ) {
+      /* Constipate the status cache when a snapshot is ready to be created. */
+      fd_txncache_set_is_constipated( ctx->slot_ctx->status_cache, 1 );
+      FD_LOG_WARNING(("SETTING TXN CACHE TO BE CONSTIPATED"));
       if( is_full_snapshot_ready ) {
         ctx->last_full_snap = smr;
         FD_LOG_WARNING(("CREATING FULL SNAPSHOT"));
@@ -1114,6 +1125,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
       fork->slot_ctx.block = block_;
+
+      /* TODO:FIXME: This needs to be unhacked. */
+      fork->slot_ctx.slot_bank.max_tick_height += 64UL * (curr_slot - ctx->parent_slot);
+
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {

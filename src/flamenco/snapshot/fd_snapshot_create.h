@@ -30,8 +30,9 @@
 #define FD_SNAPSHOT_STATUS_CACHE_FILE ("snapshots/status_cache")
 
 #define FD_SNAPSHOT_TMP_ARCHIVE           (".tmp.tar")
+#define FD_SNAPSHOT_TMP_INCR_ARCHIVE      (".tmp_inc.tar")
 #define FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD (".tmp.tar.zst")
-#define FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD (".tmp2.tar.zst")
+#define FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD (".tmp_inc.tar.zst")
 
 
 #define FD_SNAPSHOT_APPEND_VEC_SZ_MAX (16UL * 1024UL * 1024UL * 1024UL)
@@ -54,6 +55,8 @@ struct fd_snapshot_ctx {
 
   uchar             is_incremental;
   ulong             last_snap_slot;
+  ulong             last_snap_capitalization;
+  fd_hash_t *       last_snap_hash;
 
   /* TODO: Add a comment here */
   int               tmp_fd;
@@ -62,6 +65,8 @@ struct fd_snapshot_ctx {
   /* This gets setup within the context and not by the user */
   fd_tar_writer_t * writer;
   fd_hash_t         hash;
+  fd_hash_t         acc_hash; /* incremental only */
+
   fd_slot_bank_t    slot_bank;
   fd_epoch_bank_t   epoch_bank;
   fd_acc_mgr_t *    acc_mgr;
@@ -77,8 +82,8 @@ typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
    created for. */
 
 static ulong FD_FN_UNUSED
-fd_snapshot_create_pack_fseq( ulong is_constipated, ulong smr ) {
-  return (is_constipated << 56UL) | (smr & 0xFFFFFFFFFFFFFFUL);
+fd_snapshot_create_pack_fseq( ulong is_incremental, ulong smr ) {
+  return (is_incremental << 56UL) | (smr & 0xFFFFFFFFFFFFFFUL);
 }
 
 static ulong FD_FN_UNUSED
@@ -121,7 +126,9 @@ fd_snapshot_create_get_slot( ulong fseq ) {
   TODO: Currently incremental snapshots are not supported. */
 
 int
-fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx );
+fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
+                                 fd_hash_t *         out_hash,
+                                 ulong *             out_capitalization );
 
 /* fd_snapshot_create_new_snapshot_offline is a strict superset of the 
    above function. It is repsonsible for managing the file descriptors
@@ -131,7 +138,9 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx );
    maintain the sandbox model. */
 
 int
-fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx );
+fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx,
+                                         fd_hash_t *         out_hash,
+                                         ulong *             out_capitalization );
 
 FD_PROTOTYPES_END
 

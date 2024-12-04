@@ -7192,15 +7192,15 @@ int fd_bank_hash_info_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_bank_hash_info_decode_unsafe( fd_bank_hash_info_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_hash_decode_unsafe( &self->hash, ctx );
-  fd_hash_decode_unsafe( &self->snapshot_hash, ctx );
+  fd_hash_decode_unsafe( &self->accounts_delta_hash, ctx );
+  fd_hash_decode_unsafe( &self->accounts_hash, ctx );
   fd_bank_hash_stats_decode_unsafe( &self->stats, ctx );
 }
 int fd_bank_hash_info_encode( fd_bank_hash_info_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_hash_encode( &self->hash, ctx );
+  err = fd_hash_encode( &self->accounts_delta_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode( &self->snapshot_hash, ctx );
+  err = fd_hash_encode( &self->accounts_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bank_hash_stats_encode( &self->stats, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -7209,10 +7209,10 @@ int fd_bank_hash_info_encode( fd_bank_hash_info_t const * self, fd_bincode_encod
 int fd_bank_hash_info_decode_offsets( fd_bank_hash_info_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
-  self->hash_off = (uint)( (ulong)ctx->data - (ulong)data );
+  self->accounts_delta_hash_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_hash_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  self->snapshot_hash_off = (uint)( (ulong)ctx->data - (ulong)data );
+  self->accounts_hash_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_hash_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   self->stats_off = (uint)( (ulong)ctx->data - (ulong)data );
@@ -7222,13 +7222,13 @@ int fd_bank_hash_info_decode_offsets( fd_bank_hash_info_off_t * self, fd_bincode
 }
 void fd_bank_hash_info_new(fd_bank_hash_info_t * self) {
   fd_memset( self, 0, sizeof(fd_bank_hash_info_t) );
-  fd_hash_new( &self->hash );
-  fd_hash_new( &self->snapshot_hash );
+  fd_hash_new( &self->accounts_delta_hash );
+  fd_hash_new( &self->accounts_hash );
   fd_bank_hash_stats_new( &self->stats );
 }
 void fd_bank_hash_info_destroy( fd_bank_hash_info_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_hash_destroy( &self->hash, ctx );
-  fd_hash_destroy( &self->snapshot_hash, ctx );
+  fd_hash_destroy( &self->accounts_delta_hash, ctx );
+  fd_hash_destroy( &self->accounts_hash, ctx );
   fd_bank_hash_stats_destroy( &self->stats, ctx );
 }
 
@@ -7237,15 +7237,15 @@ ulong fd_bank_hash_info_align( void ){ return FD_BANK_HASH_INFO_ALIGN; }
 
 void fd_bank_hash_info_walk( void * w, fd_bank_hash_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bank_hash_info", level++ );
-  fd_hash_walk( w, &self->hash, fun, "hash", level );
-  fd_hash_walk( w, &self->snapshot_hash, fun, "snapshot_hash", level );
+  fd_hash_walk( w, &self->accounts_delta_hash, fun, "accounts_delta_hash", level );
+  fd_hash_walk( w, &self->accounts_hash, fun, "accounts_hash", level );
   fd_bank_hash_stats_walk( w, &self->stats, fun, "stats", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bank_hash_info", level-- );
 }
 ulong fd_bank_hash_info_size( fd_bank_hash_info_t const * self ) {
   ulong size = 0;
-  size += fd_hash_size( &self->hash );
-  size += fd_hash_size( &self->snapshot_hash );
+  size += fd_hash_size( &self->accounts_delta_hash );
+  size += fd_hash_size( &self->accounts_hash );
   size += fd_bank_hash_stats_size( &self->stats );
   return size;
 }

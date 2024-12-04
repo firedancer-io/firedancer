@@ -344,6 +344,7 @@ typedef struct {
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
       int   tmp_fd;
+      int   tmp_inc_fd;
       int   full_snapshot_fd;
       int   incremental_snapshot_fd;
       ulong tpool_thread_count;

@@ -314,7 +314,7 @@ void
 fd_txncache_register_root_slot( fd_txncache_t * tc,
                                 ulong           slot );
 
-/* fd_txncache_register_constipated_slot is the "consipated" version of 
+/* fd_txncache_register_constipated_slot is the "constipated" version of 
    fd_txncache_register_root_slot. This means that older root slots will not
    get purged nor will the newer root slots actually be rooted. All the slots
    that are marked as constipated will be flushed down to the set of rooted
