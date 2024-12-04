@@ -10,15 +10,6 @@
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 
-static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  fd_quic_state_t * state = fd_quic_get_state( fd_quic_trace_ctx.quic );
-  FD_LOG_INFO(( "fd_quic_t conn_map raddr %p", (void *)state->conn_map ));
-  FD_LOG_INFO(( "fd_quic_t conn map laddr %p", (void *)translate_ptr( state->conn_map ) ));
-  (void)topo; (void)tile;
-}
-
 static int
 before_frag( void * _ctx FD_FN_UNUSED,
              ulong  in_idx,
@@ -50,7 +41,7 @@ during_frag( void * _ctx FD_FN_UNUSED,
              ulong  sz ) {
   (void)in_idx; (void)seq; (void)sig;
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
-  fd_memcpy( ctx->buffer, (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk ), sz );
+  fd_memcpy( ctx->buffer, (uchar const *)fd_chunk_to_laddr_const( ctx->in_mem, chunk ), sz );
 }
 
 static void
@@ -158,8 +149,32 @@ after_frag( void * _ctx FD_FN_UNUSED,
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #include "../../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_quic_trace_rx = {
-  .name            = "quic-trace-rx",
-  .privileged_init = privileged_init,
-  .run             = stem_run,
-};
+void
+fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
+  fd_frag_meta_t const * in_mcache_tbl[1] = { in_mcache };
+
+  uchar   fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  ulong * fseq = fd_fseq_join( fd_fseq_new( fseq_mem, 0UL ) );
+  ulong * fseq_tbl[1] = { fseq };
+
+  fd_rng_t rng[1];
+  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_tickcount(), 0UL ) ) );
+
+  uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
+
+  stem_run1( /* in_cnt     */ 1UL,
+             /* in_mcache  */ in_mcache_tbl,
+             /* in_fseq    */ fseq_tbl,
+             /* out_cnt    */ 0UL,
+             /* out_mcache */ NULL,
+             /* cons_cnt   */ 0UL,
+             /* cons_out   */ NULL,
+             /* cons_fseq  */ NULL,
+             /* stem_burst */ 1UL,
+             /* stem_lazy  */ 0L,
+             /* rng        */ rng,
+             /* scratch    */ scratch,
+             /* ctx        */ NULL );
+
+  fd_fseq_delete( fd_fseq_leave( fseq ) );
+}
