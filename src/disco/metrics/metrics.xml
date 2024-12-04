@@ -325,6 +325,9 @@ metric introduced.
   <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of scheduling one microblock</summary>
   </histogram>
+  <histogram name="NoSchedMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+    <summary>Duration of discovering that there are no schedulable transactions</summary>
+  </histogram>
   <histogram name="InsertTransactionDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of inserting one transaction into the pool of available transactions</summary>
   </histogram>

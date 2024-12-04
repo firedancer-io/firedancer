@@ -1420,13 +1420,16 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   return to_return;
 }
 
-void
+int
 fd_pack_microblock_complete( fd_pack_t * pack,
                              ulong       bank_tile ) {
   /* If the account is in use writably, and it's in use by this banking
      tile, then this banking tile must be the sole writer to it, so it's
      always okay to clear the writable bit. */
   ulong clear_mask = ~((1UL<<bank_tile) | FD_PACK_IN_USE_WRITABLE);
+
+  /* If nothing outstanding, bail quickly */
+  if( FD_UNLIKELY( !(pack->outstanding_microblock_mask & (1UL<<bank_tile)) ) ) return 0;
 
   FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
   FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
@@ -1524,6 +1527,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   /* outstanding_microblock_mask never has the writable bit set, so we
      don't care about clearing it here either. */
   pack->outstanding_microblock_mask &= clear_mask;
+  return 1;
 }
 
 
