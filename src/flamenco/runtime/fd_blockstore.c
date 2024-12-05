@@ -863,7 +863,7 @@ fail_deshred:
    which indicates equivocation. */
 
 static int
-is_eqvoc_shred( fd_shred_t * old, fd_shred_t const * new ) {
+is_eqvoc_fec( fd_shred_t * old, fd_shred_t const * new ) {
   if( FD_UNLIKELY( fd_shred_type( old->variant ) != fd_shred_type( new->variant ) ) ) {
     FD_LOG_WARNING(( "[%s] shred %lu %u not both resigned", __func__, old->slot, old->idx ));
     return 1;
@@ -908,7 +908,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
 
     /* FIXME we currently cannot handle equivocating shreds. */
 
-    if( FD_UNLIKELY( is_eqvoc_shred( &shred_->hdr, shred ) ) ) {
+    if( FD_UNLIKELY( is_eqvoc_fec( &shred_->hdr, shred ) ) ) {
       FD_LOG_WARNING(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
       return FD_BLOCKSTORE_OK;
     }
@@ -950,7 +950,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
     block_map_entry->slot = block_map_entry->slot;
 
     block_map_entry->parent_slot = shred->slot - shred->data.parent_off;
-    memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
+    memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof(ulong) );
     block_map_entry->child_slot_cnt = 0;
 
     block_map_entry->height         = 0;
@@ -977,16 +977,15 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
 
   /* Update shred windowing metadata: consumed, received, shred_cnt */
 
-  while( fd_buf_shred_query( blockstore, shred->slot, (uint)( block_map_entry->consumed_idx + 1U ) ) ) {
+  while( FD_LIKELY( fd_buf_shred_query( blockstore, shred->slot, (uint)( block_map_entry->consumed_idx + 1U ) ) ) ) {
     block_map_entry->consumed_idx++;
   }
   block_map_entry->received_idx = fd_uint_max( block_map_entry->received_idx, shred->idx + 1 );
-  if( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) block_map_entry->complete_idx = shred->idx;
+  if( FD_UNLIKELY( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) block_map_entry->complete_idx = shred->idx;
 
   /* update ancestry metadata: parent_slot, is_connected, next_slot */
 
-  fd_block_map_t * parent_block_map_entry =
-      fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
+  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
 
   /* Add this slot to its parent's child slots if not already there. */
 
@@ -998,7 +997,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
       }
     }
     if( FD_UNLIKELY( !found ) ) {
-      if( parent_block_map_entry->child_slot_cnt == FD_BLOCKSTORE_CHILD_SLOT_MAX ) {
+      if( FD_UNLIKELY( parent_block_map_entry->child_slot_cnt == FD_BLOCKSTORE_CHILD_SLOT_MAX )) {
         FD_LOG_ERR(( "failed to add slot %lu to parent %lu's children. exceeding child slot max",
                       slot,
                       parent_block_map_entry->slot ));
@@ -1035,7 +1034,7 @@ fd_shred_t *
 fd_buf_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx ) {
   fd_buf_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
   fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
-  fd_shred_key_t              key        = { .slot = slot, .idx = shred_idx };
+  fd_shred_key_t       key        = { .slot = slot, .idx = shred_idx };
   fd_buf_shred_t *     query =
       fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
   if( FD_UNLIKELY( !query ) ) return NULL;

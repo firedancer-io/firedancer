@@ -74,7 +74,7 @@ echo "${genesis_args[@]}"
 
 pwd
 GENESIS_OUTPUT=$($AGAVE_PATH/solana-genesis \
-    --cluster-type mainnet-beta \
+    --cluster-type testnet \
     --ledger test-ledger \
     --bootstrap-validator test-ledger/validator-keypair.json test-ledger/vote-account-keypair.json test-ledger/stake-account-keypair.json \
     --bootstrap-stake-authorized-pubkey test-ledger/validator-keypair.json \
