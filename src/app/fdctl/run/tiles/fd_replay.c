@@ -1394,7 +1394,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
       read_snapshot( ctx, ctx->snapshot, ctx->incremental );
     }
 
-    fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx );
+    fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx, ctx->tpool );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
     init_after_snapshot( ctx );
 
