@@ -181,12 +181,12 @@ fd_blockstore_delete( void * shblockstore ) {
   return blockstore;
 }
 
-static inline void check_read_err( int err ) {
+static inline void check_read_write_err( int err ) {
   if( FD_UNLIKELY( err < 0 ) ) {
     FD_LOG_ERR(( "unexpected EOF %s", strerror( errno ) ));
   }
   if( FD_UNLIKELY( err > 0 ) ) {
-    FD_LOG_ERR(( "unable to read %s", strerror( errno ) ));
+    FD_LOG_ERR(( "unable to read/write %s", strerror( errno ) ));
   }
 }
 
@@ -218,7 +218,7 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
   ulong end = (ulong)sz;
   while ( FD_LIKELY( off < end ) ) {
     err = fd_io_read( fd, &block_map_out, sizeof(block_map_out), sizeof(block_map_out), &rsz );
-    check_read_err( err );
+    check_read_write_err( err );
 
 
     if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ) ) {
@@ -234,7 +234,7 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
     idx_entry->bank_hash       = block_map_out.bank_hash;
 
     err = fd_io_read( fd, &block_out, sizeof(block_out), sizeof(block_out), &rsz );
-    check_read_err( err );
+    check_read_write_err( err );
 
     off_t lseek_off = lseek( fd, (long)block_out.data_sz, SEEK_CUR ); /* seek past block data */
     if ( FD_UNLIKELY( lseek_off == -1 && errno != EINVAL /* seek past EOF */ ) ) {  
@@ -548,6 +548,78 @@ fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot )
   return FD_BLOCKSTORE_OK;
 }
 
+ulong
+fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
+                             fd_blockstore_ser_t * ser,
+                             int fd,
+                             ulong slot ) {
+  if ( FD_UNLIKELY( fd == -1 ) ) {
+    FD_LOG_DEBUG(( "[%s] fd is -1", __func__ ));
+    return 0;
+  }
+  ulong off = 0;
+  ulong wsz; 
+  int err = fd_io_write( fd, ser->block_map, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &wsz );
+  check_read_write_err( err );
+  off += wsz; 
+  err = fd_io_write( fd, ser->block, sizeof(fd_block_t), sizeof(fd_block_t), &wsz );
+  check_read_write_err( err );
+  off += wsz;
+  err = fd_io_write( fd, ser->data, ser->block->data_sz, ser->block->data_sz, &wsz );
+  check_read_write_err( err );
+  off += wsz;
+
+  FD_LOG_DEBUG(( "[%s] archived block %lu", __func__, slot ));
+  return off;
+}
+
+int
+fd_blockstore_block_meta_restore( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
+                                  int fd,
+                                  fd_block_idx_t * block_idx_entry,
+                                  fd_block_map_t * block_map_entry_out,
+                                  fd_block_t * block_out ) { 
+  if( FD_UNLIKELY( lseek( fd, (long)block_idx_entry->off, SEEK_SET ) == -1 ) ) {
+    FD_LOG_WARNING(( "failed to seek" ));
+    return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }
+  ulong rsz; 
+  int err = fd_io_read( fd, block_map_entry_out, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &rsz );
+  // Not throwing on error here because we want to return the error code to the caller
+  err |= fd_io_read( fd, block_out, sizeof(fd_block_t), sizeof(fd_block_t), &rsz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "failed to read and/or block_map_entry" ));
+    return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }
+  return FD_BLOCKSTORE_OK;
+}
+
+int
+fd_blockstore_block_data_restore( fd_blockstore_t * blockstore FD_PARAM_UNUSED, 
+                                  int fd, 
+                                  fd_block_idx_t * block_idx_entry,
+                                  uchar * buf_out,
+                                  ulong buf_max, 
+                                  ulong data_sz ) {
+                                
+  if( FD_UNLIKELY( buf_max < data_sz ) ) {
+    FD_LOG_ERR(( "[%s] data_out_sz %lu < data_sz %lu", __func__, buf_max, data_sz ));
+    return -1;
+  }
+  ulong data_off = block_idx_entry->off + sizeof(fd_block_map_t) + sizeof(fd_block_t);
+  if( FD_UNLIKELY( lseek( fd, (long)data_off, SEEK_SET ) == -1 ) ) {
+    FD_LOG_WARNING(( "failed to seek" ));
+    return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }  
+  ulong rsz; 
+  int err = fd_io_read( fd, buf_out, data_sz, data_sz, &rsz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "failed to read block data" ));
+    return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }
+  return FD_BLOCKSTORE_OK;
+}
+
 void
 fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
   FD_LOG_NOTICE(( "[%s] curr smr: %lu, next smr: %lu", __func__, blockstore->smr, smr ));
@@ -616,23 +688,18 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
       } else if( FD_UNLIKELY( fd_block_idx_query( block_idx, slot, NULL ) ) ) {
         FD_LOG_ERR(( "[%s] invariant violation. attempted to re-archive finalized block: %lu", __func__, slot ));
       } else {
-        int err;
-        ulong wsz;
-        ulong off = blockstore->off;
-        err = fd_io_write( fd, block_map_entry, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &wsz );
-        off += wsz;
-        err = fd_io_write( fd, block, sizeof(fd_block_t), sizeof(fd_block_t), &wsz );
-        off += wsz;
-        err = fd_io_write( fd, data, block->data_sz, block->data_sz, &wsz );
-        off += wsz;
-        if( FD_LIKELY( err==0 ) ) FD_LOG_DEBUG(( "[%s] archived block %lu", __func__, slot ));
-        else FD_LOG_ERR(( "[%s] failed to archive block %lu", __func__, slot ));
+        fd_blockstore_ser_t ser = {
+          .block_map = block_map_entry,
+          .block     = block,
+          .data      = data
+        };
+        ulong wsz = fd_blockstore_block_checkpt( blockstore,&ser, fd, slot );
 
         /* Successfully archived block, so update index and offset. */
 
         fd_block_idx_t * idx_entry = fd_block_idx_insert( fd_blockstore_block_idx( blockstore ), slot );
         idx_entry->off             = blockstore->off;
-        blockstore->off            = off;
+        blockstore->off            = blockstore->off + wsz;
         idx_entry->block_hash      = block_map_entry->block_hash;
         idx_entry->bank_hash       = block_map_entry->bank_hash;
       }
@@ -1078,41 +1145,38 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
 
   fd_wksp_t *      wksp      = fd_blockstore_wksp( blockstore );
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
+  fd_block_idx_t * idx_entry = NULL;
 
   ulong off = ULONG_MAX;
   for(;;) {
     uint seqnum;
     if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
-    fd_block_idx_t * idx_entry = fd_block_idx_query( block_idx, slot, NULL );
+    idx_entry = fd_block_idx_query( block_idx, slot, NULL );
     if( FD_LIKELY( idx_entry ) ) off = idx_entry->off;
     if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
     else break;
   }
 
   if ( FD_UNLIKELY( off < ULONG_MAX ) ) { /* optimize for non-archival queries */
-    if( FD_UNLIKELY( lseek( fd, (long)off, SEEK_SET ) == -1 ) ) {
-      FD_LOG_WARNING(( "failed to seek" ));
-      return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    }
-    ulong rsz; int err = fd_io_read( fd, block_map_entry_out, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &rsz );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "failed to read block map entry" ));
-      return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    }
-    fd_block_idx_t * parent_idx_entry = fd_block_idx_query( block_idx, block_map_entry_out->parent_slot, NULL );
     fd_block_t block_out;
-    err = fd_io_read( fd, &block_out, sizeof(fd_block_t), sizeof(fd_block_t), &rsz );
+    int err = fd_blockstore_block_meta_restore( blockstore, fd, idx_entry, block_map_entry_out, &block_out );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "failed to read block" ));
       return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     }
     uchar * block_data = fd_valloc_malloc( alloc, 128UL, block_out.data_sz );
-    err = fd_io_read( fd, block_data, block_out.data_sz, block_out.data_sz, &rsz );
+    err = fd_blockstore_block_data_restore( blockstore,
+                                            fd, 
+                                            idx_entry,   
+                                            block_data, 
+                                            block_out.data_sz, 
+                                            block_out.data_sz);
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "failed to read block data" ));
       return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     }
-
+    fd_block_idx_t * parent_idx_entry = fd_block_idx_query( block_idx, block_map_entry_out->parent_slot, NULL );
+    if( FD_UNLIKELY( !parent_idx_entry ) ) {
+      return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+    } 
     *parent_block_hash_out = parent_idx_entry->block_hash;
     *block_map_entry_out   = *block_map_entry_out; /* no op */
     *block_rewards_out     = block_out.rewards;
@@ -1298,13 +1362,13 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
     fd_block_map_t block_map_entry;
     ulong rsz; int err;
     err = fd_io_read( fd, &block_map_entry, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &rsz );
-    check_read_err( err );
+    check_read_write_err( err );
     err = fd_io_read( fd, txn_data_out, txn_out->sz, txn_out->sz, &rsz );
-    check_read_err( err );
+    check_read_write_err( err );
     err = (int)lseek( fd, (long)off + (long)txn_out->offset, SEEK_SET );
-    check_read_err( err );
+    check_read_write_err( err );
     err = fd_io_read( fd, txn_data_out, txn_out->sz, txn_out->sz, &rsz );
-    check_read_err( err);
+    check_read_write_err( err);
     return FD_BLOCKSTORE_OK;
   }
 
