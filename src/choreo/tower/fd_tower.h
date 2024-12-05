@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_choreo_tower_fd_tower_h
 #define HEADER_fd_src_choreo_tower_fd_tower_h
 
-
 /* fd_tower presents an API for Solana's TowerBFT algorithm.
 
    What is TowerBFT? TowerBFT is an algorithm for converging a

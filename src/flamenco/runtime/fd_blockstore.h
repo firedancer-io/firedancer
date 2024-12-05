@@ -230,6 +230,8 @@ struct fd_block_map {
   ulong     height;
   fd_hash_t block_hash;
   fd_hash_t bank_hash;
+  fd_hash_t merkle_hash;    /* the last FEC set's merkle hash */
+  ulong     fec_cnt;        /* the number of FEC sets in the slot */
   uchar     flags;
   uchar     reference_tick; /* the tick when the leader prepared the block. */
   long      ts;             /* the wallclock time when we finished receiving the block. */

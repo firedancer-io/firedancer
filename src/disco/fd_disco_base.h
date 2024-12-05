@@ -30,8 +30,15 @@
    XSK entry size, so this value follows naturally. */
 #define FD_NET_MTU (2048UL)
 
-/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
+/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU.
+
+   This is minimum MTU of IPv6 packet - IPv6 header - UDP header
+                                 1280 -          40 -          8 */
 #define FD_TPU_MTU (1232UL)
+
+/* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
+   above. */
+#define FD_GOSSIP_MTU (FD_TPU_MTU)
 
 /* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
    asserted in fd_shred_tile.c). */
@@ -138,4 +145,3 @@ fd_disco_compact_wmark( void * wksp, ulong mtu ) {
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_fd_disco_base_h */
-
