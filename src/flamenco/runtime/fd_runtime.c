@@ -4559,7 +4559,7 @@ int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 int
-fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_t * capture_ctx ) {
+fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_t * capture_ctx, fd_tpool_t * tpool ) {
   ulong hashcnt_per_slot = slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   while(hashcnt_per_slot--) {
     fd_sha256_hash( slot_ctx->slot_bank.poh.uc, 32UL, slot_ctx->slot_bank.poh.uc );
@@ -4575,7 +4575,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_
   fd_runtime_freeze( slot_ctx );
 
   /* sort and update bank hash */
-  int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
+  int result = fd_update_hash_bank_tpool( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt, tpool );
   if (result != FD_EXECUTOR_INSTR_SUCCESS) {
     FD_LOG_ERR(("Failed to update bank hash with error=%d", result));
   }
@@ -4591,7 +4591,8 @@ void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const         * genesis_filepath,
                          uchar                is_snapshot,
-                         fd_capture_ctx_t   * capture_ctx
+                         fd_capture_ctx_t   * capture_ctx,
+                         fd_tpool_t         * tpool
  ) {
   if ( strlen( genesis_filepath ) == 0 ) return;
 
@@ -4678,7 +4679,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
     slot_ctx->slot_bank.slot = 0UL;
 
-    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx );
+    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, tpool );
     if( FD_UNLIKELY( err  ) ) {
       FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
     }

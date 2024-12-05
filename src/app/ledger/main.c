@@ -870,7 +870,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL );
+    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool );
   }
 
   if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
@@ -1006,7 +1006,7 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
-      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL );
+      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool );
     }
   } else {
     FD_LOG_NOTICE(( "found funk with %lu records", rec_cnt ));
