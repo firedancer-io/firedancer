@@ -624,6 +624,7 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "eqvoc" ) ) ) {
       strncpy( tile->eqvoc.identity_key_path, config->consensus.identity_path, sizeof(tile->eqvoc.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
+      strncpy( tile->replay.blockstore_file, config->blockstore.file, sizeof(tile->replay.blockstore_file) ); 
       tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
       tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
       tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
