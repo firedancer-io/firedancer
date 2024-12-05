@@ -235,6 +235,7 @@ typedef struct {
       char  cluster_version[ 32 ];
       int   in_wen_restart;
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+      int   plugins_enabled;
 
       /* not specified in TOML */
 
@@ -286,6 +287,7 @@ typedef struct {
       ushort  tpu_vote_port;
       ushort  repair_serve_port;
       ulong   expected_shred_version;
+      int     plugins_enabled;
     } gossip;
 
     struct {

@@ -446,6 +446,34 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   }
 
+  /* For now the only plugin consumer is the GUI */
+  int plugins_enabled = config->tiles.gui.enabled;
+  if( FD_LIKELY( plugins_enabled ) ) {
+    fd_topob_wksp( topo, "plugin_in"    );
+    fd_topob_wksp( topo, "plugin_out"   );
+    fd_topob_wksp( topo, "plugin"       );
+
+    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
+    /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,               1UL );
+    /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
+
+    /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+
+    /**/                 fd_topob_tile_out( topo, "replay", 0UL,                        "replay_plugi", 0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "gossip", 0UL,                        "gossip_plugi", 0UL                                                  );
+    /**/                 fd_topob_tile_out( topo, "plugin", 0UL,                        "plugin_out", 0UL                                                    );
+
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "replay_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "gossip_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) {
+    fd_topob_wksp( topo, "gui"          );
+    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,        "metric_in",     "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
@@ -536,6 +564,7 @@ fd_topo_initialize( config_t * config ) {
         }
         tile->gossip.peer_ports[i] = (ushort)config->tiles.gossip.peer_ports[i];
       }
+      tile->gossip.plugins_enabled = plugins_enabled;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.repair_intake_listen_port =  config->tiles.repair.repair_intake_listen_port;
@@ -559,6 +588,7 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
       tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
       strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
+      tile->replay.plugins_enabled = plugins_enabled;
 
       if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
                     && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
@@ -632,6 +662,15 @@ fd_topo_initialize( config_t * config ) {
       tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
       tile->rpcserv.tpu_ip_addr = config->tiles.net.ip_addr;
       strncpy( tile->rpcserv.identity_key_path, config->consensus.identity_path, sizeof(tile->rpcserv.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
+      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
+        FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
+      tile->gui.listen_port = config->tiles.gui.gui_listen_port;
+      tile->gui.is_voting = strcmp( config->consensus.vote_account_path, "" );
+      strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
+      strncpy( tile->gui.identity_key_path, config->consensus.identity_path, sizeof(tile->gui.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
+
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
