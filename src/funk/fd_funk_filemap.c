@@ -305,14 +305,17 @@ fd_funk_recover_checkpoint( const char * funk_filename,
                             fd_funk_close_file_args_t * close_args_out ) {
   /* Make the funk workspace match the parameters used to create the
      checkpoint. */
-  uint seed;
-  ulong part_max;
-  ulong data_max;
-  int err = fd_wksp_restore_preview( checkpt_filename, &seed, &part_max, &data_max );
+
+  fd_wksp_preview_t preview[1];
+  int err = fd_wksp_preview( checkpt_filename, preview );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "unable to preview %s", checkpt_filename ));
+    FD_LOG_WARNING(( "unable to preview %s (%i-%s)", checkpt_filename, err, fd_wksp_strerror( err ) ));
     return NULL;
   }
+  uint  seed     = preview->seed;
+  ulong part_max = preview->part_max;
+  ulong data_max = preview->data_max;
+
   ulong total_sz = fd_wksp_footprint( part_max, data_max );
 
   int fd;
