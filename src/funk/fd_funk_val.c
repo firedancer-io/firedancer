@@ -1,3 +1,4 @@
+#include "fd_funk_val.h"
 #include "fd_funk.h"
 
 fd_funk_rec_t *

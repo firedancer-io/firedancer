@@ -428,6 +428,10 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * account = accounts[i];
 
+      if( !memcmp(account->pubkey, &fd_sysvar_last_restart_slot_id, sizeof(fd_pubkey_t)) ) {
+        FD_LOG_WARNING(("PURR"));
+      }
+
       ulong batch_idx = i & batch_mask;
       fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
       task_info->accounts[task_info->accounts_cnt++] = account;
@@ -463,7 +467,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     /* Save accounts in a thread pool */
 
-    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ) - 1UL, fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     fd_funk_end_write( funk );
 

@@ -294,6 +294,7 @@ typedef struct {
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
+      ulong snapshot_interval;
       int   in_wen_restart;
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } replay;
@@ -303,6 +304,13 @@ typedef struct {
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
     } store_int;
+
+    struct {
+      ulong full_interval;
+      ulong incremental_interval;
+      char  out_dir[ PATH_MAX ];
+      ulong tpool_thread_count;
+    } snaps;
 
   } tiles;
 } config_t;

@@ -357,6 +357,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
+    "snaps",  /* FIREDANCER only */
 #endif
   };
 

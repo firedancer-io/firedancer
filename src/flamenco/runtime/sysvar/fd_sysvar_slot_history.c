@@ -90,6 +90,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
   fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot );
   history->next_slot = slot_ctx->slot_bank.slot + 1;
+  FD_LOG_WARNING(("FOR THE CURRENT SLOT %lu", slot_ctx->slot_bank.slot));
 
   ulong sz = fd_slot_history_size( history );
   if( sz < slot_history_min_account_size )
