@@ -200,7 +200,7 @@ struct __attribute__((packed)) fd_shred {
 
   union {
     /* Common data shred header */
-    struct __attribute__((packed)) {
+    struct __attribute__((packed)) fd_shred_data {
       /* Slot number difference between this block and the parent block.
          parent_off <= slot.
          Always greater than zero, except for slot 0, in which case the
@@ -220,7 +220,7 @@ struct __attribute__((packed)) fd_shred {
     } data;
 
     /* Common coding shred header */
-    struct __attribute__((packed)) {
+    struct __attribute__((packed)) fd_shred_code {
       /* Total number of data shreds in slot. Must be positive. */
       /* 0x53 */ ushort data_cnt;
 
@@ -234,6 +234,8 @@ struct __attribute__((packed)) fd_shred {
   };
 };
 typedef struct fd_shred fd_shred_t;
+typedef struct fd_shred_data fd_shred_data_t;
+typedef struct fd_shred_code fd_shred_code_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -406,7 +408,7 @@ fd_shred_code_payload( fd_shred_t const * shred ) {
    of the chained Merkle root.  U.B. if the shred is not a chained
    variant. */
 FD_FN_CONST static inline ulong
-fd_shred_chain_offset( uchar variant ) {
+fd_shred_chain_off( uchar variant ) {
   ulong type = fd_shred_type( variant );
   return fd_ulong_if( type & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ, FD_SHRED_MIN_SZ )
     - FD_SHRED_MERKLE_ROOT_SZ
