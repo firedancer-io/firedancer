@@ -2304,41 +2304,6 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
-                                      fd_capture_ctx_t *capture_ctx,
-                                      fd_block_info_t const *block_info) {
-  fd_sysvar_slot_history_update(slot_ctx);
-
-  // this slot is frozen... and cannot change anymore...
-  fd_runtime_freeze(slot_ctx);
-
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
-  if( result != 0 ) {
-    FD_LOG_WARNING(("update bpf program cache failed"));
-    return result;
-  }
-
-  result = fd_update_hash_bank(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt);
-  if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
-    FD_LOG_WARNING(("hashing bank failed"));
-    return result;
-  }
-
-  // result = fd_runtime_save_epoch_bank( slot_ctx );
-  // if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-  //   FD_LOG_WARNING(( "save epoch bank failed" ));
-  //   return result;
-  // }
-
-  result = fd_runtime_save_slot_bank(slot_ctx);
-  if( result != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    FD_LOG_WARNING(("failed to save slot bank"));
-    return result;
-  }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_capture_ctx_t * capture_ctx,
