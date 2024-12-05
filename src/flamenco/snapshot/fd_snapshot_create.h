@@ -34,7 +34,6 @@
 #define FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD (".tmp.tar.zst")
 #define FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD (".tmp_inc.tar.zst")
 
-
 #define FD_SNAPSHOT_APPEND_VEC_SZ_MAX (16UL * 1024UL * 1024UL * 1024UL)
 
 FD_PROTOTYPES_BEGIN
@@ -108,6 +107,8 @@ fd_snapshot_create_get_slot( ulong fseq ) {
          encapsulated in the accounts.
       b. Append vec index. This is a list of all of the append vecs that are
          used to store the accounts. This is a slot indexed file.
+      c. The manifest also contains other relevant metadata like the hashes
+         of the accounts and the snapshot hash.
    3. Status cache - the status cache holds the transaction statuses for the 
       last 300 rooted slots. This is a nested data structure which is indexed
       by blockhash. See fd_txncache.h for more details on the status cache.
@@ -121,9 +122,7 @@ fd_snapshot_create_get_slot( ulong fseq ) {
   on the value of is_incremental. An incremental snapshot will contain all of 
   the information described above, except it will only contain accounts that
   have been modified or deleted since the creation of the last incremental
-  snapshot.
-
-  TODO: Currently incremental snapshots are not supported. */
+  snapshot. */
 
 int
 fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
@@ -135,7 +134,8 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
    used in snapshot creation. It should ONLY be used for creating
    snapshots for offline replay. The reason that file descriptors are
    not managed by the snapshot library for running a live node is to 
-   maintain the sandbox model. */
+   maintain the sandbox. While running the full client, the file descriptors
+   used by the snapshot service are maintained by the snapshot tile. */
 
 int
 fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx,

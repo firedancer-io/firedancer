@@ -347,7 +347,7 @@ typedef struct {
       int   tmp_inc_fd;
       int   full_snapshot_fd;
       int   incremental_snapshot_fd;
-      ulong tpool_thread_count;
+      ulong hash_tcnt;
     } snaps;
 
   };

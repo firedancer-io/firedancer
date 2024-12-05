@@ -136,10 +136,7 @@ fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
   fd_snapshot_ctx_t * snapshot_ctx = (fd_snapshot_ctx_t *)t0;
   fd_ledger_args_t *  ledger_args  = (fd_ledger_args_t *)t1;
 
-  fd_hash_t * out_hash           = (fd_hash_t *)n0;
-  ulong *     out_capitalization = (ulong *)n1;
-
-  FD_LOG_WARNING(("Starting snapshot creation at slot=%lu", snapshot_ctx->slot));
+  FD_LOG_WARNING(( "Starting snapshot creation at slot=%lu", snapshot_ctx->slot ));
 
   int err = fd_snapshot_create_new_snapshot_offline( snapshot_ctx, 
                                                      &ledger_args->last_snapshot_hash, 
@@ -147,7 +144,7 @@ fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "failed to create snapshot" ));
   }
-  FD_LOG_NOTICE(("Successfully produced a snapshot at directory=%s", ledger_args->snapshot_dir ));
+  FD_LOG_NOTICE(( "Successfully produced a snapshot at directory=%s", ledger_args->snapshot_dir ));
 
   ledger_args->slot_ctx->epoch_ctx->constipate_root = 0;
   ledger_args->is_snapshotting                      = 0;
@@ -336,8 +333,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     /* TODO:FIXME: skipped slots handling */
 
 
-    //FD_LOG_WARNING(("last snapshot slot %lu snapping %u freq met %d", ledger_args->last_snapshot_slot, ledger_args->is_snapshotting, ledger_args->slot_ctx->root_slot%ledger_args->incremental_freq==0UL ));
-
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 
       uchar * mem = fd_valloc_malloc( fd_scratch_virtual(), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
@@ -374,7 +369,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .acc_mgr        = fd_acc_mgr_new( mem, ledger_args->slot_ctx->acc_mgr->funk ),
         .status_cache   = ledger_args->slot_ctx->status_cache,
         .last_snap_slot = ledger_args->last_snapshot_slot, /* TODO:FIXME: make it clear that this implies last full snapshot */
-        .tpool          = ledger_args->snapshot_tpool
+        .tpool          = ledger_args->snapshot_tpool,
+        .last_snap_hash = &ledger_args->last_snapshot_hash,
+        .last_snap_capitalization = ledger_args->last_snapshot_capitalization
       };
 
       FD_LOG_WARNING(("STARTING INCREMENTAL SNPASHOTTTING"));

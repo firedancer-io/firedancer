@@ -599,11 +599,8 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
     fd_tpool_wait( ctx->tpool, i+1 );
   }
   fd_funk_start_write( ctx->funk );
-
-  //ulong is_funk_constipated = fd_fseq_query( ctx->is_funk_constipated );
-
   
-    /* For the status cache, we stop rooting until the status cache has been 
+  /* For the status cache, we stop rooting until the status cache has been 
      written out to the current snapshot. */
 
   fd_funk_txn_t * txn = root_txn;
@@ -1128,6 +1125,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
       /* TODO:FIXME: This needs to be unhacked. */
       fork->slot_ctx.slot_bank.max_tick_height += 64UL * (curr_slot - ctx->parent_slot);
+      fork->slot_ctx.slot_bank.tick_height     += 64UL * (curr_slot - ctx->parent_slot);
 
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
 

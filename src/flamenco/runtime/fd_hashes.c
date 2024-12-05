@@ -1245,14 +1245,12 @@ fd_snapshot_service_hash( fd_hash_t       * accounts_hash,
   int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
 
   if( should_include_eah ) {
-    FD_LOG_WARNING(("SHOULD INCLUDE"));
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
     fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, snapshot_hash );
   } else {
-    FD_LOG_WARNING(("SHOULDNT INCLUDE"));
-    snapshot_hash = accounts_hash;
+    fd_memcpy( snapshot_hash, accounts_hash, sizeof(fd_hash_t) );
   }
 
   return 0;
@@ -1274,14 +1272,12 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
   int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
 
   if( should_include_eah ) {
-    FD_LOG_WARNING(("SHOULD INCLUDE"));
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
     fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, snapshot_hash );
   } else {
-    FD_LOG_WARNING(("SHOULDNT INCLUDE"));
-    snapshot_hash = accounts_hash;
+    fd_memcpy( snapshot_hash, accounts_hash, sizeof(fd_hash_t) );
   }
 
   return 0;

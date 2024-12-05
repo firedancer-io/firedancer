@@ -25,6 +25,8 @@ ready_cmd_fn( args_t *         args,
 
     /* Don't wait for thread tiles, they will not report ready. */
     if( strncmp( tile->name, "thread", 7 )==0 ) continue;
+    if( strncmp( tile->name, "sthrea", 7 )==0 ) continue;
+
 
     long start = fd_log_wallclock();
     int printed = 0;

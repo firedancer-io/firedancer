@@ -1088,7 +1088,6 @@ fd_txncache_get_entries( fd_txncache_t * tc,
     slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_scratch_alloc( FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
     slot_deltas->slot_deltas[ i ].slot_delta_vec_len = 0UL;
     ulong slot_delta_vec_len = 0UL;
-    FD_LOG_WARNING(("SLOT %lu", slot));
 
     fd_txncache_private_slotcache_t * slotcache;
     if( FD_UNLIKELY( FD_TXNCACHE_FIND_FOUND!=fd_txncache_find_slot( tc, slot, 0, &slotcache ) ) ) {

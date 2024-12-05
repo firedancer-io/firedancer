@@ -33,13 +33,13 @@ struct fd_snapshot_tile_ctx {
   int             full_snapshot_fd;
   int             incremental_snapshot_fd;
 
-  ulong           last_full_snap;
 
   uchar           tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_tpool_t *    tpool;
 
   int activated;
 
+  ulong     last_full_snap;
   fd_hash_t last_hash;
   ulong     last_capitalization;
 };
@@ -52,19 +52,12 @@ tpool_snap_boot( fd_topo_t * topo, ulong total_thread_count ) {
   ulong main_thread_seen = 0;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( strcmp( topo->tiles[i].name, "thread" ) == 0 ) {
+    if( strcmp( topo->tiles[i].name, "sthrea" ) == 0 ) {
       tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
       thread_count++;
     }
-    if( strcmp( topo->tiles[i].name, "snaps" ) == 0 ) {
-      tile_to_cpu[ 0 ] = (ushort)topo->tiles[i].cpu_idx;
-      main_thread_seen = 1;
-    }
   }
 
-  if( main_thread_seen ) {
-    thread_count++;
-  }
 
   if( thread_count != total_thread_count )
     FD_LOG_WARNING(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", thread_count, total_thread_count, main_thread_seen ));
@@ -81,7 +74,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tcnt * TPOOL_WORKER_MEM_SZ );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -159,7 +152,7 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapshot_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_snapshot_tile_ctx_t) );
-  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tcnt * TPOOL_WORKER_MEM_SZ );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX    ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
@@ -176,16 +169,16 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   /* tpool                                                              */
   /**********************************************************************/
 
-  FD_LOG_WARNING(("NUM THREADS: %lu", tile->snaps.tpool_thread_count));
+  FD_LOG_WARNING(("NUM THREADS: %lu", tile->snaps.hash_tcnt));
 
-  if( FD_LIKELY( tile->snaps.tpool_thread_count > 1 ) ) {
-    tpool_snap_boot( topo, tile->snaps.tpool_thread_count );
+  if( FD_LIKELY( tile->snaps.hash_tcnt > 1 ) ) {
+    tpool_snap_boot( topo, tile->snaps.hash_tcnt );
   }
-  ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->snaps.tpool_thread_count );
+  ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->snaps.hash_tcnt );
 
-  if( FD_LIKELY( tile->snaps.tpool_thread_count > 1 ) ) {
+  if( FD_LIKELY( tile->snaps.hash_tcnt > 1 ) ) {
     /* start the tpool workers */
-    for( ulong i = 1UL; i<tile->snaps.tpool_thread_count; i++ ) {
+    for( ulong i = 1UL; i<tile->snaps.hash_tcnt; i++ ) {
       if( fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
@@ -196,31 +189,9 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   /* funk                                                               */
   /**********************************************************************/
 
-  // ulong funk_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "funk" );
-  // FD_TEST( funk_obj_id!=ULONG_MAX );
-  // ctx->funk = fd_funk_join( fd_topo_obj_laddr( topo, funk_obj_id ) );
-  // if( ctx->funk==NULL ) {
-  //   FD_LOG_ERR(( "no funk" ));
-  // }
-
+  /* We only want to join funk after it has been setup and joined in the 
+     replay tile. */
   ctx->activated = 0;
-
-  /* TODO: This below code needs to be shared as a topology object. */
-  // fd_funk_t * funk;
-
-  // FD_LOG_WARNING(("STARTING TO JOIN FUNK"));
-
-  //   /* Create new funk database */
-  // funk = fd_funk_open_file(
-  //     "/data/ibhatt/funkfile", 1, 0UL, 0UL,
-  //     0UL, 0UL,
-  //     FD_FUNK_READONLY, NULL );
-  // if( funk == NULL ) {
-  //   FD_LOG_ERR(( "no funk loaded" ));
-  // }
-
-  // FD_LOG_WARNING(("JOINED FUNK"));
-  // ctx->funk = funk;
 
   /**********************************************************************/
   /* status cache                                                       */
@@ -247,7 +218,7 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   }
 
   /**********************************************************************/
-  /*  constipated fseq                                                  */
+  /* constipated fseq                                                   */
   /**********************************************************************/
 
   ulong constipated_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "constipate" );
@@ -259,9 +230,17 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   fd_fseq_update( ctx->is_constipated, 0UL );
   FD_TEST( 0UL==fd_fseq_query( ctx->is_constipated ) );
 
-  /* TODO:FIXME: document this */
 
-  ctx->last_full_snap = 0UL;
+  /**********************************************************************/
+  /* snapshot                                                           */
+  /**********************************************************************/
+
+  /* Zero init all of the fields used for incremental snapshot generation
+     that must be persisted across snapshot creation. */
+
+  ctx->last_full_snap      = 0UL;
+  ctx->last_capitalization = 0UL;
+  fd_memset( &ctx->last_hash, 0, sizeof(fd_hash_t) );
 
 }
 
@@ -270,8 +249,6 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
               fd_stem_context_t *      stem        FD_PARAM_UNUSED,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy FD_PARAM_UNUSED ) {
-    
-
 
   ulong is_constipated = fd_fseq_query( ctx->is_constipated );
 
@@ -285,15 +262,11 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
       }
       ctx->activated = 1;
 
-      FD_LOG_WARNING(("JUST JOINED SNAPSHOT FUNK"));
+      FD_LOG_WARNING(("Just joined funk"));
     }
 
     ulong is_incremental = fd_snapshot_create_get_is_incremental( is_constipated );
     ulong snapshot_slot  = fd_snapshot_create_get_slot( is_constipated );
-
-    if( ctx->last_full_snap != 0UL && !is_incremental ) {
-      FD_LOG_ERR(("SUCCESSUFL EXIT"));
-    }
 
     if( !is_incremental ) {
       ctx->last_full_snap = snapshot_slot;
@@ -304,17 +277,17 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     uchar * mem = fd_valloc_malloc( fd_scratch_virtual(), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
 
     fd_snapshot_ctx_t snapshot_ctx = {
-      .slot           = snapshot_slot,
-      .out_dir        = ctx->out_dir,
-      .is_incremental = (uchar)is_incremental,
-      .valloc         = fd_scratch_virtual(),
-      .acc_mgr        = fd_acc_mgr_new( mem, ctx->funk ),
-      .status_cache   = ctx->status_cache,
-      .tmp_fd         = is_incremental ? ctx->tmp_inc_fd              : ctx->tmp_fd,
-      .snapshot_fd    = is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd,
-      .tpool          = ctx->tpool,
-      .last_snap_slot = is_incremental ? ctx->last_full_snap : 0UL,
-      .last_snap_hash = &ctx->last_hash,
+      .slot                     = snapshot_slot,
+      .out_dir                  = ctx->out_dir,
+      .is_incremental           = (uchar)is_incremental,
+      .valloc                   = fd_scratch_virtual(),
+      .acc_mgr                  = fd_acc_mgr_new( mem, ctx->funk ),
+      .status_cache             = ctx->status_cache,
+      .tmp_fd                   = is_incremental ? ctx->tmp_inc_fd              : ctx->tmp_fd,
+      .snapshot_fd              = is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd,
+      .tpool                    = ctx->tpool,
+      .last_snap_slot           = is_incremental ? ctx->last_full_snap : 0UL,
+      .last_snap_hash           = &ctx->last_hash,
       .last_snap_capitalization = ctx->last_capitalization
     };
 

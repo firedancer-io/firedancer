@@ -97,6 +97,8 @@ initialize_numa_assignments( fd_topo_t * topo ) {
         max_obj = j;
       }
     }
+    FD_LOG_WARNING(("WKSP %s %lu", topo->workspaces[ i ].name, max_obj));
+
 
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
