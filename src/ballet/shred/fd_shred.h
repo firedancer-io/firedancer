@@ -2,6 +2,8 @@
 #define HEADER_fd_src_ballet_shred_fd_shred_h
 
 #include <stdio.h>
+#include "../bmtree/fd_bmtree.h"
+
 /* Shreds form the on-wire representation of Solana block data
    optimized for transmission over unreliable links/WAN.
 
@@ -382,6 +384,14 @@ fd_shred_merkle_nodes( fd_shred_t const * shred ) {
   ptr += fd_shred_merkle_off( shred );
   return (fd_shred_merkle_t const *)ptr;
 }
+
+/* fd_shred_merkle_root: Assuming that `shred` is a Merkle variant,
+   reconstructs the merkle root from a shred and populates it in
+   root_out.  Returns 1 on success, 0 on failure.  The output value must
+   be ignored if a failure is returned.  U.B. if the shred is not a
+   merkle variant. */
+FD_FN_PURE int
+fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out );
 
 /* fd_shred_data_payload: Returns a pointer to a data shred payload.
 

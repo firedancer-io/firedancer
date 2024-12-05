@@ -53,7 +53,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   ulong             stake;        /* amount of stake (in lamports) that has voted for this slot */
   ulong             gossip_stake; /* amount of stake (in lamports) that has voted for this slot via gossip (sans replay overlap) */
   ulong             rooted_stake; /* amount of stake (in lamports) that has rooted this slot */
-  int               eqv;          /* flag for equivocation (multiple blocks) in this slot */
+  int               eqvoc;        /* flag there are equivocating blocks for this slot */
   fd_ghost_node_t * parent;       /* pointer to the parent */
   fd_ghost_node_t * child;        /* pointer to the left-most child */
   fd_ghost_node_t * sibling;      /* pointer to next sibling */

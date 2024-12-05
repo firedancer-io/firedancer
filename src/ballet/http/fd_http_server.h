@@ -390,7 +390,7 @@ fd_http_server_unstage( fd_http_server_t * http );
 
 int
 fd_http_server_stage_body( fd_http_server_t *          http,
-                              fd_http_server_response_t * response );
+                           fd_http_server_response_t * response );
 
 /* Send the contents of the staging buffer as a a WebSocket message to a
    single client.  The staging buffer is then cleared.  Returns -1 on

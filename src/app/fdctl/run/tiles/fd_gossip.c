@@ -40,7 +40,8 @@
 #define SIGN_OUT_IDX    4
 #define VOTER_OUT_IDX   5
 #define REPLAY_OUT_IDX  6
-#define PLUGIN_OUT_IDX  7
+#define EQVOC_OUT_IDX   7
+#define PLUGIN_OUT_IDX  8 /* THIS MUST BE LAST */
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
@@ -113,15 +114,15 @@ struct fd_gossip_tile_ctx {
   ulong       dedup_out_wmark;
   ulong       dedup_out_chunk;
 
-  fd_frag_meta_t * duplicate_shred_out_mcache;
-  ulong *          duplicate_shred_out_sync;
-  ulong            duplicate_shred_out_depth;
-  ulong            duplicate_shred_out_seq;
+  fd_frag_meta_t * eqvoc_out_mcache;
+  ulong *          eqvoc_out_sync;
+  ulong            eqvoc_out_depth;
+  ulong            eqvoc_out_seq;
 
-  fd_wksp_t * duplicate_shred_out_mem;
-  ulong       duplicate_shred_out_chunk0;
-  ulong       duplicate_shred_out_wmark;
-  ulong       duplicate_shred_out_chunk;
+  fd_wksp_t * eqvoc_out_mem;
+  ulong       eqvoc_out_chunk0;
+  ulong       eqvoc_out_wmark;
+  ulong       eqvoc_out_chunk;
 
   fd_wksp_t * voter_in_mem;
   ulong       voter_in_chunk0;
@@ -382,16 +383,23 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       ele->contact_info = contact_info;
     }
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
-    // fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
+    fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
+    uchar * eqvoc_msg = fd_chunk_to_laddr( ctx->eqvoc_out_mem, ctx->eqvoc_out_chunk );
+    memcpy( eqvoc_msg, duplicate_shred, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT );
+    memcpy( eqvoc_msg + FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, duplicate_shred->chunk, duplicate_shred->chunk_len );
 
-    // uchar * duplicate_shred_msg = fd_chunk_to_laddr( ctx->duplicate_shred_out_mem, ctx->duplicate_shred_out_chunk );
-    // memcpy( duplicate_shred_msg, duplicate_shred->chunk, duplicate_shred->chunk_len );
-
-    // ulong sig = 1UL;
-    // fd_mcache_publish( ctx->duplicate_shred_out_mcache, ctx->duplicate_shred_out_depth, ctx->duplicate_shred_out_seq, sig, ctx->duplicate_shred_out_chunk,
-    //   duplicate_shred->chunk_len, 0UL, 0, 0 );
-    // ctx->duplicate_shred_out_seq   = fd_seq_inc( ctx->duplicate_shred_out_seq, 1UL );
-    // ctx->duplicate_shred_out_chunk = fd_dcache_compact_next( ctx->duplicate_shred_out_chunk, duplicate_shred->chunk_len, ctx->duplicate_shred_out_chunk0, ctx->duplicate_shred_out_wmark );
+    ulong sig = 1UL;
+    fd_mcache_publish( ctx->eqvoc_out_mcache,
+                       ctx->eqvoc_out_depth,
+                       ctx->eqvoc_out_seq,
+                       sig,
+                       ctx->eqvoc_out_chunk,
+                       FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT,
+                       0UL,
+                       0,
+                       0 );
+    ctx->eqvoc_out_seq   = fd_seq_inc( ctx->eqvoc_out_seq, 1UL );
+    ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
   }
 }
 
@@ -755,14 +763,15 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt < 7UL ||
+  if( FD_UNLIKELY( tile->out_cnt < 8UL ||
                    strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX  ] ].name,    "gossip_net" )    ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name,  "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name,  "gossip_repai" )  ||
                    strcmp( topo->links[ tile->out_link_id[ DEDUP_OUT_IDX  ] ].name,  "gossip_dedup" )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name,  "gossip_sign" )   ||
                    strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX  ] ].name,  "gossip_voter" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX  ] ].name, "gossip_repla" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name,  "gossip_repla" )  ||
+                   strcmp( topo->links[ tile->out_link_id[ EQVOC_OUT_IDX  ] ].name,  "gossip_eqvoc" ) ) ) {
     FD_LOG_ERR(( "gossip tile has missing output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -916,6 +925,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->dedup_out_chunk0      = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out->dcache );
   ctx->dedup_out_wmark       = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out->dcache, dedup_out->mtu );
   ctx->dedup_out_chunk       = ctx->dedup_out_chunk0;
+
+  fd_topo_link_t * eqvoc_out = &topo->links[ tile->out_link_id[ EQVOC_OUT_IDX ] ];
+  ctx->eqvoc_out_mcache      = eqvoc_out->mcache;
+  ctx->eqvoc_out_sync        = fd_mcache_seq_laddr( ctx->eqvoc_out_mcache );
+  ctx->eqvoc_out_depth       = fd_mcache_depth( ctx->eqvoc_out_mcache );
+  ctx->eqvoc_out_seq         = fd_mcache_seq_query( ctx->eqvoc_out_sync );
+  ctx->eqvoc_out_mem         = topo->workspaces[ topo->objs[ eqvoc_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->eqvoc_out_chunk0      = fd_dcache_compact_chunk0( ctx->eqvoc_out_mem, eqvoc_out->dcache );
+  ctx->eqvoc_out_wmark       = fd_dcache_compact_wmark ( ctx->eqvoc_out_mem, eqvoc_out->dcache, eqvoc_out->mtu );
+  ctx->eqvoc_out_chunk       = ctx->eqvoc_out_chunk0;
 
   /* Set up crds vote voter tile output  */
   fd_topo_link_t * voter_out = &topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ];
