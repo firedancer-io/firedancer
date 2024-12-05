@@ -415,4 +415,16 @@ metric introduced.
   <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<tile name="replay">
+  <gauge name="Slot" summary="The slot that is currently being executing" />
+  <gauge name="LastVotedSlot" summary="The last slot that was voted on" />
+  <histogram name="VoteLatency" min="0" max="64">
+    <summary>The number of slots between the last voted slot and the current slot</summary>
+  </histogram>
+</tile>
+
+<tile name="storei">
+  <gauge name="TurbineSlot" summary="The slot that the turbine is currently on" />
+</tile>
+
 </metrics>

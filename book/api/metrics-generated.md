@@ -368,3 +368,15 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | store_&#8203;transactions_&#8203;inserted | `counter` | Count of transactions produced while we were leader in the shreds that have been inserted so far |
+
+## Replay Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| replay_&#8203;slot | `gauge` | The slot that is currently being executing |
+| replay_&#8203;last_&#8203;voted_&#8203;slot | `gauge` | The last slot that was voted on |
+| replay_&#8203;vote_&#8203;latency | `histogram` | The number of slots between the last voted slot and the current slot |
+
+## Storei Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| storei_&#8203;turbine_&#8203;slot | `gauge` | The slot that the turbine is currently on |

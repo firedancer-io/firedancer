@@ -17,6 +17,8 @@ class Tile(Enum):
     METRIC = 11
     PLUGIN = 12
     GUI = 13
+    REPLAY = 14
+    STOREI = 15
 
 class MetricType(Enum):
     COUNTER = 0

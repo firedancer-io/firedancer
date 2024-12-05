@@ -69,3 +69,6 @@ backtest.sh
 
 # Python
 venv
+
+# Pycache
+__pycache__/
