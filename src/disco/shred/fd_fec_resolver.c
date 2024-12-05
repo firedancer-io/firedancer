@@ -569,7 +569,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
-  uchar const * chained_root = fd_ptr_if( fd_shred_is_chained( shred_type ), (uchar *)shred+fd_shred_chain_offset( variant ), NULL );
+  uchar const * chained_root = fd_ptr_if( fd_shred_is_chained( shred_type ), (uchar *)shred+fd_shred_chain_off( variant ), NULL );
 
   /* Iterate over recovered shreds, add them to the Merkle tree,
      populate headers and signatures. */
@@ -577,7 +577,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     if( !d_rcvd_test( set->data_shred_rcvd, i ) ) {
       fd_memcpy( set->data_shreds[i], shred, sizeof(fd_ed25519_sig_t) );
       if( FD_UNLIKELY( fd_shred_is_chained( shred_type ) ) ) {
-        fd_memcpy( set->data_shreds[i]+fd_shred_chain_offset( data_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( set->data_shreds[i]+fd_shred_chain_off( data_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
       fd_bmtree_hash_leaf( leaf, set->data_shreds[i]+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
       if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
@@ -604,7 +604,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       p_shred->code.idx      = (ushort)i;
 
       if( FD_UNLIKELY( fd_shred_is_chained( shred_type ) ) ) {
-        fd_memcpy( set->parity_shreds[i]+fd_shred_chain_offset( parity_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( set->parity_shreds[i]+fd_shred_chain_off( parity_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
 
       fd_bmtree_hash_leaf( leaf, set->parity_shreds[i]+ sizeof(fd_ed25519_sig_t), parity_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
@@ -644,8 +644,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     reject |= parsed->data.parent_off != base_data_shred->data.parent_off;
 
     reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
-                !fd_memeq( (uchar *)parsed         +fd_shred_chain_offset( parsed->variant          ),
-                           (uchar *)base_data_shred+fd_shred_chain_offset( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+                !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
+                           (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
   }
   for( ulong i=0UL; (!reject) & (i<set->parity_shred_cnt); i++ ) {
     fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ], FD_SHRED_MAX_SZ );
@@ -660,8 +660,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     reject |= parsed->code.idx                       != (ushort)i;
 
     reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
-                !fd_memeq( (uchar *)parsed         +fd_shred_chain_offset( parsed->variant          ),
-                           (uchar *)base_data_shred+fd_shred_chain_offset( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+                !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
+                           (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
   }
   if( FD_UNLIKELY( reject ) ) {
     freelist_push_tail( free_list,        set  );
