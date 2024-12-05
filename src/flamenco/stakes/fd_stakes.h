@@ -8,6 +8,7 @@
 typedef struct fd_epoch_cache {
   fd_stake_info_t_mapnode_t * stake_infos_root;
   fd_stake_info_t_mapnode_t * stake_infos_pool;
+  fd_stake_history_entry_t    accumulator;
 } fd_epoch_cache_t;
 
 FD_PROTOTYPES_BEGIN
@@ -34,7 +35,7 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
 
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global );
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t * global, fd_epoch_cache_t *cache );
 
 fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch );
 

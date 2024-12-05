@@ -4546,7 +4546,7 @@ void fd_process_new_epoch(
     fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
 
     refresh_stake_infos( slot_ctx, history, &epoch_cache );
-    fd_stakes_activate_epoch( slot_ctx );
+    fd_stakes_activate_epoch( slot_ctx, &epoch_cache );
 
     /* Update the stakes epoch value to the new epoch */
     epoch_bank->stakes.epoch = epoch;
