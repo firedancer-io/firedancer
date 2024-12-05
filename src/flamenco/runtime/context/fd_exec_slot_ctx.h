@@ -58,8 +58,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_valloc_t                 valloc;
 
   fd_slot_bank_t              slot_bank;
-  // TODO this leader pointer could become invalid if forks cross epoch boundaries
-  fd_pubkey_t const *         leader; /* Current leader */
+
   ulong                       total_compute_units_requested;
 
   /* TODO figure out what to do with this */

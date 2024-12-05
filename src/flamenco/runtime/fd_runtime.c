@@ -2225,19 +2225,6 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 int
-fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
-  ulong slot_rel;
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_rel);
-  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
-  if( slot_ctx->leader == NULL ) {
-    return -1;
-  }
-
-  return 0;
-}
-
-int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   /* Update block height */
   slot_ctx->slot_bank.block_height += 1UL;
@@ -2281,14 +2268,8 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
 
-  int result = fd_runtime_block_update_current_leader( slot_ctx );
-  if (result != 0) {
-    FD_LOG_WARNING(("updating current leader"));
-    return result;
-  }
-
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
-  result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx );
+  int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx );
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
   if (result != 0) {
     FD_LOG_WARNING(("updating sysvars failed"));
@@ -2912,7 +2893,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                 block_info.txn_cnt,
                 tps,
                 FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
-                FD_BASE58_ENC_32_ALLOCA( slot_ctx->leader->key ) ));
+                FD_BASE58_ENC_32_ALLOCA( fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot ) ) ));
 
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
@@ -3763,9 +3744,10 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
     do {
       /* do_create=1 because we might wanna pay fees to a leader
          account that we've purged due to 0 balance. */
-      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->leader, 1, 0UL, rec );
+      fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
+      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, leader, 1, 0UL, rec );
       if( FD_UNLIKELY(err) ) {
-        FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( slot_ctx->leader ), err));
+        FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
         burn = fd_ulong_sat_add( burn, fees );
         break;
       }
@@ -3789,7 +3771,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       fd_block_t * blk = slot_ctx->block;
       blk->rewards.collected_fees = fees;
       blk->rewards.post_balance = rec->meta->info.lamports;
-      memcpy( blk->rewards.leader.uc, slot_ctx->leader->uc, sizeof(fd_hash_t) );
+      memcpy( blk->rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
       fd_blockstore_end_write( slot_ctx->blockstore );
     } while(0);
 
