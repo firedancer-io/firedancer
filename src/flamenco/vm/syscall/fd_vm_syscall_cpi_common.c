@@ -320,13 +320,11 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     uint found = 0;
     for( ulong j=0; (j < account_infos_length) && !found; j++ ) {
 
-      /* Look up the pubkey to see if it is the account we're looking for */
-      fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD_UNCHECKED( 
+      /* Look up the pubkey to see if it is the account we're looking for,
+         error out if invalid address (implies bad account_infos and is also what Agave does).
+         https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L828-L832 */
+      fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD( 
         vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
-      /* If the address does not point to a valid address, then we should skip over this account, not error out. */
-      if ( acct_addr == 0UL ) {
-        continue;
-      }
 
       if( memcmp( account_key->uc, acct_addr->uc, sizeof(fd_pubkey_t) ) != 0 ) {
         continue;
@@ -684,8 +682,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( FD_UNLIKELY( err ) ) {
     /* We should propogate the instruction error from fd_vm_prepare_instruction. */
-    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
-    vm->instr_ctx->txn_ctx->exec_err      = err;
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
     return err;
   }
 
