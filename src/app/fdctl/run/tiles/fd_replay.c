@@ -252,6 +252,8 @@ struct fd_replay_tile_ctx {
 
   fd_spad_t * spads[ 128UL ];
   ulong       spad_cnt;
+
+  fd_histf_t vote_latency[ 1 ];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -458,6 +460,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
       fd_microblock_bank_trailer_t * t = (fd_microblock_bank_trailer_t *)src;
       ctx->parent_slot = (ulong)t->bank;
     } else {
+      // TODO: add metric for bad packet type
       FD_LOG_WARNING(("OTHER PACKET TYPE: %lu", fd_disco_poh_sig_pkt_type( sig )));
       ctx->skip_frag = 1;
       return;
@@ -491,10 +494,12 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
   if( FD_LIKELY( block_map_entry ) ) {
     if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+      // TODO: add metric for block already processed
       FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
       ctx->skip_frag = 1;
     }
     if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
+      // TODO: add metric for block already dead
       FD_LOG_WARNING(( "block already dead - slot: %lu", ctx->curr_slot ));
       ctx->skip_frag = 1;
     }
@@ -733,12 +738,14 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   fd_hash_t const * vote_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot );
 
   if( vote_bank_hash==NULL ) {
+    // TODO: add metric for missing vote hash
     FD_LOG_WARNING(("no vote bank hash found"));
     fd_blockstore_end_read( ctx->blockstore );
     return;
   }
 
   if( vote_block_hash==NULL ) {
+    // TODO: add metric for missing vote hash
     FD_LOG_WARNING(("no vote block hash found"));
     fd_blockstore_end_read( ctx->blockstore );
     return;
@@ -822,6 +829,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
 
   if( is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
+    // TODO: metric for epoch boundary counter
     FD_LOG_WARNING(("Epoch boundary"));
 
     fd_epoch_fork_elem_t * epoch_fork = NULL;
@@ -937,11 +945,13 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   ulong flags       = ctx->flags;
   ulong bank_idx    = ctx->bank_idx;
   if ( FD_UNLIKELY( curr_slot < ctx->tower->root ) ) {
+    // TODO: add metric for slot before root
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our root %lu.", curr_slot, parent_slot, ctx->tower->root ));
     return;
   }
 
   if ( FD_UNLIKELY( parent_slot < ctx->tower->root ) ) {
+    // TODO: add metric for parent slot before root
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our root %lu.", curr_slot, parent_slot, ctx->tower->root ));
     return;
   }
@@ -982,7 +992,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     int res = 0UL;
     FD_SCRATCH_SCOPE_BEGIN {
+      FD_MGAUGE_SET( REPLAY, SLOT, curr_slot );
       if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
+        // TODO: counter for leader slot
         // FD_LOG_WARNING(("MBLK4: %lu %lu %lu", ctx->curr_slot, seq, bank_idx+1));
         fd_tpool_wait( ctx->tpool, bank_idx+1 );
 
@@ -1080,6 +1092,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       fd_fork_frontier_ele_insert( ctx->forks->frontier, child, ctx->forks->pool );
 
       /* Consensus */
+      if( fd_tower_votes_cnt( ctx->tower->votes ) > 0 ) {
+        fd_histf_sample( ctx->vote_latency, fd_ulong_min( fd_ulong_sat_sub( ctx->curr_slot, fd_tower_votes_peek_tail_const(ctx->tower->votes)->slot ), UCHAR_MAX ) );
+      }
 
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
       fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
@@ -1156,7 +1171,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       if( FD_UNLIKELY( ctx->vote && fd_fseq_query( ctx->poh ) == ULONG_MAX ) ) {
 
         /* Only proceed with voting if we're caught up. */
-
+        // TODO: add metric for not caught up
         FD_LOG_WARNING(( "still catching up. not voting." ));
       } else {
 
@@ -1164,6 +1179,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
         if( FD_LIKELY( vote_fork ) ) {
           fd_tower_vote( ctx->tower, vote_fork->slot );
+          FD_MGAUGE_SET( REPLAY, LAST_VOTED_SLOT, vote_fork->slot );
 
           /* Check if we've reached max lockout. */
 
@@ -1651,6 +1667,11 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
+static inline void
+metrics_write( fd_replay_tile_ctx_t * ctx ) {
+  FD_MHIST_COPY( REPLAY, VOTE_LATENCY,     ctx->vote_latency );
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -2058,6 +2079,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
   }
+
+  fd_histf_new( ctx->vote_latency, FD_MHIST_MIN( REPLAY, VOTE_LATENCY  ), FD_MHIST_MAX( REPLAY, VOTE_LATENCY  ) );
 }
 
 static ulong
@@ -2106,6 +2129,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 

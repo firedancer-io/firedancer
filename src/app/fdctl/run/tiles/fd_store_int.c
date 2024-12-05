@@ -428,6 +428,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                         behind,
                         slot,
                         caught_up ));
+        FD_MGAUGE_SET( STOREI, TURBINE_SLOT, ctx->store->curr_turbine_slot );
 
         fd_raw_block_txn_iter_t iter;
         fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
