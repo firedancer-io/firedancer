@@ -660,6 +660,66 @@ typedef struct fd_delegation_off fd_delegation_off_t;
 #define FD_DELEGATION_OFF_FOOTPRINT sizeof(fd_delegation_off_t)
 #define FD_DELEGATION_OFF_ALIGN (8UL)
 
+/* fd_stake_info_t assigns an Ed25519 public key (node identity) to various bits of useful stake info */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_stake_info {
+  fd_pubkey_t key;
+  ulong effective;
+  ulong activating;
+  ulong deactivating;
+  fd_delegation_t delegation;
+};
+typedef struct fd_stake_info fd_stake_info_t;
+#define FD_STAKE_INFO_FOOTPRINT sizeof(fd_stake_info_t)
+#define FD_STAKE_INFO_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_stake_info_off {
+  uint key_off;
+  uint effective_off;
+  uint activating_off;
+  uint deactivating_off;
+  uint delegation_off;
+};
+typedef struct fd_stake_info_off fd_stake_info_off_t;
+#define FD_STAKE_INFO_OFF_FOOTPRINT sizeof(fd_stake_info_off_t)
+#define FD_STAKE_INFO_OFF_ALIGN (8UL)
+
+typedef struct fd_stake_info_t_mapnode fd_stake_info_t_mapnode_t;
+#define REDBLK_T fd_stake_info_t_mapnode_t
+#define REDBLK_NAME fd_stake_info_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_stake_info_t_mapnode {
+    fd_stake_info_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_info_t_mapnode_t *
+fd_stake_info_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  void * mem = fd_valloc_malloc( valloc, fd_stake_info_t_map_align(), fd_stake_info_t_map_footprint(len));
+  return fd_stake_info_t_map_join(fd_stake_info_t_map_new(mem, len));
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_stake_infos {
+  fd_stake_info_t_mapnode_t * stake_info_pool;
+  fd_stake_info_t_mapnode_t * stake_info_root;
+};
+typedef struct fd_stake_infos fd_stake_infos_t;
+#define FD_STAKE_INFOS_FOOTPRINT sizeof(fd_stake_infos_t)
+#define FD_STAKE_INFOS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_stake_infos_off {
+  uint stake_info_off;
+};
+typedef struct fd_stake_infos_off fd_stake_infos_off_t;
+#define FD_STAKE_INFOS_OFF_FOOTPRINT sizeof(fd_stake_infos_off_t)
+#define FD_STAKE_INFOS_OFF_ALIGN (8UL)
+
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_delegation_pair {
   fd_pubkey_t account;
@@ -5287,6 +5347,30 @@ int fd_delegation_decode_archival( fd_delegation_t * self, fd_bincode_decode_ctx
 int fd_delegation_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
 void fd_delegation_decode_archival_unsafe( fd_delegation_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_delegation_encode_archival( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
+
+void fd_stake_info_new( fd_stake_info_t * self );
+int fd_stake_info_decode( fd_stake_info_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_info_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stake_info_decode_unsafe( fd_stake_info_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_info_decode_offsets( fd_stake_info_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_info_encode( fd_stake_info_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_stake_info_destroy( fd_stake_info_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_stake_info_walk( void * w, fd_stake_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_stake_info_size( fd_stake_info_t const * self );
+ulong fd_stake_info_footprint( void );
+ulong fd_stake_info_align( void );
+
+void fd_stake_infos_new( fd_stake_infos_t * self );
+int fd_stake_infos_decode( fd_stake_infos_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_infos_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stake_infos_decode_unsafe( fd_stake_infos_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_infos_decode_offsets( fd_stake_infos_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_infos_encode( fd_stake_infos_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_stake_infos_destroy( fd_stake_infos_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_stake_infos_walk( void * w, fd_stake_infos_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_stake_infos_size( fd_stake_infos_t const * self );
+ulong fd_stake_infos_footprint( void );
+ulong fd_stake_infos_align( void );
 
 void fd_delegation_pair_new( fd_delegation_pair_t * self );
 int fd_delegation_pair_decode( fd_delegation_pair_t * self, fd_bincode_decode_ctx_t * ctx );

@@ -299,6 +299,25 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303"
     },
     {
+      "name": "stake_info",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "effective", "type": "ulong" },
+        { "name": "activating", "type": "ulong" },
+        { "name": "deactivating", "type": "ulong" },
+        { "name": "delegation", "type": "delegation" }
+      ],
+      "comment": "fd_stake_info_t assigns an Ed25519 public key (node identity) to various bits of useful stake info"
+    },
+    {
+      "name": "stake_infos",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_info", "type": "map", "element": "stake_info", "key": "key" }
+      ]
+    },
+    {
       "name": "delegation_pair",
       "type": "struct",
       "fields": [

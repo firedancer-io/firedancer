@@ -4161,7 +4161,7 @@ void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
    From the calling context, `out_rec` points to a native program record (e.g. Config, ALUT native programs).
    There should be enough space in `out_rec->data` to hold at least 36 bytes (the size of a BPF upgradeable
-   program account) when calling this function. The native program account's owner is set to the BPF loader 
+   program account) when calling this function. The native program account's owner is set to the BPF loader
    upgradeable program ID, and lamports are increased / deducted to contain the rent exempt minimum balance.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L79-L95 */
@@ -4233,7 +4233,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
   if( config_upgrade_authority_address!=NULL ) {
-    if( FD_UNLIKELY( state.inner.buffer.authority_address==NULL || 
+    if( FD_UNLIKELY( state.inner.buffer.authority_address==NULL ||
                      memcmp( config_upgrade_authority_address, state.inner.buffer.authority_address, sizeof(fd_pubkey_t) ) ) ) {
       return -1;
     }
@@ -4285,7 +4285,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
       - source_buffer_address: source_buffer_address
       - migration_target
         - Builtin: !stateless
-        - Stateless: stateless 
+        - Stateless: stateless
       - upgrade_authority_address: upgrade_authority_address
   https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L235-L318 */
 static void
@@ -4297,12 +4297,12 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   int err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L242-L243
-     
+
      The below logic is used to obtain a `TargetBuiltin` account. There are three fields of `TargetBuiltin` returned:
-      - target.program_address: builtin_program_id 
-      - target.program_account: 
+      - target.program_address: builtin_program_id
+      - target.program_account:
           - if stateless: an AccountSharedData::default() (i.e. system program id, 0 lamports, 0 data, non-executable, system program owner)
-          - if NOT stateless: the existing account (for us its called `target_program_account`) 
+          - if NOT stateless: the existing account (for us its called `target_program_account`)
       - target.program_data_address: `target_program_data_address` for us, derived below. */
 
   /* These checks will fail if the core program has already been migrated to BPF, since the account will exist + the program owner
@@ -4353,8 +4353,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244 
-     
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244
+
      Obtains a `SourceBuffer` account. There are two fields returned:
       - source.buffer_address: source_buffer_address
       - source.buffer_account: the existing buffer account */
@@ -4407,15 +4407,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Failed to write new program state to %s", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
   }
-  
+
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->const_meta->dlen;
   FD_BORROWED_ACCOUNT_DECL( new_target_program_data_account );
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, 
-                           slot_ctx->funk_txn, 
-                           target_program_data_address, 
-                           1, 
-                           new_target_program_data_account_sz, 
+  err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
+                           slot_ctx->funk_txn,
+                           target_program_data_address,
+                           1,
+                           new_target_program_data_account_sz,
                            new_target_program_data_account );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
@@ -4430,9 +4430,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     goto fail;
   }
 
-  /* Deploy the new target Core BPF program. 
+  /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
-  err = fd_directly_invoke_loader_v3_deploy( slot_ctx, 
+  err = fd_directly_invoke_loader_v3_deploy( slot_ctx,
                                              new_target_program_data_account->const_data + PROGRAMDATA_METADATA_SIZE,
                                              new_target_program_data_account->const_meta->dlen - PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( err ) ) {
@@ -4451,15 +4451,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     slot_ctx->slot_bank.capitalization += lamports_to_fund - lamports_to_burn;
   }
 
-  /* Reclaim the source buffer account 
+  /* Reclaim the source buffer account
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L305 */
   source_buffer_account->meta->info.lamports = 0;
   source_buffer_account->meta->dlen = 0;
   fd_memset( source_buffer_account->meta->info.owner, 0, sizeof(fd_pubkey_t) );
-  
+
   /* Publish the in-preparation transaction into the parent. We should not have to create
      a BPF cache entry here because the program is technically "delayed visibility", so the program
-     should not be invokable until the next slot. The cache entry will be created at the end of the 
+     should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
   fd_funk_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
   slot_ctx->funk_txn = parent_txn;
@@ -4540,32 +4540,39 @@ void fd_process_new_epoch(
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( slot_ctx );
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_epoch_cache_t epoch_cache;
 
-  /* Update the stakes epoch value to the new epoch */
-  epoch_bank->stakes.epoch = epoch;
+    fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
 
-  /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
-     This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
-     See the comment in fd_exec_slot_ctx_recover_. */
-  if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
-    fd_update_epoch_stakes( slot_ctx );
-  }
+    refresh_stake_infos( slot_ctx, history, &epoch_cache );
+    fd_stakes_activate_epoch( slot_ctx );
 
-  /* Distribute rewards */
-  fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
-         FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
-    fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
-  } else {
-    fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );
-  }
+    /* Update the stakes epoch value to the new epoch */
+    epoch_bank->stakes.epoch = epoch;
 
-  /* Updates stakes at time T */
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+    /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
+       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
+       See the comment in fd_exec_slot_ctx_recover_. */
+    if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
+      fd_update_epoch_stakes( slot_ctx );
+    }
 
-  refresh_vote_accounts( slot_ctx, history );
+    /* Distribute rewards */
+    fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
+    if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+        FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+      fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
+    } else {
+      fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );
+    }
+
+    /* Updates stakes at time T */
+    if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+
+    refresh_vote_accounts( slot_ctx, &epoch_cache );
+  } FD_SCRATCH_SCOPE_END;
+
   fd_update_stake_delegations( slot_ctx );
 
   /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */

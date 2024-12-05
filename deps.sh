@@ -85,7 +85,7 @@ checkout_repo () {
     echo "[~] Skipping $1 fetch as \"$PREFIX/git/$1\" already exists"
   elif [[ -z "$3" ]]; then
     echo "[+] Cloning $1 from $2"
-    git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" && cd "$1" && git reset --hard "$4"
+    git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" && cd "$PREFIX/git/$1" && git reset --hard "$4"
     echo
   else
     echo "[+] Cloning $1 from $2"
@@ -93,17 +93,19 @@ checkout_repo () {
     echo
   fi
 
-  # Skip if tag already correct
-  if [[ "$(git -C "$PREFIX/git/$1" describe --tags --abbrev=0)" == "$3" ]]; then
-    return
-  fi
+  if [[ "$3" != "" ]]; then
+    # Skip if tag already correct
+    if [[ "$(git -C "$PREFIX/git/$1" describe --always --tags --abbrev=0)" == "$3" ]]; then
+      return
+    fi
 
-  echo "[~] Checking out $1 $3"
-  (
-    cd "$PREFIX/git/$1"
-    git fetch origin "$3" --tags --depth=1
-    git -c advice.detachedHead=false checkout "$3"
-  )
+    echo "[~] Checking out $1 $3"
+    (
+      cd "$PREFIX/git/$1"
+      git fetch origin "$3" --tags --depth=1
+      git -c advice.detachedHead=false checkout "$3"
+    )
+  fi
   echo
 }
 

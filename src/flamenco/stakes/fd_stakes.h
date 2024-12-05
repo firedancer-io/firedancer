@@ -5,6 +5,11 @@
 #include "../types/fd_types.h"
 #include "../runtime/fd_borrowed_account.h"
 
+typedef struct fd_epoch_cache {
+  fd_stake_info_t_mapnode_t * stake_infos_root;
+  fd_stake_info_t_mapnode_t * stake_infos_pool;
+} fd_epoch_cache_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
@@ -47,7 +52,12 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 
 void
 refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                       fd_stake_history_t const * history );
+                       fd_epoch_cache_t *cache );
+
+void
+refresh_stake_infos( fd_exec_slot_ctx_t *       slot_ctx,
+                     fd_stake_history_t const * history,
+                     fd_epoch_cache_t *cache );
 
 FD_PROTOTYPES_END
 
