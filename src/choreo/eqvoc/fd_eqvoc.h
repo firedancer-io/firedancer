@@ -273,29 +273,30 @@ fd_eqvoc_fec_t const *
 fd_eqvoc_fec_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred );
 
 /* fd_eqvoc_test tests whether shred1 and shred2 are equivocating.
-   Returns a positive integer they are equivocating, 0 if they are not,
-   and -1 if they could not be compared for equivocation.  See
+   Returns a positive integer if they are equivocating, 0 if they are
+   not, and -1 if they could not be compared for equivocation.  See
    FD_EQVOC_TEST_* constants defined at top of header for the list of
    return values.
 
    Two shreds are equivocating if they satisfy any of the following:
 
-   1. Two shreds in the same FEC set but have different merkle roots.
-   2. Two coding shreds in the same FEC set but with different coding
-      metadata ie. code_cnt, data_cnt, first_code_idx.
-   3. Two data shreds in the same FEC set where one is marked as the
-      last data shred in the slot (FD_SHRED_DATA_FLAG_SLOT_COMPLETE is
-      set), but the other shred has a higher data shred index.
-   4. Two shreds in different FEC sets, where the shred with the lower
-      FEC set index is a coding shred (the shred with the higher FEC set
-      index can be either be a coding or data shred), and the FEC sets
-      are overlapping based on the lower coding shred's `data_cnt` ie.
-      the same data shred index would appear in both FEC sets.
-   5. Two shreds in different FEC sets, where the FEC sets are adjacent
-      (ie. the last data shred index in the lower FEC set is one less
-      than the first data shred index in the higher FEC set), and the
-      merkle root of the lower FEC set is different from the chained
-      merkle root of the higher FEC set.
+   1. They are in the same FEC set but have different merkle roots.
+   2. They are in the same FEC set and are both coding shreds, but have
+      different coding metadata ie. code_cnt, data_cnt, first_code_idx.
+   3. They are in the same FEC set and are both data shreds. One shred
+      is marked as the last data shred in the slot
+      (FD_SHRED_DATA_FLAG_SLOT_COMPLETE), but the other shred has a
+      higher data shred index.
+   4. They are in different FEC sets and the shred with a lower FEC set
+      index is a coding shred whereas the shred with the higher FEC set
+      index is either a coding or data shred. The lower coding shred's
+      `data_cnt` implies the lower FEC set intersects with the higher
+      FEC set ie. the FEC sets are overlapping.
+   5. They are in different FEC sets and the FEC sets are adjacent ie.
+      the last data shred index in the lower FEC set is one less than
+      the first data shred index in the higher FEC set. The merkle root
+      of the lower FEC set is different from the chained merkle root of
+      the higher FEC set.
 
    To prevent false positives, this function also performs the following
    input validation on the shreds:
