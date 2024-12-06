@@ -1395,7 +1395,7 @@ read_snapshot( void * _ctx,
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
   fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 
@@ -1430,7 +1430,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-    fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, &ctx->slot_ctx->slot_bank );
+    fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
     fd_blockstore_end_write( ctx->slot_ctx->blockstore );
   }
   fd_fseq_update( ctx->smr, snapshot_slot );

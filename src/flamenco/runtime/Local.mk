@@ -46,6 +46,7 @@ $(call add-hdrs,fd_txncache.h)
 $(call add-objs,fd_txncache,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_util)
+$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
 # $(call run-unit-test,test_txncache,)
 endif
