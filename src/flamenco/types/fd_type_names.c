@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 229
+#define FD_TYPE_NAME_COUNT 230
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -145,6 +145,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_bpf_loader_program_instruction_write",
  "fd_bpf_loader_program_instruction",
  "fd_bpf_loader_v4_program_instruction_write",
+ "fd_bpf_loader_v4_program_instruction_truncate",
  "fd_bpf_loader_v4_program_instruction",
  "fd_bpf_upgradeable_loader_program_instruction_write",
  "fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len",

@@ -3335,9 +3335,25 @@ typedef struct fd_bpf_loader_v4_program_instruction_write_off fd_bpf_loader_v4_p
 #define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_OFF_FOOTPRINT sizeof(fd_bpf_loader_v4_program_instruction_write_off_t)
 #define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_OFF_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L35 */
+/* Encoded Size: Fixed (4 bytes) */
+struct __attribute__((aligned(8UL))) fd_bpf_loader_v4_program_instruction_truncate {
+  uint new_size;
+};
+typedef struct fd_bpf_loader_v4_program_instruction_truncate fd_bpf_loader_v4_program_instruction_truncate_t;
+#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_FOOTPRINT sizeof(fd_bpf_loader_v4_program_instruction_truncate_t)
+#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_bpf_loader_v4_program_instruction_truncate_off {
+  uint new_size_off;
+};
+typedef struct fd_bpf_loader_v4_program_instruction_truncate_off fd_bpf_loader_v4_program_instruction_truncate_off_t;
+#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_OFF_FOOTPRINT sizeof(fd_bpf_loader_v4_program_instruction_truncate_off_t)
+#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_OFF_ALIGN (8UL)
+
 union fd_bpf_loader_v4_program_instruction_inner {
   fd_bpf_loader_v4_program_instruction_write_t write;
-  uint truncate;
+  fd_bpf_loader_v4_program_instruction_truncate_t truncate;
 };
 typedef union fd_bpf_loader_v4_program_instruction_inner fd_bpf_loader_v4_program_instruction_inner_t;
 
@@ -6958,6 +6974,18 @@ void fd_bpf_loader_v4_program_instruction_write_walk( void * w, fd_bpf_loader_v4
 ulong fd_bpf_loader_v4_program_instruction_write_size( fd_bpf_loader_v4_program_instruction_write_t const * self );
 ulong fd_bpf_loader_v4_program_instruction_write_footprint( void );
 ulong fd_bpf_loader_v4_program_instruction_write_align( void );
+
+void fd_bpf_loader_v4_program_instruction_truncate_new( fd_bpf_loader_v4_program_instruction_truncate_t * self );
+int fd_bpf_loader_v4_program_instruction_truncate_decode( fd_bpf_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_bpf_loader_v4_program_instruction_truncate_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_bpf_loader_v4_program_instruction_truncate_decode_unsafe( fd_bpf_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_bpf_loader_v4_program_instruction_truncate_decode_offsets( fd_bpf_loader_v4_program_instruction_truncate_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_bpf_loader_v4_program_instruction_truncate_encode( fd_bpf_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_bpf_loader_v4_program_instruction_truncate_destroy( fd_bpf_loader_v4_program_instruction_truncate_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_bpf_loader_v4_program_instruction_truncate_walk( void * w, fd_bpf_loader_v4_program_instruction_truncate_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_bpf_loader_v4_program_instruction_truncate_size( fd_bpf_loader_v4_program_instruction_truncate_t const * self );
+ulong fd_bpf_loader_v4_program_instruction_truncate_footprint( void );
+ulong fd_bpf_loader_v4_program_instruction_truncate_align( void );
 
 void fd_bpf_loader_v4_program_instruction_new_disc( fd_bpf_loader_v4_program_instruction_t * self, uint discriminant );
 void fd_bpf_loader_v4_program_instruction_new( fd_bpf_loader_v4_program_instruction_t * self );

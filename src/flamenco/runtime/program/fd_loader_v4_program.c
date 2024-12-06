@@ -29,7 +29,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
                        fd_loader_v4_state_t *        state ) {
   int err;
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L62-L65 */
-  if( FD_UNLIKELY( memcmp( program->pubkey->uc, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
@@ -68,13 +68,17 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* `process_instruction_write`, this code path is taken when writing ELF data into an undeployed program account.
-   This could either be a program which was already deployed and then retracted, or a new program which is uninitialized
-   with enough space allocated from a call to `truncate`.
+/* `process_instruction_write` writes ELF data into an undeployed program account.
+   This could either be a program which was already deployed and then retracted, or 
+   a new program which is uninitialized with enough space allocated from a call to `truncate`.
+
+   Accounts:
+    0. Program account (writable)
+    1. Authority account (signer)
 
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L86-L121 */
 static int
-fd_bpf_loader_v4_program_instruction_write( fd_exec_instr_ctx_t * instr_ctx,
+fd_bpf_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                                instr_ctx,
                                             fd_bpf_loader_v4_program_instruction_write_t const * write ) {
   int err;
 
@@ -119,6 +123,68 @@ fd_bpf_loader_v4_program_instruction_write( fd_exec_instr_ctx_t * instr_ctx,
   } FD_BORROWED_ACCOUNT_DROP( program );
 }
 
+/* `process_instruction_truncate` resizes an undeployed program account to the specified size. 
+   Initialization is taken care of when the program account size is first increased. Decreasing the size
+   to 0 will close the program account.
+
+   Accounts:
+      0. Program account (writable + signer)
+      1. Authority account (writable + signer)
+      2. Recipient account to receive excess lamports from rent when decreasing account size (writable)
+         - This account is only required when the program account size is being decreased (new_size < program dlen).
+
+   https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L123-L208 */
+static int
+fd_bpf_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                                   instr_ctx,
+                                               fd_bpf_loader_v4_program_instruction_truncate_t const * truncate ) {
+  int err;
+
+  uint new_size = truncate->new_size;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L130 */
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L131-L133 */
+    fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L134C9-L135 */
+    uchar is_initialization = !!( new_size>0UL && program->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L136-L152 */
+    if( is_initialization ) {
+      /* For initialization...
+         - Program account must be writable + signer
+         - Authority account must be a signer
+
+         https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L137-L140 */
+      if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L141-L144 */
+      if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, program->pubkey ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not writeable" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L145-L148 */
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 0UL ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program did not sign" );
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L149-L152 */
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Authority did not sign" );
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+    } else {
+
+    }
+
+  } FD_BORROWED_ACCOUNT_DROP( program );
+}
+
 /* `process_instruction_inner`, the entrypoint for all loader v4 instruction invocations +
    any loader v4-owned programs.
    
@@ -159,6 +225,8 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
           break;
         }
         case fd_bpf_loader_v4_program_instruction_enum_truncate: {
+          /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L477-L479 */
+          rc = fd_bpf_loader_v4_program_instruction_truncate( instr_ctx, &instruction.inner.truncate );
           break;
         }
         case fd_bpf_loader_v4_program_instruction_enum_deploy: {
