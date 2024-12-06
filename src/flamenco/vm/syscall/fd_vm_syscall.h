@@ -58,7 +58,7 @@
    When a syscall implementation returns FD_VM_SUCCESS, *_r0 should hold
    the application return error value it wants to place in r0.
 
-   When an syscall implementation returns FD_VM_ERR, the syscall is
+   When an syscall implementation returns FD_VM_SYSCALL_ERR*, the syscall is
    considered to have faulted the VM.  It ideally should not have set
    *_r0 (or changed any vm state, except vm->cu, though that often isn't
    practical).
@@ -107,7 +107,7 @@ FD_PROTOTYPES_BEGIN
 
    Return:
 
-     FD_VM_ERR_ABORT: *_ret unchanged.  vm->cu unchanged.
+     FD_VM_SYSCALL_ERR_ABORT: *_ret unchanged.  vm->cu unchanged.
 
    FIXME: SHOULD THIS BE NAMED "SOL_ABORT"? */
 
@@ -129,10 +129,9 @@ FD_VM_SYSCALL_DECL( abort );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
-     decremented and vm->cu>0.
+     FD_VM_SYSCALL_ERR_INVALID_STRING: Bad filepath string 
 
-     FD_VM_ERR_PANIC: *_ret unchanged. *_ret unchanged. vm->cu
+     FD_VM_SYSCALL_ERR_PANIC: *_ret unchanged. *_ret unchanged. vm->cu
      decremented and vm->cu>0. */
 
 FD_VM_SYSCALL_DECL( sol_panic );
@@ -153,8 +152,7 @@ FD_VM_SYSCALL_DECL( sol_panic );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
-     decremented and vm->cu>0.
+     FD_VM_SYSCALL_ERR_INVALID_STRING: bad message string.  *_ret=1.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
 
@@ -204,7 +202,7 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
@@ -262,7 +260,7 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
@@ -331,7 +329,7 @@ FD_VM_SYSCALL_DECL( sol_alloc_free );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_MEM_OVERLAP: address ranges for src and dst overlap
+     FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: address ranges for src and dst overlap
      (either partially or fully).  Empty address ranges are considered
      to never overlap (FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.
      vm->cu decremented and vm->cu>0.  FIXME: CONSIDER USING A DIFFERENT
@@ -445,7 +443,7 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 
    Return:
 
-     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within the Solana runtime.
      *_ret unchanged.  vm->cu unchanged.
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
@@ -493,7 +491,7 @@ FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
      FD_VM_ERR_SIGSEGV: bad sysvar_id_vaddr, bad out_vaddr, requested
      slice outside of sysvar data buffer. _ret unchanged. vm->cu unchanged.
 
-     FD_VM_ERR_ABORT: offset+sz overflow.  *_ret unchanged.
+     FD_VM_SYSCALL_ERR_ABORT: offset+sz overflow.  *_ret unchanged.
 
      FD_VM_SUCCESS: success. vm->cu decremented and vm->cu>0.
       - *_ret = 2 if sysvar id is not in {clock,schedule,rewards,rent,slot hashes,stake history,last restart slot}
@@ -576,13 +574,13 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
 
    Return:
 
-     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within the Solana runtime.
      *_ret unchanged.  vm->cu unchanged.
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_MEM_OVERLAP: dst and program_id address ranges overlap.
+     FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: dst and program_id address ranges overlap.
      *_ret unchanged.  vm->cu decremented and vm->cu>0.  (FIXME: ERR
      CODE) (FIXME: overlap currently checked against the acutal amount
      copied into dst which is <=dst_max ... DOUBLE CHECK THIS AGAINST
@@ -619,11 +617,13 @@ FD_VM_SYSCALL_DECL( sol_get_return_data );
      r5 - ignored
 
    Return:
+     FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within the Solana runtime.
+     *_ret unchanged.  vm->cu unchanged.
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu decremented and vm->cu>0.
 
-     FD_VM_ERR_RETURN_DATA_TOO_LARGE: src_sz too large.  *_ret
+     FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE: src_sz too large.  *_ret
      unchanged.  vm->cu decremented and vm->cu>0.
 
      FD_VM_ERR_PERM: bad address range for src.  *_ret unchanged.
@@ -662,8 +662,8 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_ERR_PERM: seed_cnt and/or seed[i].sz too large (FIXME: USE
-     DIFFERENT ERR CODE), bad address range for program_id, seed,
+     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
+     bad address range for program_id, seed,
      seed[i].mem and/or out (including 8-byte alignment for seed if the
      VM has check_align set). *_ret unchanged.  Compute budget
      decremented.
@@ -696,8 +696,8 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_ERR_PERM: seed_cnt and/or seed[i].sz too large (FIXME: USE
-     DIFFERENT ERR CODE), bad address range for program_id, seed,
+     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
+     bad address range for program_id, seed,
      seed[i].mem, out and/or bump_seed (including 8-byte alignment for
      seed if the VM has check_align set). *_ret unchanged.  Compute
      budget decremented.

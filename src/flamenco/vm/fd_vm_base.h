@@ -38,26 +38,22 @@
 #define FD_VM_ERR_SIGSEGV     (-13) /* illegal memory address (e.g. read/write to an address not backed by any memory) */
 #define FD_VM_ERR_SIGBUS      (-14) /* misaligned memory address (e.g. read/write to an address with inappropriate alignment) */
 #define FD_VM_ERR_SIGRDONLY   (-15) /* illegal write (e.g. write to a read only address) */
-#define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
-#define FD_VM_ERR_INVALID_PDA (-17) /* the computed pda was not a valid ed25519 point */
+#define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded */
+// #define FD_VM_ERR_INVALID_PDA (-17) /* (deprecated, moved to syscall error) the computed pda was not a valid ed25519 point */
 #define FD_VM_ERR_SIGFPE      (-18) /* divide by zero */
-#define FD_VM_ERR_SIGFPE_OF   (-118)/* divide overflow */
+#define FD_VM_ERR_SIGFPE_OF   (-19) /* divide overflow */
+#define FD_VM_ERR_SIGSYSCALL  (-20) /* Generic syscall error */
+#define FD_VM_ERR_SIGABORT    (-21) /* Generic abort error (used in JIT) */
 
-/* FIXME: Are these exact matches to Solana?  If so, provide link, if
-   not, document and refine name / consolidate further. */
+/* (DEPRECATED) VM syscall error codes.  These are only produced by fd_vm_syscall
+   implementations. */
 
-/* VM syscall error codes.  These are only produced by fd_vm_syscall
-   implementations.  FIXME: Consider having syscalls return standard
-   error codes and then provide detail like this through an info arg.
-   FIXME: Are these exact matches to Solana?  If so, provide link?  If
-   not document and refine names / consolidate further. */
-
-#define FD_VM_ERR_ABORT                        (-19) /* FIXME: description */
-#define FD_VM_ERR_PANIC                        (-20) /* FIXME: description */
-#define FD_VM_ERR_MEM_OVERLAP                  (-21) /* FIXME: description */
-#define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description */
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description */
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description */
+// #define FD_VM_ERR_ABORT                        (-119) /* FIXME: description  PENDING SYSVAR SYSCALL */
+// #define FD_VM_ERR_PANIC                        (-120) /* FIXME: description  PENDING TESTS refactor */
+#define FD_VM_ERR_MEM_OVERLAP                  (-121) /* FIXME: description  PENDING FD_VM_MEM_CHECK_NON_OVERLAPPING refactor */
+// #define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description  DONE */
+// #define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description  DONE (unused) */
+// #define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description  DONE */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return
@@ -83,31 +79,38 @@
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
 
-#define FD_VM_ERR_SYSCALL_INVALID_STRING                          (-1)
-#define FD_VM_ERR_SYSCALL_ABORT                                   (-2)
-#define FD_VM_ERR_SYSCALL_PANIC                                   (-3)
-#define FD_VM_ERR_SYSCALL_INVOKE_CONTEXT_BORROW_FAILED            (-4)
-#define FD_VM_ERR_SYSCALL_MALFORMED_SIGNER_SEED                   (-5)
-#define FD_VM_ERR_SYSCALL_BAD_SEEDS                               (-6)
-#define FD_VM_ERR_SYSCALL_PROGRAM_NOT_SUPPORTED                   (-7)
-#define FD_VM_ERR_SYSCALL_UNALIGNED_POINTER                       (-8)
-#define FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS                        (-9)
-#define FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE                   (-10)
-#define FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS                       (-11)
-#define FD_VM_ERR_SYSCALL_COPY_OVERLAPPING                        (-12)
-#define FD_VM_ERR_SYSCALL_RETURN_DATA_TOO_LARGE                   (-13)
-#define FD_VM_ERR_SYSCALL_TOO_MANY_SLICES                         (-14)
-#define FD_VM_ERR_SYSCALL_INVALID_LENGTH                          (-15)
-#define FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_DATA_LEN_EXCEEDED       (-16)
-#define FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED       (-17)
-#define FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED  (-18)
-#define FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE                       (-19)
-#define FD_VM_ERR_SYSCALL_INVALID_POINTER                         (-20)
-#define FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW                     (-21)
+#define FD_VM_SYSCALL_ERR_INVALID_STRING                          (-1)
+#define FD_VM_SYSCALL_ERR_ABORT                                   (-2)
+#define FD_VM_SYSCALL_ERR_PANIC                                   (-3)
+#define FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED            (-4)
+#define FD_VM_SYSCALL_ERR_MALFORMED_SIGNER_SEED                   (-5)
+#define FD_VM_SYSCALL_ERR_BAD_SEEDS                               (-6)
+#define FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED                   (-7)
+#define FD_VM_SYSCALL_ERR_UNALIGNED_POINTER                       (-8)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS                        (-9)
+#define FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE                   (-10)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_ACCOUNTS                       (-11)
+#define FD_VM_SYSCALL_ERR_COPY_OVERLAPPING                        (-12)
+#define FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE                   (-13)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_SLICES                         (-14)
+#define FD_VM_SYSCALL_ERR_INVALID_LENGTH                          (-15)
+#define FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED       (-16)
+#define FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED       (-17)
+#define FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED  (-18)
+#define FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE                       (-19)
+#define FD_VM_SYSCALL_ERR_INVALID_POINTER                         (-20)
+#define FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW                     (-21)
+
+/* These syscall errors are unique to Firedancer and do not have an Agave equivalent. */
+#define FD_VM_SYSCALL_ERR_INSTR_ERR                               (-22)
+#define FD_VM_SYSCALL_ERR_INVALID_PDA                             (-23) /* the computed pda was not a valid ed25519 point */
+#define FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED                 (-24) /* compute unit limit exceeded in syscall */
+#define FD_VM_SYSCALL_ERR_SEGFAULT                                (-25) /* illegal memory address (e.g. read/write to an address not backed by any memory) in syscall */
+#define FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME                         (-26) /* syscall called with vm not running in solana runtime */
 
 /* Poseidon returns custom errors for some reason */
-#define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS                 (1)
-#define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS             (2)
+#define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS                 (1)
+#define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS             (2)
 
 /* EbpfError
    https://github.com/solana-labs/rbpf/blob/v0.8.5/src/error.rs#L17 */

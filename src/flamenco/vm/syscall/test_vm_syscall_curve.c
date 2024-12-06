@@ -120,7 +120,7 @@ main( int     argc,
     0UL, // point_cnt
     result_point_vaddr,
     0UL, // ret_code
-    FD_VM_ERR_SIGSEGV, // syscall_ret
+    FD_VM_SYSCALL_ERR_SEGFAULT, // syscall_ret
     expected_result_host_ptr
   ) );
 
@@ -134,7 +134,7 @@ main( int     argc,
     513UL, // point_cnt
     result_point_vaddr,
     0UL, // ret_code
-    FD_VM_ERR_INVAL, // syscall_ret
+    FD_VM_SYSCALL_ERR_INVALID_LENGTH, // syscall_ret
     expected_result_host_ptr
   ) );
 
@@ -148,7 +148,7 @@ main( int     argc,
     2UL, // point_cnt
     result_point_vaddr,
     0UL, // ret_code
-    FD_VM_ERR_INVAL, // syscall_ret
+    FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE, // syscall_ret
     expected_result_host_ptr
   ) );
 

@@ -531,7 +531,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   /* Exception handlers */
 
   |->vm_fault:
-  | mov edi, FD_VM_ERR_ABORT
+  | mov edi, FD_VM_ERR_SIGABORT
   | jmp ->longjmp
 
   /* JIT entrypoint from C code */

@@ -20,8 +20,8 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
                      FD_PARAM_UNUSED ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L630 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
-  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_ABORT );
-  return FD_VM_ERR_ABORT;
+  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_ABORT );
+  return FD_VM_SYSCALL_ERR_ABORT;
 }
 
 /* FD_TRANSLATE_STRING returns a read only pointer to the host address of
@@ -34,8 +34,8 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
 #define FD_TRANSLATE_STRING( vm, vaddr, msg_sz ) (__extension__({                          \
     char const * msg = FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, FD_VM_ALIGN_RUST_U8, msg_sz ); \
     if( FD_UNLIKELY( !fd_utf8_verify( msg, msg_sz ) ) ) {                                  \
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_STRING );                   \
-      return FD_VM_ERR_SYSCALL_INVALID_STRING;                                             \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_STRING );                   \
+      return FD_VM_SYSCALL_ERR_INVALID_STRING;                                             \
     }                                                                                      \
     msg;                                                                                   \
 }))
@@ -66,8 +66,8 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
   (void)line;
   (void)column;
 
-  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_PANIC );
-  return FD_VM_ERR_PANIC;
+  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_PANIC );
+  return FD_VM_SYSCALL_ERR_PANIC;
 }
 
 int
@@ -84,7 +84,8 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
 
-  /* Note: when msg_sz==0, msg can be undefined. fd_log_collector_program_log() handles it. */
+  /* Note: when msg_sz==0, msg can be undefined. fd_log_collector_program_log() handles it.
+     FIXME: Macro invocation in function invocation? */
   fd_log_collector_program_log( vm->instr_ctx, FD_TRANSLATE_STRING( vm, msg_vaddr, msg_sz ), msg_sz );
 
   *_ret = 0UL;
@@ -153,7 +154,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
 
   char msg[ FD_BASE58_ENCODED_32_SZ ]; ulong msg_sz;
   if( FD_UNLIKELY( fd_base58_encode_32( pubkey, &msg_sz, msg )==NULL ) ) {
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_STRING;
   }
 
   fd_log_collector_program_log( vm->instr_ctx, msg, msg_sz );
@@ -381,7 +382,7 @@ fd_vm_memmove( fd_vm_t * vm,
       FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, dst_offset, dst_region_idx, dst_haddr );
       if( FD_UNLIKELY( !vm->input_mem_regions[ dst_region_idx ].is_writable ) ) {
         FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-        return FD_VM_ERR_SIGSEGV;
+        return FD_VM_SYSCALL_ERR_SEGFAULT;
       }
       if( FD_UNLIKELY( reverse ) ) {
         /* Bytes remaining between region begin and current position (+ 1 for inclusive region beginning). */
@@ -471,7 +472,7 @@ fd_vm_memmove( fd_vm_t * vm,
           dst_haddr = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr + vm->input_mem_regions[ dst_region_idx ].region_sz - 1UL;
         } else {
           FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_ERR_SIGSEGV;
+          return FD_VM_SYSCALL_ERR_SEGFAULT;
         }
         dst_bytes_rem_in_cur_region = vm->input_mem_regions[ dst_region_idx ].region_sz;
       }
@@ -488,7 +489,7 @@ fd_vm_memmove( fd_vm_t * vm,
           src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr + vm->input_mem_regions[ src_region_idx ].region_sz - 1UL;
         } else {
           FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_ERR_SIGSEGV;
+          return FD_VM_SYSCALL_ERR_SEGFAULT;
         }
         src_bytes_rem_in_cur_region = vm->input_mem_regions[ src_region_idx ].region_sz;
       }
@@ -694,7 +695,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
            an access violation. */
         if( FD_UNLIKELY( m0_region!=4UL || ++m0_region_idx>=vm->input_mem_regions_cnt ) ) {
           FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_ERR_SIGSEGV;
+          return FD_VM_SYSCALL_ERR_SEGFAULT;
         }
         /* Otherwise, query the next input region. */
         m0_haddr = (uchar*)vm->input_mem_regions[ m0_region_idx ].haddr;
@@ -704,7 +705,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
       if( FD_UNLIKELY( !m1_bytes_in_cur_region ) ) {
         if( FD_UNLIKELY( m1_region!=4UL || ++m1_region_idx>=vm->input_mem_regions_cnt ) ) {
           FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_ERR_SIGSEGV;
+          return FD_VM_SYSCALL_ERR_SEGFAULT;
         }
         m1_haddr = (uchar*)vm->input_mem_regions[ m1_region_idx ].haddr;
         m1_idx = 0UL;
@@ -766,7 +767,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     fd_memset( haddr, b, bytes_to_set );
     if( FD_UNLIKELY( bytes_to_set<sz ) ) {
       FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-      return FD_VM_ERR_SIGSEGV;
+      return FD_VM_SYSCALL_ERR_SEGFAULT;
     }
   } else {
     /* In this case, we are in the input region AND direct mapping is enabled.
@@ -801,7 +802,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     /* If we were not able to successfully set all the bytes, throw an error. */
     if( FD_UNLIKELY( sz>0 ) ) {
       FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-      return FD_VM_ERR_SIGSEGV;
+      return FD_VM_SYSCALL_ERR_SEGFAULT;
     }
   }
   return FD_VM_SUCCESS;
