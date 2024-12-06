@@ -259,6 +259,7 @@ typedef struct fd_block_map fd_block_map_t;
 
 struct fd_block_idx {
   ulong     slot;
+  ulong     next;
   uint      hash;
   ulong     off;
   fd_hash_t block_hash;
@@ -271,6 +272,8 @@ typedef struct fd_block_idx fd_block_idx_t;
 #define MAP_KEY           slot
 #define MAP_KEY_HASH(key) ((uint)(key)) /* finalized slots are guaranteed to be unique so perfect hashing */
 #include "../../util/tmpl/fd_map_dynamic.c"
+// consider "../../util/tmpl/fd_map_chain.c" 
+
 
 struct fd_txn_key {
   ulong v[FD_ED25519_SIG_SZ / sizeof( ulong )];
@@ -316,7 +319,11 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore {
 
   /* Persistence */
 
-  ulong off; /* current offset in the archival file */
+  ulong fd_size_max; /* maximum size of the archival file */
+  ulong off; /* current offset in the archival file after most recent write */
+  ulong lrw_slot; /* least recently written slot. maintains the file circular buffer */
+  ulong mrw_slot; /* most recently written slot. maintains the file circular buffer */
+  // TODO: can mrw_slot be := hcs? 
 
   /* Slot metadata */
 
@@ -721,6 +728,7 @@ ulong
 fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED, 
                              fd_blockstore_ser_t * ser, 
                              int fd, 
+                             ulong write_off,
                              ulong slot );
 
 /* Restores a block and block map entry from fd at given offset. As this used by
