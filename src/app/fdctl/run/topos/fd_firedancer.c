@@ -15,6 +15,7 @@
 #include "../../../../util/shmem/fd_shmem_private.h"
 #include "../../../../util/net/fd_net_headers.h"
 
+#include <string.h>
 #include <sys/sysinfo.h>
 #include <sys/random.h>
 
@@ -576,7 +577,8 @@ fd_topo_initialize( config_t * config ) {
       }
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       tile->replay.bank_tile_count = config->layout.bank_tile_count;
-      tile->replay.in_wen_restart = config->tiles.replay.in_wen_restart;
+      tile->replay.in_wen_restart  = config->tiles.replay.in_wen_restart;
+      strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
       fd_memcpy( tile->replay.wen_restart_coordinator, config->tiles.replay.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
 
       /* not specified by [tiles.replay] */

@@ -2,29 +2,30 @@
 #define HEADER_fd_src_choreo_restart_fd_restart_h
 
 /* fd_restart implements Solana's SIMD-0046, Optimistic cluster restart
-   automation, which is also known as wen-restart.
-   Protocol details: TODO
+   automation, which is also known as wen-restart. See protocol details at
+   https://github.com/solana-foundation/solana-improvement-documents/pull/46
  */
 
 #include "../../choreo/tower/fd_tower.h"
 #include "../../flamenco/types/fd_types.h"
 
-#define bits_per_uchar 8
-#define bits_per_ulong ( 8 * sizeof(ulong) )
 #define RESTART_MAGIC_TAG                         128UL
 
 /* Protocol parameters of wen-restart */
+#define MAX_EPOCHS                                2UL
 #define HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT     38UL
-#define REPAIR_THRESHOLD_PERCENT                  42UL
+#define WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT     33UL
 #define WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT  80UL
 #define LAST_VOTED_FORK_MAX_SLOTS                 0xFFFFUL
 
 /* Implementation-specific parameters */
+#define BITS_PER_UCHAR                            ( 8*sizeof(uchar) )
+#define BITS_PER_ULONG                            ( 8*sizeof(ulong) )
 #define MAX_RESTART_PEERS                         40200UL
-#define LAST_VOTED_FORK_PUBLISH_PERIOD_NS         10e9L
-#define LAST_VOTED_FORK_MAX_BITMAP_BYTES          ( LAST_VOTED_FORK_MAX_SLOTS/bits_per_uchar+1 )
-#define LAST_VOTED_FORK_MAX_MSG_BYTES             ( sizeof(fd_gossip_restart_last_voted_fork_slots_t)+LAST_VOTED_FORK_MAX_BITMAP_BYTES )
-#define RESTART_MAX_MSG_BYTES                     LAST_VOTED_FORK_MAX_MSG_BYTES  // Assuming that this is larger than sizeof(fd_gossip_restart_heaviest_fork_t)
+#define GOSSIP_MSG_PUBLISH_PERIOD_NS              10e9L
+#define LAST_VOTED_FORK_RAW_BITMAP_BYTES_MAX      8192UL /* 0xFFFF/8+1 */
+#define LAST_VOTED_FORK_PACKET_BITMAP_BYTES_MAX   824UL  /* because PACKET_DATA_SIZE is limited to 1232 */
+#define LAST_VOTED_FORK_LINK_BYTES_MAX            ( sizeof(fd_gossip_restart_last_voted_fork_slots_t)+LAST_VOTED_FORK_RAW_BITMAP_BYTES_MAX )
 
 typedef enum {
     WR_STAGE_WAIT_FOR_INIT                = 0,
@@ -41,15 +42,16 @@ struct fd_restart {
 
   /* States initialized at the beginning */
   ulong                  funk_root;
-  ulong                  tower_root;
-  ulong                  total_stake;
-  ulong                  num_vote_accts;
-  fd_stake_weight_t      stake_weights[ MAX_RESTART_PEERS ];
+  ulong                  root_epoch;
+  ulong                  total_stake[ MAX_EPOCHS ];
+  ulong                  num_vote_accts[ MAX_EPOCHS ];
+  fd_stake_weight_t      stake_weights[ MAX_EPOCHS ][ MAX_RESTART_PEERS ];
 
   /* States maintained by the FIND_HEAVIEST_FORK_SLOT_NUM stage */
-  ulong                  total_active_stake;
-  ulong                  slot_to_stake[ LAST_VOTED_FORK_MAX_SLOTS ];
-  uchar                  last_voted_fork_slots_received[ MAX_RESTART_PEERS ];
+  ulong                  total_stake_received[ MAX_EPOCHS ];
+  ulong                  total_stake_received_and_voted[ MAX_EPOCHS ];
+  uchar                  last_voted_fork_slots_received[ MAX_EPOCHS ][ MAX_RESTART_PEERS ];
+  ulong                  slot_to_stake[ LAST_VOTED_FORK_MAX_SLOTS ]; /* the index is an offset from the funk_root */
 
   /* States maintained by the FIND_HEAVIEST_FORK_BANK_HASH stage */
   fd_pubkey_t            my_pubkey;
@@ -61,7 +63,6 @@ struct fd_restart {
   ulong                  coordinator_heaviest_fork_slot;
   fd_hash_t              coordinator_heaviest_fork_bank_hash;
   ulong                  coordinator_heaviest_fork_ready;
-  ulong                  coordinator_heaviest_fork_sent;
 };
 typedef struct fd_restart fd_restart_t;
 
@@ -98,11 +99,11 @@ fd_restart_join( void * restart );
    in the wen-restart protocol (fd_gossip_restart_last_voted_fork_slots_t). */
 void
 fd_restart_init( fd_restart_t * restart,
-                 fd_vote_accounts_t const * accs,
-                 fd_tower_t const * tower,
+                 ulong root_epoch,
+                 fd_vote_accounts_t const * epoch_stakes[],
+                 int tower_checkpt_fileno,
                  fd_slot_history_t const * slot_history,
                  fd_funk_t * funk,
-                 fd_blockstore_t * blockstore,
                  fd_pubkey_t * my_pubkey,
                  fd_pubkey_t * coordinator_pubkey,
                  uchar * out_buf,
@@ -149,5 +150,18 @@ void
 fd_restart_verify_heaviest_fork( fd_restart_t * restart,
                                  uchar * out_buf,
                                  ulong * out_send );
+
+/* fd_restart_convert_runlength_to_raw_bitmap converts the bitmap in
+   a last_voted_fork_slots message from the run length encoding into
+   raw encoding. It is invoked in the gossip tile before forwarding
+   this gossip message to the replay tile. Therefore, the replay tile
+   could assume raw encoding of bitmap when processing the message. */
+void
+fd_restart_convert_runlength_to_raw_bitmap( fd_gossip_restart_last_voted_fork_slots_t * msg,
+                                            uchar * out_bitmap,
+                                            ulong * out_bitmap_len );
+
+void
+fd_restart_convert_raw_bitmap_to_runlength( fd_gossip_restart_last_voted_fork_slots_t * msg );
 
 #endif
