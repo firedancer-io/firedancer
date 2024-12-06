@@ -1989,6 +1989,15 @@ class EnumType:
         self.compact = (json["compact"] if "compact" in json else False)
         self.archival = (bool(json["archival"]) if "archival" in json else False)
 
+        # Current supported repr types for enum are uint and ulong
+        self.repr = (json["repr"] if "repr" in json else "uint")
+        self.repr_codec_stem = "uint32"
+        self.repr_max_val = "UINT_MAX"
+        
+        if self.repr == "ulong":
+            self.repr_codec_stem = "uint64"
+            self.repr_max_val = "ULONG_MAX"
+
     def propogateArchival(self, nametypes):
         self.archival = True
         for v in self.variants:
@@ -2048,7 +2057,7 @@ class EnumType:
             print(f'/* {self.comment} */', file=header)
 
         print(f"struct {self.attribute}{n} {{", file=header)
-        print('  uint discriminant;', file=header)
+        print(f'  {self.repr} discriminant;', file=header)
         print(f'  {n}_inner_t inner;', file=header)
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
@@ -2074,7 +2083,7 @@ class EnumType:
                 print(f'/* {self.comment} */', file=header)
 
             print(f"struct {self.attribute}{n}_off {{", file=header)
-            print('  uint discriminant;', file=header)
+            print(f'  {self.repr} discriminant;', file=header)
             print(f'  {n}_off_inner_t inner;', file=header)
             print("};", file=header)
             print(f"typedef struct {n}_off {n}_off_t;", file=header)
@@ -2085,7 +2094,7 @@ class EnumType:
 
     def emitPrototypes(self):
         n = self.fullname
-        print(f"void {n}_new_disc( {n}_t * self, uint discriminant );", file=header)
+        print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
         print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
         print(f"int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx );", file=header)
@@ -2123,9 +2132,9 @@ class EnumType:
             print(f'  return self->discriminant == {i};', file=body)
             print("}", file=body)
 
-        print(f'void {n}_inner_new( {n}_inner_t * self, uint discriminant );', file=body)
+        print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant );', file=body)
 
-        print(f'int {n}_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_inner_decode_preflight( {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print('  int err;', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
@@ -2138,7 +2147,7 @@ class EnumType:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'void {n}_inner_decode_unsafe( {n}_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_inner_decode_unsafe( {n}_inner_t * self, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
@@ -2168,8 +2177,8 @@ class EnumType:
             print('  ushort discriminant = 0;', file=body)
             print('  int err = fd_bincode_compact_u16_decode( &discriminant, ctx );', file=body)
         else:
-            print('  uint discriminant = 0;', file=body)
-            print('  int err = fd_bincode_uint32_decode( &discriminant, ctx );', file=body)
+            print(f'  {self.repr} discriminant = 0;', file=body)
+            print(f'  int err = fd_bincode_{self.repr_codec_stem}_decode( &discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  return {n}_inner_decode_preflight( discriminant, ctx );', file=body)
         print("}", file=body)
@@ -2180,11 +2189,11 @@ class EnumType:
             print('  fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );', file=body)
             print('  self->discriminant = tmp;', file=body)
         else:
-            print('  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );', file=body)
+            print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
         print(f'  {n}_inner_decode_unsafe( &self->inner, self->discriminant, ctx );', file=body)
         print("}", file=body)
 
-        print(f'void {n}_inner_new( {n}_inner_t * self, uint discriminant ) {{', file=body)
+        print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
@@ -2196,17 +2205,17 @@ class EnumType:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'void {n}_new_disc( {n}_t * self, uint discriminant ) {{', file=body)
+        print(f'void {n}_new_disc( {n}_t * self, {self.repr} discriminant ) {{', file=body)
         print('  self->discriminant = discriminant;', file=body)
         print(f'  {n}_inner_new( &self->inner, self->discriminant );', file=body)
         print("}", file=body)
 
         print(f'void {n}_new( {n}_t * self ) {{', file=body)
         print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
-        print(f'  {n}_new_disc( self, UINT_MAX );', file=body) # Invalid by default
+        print(f'  {n}_new_disc( self, {self.repr_max_val} );', file=body) # Invalid by default
         print("}", file=body)
 
-        print(f'void {n}_inner_destroy( {n}_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_inner_destroy( {n}_inner_t * self, {self.repr} discriminant, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2245,7 +2254,7 @@ class EnumType:
 
         print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
         print('  ulong size = 0;', file=body)
-        print('  size += sizeof(uint);', file=body)
+        print(f'  size += sizeof({self.repr});', file=body)
         print('  switch (self->discriminant) {', file=body)
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2258,7 +2267,7 @@ class EnumType:
         print("}", file=body)
         print("", file=body)
 
-        print(f'int {n}_inner_encode( {n}_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_inner_encode( {n}_inner_t const * self, {self.repr} discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         first = True
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2276,7 +2285,7 @@ class EnumType:
         print("}", file=body)
 
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        print('  int err = fd_bincode_uint32_encode( self->discriminant, ctx );', file=body)
+        print(f'  int err = fd_bincode_{self.repr_codec_stem}_encode( self->discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  return {n}_inner_encode( &self->inner, self->discriminant, ctx );', file=body)
         print("}", file=body)

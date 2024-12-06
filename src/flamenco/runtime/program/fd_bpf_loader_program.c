@@ -12,7 +12,6 @@
 #include "../../vm/fd_vm.h"
 #include "../fd_executor.h"
 #include "fd_bpf_loader_serialization.h"
-#include "fd_bpf_program_util.h"
 #include "fd_native_cpi.h"
 
 #include <stdlib.h>
@@ -234,10 +233,10 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int * err ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the funk record here. */
-static int
-deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                uchar const *         programdata,
-                ulong                 programdata_size ) {
+int
+fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
+                   uchar const *         programdata,
+                   ulong                 programdata_size ) {
   int deploy_mode    = 1;
   int direct_mapping = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
 
@@ -455,9 +454,11 @@ common_close_account( fd_pubkey_t * authority_address,
 }
 
 
-/* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
-static int
-execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
+/* Every loader-owned BPF program goes through this function, which goes into the VM.
+
+   https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
+int
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( instr_ctx->valloc,
                                                                           fd_sbpf_syscalls_align(),
@@ -959,7 +960,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
 
-      err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" )); // custom log
         return err;
@@ -1213,7 +1214,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
-      err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
@@ -1744,7 +1745,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       uchar * programdata_data = programdata_account->data + PROGRAMDATA_METADATA_SIZE;
       ulong   programdata_size = new_len                   - PROGRAMDATA_METADATA_SIZE;
 
-      err = deploy_program( instr_ctx, programdata_data, programdata_size );
+      err = fd_deploy_program( instr_ctx, programdata_data, programdata_size );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
@@ -1937,7 +1938,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    return execute( ctx, prog, is_deprecated );
+    return fd_bpf_execute( ctx, prog, is_deprecated );
   } FD_SCRATCH_SCOPE_END;
 }
 
@@ -1968,5 +1969,5 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
     .child_cnt = 0U,
   };
 
-  return deploy_program( instr_ctx, elf, elf_sz );
+  return fd_deploy_program( instr_ctx, elf, elf_sz );
 }

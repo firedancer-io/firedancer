@@ -7,6 +7,7 @@
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
 #include "../fd_account.h"
+#include "fd_bpf_program_util.h"
 
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
 #define DEPRECATED_LOADER_COMPUTE_UNITS  (1140UL)
@@ -55,6 +56,14 @@ fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t *                instr_c
                                      fd_bpf_upgradeable_loader_state_t * state );
 
 int
+fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
+                   uchar const *         programdata,
+                   ulong                 programdata_size );
+
+int
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated );
+
+int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
 /* TODO: add comment here */
@@ -72,7 +81,7 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
    the epoch boundary every time a new BPF core migration feature is activated, we need to mock up a transaction 
    and instruction context for execution. We do not do any funk operations here - instead, the BPF cache entry
    will be created at the end of the block. Because of this, our logic is slightly different than Agave's.
-   See the documentation for our `deploy_program` for more information.
+   See the documentation for our `fd_deploy_program` for more information.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int

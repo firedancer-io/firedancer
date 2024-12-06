@@ -1565,25 +1565,34 @@
       "comment": ""
     },
     {
-      "name": "bpf_loader_v4_program_instruction_write",
+      "name": "loader_v4_program_instruction_write",
       "type": "struct",
       "fields": [
         { "name": "offset", "type": "uint" },
         { "name": "bytes", "type": "vector", "element": "uchar" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L18"
+      "comment": "https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L11-L17"
     },
     {
-      "name": "bpf_loader_v4_program_instruction",
+      "name": "loader_v4_program_instruction_truncate",
+      "type": "struct",
+      "fields": [
+        { "name": "new_size", "type": "uint" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L33-L36"
+    },
+    {
+      "name": "loader_v4_program_instruction",
       "type": "enum",
       "variants": [
-        { "name": "write", "type": "bpf_loader_v4_program_instruction_write" },
-        { "name": "truncate", "type": "uint" },
+        { "name": "write", "type": "loader_v4_program_instruction_write" },
+        { "name": "truncate", "type": "loader_v4_program_instruction_truncate" },
         { "name": "deploy" },
         { "name": "retract" },
-        { "name": "transfer_authority" }
+        { "name": "transfer_authority" },
+        { "name": "finalize" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L5-L6"
+      "comment": "https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L5"
     },
     {
       "name": "bpf_upgradeable_loader_program_instruction_write",
@@ -1660,6 +1669,16 @@
         { "name": "program_data", "type": "bpf_upgradeable_loader_state_program_data" }
       ],
       "comment": ""
+    },
+    {
+      "name": "loader_v4_state",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "authority_address_or_next_version", "type": "pubkey" },
+        { "name": "status", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43"
     },
     {
       "name": "frozen_hash_status",
