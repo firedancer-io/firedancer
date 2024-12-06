@@ -272,7 +272,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
       ctx->last_full_snap = snapshot_slot;
     }
     
-    FD_LOG_WARNING(("CREATING SNAPSHOT incremental=%lu %lu", is_incremental, snapshot_slot));
+    FD_LOG_WARNING(("Creating snapshot incremental=%lu %lu", is_incremental, snapshot_slot));
 
     uchar * mem = fd_valloc_malloc( fd_scratch_virtual(), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
 
@@ -323,7 +323,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     }
 
     if( is_incremental ) {
-      FD_LOG_ERR(("ASDF"));
+      FD_LOG_ERR(("Done creating an incremental snapshot"));
     }
 
     FD_LOG_NOTICE(( "Done creating a snapshot" ));
