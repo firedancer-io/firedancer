@@ -1061,7 +1061,7 @@ fd_txn_prep_and_exec_task( void  *tpool,
   /* It is important to note that there is currently a 1-1 mapping between the
      tiles and tpool threads at the time of this comment. Eventually, this will
      change and the transaction context's spad will not be queried by tile
-     index as every tile will correspond to one CPU core. */    
+     index as every tile will correspond to one CPU core. */
   ulong tile_idx = fd_tile_idx();
   task_info->txn_ctx->spad = task_info->spads[ tile_idx ];
   if( FD_UNLIKELY( !task_info->txn_ctx->spad ) ) {
@@ -1781,6 +1781,10 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, 128UL * txn_cnt * sizeof(fd_borrowed_account_t *) );
     ulong acc_idx = 0UL;
+    ulong nonvote_txn_count = 0;
+    ulong failed_txn_count = 0;
+    ulong nonvote_failed_txn_count = 0;
+    ulong compute_units_used = 0;
     for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
       if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
@@ -1802,6 +1806,23 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       }
 
       slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+
+      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[0];
+      fd_instr_info_t instr;
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instr );
+      int is_vote = (0 == memcmp(instr.program_id_pubkey.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)));
+      if( is_vote ) {
+        if( FD_UNLIKELY( exec_txn_err ) ) {
+          failed_txn_count++;
+        }
+      } else {
+        nonvote_txn_count++;
+        if( FD_UNLIKELY( exec_txn_err ) ) {
+          nonvote_failed_txn_count++;
+          failed_txn_count++;
+        }
+      }
+      compute_units_used += txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
 
       if( FD_LIKELY( slot_ctx->status_cache ) ) {
         results[num_cache_txns] = exec_txn_err == 0 ? 1 : 0;
@@ -1900,6 +1921,40 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
           accounts_to_save[acc_idx++] = acc_rec;
         }
       }
+    }
+
+    /* Accumulate transaction counters */
+
+    ulong curr = slot_ctx->nonvote_txn_count;
+    FD_COMPILER_MFENCE();
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->nonvote_txn_count, curr, curr + nonvote_txn_count ) != curr ) ) {
+      FD_SPIN_PAUSE();
+      curr = slot_ctx->nonvote_txn_count;
+      FD_COMPILER_MFENCE();
+    }
+
+    curr = slot_ctx->failed_txn_count;
+    FD_COMPILER_MFENCE();
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->failed_txn_count, curr, curr + failed_txn_count ) != curr ) ) {
+      FD_SPIN_PAUSE();
+      curr = slot_ctx->failed_txn_count;
+      FD_COMPILER_MFENCE();
+    }
+
+    curr = slot_ctx->nonvote_failed_txn_count;
+    FD_COMPILER_MFENCE();
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->nonvote_failed_txn_count, curr, curr + nonvote_failed_txn_count ) != curr ) ) {
+      FD_SPIN_PAUSE();
+      curr = slot_ctx->nonvote_failed_txn_count;
+      FD_COMPILER_MFENCE();
+    }
+
+    curr = slot_ctx->total_compute_units_used;
+    FD_COMPILER_MFENCE();
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->total_compute_units_used, curr, curr + compute_units_used ) != curr ) ) {
+      FD_SPIN_PAUSE();
+      curr = slot_ctx->total_compute_units_used;
+      FD_COMPILER_MFENCE();
     }
 
     /* All the accounts have been accumulated and can be saved */
@@ -2272,6 +2327,10 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->slot_bank.collected_priority_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
+  slot_ctx->nonvote_txn_count = 0;
+  slot_ctx->failed_txn_count = 0;
+  slot_ctx->nonvote_failed_txn_count = 0;
+  slot_ctx->total_compute_units_used = 0;
 
   if( slot_ctx->slot_bank.slot != 0 && (
       FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
@@ -2355,7 +2414,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int 
+int
 fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                    fd_capture_ctx_t * capture_ctx,
                                    fd_block_info_t const * block_info,
@@ -4121,7 +4180,7 @@ void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
    From the calling context, `out_rec` points to a native program record (e.g. Config, ALUT native programs).
    There should be enough space in `out_rec->data` to hold at least 36 bytes (the size of a BPF upgradeable
-   program account) when calling this function. The native program account's owner is set to the BPF loader 
+   program account) when calling this function. The native program account's owner is set to the BPF loader
    upgradeable program ID, and lamports are increased / deducted to contain the rent exempt minimum balance.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L79-L95 */
@@ -4193,7 +4252,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
   if( config_upgrade_authority_address!=NULL ) {
-    if( FD_UNLIKELY( state.inner.buffer.authority_address==NULL || 
+    if( FD_UNLIKELY( state.inner.buffer.authority_address==NULL ||
                      memcmp( config_upgrade_authority_address, state.inner.buffer.authority_address, sizeof(fd_pubkey_t) ) ) ) {
       return -1;
     }
@@ -4245,7 +4304,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
       - source_buffer_address: source_buffer_address
       - migration_target
         - Builtin: !stateless
-        - Stateless: stateless 
+        - Stateless: stateless
       - upgrade_authority_address: upgrade_authority_address
   https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L235-L318 */
 static void
@@ -4257,12 +4316,12 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   int err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L242-L243
-     
+
      The below logic is used to obtain a `TargetBuiltin` account. There are three fields of `TargetBuiltin` returned:
-      - target.program_address: builtin_program_id 
-      - target.program_account: 
+      - target.program_address: builtin_program_id
+      - target.program_account:
           - if stateless: an AccountSharedData::default() (i.e. system program id, 0 lamports, 0 data, non-executable, system program owner)
-          - if NOT stateless: the existing account (for us its called `target_program_account`) 
+          - if NOT stateless: the existing account (for us its called `target_program_account`)
       - target.program_data_address: `target_program_data_address` for us, derived below. */
 
   /* These checks will fail if the core program has already been migrated to BPF, since the account will exist + the program owner
@@ -4313,8 +4372,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244 
-     
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244
+
      Obtains a `SourceBuffer` account. There are two fields returned:
       - source.buffer_address: source_buffer_address
       - source.buffer_account: the existing buffer account */
@@ -4367,15 +4426,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Failed to write new program state to %s", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
   }
-  
+
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->const_meta->dlen;
   FD_BORROWED_ACCOUNT_DECL( new_target_program_data_account );
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, 
-                           slot_ctx->funk_txn, 
-                           target_program_data_address, 
-                           1, 
-                           new_target_program_data_account_sz, 
+  err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
+                           slot_ctx->funk_txn,
+                           target_program_data_address,
+                           1,
+                           new_target_program_data_account_sz,
                            new_target_program_data_account );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
@@ -4390,9 +4449,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     goto fail;
   }
 
-  /* Deploy the new target Core BPF program. 
+  /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
-  err = fd_directly_invoke_loader_v3_deploy( slot_ctx, 
+  err = fd_directly_invoke_loader_v3_deploy( slot_ctx,
                                              new_target_program_data_account->const_data + PROGRAMDATA_METADATA_SIZE,
                                              new_target_program_data_account->const_meta->dlen - PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( err ) ) {
@@ -4411,15 +4470,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     slot_ctx->slot_bank.capitalization += lamports_to_fund - lamports_to_burn;
   }
 
-  /* Reclaim the source buffer account 
+  /* Reclaim the source buffer account
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L305 */
   source_buffer_account->meta->info.lamports = 0;
   source_buffer_account->meta->dlen = 0;
   fd_memset( source_buffer_account->meta->info.owner, 0, sizeof(fd_pubkey_t) );
-  
+
   /* Publish the in-preparation transaction into the parent. We should not have to create
      a BPF cache entry here because the program is technically "delayed visibility", so the program
-     should not be invokable until the next slot. The cache entry will be created at the end of the 
+     should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
   fd_funk_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
   slot_ctx->funk_txn = parent_txn;
@@ -4569,6 +4628,10 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_
   slot_ctx->slot_bank.collected_priority_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
+  slot_ctx->nonvote_txn_count = 0;
+  slot_ctx->failed_txn_count = 0;
+  slot_ctx->nonvote_failed_txn_count = 0;
+  slot_ctx->total_compute_units_used = 0;
 
   fd_sysvar_slot_history_update(slot_ctx);
 
