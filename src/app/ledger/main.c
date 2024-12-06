@@ -1032,7 +1032,7 @@ replay( fd_ledger_args_t * args ) {
 
   fd_ledger_main_setup( args );
 
-  fd_blockstore_init( args->blockstore, -1, &args->slot_ctx->slot_bank );
+  fd_blockstore_init( args->blockstore, -1, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &args->slot_ctx->slot_bank );
 
   FD_LOG_WARNING(( "setup done" ));
 
