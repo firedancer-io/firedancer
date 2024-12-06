@@ -21,14 +21,16 @@ test_txn( uchar const * payload,
   fd_compute_budget_program_state_t state;
   fd_compute_budget_program_init( &state );
   uchar const * addresses = payload + txn->acct_addr_off;
+  ulong builtin_instr_cnt = 0UL;
   for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
     if( !memcmp( addresses+FD_TXN_ACCT_ADDR_SZ*txn->instr[ i ].program_id, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ ) ) {
+      builtin_instr_cnt += 1UL;
       FD_TEST( fd_compute_budget_program_parse( payload+txn->instr[ i ].data_off, txn->instr[ i ].data_sz, &state ) );
     }
   }
   ulong rewards = 0UL;
   uint  compute = 0U;
-  fd_compute_budget_program_finalize( &state, txn->instr_cnt, &rewards, &compute );
+  fd_compute_budget_program_finalize( &state, txn->instr_cnt - builtin_instr_cnt, builtin_instr_cnt, &rewards, &compute );
   FD_TEST( rewards==expected_fee_lamports );
   FD_TEST( (ulong)compute==expected_max_cu );
 }

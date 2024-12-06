@@ -242,7 +242,7 @@ schedule_validate_microblock( fd_pack_t * pack,
       FD_TEST( fd_compute_budget_program_parse( txnp->payload + ix.data_off, ix.data_sz, &cbp ) );
       ix = txn->instr[1];
       FD_TEST( fd_compute_budget_program_parse( txnp->payload + ix.data_off, ix.data_sz, &cbp ) );
-      fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, &rewards, &compute );
+      fd_compute_budget_program_finalize( &cbp, txn->instr_cnt - 2, 2, &rewards, &compute );
     } /* else it's a vote */
 
     total_rewards += rewards;

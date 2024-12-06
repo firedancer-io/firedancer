@@ -40,6 +40,7 @@ do {
   ulong rewards;
   uint compute_unit_limit;
   fd_compute_budget_program_finalize( cbp,
+                                      0UL,
                                       input->instr_datas_count,
                                       &rewards,
                                       &compute_unit_limit

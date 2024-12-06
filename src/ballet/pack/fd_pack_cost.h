@@ -194,7 +194,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 
   ulong fee[1];
   uint compute[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute );
+  fd_compute_budget_program_finalize( cbp, non_builtin_cnt, txn->instr_cnt - non_builtin_cnt, fee, compute );
 
   non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
 
