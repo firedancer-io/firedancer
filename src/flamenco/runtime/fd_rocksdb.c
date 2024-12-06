@@ -722,9 +722,21 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   blockstore->lps = slot;
   blockstore->hcs = slot;
+  blockstore->smr = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
-    block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
+    block_map_entry->flags = 
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+        block_map_entry->flags,
+        FD_BLOCK_FLAG_COMPLETED ),
+        FD_BLOCK_FLAG_PROCESSED ),
+        FD_BLOCK_FLAG_EQVOCSAFE ),
+        FD_BLOCK_FLAG_CONFIRMED ),
+        FD_BLOCK_FLAG_FINALIZED );
   }
 
   fd_blockstore_end_write(blockstore);

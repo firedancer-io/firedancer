@@ -208,11 +208,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
       }
-
-      /* Publish this block */
-      fd_blockstore_start_write( blockstore );
-      fd_blockstore_publish( blockstore, -1, slot );
-      fd_blockstore_end_write( blockstore );
     }
 
     fd_blockstore_start_read( blockstore );
