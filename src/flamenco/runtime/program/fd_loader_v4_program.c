@@ -280,7 +280,10 @@ fd_bpf_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *            
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L463-L526 */
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
-  /* TODO: feature active check */
+  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
+
   FD_SCRATCH_SCOPE_BEGIN {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L470 */
     fd_pubkey_t const * program_id = &instr_ctx->instr->program_id_pubkey;
