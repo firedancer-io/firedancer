@@ -186,8 +186,18 @@ do{
     break;
   }
 
-  /* Setup calldests from call_whitelist */
-  ulong * calldests = (ulong *) input->vm_ctx.call_whitelist->bytes;
+  /* Setup calldests from call_whitelist.
+     Alloc */
+  ulong max_pc = (rodata_sz + 7) / 8;
+  ulong calldests_sz = ((max_pc + 63) / 64) * 8;
+  ulong * calldests = fd_valloc_malloc( valloc, fd_sbpf_calldests_align(), calldests_sz );
+  memset( calldests, 0, calldests_sz );
+  FD_LOG_WARNING(( "calldests_sz = %lu", calldests_sz ));
+  if( input->vm_ctx.call_whitelist && input->vm_ctx.call_whitelist->size > 0 ) {
+    memcpy( calldests, input->vm_ctx.call_whitelist->bytes, input->vm_ctx.call_whitelist->size );
+    ulong mask = (1UL << (max_pc % 64)) - 1UL;
+    calldests[ max_pc / 64 ] &= mask;
+  }
 
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
