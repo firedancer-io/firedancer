@@ -46,9 +46,9 @@ setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
    Empty regions are skipped, so we return the true size of the populated array. */
 uint
 setup_vm_input_regions( fd_vm_input_region_t *                   input,
-                       fd_exec_test_input_data_region_t const * test_input,
-                       ulong                                    test_input_count,
-                       fd_valloc_t                              valloc );
+                        fd_exec_test_input_data_region_t const * test_input,
+                        ulong                                    test_input_count,
+                        fd_spad_t *                              spad );
 
 ulong
 load_from_vm_input_regions( fd_vm_input_region_t const *        input,

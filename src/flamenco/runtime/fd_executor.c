@@ -1132,6 +1132,7 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
+  FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_exec_instr_ctx_t * parent = NULL;
     if( txn_ctx->instr_stack_sz ) {
@@ -1214,6 +1215,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     return exec_result;
   } FD_SCRATCH_SCOPE_END;
+  } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
 
 void

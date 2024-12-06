@@ -64,7 +64,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_funk_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
-  fd_valloc_t           valloc;
+  fd_valloc_t           valloc;                                      /* Workspace-backed valloc TODO: migrate to spad */
+  fd_spad_t *           spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
 
   ulong                 paid_fees;
   ulong                 compute_unit_limit;                          /* Compute unit limit for this transaction. */
@@ -125,8 +126,6 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   /* Execution error and type, to match Agave. */
   int exec_err;
   int exec_err_kind;
-
-  fd_spad_t * spad;
 
   /* The has_program_id flag is used to indicate if the current transaction has valid program indices or not.
      It will be set in fd_executor_load_transaction_accounts similar to how program_indices is used in
