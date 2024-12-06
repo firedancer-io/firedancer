@@ -613,8 +613,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Right after translating, Agave checks against MAX_SIGNERS:
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS );
-    return FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS;
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
+    return FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS;
   }
 
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
@@ -637,8 +637,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
     err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
     if( FD_UNLIKELY( err ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
-      return FD_VM_ERR_INVAL;
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+      return FD_VM_SYSCALL_ERR_BAD_SEEDS;
     }
   }
 
@@ -652,7 +652,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Authorized program check *************************************************/
 
   if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
-    return FD_VM_ERR_PERM;
+    /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1054 */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
+    return FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED;
   }
 
   /* Instruction checks ***********************************************/
@@ -691,8 +693,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/cpi.rs#L805-L814 */
   ulong acc_info_total_sz = fd_ulong_sat_mul( acct_info_cnt, VM_SYSCALL_CPI_ACC_INFO_SIZE );
   if( FD_UNLIKELY( vm->direct_mapping && fd_ulong_sat_add( acct_infos_va, acc_info_total_sz ) >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_POINTER );
-    return FD_VM_ERR_SYSCALL_INVALID_POINTER;
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   /* This is the equivalent of translate_slice in translate_account_infos:
@@ -703,16 +705,16 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L822 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( acct_info_cnt > get_cpi_max_account_infos( vm->instr_ctx->slot_ctx ) ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
-      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
+      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
     }
   } else {
     ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
     if ( FD_UNLIKELY( adjusted_len > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       /* "Cap the number of account_infos a caller can pass to approximate
           maximum that accounts that could be passed in an instruction" */
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS );
-      return FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS;
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_TOO_MANY_ACCOUNTS );
+      return FD_VM_SYSCALL_ERR_TOO_MANY_ACCOUNTS;
     }
   }
 
@@ -728,11 +730,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   ulong caller_lamports_l = 0UL;
 
   err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
-  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
+  if ( FD_UNLIKELY( err ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
 
   if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
       caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_ERR_INSTR_ERR;
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
   
   /* Set the transaction compute meter to be the same as the VM's compute meter,

@@ -28,7 +28,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
      a non-crashing way. */
 
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_CLOCK_FOOTPRINT ) );
 
@@ -64,7 +64,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
      a non-crashing way for the time being. */
 
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_EPOCH_SCHEDULE_FOOTPRINT ) );
 
@@ -100,7 +100,7 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
      a non-crashing way for the time being. */
 
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_FEES_FOOTPRINT ) );
 
@@ -136,7 +136,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
      a non-crashing way for the time being. */
 
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_RENT_FOOTPRINT ) );
 
@@ -170,7 +170,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_sol_sysvar_last_restart_slot_t * out =
     FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
   if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out, vm->instr_ctx->slot_ctx ) == NULL ) ) {
-    return FD_VM_ERR_ABORT;
+    return FD_VM_SYSCALL_ERR_ABORT;
   }
 
   *_ret = 0UL;
@@ -204,7 +204,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   int err = fd_int_if( __builtin_uaddl_overflow( offset, sz, &offset_length ), FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW, FD_EXECUTOR_INSTR_SUCCESS );
   if( FD_UNLIKELY( err ) ) {
     FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-    return FD_VM_ERR_ABORT;
+    return FD_VM_SYSCALL_ERR_ABORT;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L210-L213 
@@ -313,8 +313,14 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
+  /* FIXME: In the original version of this code, there was an FD_TEST
+     to check if the VM was attached to an instruction context (that
+     would have crashed anyway because of pointer chasing).  If the VM
+     is being run outside the Solana runtime, it should never invoke
+     this syscall in the first place.  So we treat this as a SIGCALL in
+     a non-crashing way for the time being. */
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   fd_txn_return_data_t const * return_data    = &instr_ctx->txn_ctx->return_data;
   ulong                        return_data_sz = return_data->len;
@@ -354,19 +360,24 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1297 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  /* FIXME: In the original version of this code, there was an FD_TEST
+     to check if the VM was attached to an instruction context (that
+     would have crashed anyway because of pointer chasing).  If the VM
+     is being run outside the Solana runtime, it should never invoke
+     this syscall in the first place.  So we treat this as a SIGCALL in
+     a non-crashing way for the time being. */
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSCALL_BASE_COST, src_sz / FD_VM_CPI_BYTES_PER_UNIT ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1316 */
   if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) {
     /* TODO: this is a bit annoying, we may want to unify return codes...
-       - FD_VM_ERR_SYSCALL_RETURN_DATA_TOO_LARGE is Agave's return code,
-         also used for logging
-       - FD_VM_ERR_RETURN_DATA_TOO_LARGE is Firedancer return code */
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_RETURN_DATA_TOO_LARGE );
-    return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
+       - FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE is Agave's return code,
+         also used for logging */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE );
+    return FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE;
   }
 
   /* src_sz == 0 is ok */
