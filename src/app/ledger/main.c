@@ -190,6 +190,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
+  ulong block_slot = start_slot;
   for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
     ledger_args->slot_ctx->slot_bank.slot      = slot;
@@ -202,12 +203,34 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       fd_funk_end_write( ledger_args->capture_ctx->pruned_funk );
     }
 
+    /* If we have reached a new block, load one in from rocksdb to the blockstore */
     if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
                                                     ledger_args->copy_txn_status, slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
       }
+      
+      fd_blockstore_start_write( blockstore );
+
+      /* Remove the previous block from the blockstore */
+      if ( FD_LIKELY( block_slot < slot ) ) {
+        /* Mark the block as successfully processed */
+        fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &block_slot, NULL );
+        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
+
+        /* Remove the old block from the blockstore */
+        fd_blockstore_slot_remove( blockstore, block_slot );
+      }
+
+      /* Mark the new block as replaying */
+      fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+      block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+
+      fd_blockstore_end_write( blockstore );
+
+      block_slot = slot;
     }
 
     fd_blockstore_start_read( blockstore );
