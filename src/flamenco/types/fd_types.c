@@ -21043,6 +21043,60 @@ ulong fd_bpf_loader_v4_program_instruction_write_size( fd_bpf_loader_v4_program_
   return size;
 }
 
+int fd_bpf_loader_v4_program_instruction_truncate_decode( fd_bpf_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_bpf_loader_v4_program_instruction_truncate_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_bpf_loader_v4_program_instruction_truncate_new( self );
+  }
+  fd_bpf_loader_v4_program_instruction_truncate_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_bpf_loader_v4_program_instruction_truncate_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_bpf_loader_v4_program_instruction_truncate_decode_unsafe( fd_bpf_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->new_size, ctx );
+}
+int fd_bpf_loader_v4_program_instruction_truncate_encode( fd_bpf_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->new_size, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_bpf_loader_v4_program_instruction_truncate_decode_offsets( fd_bpf_loader_v4_program_instruction_truncate_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->new_size_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_bpf_loader_v4_program_instruction_truncate_new(fd_bpf_loader_v4_program_instruction_truncate_t * self) {
+  fd_memset( self, 0, sizeof(fd_bpf_loader_v4_program_instruction_truncate_t) );
+}
+void fd_bpf_loader_v4_program_instruction_truncate_destroy( fd_bpf_loader_v4_program_instruction_truncate_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+}
+
+ulong fd_bpf_loader_v4_program_instruction_truncate_footprint( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_FOOTPRINT; }
+ulong fd_bpf_loader_v4_program_instruction_truncate_align( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_ALIGN; }
+
+void fd_bpf_loader_v4_program_instruction_truncate_walk( void * w, fd_bpf_loader_v4_program_instruction_truncate_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_v4_program_instruction_truncate", level++ );
+  fun( w, &self->new_size, "new_size", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_loader_v4_program_instruction_truncate", level-- );
+}
+ulong fd_bpf_loader_v4_program_instruction_truncate_size( fd_bpf_loader_v4_program_instruction_truncate_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  return size;
+}
+
 FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_write(fd_bpf_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 0;
 }
@@ -21068,8 +21122,8 @@ int fd_bpf_loader_v4_program_instruction_inner_decode_preflight( uint discrimina
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = fd_bincode_uint32_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bpf_loader_v4_program_instruction_truncate_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 2: {
@@ -21091,7 +21145,7 @@ void fd_bpf_loader_v4_program_instruction_inner_decode_unsafe( fd_bpf_loader_v4_
     break;
   }
   case 1: {
-    fd_bincode_uint32_decode_unsafe( &self->truncate, ctx );
+    fd_bpf_loader_v4_program_instruction_truncate_decode_unsafe( &self->truncate, ctx );
     break;
   }
   case 2: {
@@ -21133,6 +21187,7 @@ void fd_bpf_loader_v4_program_instruction_inner_new( fd_bpf_loader_v4_program_in
     break;
   }
   case 1: {
+    fd_bpf_loader_v4_program_instruction_truncate_new( &self->truncate );
     break;
   }
   case 2: {
@@ -21162,6 +21217,7 @@ void fd_bpf_loader_v4_program_instruction_inner_destroy( fd_bpf_loader_v4_progra
     break;
   }
   case 1: {
+    fd_bpf_loader_v4_program_instruction_truncate_destroy( &self->truncate, ctx );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -21184,7 +21240,7 @@ void fd_bpf_loader_v4_program_instruction_walk( void * w, fd_bpf_loader_v4_progr
   }
   case 1: {
     fun( w, self, "truncate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-  fun( w, &self->inner.truncate, "truncate", FD_FLAMENCO_TYPE_UINT, "uint", level );
+    fd_bpf_loader_v4_program_instruction_truncate_walk( w, &self->inner.truncate, fun, "truncate", level );
     break;
   }
   case 2: {
@@ -21211,7 +21267,7 @@ ulong fd_bpf_loader_v4_program_instruction_size( fd_bpf_loader_v4_program_instru
     break;
   }
   case 1: {
-    size += sizeof(uint);
+    size += fd_bpf_loader_v4_program_instruction_truncate_size( &self->inner.truncate );
     break;
   }
   }
@@ -21227,8 +21283,8 @@ int fd_bpf_loader_v4_program_instruction_inner_encode( fd_bpf_loader_v4_program_
     break;
   }
   case 1: {
-    err = fd_bincode_uint32_encode( self->truncate, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bpf_loader_v4_program_instruction_truncate_encode( &self->truncate, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   }
@@ -22160,6 +22216,212 @@ int fd_bpf_upgradeable_loader_state_encode( fd_bpf_upgradeable_loader_state_t co
   int err = fd_bincode_uint32_encode( self->discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return fd_bpf_upgradeable_loader_state_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+FD_FN_PURE uchar fd_loader_v4_status_is_retracted(fd_loader_v4_status_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_loader_v4_status_is_deployed(fd_loader_v4_status_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_loader_v4_status_is_finalized(fd_loader_v4_status_t const * self) {
+  return self->discriminant == 2;
+}
+void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, uint discriminant );
+int fd_loader_v4_status_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_loader_v4_status_inner_decode_unsafe( fd_loader_v4_status_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  }
+}
+int fd_loader_v4_status_decode( fd_loader_v4_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_loader_v4_status_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_loader_v4_status_new( self );
+  }
+  fd_loader_v4_status_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_status_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_loader_v4_status_inner_decode_preflight( discriminant, ctx );
+}
+void fd_loader_v4_status_decode_unsafe( fd_loader_v4_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_loader_v4_status_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
+}
+void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_loader_v4_status_new_disc( fd_loader_v4_status_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_loader_v4_status_inner_new( &self->inner, self->discriminant );
+}
+void fd_loader_v4_status_new( fd_loader_v4_status_t * self ) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_status_t) );
+  fd_loader_v4_status_new_disc( self, UINT_MAX );
+}
+void fd_loader_v4_status_inner_destroy( fd_loader_v4_status_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_loader_v4_status_destroy( fd_loader_v4_status_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_loader_v4_status_inner_destroy( &self->inner, self->discriminant, ctx );
+}
+
+ulong fd_loader_v4_status_footprint( void ){ return FD_LOADER_V4_STATUS_FOOTPRINT; }
+ulong fd_loader_v4_status_align( void ){ return FD_LOADER_V4_STATUS_ALIGN; }
+
+void fd_loader_v4_status_walk( void * w, fd_loader_v4_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_loader_v4_status", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "retracted", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "deployed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "finalized", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_loader_v4_status", level-- );
+}
+ulong fd_loader_v4_status_size( fd_loader_v4_status_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  }
+  return size;
+}
+
+int fd_loader_v4_status_inner_encode( fd_loader_v4_status_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_status_encode( fd_loader_v4_status_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_loader_v4_status_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+int fd_loader_v4_state_decode( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_loader_v4_state_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_loader_v4_state_new( self );
+  }
+  fd_loader_v4_state_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_state_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_bytes_decode_preflight( 32, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_loader_v4_status_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_state_decode_unsafe( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_pubkey_decode_unsafe( &self->authority_address_or_next_version, ctx );
+  fd_loader_v4_status_decode_unsafe( &self->status, ctx );
+}
+int fd_loader_v4_state_encode( fd_loader_v4_state_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->authority_address_or_next_version, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_loader_v4_status_encode( &self->status, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_state_decode_offsets( fd_loader_v4_state_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->slot_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->authority_address_or_next_version_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_bytes_decode_preflight( 32, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->status_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_loader_v4_status_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_state_new(fd_loader_v4_state_t * self) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_state_t) );
+  fd_pubkey_new( &self->authority_address_or_next_version );
+  fd_loader_v4_status_new( &self->status );
+}
+void fd_loader_v4_state_destroy( fd_loader_v4_state_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_pubkey_destroy( &self->authority_address_or_next_version, ctx );
+  fd_loader_v4_status_destroy( &self->status, ctx );
+}
+
+ulong fd_loader_v4_state_footprint( void ){ return FD_LOADER_V4_STATE_FOOTPRINT; }
+ulong fd_loader_v4_state_align( void ){ return FD_LOADER_V4_STATE_ALIGN; }
+
+void fd_loader_v4_state_walk( void * w, fd_loader_v4_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_state", level++ );
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_pubkey_walk( w, &self->authority_address_or_next_version, fun, "authority_address_or_next_version", level );
+  fd_loader_v4_status_walk( w, &self->status, fun, "status", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_state", level-- );
+}
+ulong fd_loader_v4_state_size( fd_loader_v4_state_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += fd_pubkey_size( &self->authority_address_or_next_version );
+  size += fd_loader_v4_status_size( &self->status );
+  return size;
 }
 
 int fd_frozen_hash_status_decode( fd_frozen_hash_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
