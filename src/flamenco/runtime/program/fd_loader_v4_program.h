@@ -5,6 +5,8 @@
 #include "../context/fd_exec_instr_ctx.h"
 #include "../fd_system_ids.h"
 #include "../fd_executor.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../fd_account.h"
 
 /* 
   Notes about loader v4 since it differs slightly from the previous BPF v3...

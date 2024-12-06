@@ -149,13 +149,9 @@ fd_bpf_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *            
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L134C9-L135 */
     uchar is_initialization = !!( new_size>0UL && program->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L136-L152 */
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L136-L164 */
     if( is_initialization ) {
-      /* For initialization...
-         - Program account must be writable + signer
-         - Authority account must be a signer
-
-         https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L137-L140 */
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L137-L140 */
       if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
@@ -179,9 +175,102 @@ fd_bpf_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *            
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
     } else {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L154-L159 */
+      fd_loader_v4_state_t state = {0};
+      err = check_program_account( instr_ctx, program, authority_address, &state ); 
+      if( FD_UNLIKELY( err ) ) {
+        return err;
+      }
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L160-L163 */
+      if(  FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &state.status ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not retracted" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
     }
 
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L165-L171 */
+    fd_rent_t const * rent = fd_sysvar_cache_rent( instr_ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( rent==NULL ) ) {
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    }
+
+    /* Note that this new_program_dlen is only relevant when new_size > 0 */
+    ulong new_program_dlen = fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, new_size );
+    ulong required_lamports = ( new_size==0UL ) ? 
+                                0UL : 
+                                fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_program_dlen ),
+                                              1UL );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L172-L193 */
+    if( FD_UNLIKELY( program->const_meta->info.lamports<required_lamports ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L174-L179 */
+      fd_log_collector_printf_dangerous_max_127( instr_ctx,
+        "Insufficient lamports, %lu are required", required_lamports );
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    } else if( program->const_meta->info.lamports>required_lamports ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L182-L183 */
+      FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, recipient ) {
+
+        /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L184-L187 */
+        if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr_ctx->instr, 2UL ) ) ) {
+          fd_log_collector_msg_literal( instr_ctx, "Recipient is not writeable" );
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        }
+
+        /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L190 */
+        ulong lamports_to_receive = fd_ulong_sat_sub( program->const_meta->info.lamports,
+                                                      required_lamports );
+        err = fd_account_checked_add_lamports( instr_ctx, 2UL, recipient->const_meta->info.lamports );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
+        err = fd_account_checked_sub_lamports( instr_ctx, 0UL, lamports_to_receive );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
+      } FD_BORROWED_ACCOUNT_DROP( recipient );
+    } /* no-op for program lamports == required lamports */
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L194-L206 */
+    if( new_size==0UL ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L195 */
+      err = fd_account_set_data_length( instr_ctx, 0UL, 0UL );
+      if( FD_UNLIKELY( err ) ) {
+        return err;
+      }
+    } else {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L197-L199 */
+      err = fd_account_set_data_length( instr_ctx, 0UL, new_program_dlen );
+      if( FD_UNLIKELY( err ) ) {
+        return err;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L200-L205 */
+      if( is_initialization ) {
+        /* Serialize into the program account directly. Note that an error is impossible
+           because `new_program_dlen` > `LOADER_V4_PROGRAM_DATA_OFFSET`.
+           https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L201-L204 */
+        fd_loader_v4_state_t state = {
+          .slot = 0UL,
+          .status = {
+            .discriminant = fd_loader_v4_status_enum_retracted,
+          },
+          .authority_address_or_next_version = *authority_address,
+        };
+        fd_bincode_encode_ctx_t ctx = {
+          .data    = program->data,
+          .dataend = program->data + LOADER_V4_PROGRAM_DATA_OFFSET,
+        };
+
+        err = fd_loader_v4_state_encode( &state, &ctx );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
+      }
+    }
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
   } FD_BORROWED_ACCOUNT_DROP( program );
 }
 
