@@ -121,9 +121,6 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error"; 
   case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
-  /* (Deprecated) Syscall errors */
-  case FD_VM_ERR_MEM_OVERLAP:                  return "MEM_OVERLAP";                  /* FIXME: description */
-
   /* VM validate error codes */
 
   case FD_VM_ERR_INVALID_OPCODE:    return "INVALID_OPCODE detected an invalid opcode";

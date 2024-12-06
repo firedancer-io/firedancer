@@ -48,12 +48,12 @@
 /* (DEPRECATED) VM syscall error codes.  These are only produced by fd_vm_syscall
    implementations. */
 
-// #define FD_VM_ERR_ABORT                        (-119) /* FIXME: description  PENDING SYSVAR SYSCALL */
-// #define FD_VM_ERR_PANIC                        (-120) /* FIXME: description  PENDING TESTS refactor */
-#define FD_VM_ERR_MEM_OVERLAP                  (-121) /* FIXME: description  PENDING FD_VM_MEM_CHECK_NON_OVERLAPPING refactor */
-// #define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description  DONE */
-// #define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description  DONE (unused) */
-// #define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description  DONE */
+// #define FD_VM_ERR_ABORT                        (-119) /* FIXME: description */
+// #define FD_VM_ERR_PANIC                        (-120) /* FIXME: description */
+// #define FD_VM_ERR_MEM_OVERLAP                  (-121) /* FIXME: description */
+// #define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description  */
+// #define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description  */
+// #define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description  */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return

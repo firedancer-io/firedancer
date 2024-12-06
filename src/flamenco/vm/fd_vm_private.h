@@ -136,14 +136,14 @@ FD_PROTOTYPES_BEGIN
 /* FD_VM_CU_UPDATE charges the vm cost compute units.
 
    If the vm does not have more than cost cu available, this will cause
-   the caller to zero out the vm->cu and return with FD_VM_ERR_SIGCOST.
+   the caller to zero out the vm->cu and return with FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED.
    This macro is robust.
    This is meant to be used by syscall implementations and strictly
    conforms with the vm-syscall ABI interface.
 
    Note: in Agave a syscall can return success leaving 0 available CUs.
    The instruction will fail at the next instruction (e.g., exit).
-   To reproduce the same behavior, we do not return FD_VM_ERR_SIGCOST
+   To reproduce the same behavior, we do not return FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED
    when cu == 0.
 
    FD_VM_CU_MEM_UPDATE charges the vm the equivalent of sz bytes of
@@ -157,7 +157,7 @@ FD_PROTOTYPES_BEGIN
     if( FD_UNLIKELY( _cost>_cu ) ) {                 \
       _vm->cu = 0UL;                                 \
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ); \
-      return FD_VM_ERR_SIGCOST;                      \
+      return FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED; \
     }                                                \
     _vm->cu = _cu - _cost;                           \
   }))
@@ -533,7 +533,7 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
 
    If the virtual address range cannot be mapped to the host address
    space completely and/or (when applicable) vaddr is not appropriately
-   aligned, this will cause the caller to return FD_VM_ERR_SIGSEGV.
+   aligned, this will cause the caller to return FD_VM_SYSCALL_ERR_SEGFAULT.
    This macro is robust.  This is meant to be used by syscall
    implementations and strictly conforms with the vm-syscall ABI
    interface.
@@ -567,15 +567,15 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                   \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     (void const *)_haddr;                                                                                   \
   }))
@@ -602,17 +602,17 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
   int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));
   if ( FD_UNLIKELY( sz > LONG_MAX ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-    *err = FD_VM_ERR_SIGSEGV;
+    *err = FD_VM_SYSCALL_ERR_SEGFAULT;
     return 0;
   }
   if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {
     FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-    *err = FD_VM_ERR_SIGSEGV;
+    *err = FD_VM_SYSCALL_ERR_SEGFAULT;
     return 0;
   }
   if ( FD_UNLIKELY( _sigbus ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
-    *err = FD_VM_ERR_SIGSEGV;
+    *err = FD_VM_SYSCALL_ERR_SEGFAULT;
     return 0;
   }
   return (void *)_haddr;
@@ -642,15 +642,15 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                   \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if( FD_UNLIKELY( (!_haddr) | _is_multi ) ) {                                                            \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     (void *)_haddr;                                                                                         \
   }))
@@ -674,7 +674,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
   _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
   if( FD_UNLIKELY( _offset>=vm->input_mem_regions[ _out_region_idx ].vaddr_offset+vm->input_mem_regions[ _out_region_idx ].region_sz ) ) {                    \
     FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                                                              \
-    return FD_VM_ERR_SIGSEGV;                                                                                                                   \
+    return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                                                          \
   }                                                                                                                                             \
   _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
 }))
@@ -699,7 +699,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 #define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
-      return FD_VM_ERR_INVAL;                                                                                   \
+      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
     }                                                                                                           \
     void const * haddr = 0UL;                                                                                   \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
@@ -714,7 +714,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 #define FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, vaddr, align ) (__extension__({                              \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
-      return FD_VM_ERR_INVAL;                                                                                   \
+      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
     }                                                                                                           \
     void const * haddr = 0UL;                                                                                   \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
@@ -726,7 +726,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 #define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
-      return FD_VM_ERR_INVAL;                                                                                   \
+      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
     }                                                                                                           \
     void * haddr = 0UL;                                                                                         \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
@@ -740,7 +740,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
   if( FD_UNLIKELY( ((vaddr0> vaddr1) && ((vaddr0-vaddr1)<sz1)) ||                                               \
                    ((vaddr1>=vaddr0) && ((vaddr1-vaddr0)<sz0)) ) ) {                                            \
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );                                        \
-    return FD_VM_ERR_MEM_OVERLAP;                                                                               \
+    return FD_VM_SYSCALL_ERR_COPY_OVERLAPPING;                                                                  \
   }                                                                                                             \
 } while(0)
 
