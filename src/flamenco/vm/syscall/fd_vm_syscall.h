@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_h
 
 #include "../fd_vm_private.h"
+#include "fd_vm_syscall_macros.h"
 #include "fd_vm_cpi.h"                /* FIXME: REFINE THIS MORE */
 #include "../../runtime/fd_runtime.h" /* FIXME: REFINE THIS MORE */
 #include "../../runtime/context/fd_exec_instr_ctx.h"
@@ -65,9 +66,9 @@
 
    It is the syscall's responsibility to deduct from vm->cu its specific
    cost model (not including the syscall instruction itself).  As such,
-   when a syscall returns SIGCOST, it should have set vm->cu to zero.
-   When it returns anything else, it should have set cu to something in
-   [1,cu_at_function_entry].
+   when a syscall returns COMPUTE_BUDGET_EXCEEDED, it should have set 
+   vm->cu to zero. When it returns anything else, it should have set cu
+   to something in [1,cu_at_function_entry].
 
    To mitigate risks of from syscall implementations that do not
    strictly enforce this and other similar risks that can affect
@@ -126,8 +127,8 @@ FD_VM_SYSCALL_DECL( abort );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_INVALID_STRING: Bad filepath string 
 
@@ -149,8 +150,8 @@ FD_VM_SYSCALL_DECL( sol_panic );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_INVALID_STRING: bad message string.  *_ret=1.
 
@@ -175,8 +176,8 @@ FD_VM_SYSCALL_DECL( sol_log );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
 
@@ -199,8 +200,8 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
@@ -226,8 +227,8 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
      The value logged will be the value of cu when between when the
@@ -257,8 +258,8 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
@@ -326,8 +327,8 @@ FD_VM_SYSCALL_DECL( sol_alloc_free );
 
   Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: address ranges for src and dst overlap
      (either partially or fully).  Empty address ranges are considered
@@ -335,7 +336,7 @@ FD_VM_SYSCALL_DECL( sol_alloc_free );
      vm->cu decremented and vm->cu>0.  FIXME: CONSIDER USING A DIFFERENT
      ERR CODE?
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
@@ -356,10 +357,10 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
 
   Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range (including out not 4 byte
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range (including out not 4 byte
      aligned).  *_ret unchanged.  vm->cu decremented and vm->cu>0.
      Strict alignment is only required when the VM has check_align set.
 
@@ -388,10 +389,10 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
 
   Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
@@ -412,10 +413,10 @@ FD_VM_SYSCALL_DECL( sol_memset );
 
   Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
@@ -446,10 +447,10 @@ FD_VM_SYSCALL_DECL( sol_memmove );
      FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within the Solana runtime.
      *_ret unchanged.  vm->cu unchanged.
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.  out should have:
                           | align | sz
        clock              |     8 | 40
@@ -482,13 +483,10 @@ FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
 
    Return:
 
-     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
-     *_ret unchanged.  vm->cu unchanged.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. vm->cu==0.
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
-
-     FD_VM_ERR_SIGSEGV: bad sysvar_id_vaddr, bad out_vaddr, requested
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad sysvar_id_vaddr, bad out_vaddr, requested
      slice outside of sysvar data buffer. _ret unchanged. vm->cu unchanged.
 
      FD_VM_SYSCALL_ERR_ABORT: offset+sz overflow.  *_ret unchanged.
@@ -547,13 +545,10 @@ FD_VM_SYSCALL_DECL( sol_get_epoch_stake );
 
    Return:
 
-     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
-     *_ret unchanged.  vm->cu unchanged.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. vm->cu==0.
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
-
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
      decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=stack_height.  vm->cu decremented
@@ -577,8 +572,8 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
      FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within the Solana runtime.
      *_ret unchanged.  vm->cu unchanged.
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu==0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: dst and program_id address ranges overlap.
      *_ret unchanged.  vm->cu decremented and vm->cu>0.  (FIXME: ERR
@@ -586,7 +581,7 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
      copied into dst which is <=dst_max ... DOUBLE CHECK THIS AGAINST
      THE SOLANA IMPLEMENTATION.)
 
-     FD_VM_ERR_SIGSEGV: bad address range for dst and/or program_id.
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for dst and/or program_id.
      *_ret unchanged.  Compute budget decremented.  (FIXME: dst address
      range currently checked aginst the actual amount copied into dst,
      which is <=dst_max ... DOUBLE CHECK THIS AGAINST THE SOLANA
@@ -620,13 +615,13 @@ FD_VM_SYSCALL_DECL( sol_get_return_data );
      FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within the Solana runtime.
      *_ret unchanged.  vm->cu unchanged.
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     vm->cu decremented and vm->cu>0.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. vm->cu decremented and vm->cu>0.
 
      FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE: src_sz too large.  *_ret
      unchanged.  vm->cu decremented and vm->cu>0.
 
-     FD_VM_ERR_PERM: bad address range for src.  *_ret unchanged.
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for src.  *_ret unchanged.
      vm->cu decremented and vm->cu>0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0. */
@@ -659,8 +654,8 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. Compute budget decremented.
 
      FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
      bad address range for program_id, seed,
@@ -693,8 +688,8 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. Compute budget decremented.
 
      FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
      bad address range for program_id, seed,
@@ -812,10 +807,10 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 
      FD_VM_ERR_INVAL: cnt too large.  *_ret unchanged.
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     *_ret unchanged. Compute budget decremented.
 
-     FD_VM_ERR_PERM: bad address range for slice, hash and/or
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for slice, hash and/or
      slice[i].addr (including slice not 8 byte aligned if the VM has
      check_align set).  *_ret unchanged.  Compute budget decremented.
 
@@ -894,7 +889,6 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *           vm,
                                                   void const * *      out_seed_haddrs,
                                                   ulong *             out_seed_szs,
                                                   fd_pubkey_t const * * out_program_id );
-                
 FD_PROTOTYPES_END
 
 #endif /* HEADER_src_flamenco_vm_syscall_fd_vm_syscall_h */
