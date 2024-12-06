@@ -59,7 +59,7 @@ static inline void ws_stu( void * p, ws_t i ) { _mm256_storeu_si256( (__m256i *)
    Note: C99 TC3 allows type punning through a union. */
 
 #define ws_extract(a,imm)  ((short)_mm256_extract_epi16( (a), (imm) ))
-#define ws_insert(a,imm,v) _mm256_insert_epi16( (a), (int)(v), (imm) )
+#define ws_insert(a,imm,v) _mm256_insert_epi16( (a), (v), (imm) )
 
 static inline short
 ws_extract_variable( ws_t a, int n ) {
