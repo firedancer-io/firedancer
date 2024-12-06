@@ -760,7 +760,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
                                                                 micros[block->micros_cnt - 1].off );
     memcpy( &block_map_entry->block_hash, last_micro->hash, sizeof( fd_hash_t ) );
 
-    block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_SHREDDING );
+    block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_RECEIVING );
     block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
 
     return FD_BLOCKSTORE_OK;
@@ -889,7 +889,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
     block_map_entry->height         = 0;
     block_map_entry->block_hash     = ( fd_hash_t ){ 0 };
     block_map_entry->bank_hash      = ( fd_hash_t ){ 0 };
-    block_map_entry->flags          = fd_uchar_set_bit( 0, FD_BLOCK_FLAG_SHREDDING );
+    block_map_entry->flags          = fd_uchar_set_bit( 0, FD_BLOCK_FLAG_RECEIVING );
     block_map_entry->ts             = 0;
     block_map_entry->reference_tick = (uchar)( (int)shred->data.flags &
                                                (int)FD_SHRED_DATA_REF_TICK_MASK );

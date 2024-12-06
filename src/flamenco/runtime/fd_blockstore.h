@@ -163,8 +163,8 @@ typedef struct fd_block_txn fd_block_txn_t;
    Other flags mainly provide useful metadata for read-only callers, eg.
    RPC. */
 
-#define FD_BLOCK_FLAG_SHREDDING 0 /* xxxxxxx1 still receiving shreds */
-#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received all shreds (DATA_COMPLETE) */
+#define FD_BLOCK_FLAG_RECEIVING 0 /* xxxxxxx1 still receiving shreds */
+#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received the block ie. all shreds (SLOT_COMPLETE) */
 #define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
 #define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
 #define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
