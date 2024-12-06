@@ -353,10 +353,11 @@ interp_exec:
     reg[ dst ] = reg_dst - (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */ /* FIXME: MORE THINKING AROUND LDQ HANDLING HERE */
+  FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
     pc++;
     ic_correction++;
-    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; /* Note: untaken branches don't consume BTB */
+    /* No need to check pc because it's already checked during validation.
+       if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; // Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
   FD_VM_INTERP_INSTR_END;
 
@@ -693,13 +694,17 @@ interp_exec:
       } else {
         
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
-        if( FD_UNLIKELY( target_pc>=text_cnt ) ){
-          /* ...to match state of Agave VM when faulting */
+        if( FD_UNLIKELY( target_pc>text_cnt ) ){
+          /* ...to match state of Agave VM when faulting
+             Note: this check MUST be BEFORE fd_sbpf_calldests_test,
+             because it prevents overflowing calldests. */
           FD_VM_INTERP_STACK_PUSH;
           goto sigtextbr;
         }
 
-        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) goto sigcall;
+        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
+          goto sigcall;
+        }
 
         FD_VM_INTERP_STACK_PUSH;
         pc = target_pc;
@@ -803,13 +808,17 @@ interp_exec:
     FD_VM_INTERP_STACK_PUSH;
 
     ulong vaddr = reg_src;
-    ulong region = vaddr >> 32;
-    ulong align  = vaddr & 7UL;
-    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
 
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
-    pc = target_pc;
-    pc--;
+    /* Notes: Agave checks region and target_pc before updating the pc.
+       To match their state, we do the same, even though we could simply
+       update the pc and let BRANCH_END fail.
+       Also, Agave doesn't check alignment. */
+
+    ulong region = vaddr >> 32;
+    /* ulong align  = vaddr & 7UL; */
+    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
+    if( FD_UNLIKELY( (region!=1UL) | (target_pc>=text_cnt) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    pc = target_pc - 1;
 
   } FD_VM_INTERP_BRANCH_END;
 
@@ -818,24 +827,17 @@ interp_exec:
     FD_VM_INTERP_STACK_PUSH;
 
     ulong vaddr = reg[ imm & 15U ];
+
+    /* Notes: Agave checks region and target_pc before updating the pc.
+       To match their state, we do the same, even though we could simply
+       update the pc and let BRANCH_END fail.
+       Also, Agave doesn't check alignment. */
+
     ulong region = vaddr >> 32;
-    ulong align  = vaddr & 7UL;
+    /* ulong align  = vaddr & 7UL; */
     ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
-
-    /* Note: BRANCH_END will implicitly handle a pc that fell outside
-       the text section (below via unsigned wraparoud or above) as
-       sigtext.
-
-       Agave performs a check prior to updating the pc, thus
-       we need a temporary variable prior to updating
-       the pc in order to match the VM state on error.
-
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L684-L691
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L443-L453 */
-
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
-    pc = target_pc;
-    pc--;
+    if( FD_UNLIKELY( (region!=1UL) | (target_pc>=text_cnt) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    pc = target_pc - 1;
 
   } FD_VM_INTERP_BRANCH_END;
 
@@ -1097,9 +1099,6 @@ interp_exec:
     reg[ dst ] = (ulong)( (long)reg_dst % (long)reg_src );
   FD_VM_INTERP_INSTR_END;
 
-  /* FIXME: sigsplit is only partially implemented (needs the bit vector
-     of invalid jump targets in BRANCH_END) */
-
   /* FIXME: sigbus/sigrdonly are mapped to sigsegv for simplicity
      currently but could be enabled if desired. */
 
@@ -1133,7 +1132,6 @@ interp_exec:
 
 sigtext:     err = FD_VM_ERR_SIGTEXT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_SIGTEXT;  /* ic current */      /* cu current */  goto interp_halt;
-sigsplit:    err = FD_VM_ERR_SIGSPLIT; FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigcall:     err = FD_VM_ERR_SIGCALL;  /* ic current */      /* cu current */  goto interp_halt;
 sigstack:    err = FD_VM_ERR_SIGSTACK; /* ic current */      /* cu current */  goto interp_halt;
 sigill:      err = FD_VM_ERR_SIGILL;   FD_VM_INTERP_FAULT;                     goto interp_halt;
