@@ -1662,6 +1662,26 @@
       "comment": ""
     },
     {
+      "name": "loader_v4_status",
+      "type": "enum",
+      "variants": [
+        { "name": "retracted" },
+        { "name": "deployed" },
+        { "name": "finalized" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L20-L27"
+    },
+    {
+      "name": "loader_v4_state",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "authority_address_or_next_version", "type": "pubkey" },
+        { "name": "status", "type": "loader_v4_status" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43"
+    },
+    {
       "name": "frozen_hash_status",
       "type": "struct",
       "fields": [
