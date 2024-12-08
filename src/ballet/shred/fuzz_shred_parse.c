@@ -100,7 +100,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     assert( !fd_shred_is_resigned( type    ) );
     BOUNDS_CHECK    ( fd_shred_code_payload( shred   ), fd_shred_payload_sz( shred ) );
     BOUNDS_CHECK    ( fd_shred_merkle_nodes( shred   ), fd_shred_merkle_sz( variant ) );
-    BOUNDS_CHECK_OFF( fd_shred_chain_offset( variant ), FD_SHRED_MERKLE_ROOT_SZ );
+    BOUNDS_CHECK_OFF( fd_shred_chain_off( variant ), FD_SHRED_MERKLE_ROOT_SZ );
     break;
 
   case FD_SHRED_TYPE_MERKLE_DATA_CHAINED:
@@ -112,7 +112,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     assert( !fd_shred_is_resigned( type    ) );
     BOUNDS_CHECK    ( fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
     BOUNDS_CHECK    ( fd_shred_merkle_nodes( shred ), fd_shred_merkle_sz( variant ) );
-    BOUNDS_CHECK_OFF( fd_shred_chain_offset( variant ), FD_SHRED_MERKLE_ROOT_SZ );
+    BOUNDS_CHECK_OFF( fd_shred_chain_off( variant ), FD_SHRED_MERKLE_ROOT_SZ );
     break;
 
   case FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED:
@@ -124,7 +124,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     assert(  fd_shred_is_resigned( type    ) );
     BOUNDS_CHECK    ( fd_shred_code_payload( shred   ), fd_shred_payload_sz( shred ) );
     BOUNDS_CHECK    ( fd_shred_merkle_nodes( shred   ), fd_shred_merkle_sz( variant ) );
-    BOUNDS_CHECK_OFF( fd_shred_chain_offset( variant ), FD_SHRED_MERKLE_ROOT_SZ );
+    BOUNDS_CHECK_OFF( fd_shred_chain_off( variant ), FD_SHRED_MERKLE_ROOT_SZ );
     BOUNDS_CHECK_OFF( fd_shred_retransmitter_sig_off( shred ), FD_SHRED_SIGNATURE_SZ );
     break;
 
@@ -137,7 +137,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     assert(  fd_shred_is_resigned( type    ) );
     BOUNDS_CHECK    ( fd_shred_data_payload( shred   ), fd_shred_payload_sz( shred ) );
     BOUNDS_CHECK    ( fd_shred_merkle_nodes( shred   ), fd_shred_merkle_sz( variant ) );
-    BOUNDS_CHECK_OFF( fd_shred_chain_offset( variant ), FD_SHRED_MERKLE_ROOT_SZ );
+    BOUNDS_CHECK_OFF( fd_shred_chain_off( variant ), FD_SHRED_MERKLE_ROOT_SZ );
     BOUNDS_CHECK_OFF( fd_shred_retransmitter_sig_off( shred ), FD_SHRED_SIGNATURE_SZ );
     break;
 
