@@ -312,6 +312,8 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
+   - This does NOT set the account's executable flag. TODO: Find out if this is intentional or accidental. This 
+     might be a part of a greater effort to deprecate the account executable flag.
 
   Accounts:
     0. Program account (writable)
@@ -479,14 +481,58 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
 
 /* `process_instruction_retract()` retracts a currently deployed program, making it writable
    and uninvokable. After a program is retracted, users can write and truncate data freely,
-   allowing them to upgrade or close the program account. This also unsets the program account's
-   executable status. */
+   allowing them to upgrade or close the program account. 
+   
+   Other notes:
+   - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
+   
+   Accounts:
+    0. Program account (writable)
+    1. Authority account (signer)
+
+    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L327-L369 */
 static int
 fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
-  // int err;
+  int err;
 
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
-    // fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L335-L337 */
+    fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L338-L343 */
+    fd_loader_v4_state_t state = {0};
+    err = check_program_account( instr_ctx, program, authority_address, &state );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L344 */
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( clock==NULL ) ) {
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    }
+    ulong current_slot = clock->slot;
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L345-L351 */
+    if( FD_UNLIKELY( fd_ulong_sat_add( state.slot, LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS )>current_slot ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Program was deployed recently, cooldown still in effect" );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L352-L355 */
+    if( FD_UNLIKELY( !fd_loader_v4_status_is_deployed( &state.status ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L356 */
+    state.status.discriminant = fd_loader_v4_status_enum_retracted;
+    err = loader_v4_set_state( instr_ctx, 0UL, &state );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* No need to update program cache - see note in `deploy` processor. */
 
     return FD_EXECUTOR_INSTR_SUCCESS;
   } FD_BORROWED_ACCOUNT_DROP( program );

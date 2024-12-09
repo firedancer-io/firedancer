@@ -148,6 +148,9 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     int res;
     if( !memcmp( program_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
       res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, &program_data, &program_data_len );
+    } else if( !memcmp( program_acc->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      /* TODO: implement */
+      res = 1;
     } else {
       res = fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, &program_data, &program_data_len );
     }
