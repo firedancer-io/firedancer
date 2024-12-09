@@ -415,7 +415,9 @@ class VectorMember:
 
 
     def propogateArchival(self, nametypes):
-        self.archival = True # This needs to be fixed
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
 
     def metaTag(self):
         return "FD_ARCHIVE_META_VECTOR"
