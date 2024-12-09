@@ -356,21 +356,19 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                      0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
 
     } else if( ledger_args->slot_ctx->root_slot%ledger_args->incremental_freq==0UL && !ledger_args->is_snapshotting && ledger_args->last_snapshot_slot ) {
-    
-      uchar * mem = fd_valloc_malloc( fd_scratch_virtual(), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
 
       ledger_args->is_snapshotting = 1;
 
       fd_snapshot_ctx_t snapshot_ctx = {
-        .slot           = ledger_args->slot_ctx->root_slot,
-        .out_dir        = ledger_args->snapshot_dir,
-        .is_incremental = 1,
-        .valloc         = ledger_args->slot_ctx->valloc,
-        .acc_mgr        = fd_acc_mgr_new( mem, ledger_args->slot_ctx->acc_mgr->funk ),
-        .status_cache   = ledger_args->slot_ctx->status_cache,
-        .last_snap_slot = ledger_args->last_snapshot_slot, /* TODO:FIXME: make it clear that this implies last full snapshot */
-        .tpool          = ledger_args->snapshot_tpool,
-        .last_snap_hash = &ledger_args->last_snapshot_hash,
+        .slot                     = ledger_args->slot_ctx->root_slot,
+        .out_dir                  = ledger_args->snapshot_dir,
+        .is_incremental           = 1,
+        .valloc                   = ledger_args->slot_ctx->valloc,
+        .funk                     = ledger_args->slot_ctx->acc_mgr->funk,
+        .status_cache             = ledger_args->slot_ctx->status_cache,
+        .last_snap_slot           = ledger_args->last_snapshot_slot,
+        .tpool                    = ledger_args->snapshot_tpool,
+        .last_snap_acc_hash       = &ledger_args->last_snapshot_hash,
         .last_snap_capitalization = ledger_args->last_snapshot_capitalization
       };
 

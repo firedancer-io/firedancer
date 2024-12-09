@@ -15,26 +15,26 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#define FD_BLOCKHASH_QUEUE_SIZE       (300UL)
-#define FD_TICKS_PER_SLOT             (64UL)
 /* This is the reasonably tight upper bound for the number of writable 
    accounts in a slot. This is because a block has a limit of 48 million
    compute units. Each writable account lock costs 300 CUs. That means there
    can be up to 48M/300 writable accounts in a block. */
-#define FD_WRITABLE_ACCS_IN_SLOT      (160000UL)
+#define FD_WRITABLE_ACCS_IN_SLOT          (160000UL)
+#define FD_BLOCKHASH_QUEUE_SIZE           (300UL)
+#define FD_TICKS_PER_SLOT                 (64UL)
 
-#define FD_SNAPSHOT_DIR_MAX           (256UL)
-#define FD_SNAPSHOT_VERSION_FILE      ("version")
-#define FD_SNAPSHOT_VERSION           ("1.2.0")
-#define FD_SNAPSHOT_VERSION_LEN       (5UL)
-#define FD_SNAPSHOT_STATUS_CACHE_FILE ("snapshots/status_cache")
+#define FD_SNAPSHOT_DIR_MAX               (256UL)
+#define FD_SNAPSHOT_VERSION_FILE          ("version")
+#define FD_SNAPSHOT_VERSION               ("1.2.0")
+#define FD_SNAPSHOT_VERSION_LEN           (5UL)
+#define FD_SNAPSHOT_STATUS_CACHE_FILE     ("snapshots/status_cache")
 
 #define FD_SNAPSHOT_TMP_ARCHIVE           (".tmp.tar")
 #define FD_SNAPSHOT_TMP_INCR_ARCHIVE      (".tmp_inc.tar")
 #define FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD (".tmp.tar.zst")
 #define FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD (".tmp_inc.tar.zst")
 
-#define FD_SNAPSHOT_APPEND_VEC_SZ_MAX (16UL * 1024UL * 1024UL * 1024UL)
+#define FD_SNAPSHOT_APPEND_VEC_SZ_MAX     (16UL * 1024UL * 1024UL * 1024UL) /* 16 MiB */
 
 FD_PROTOTYPES_BEGIN
 
@@ -43,42 +43,49 @@ FD_PROTOTYPES_BEGIN
    whether the snapshot is incremental, the tarball writer, the allocator,
    and holds the snapshot hash.
    
-  NOTE: The snapshot service will currently not correctly free memory that is
-        allocated unless a bump allocator like fd_scratch or fd_spad are used. */
+  FIXME: The snapshot service will currently not correctly free memory that is
+         allocated unless a bump allocator like fd_scratch or fd_spad are used. */
+
 struct fd_snapshot_ctx {
-  ulong             slot;
-  char const *      out_dir;
-  fd_valloc_t       valloc;
 
-  fd_tpool_t * tpool;
+  /* These parameters are setup by the caller of the snapshot service. */
+  ulong             slot;                      /* Slot for the snapshot. */
+  char const *      out_dir;                   /* Output directory. */
+  fd_valloc_t       valloc;                    /* Allocator */
 
-  uchar             is_incremental;
-  ulong             last_snap_slot;
-  ulong             last_snap_capitalization;
-  fd_hash_t *       last_snap_hash;
+  /* The two data structures from the runtime referenced by the snapshot service. */
+  fd_funk_t *       funk;                      /* Funk handle. */
+  fd_txncache_t *   status_cache;              /* Status cache handle. */
 
-  /* TODO: Add a comment here */
+  uchar             is_incremental;            /* If it is incremental, set the fields and pass in data from the previous full snapshot. */
+  ulong             last_snap_slot;            /* Full snapshot slot. */            
+  ulong             last_snap_capitalization;  /* Full snapshot capitalization. */
+  fd_hash_t *       last_snap_acc_hash;        /* Full snapshot account hash. */
+
+  fd_tpool_t *      tpool;
+
   int               tmp_fd;
   int               snapshot_fd;
 
-  /* This gets setup within the context and not by the user */
-  fd_tar_writer_t * writer;
-  fd_hash_t         hash;
-  fd_hash_t         acc_hash; /* incremental only */
-
-  fd_slot_bank_t    slot_bank;
-  fd_epoch_bank_t   epoch_bank;
-  fd_acc_mgr_t *    acc_mgr;
-  fd_txncache_t *   status_cache;
+  /* This gets setup within the context and not by the user. */
+  fd_tar_writer_t * writer;     /* Tar writer. */
+  fd_hash_t         snap_hash;  /* Snapshot hash. */  
+  fd_hash_t         acc_hash;   /* Account hash. */
+  fd_slot_bank_t    slot_bank;  /* Obtained from funk. */
+  fd_epoch_bank_t   epoch_bank; /* Obtained from funk. */
+  fd_acc_mgr_t *    acc_mgr;    /* Wrapper for funk. */
 
 };
 typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
 
 /* fd_snapshot_create_populate_fseq, fd_snapshot_create_is_incremental, and
    fd_snapshot_create_get_slot are helpers used to pack and unpack the fseq
-   used to indicate if a snapshot is ready to be created and if funk should be
-   constipated. The other bytes represent the slot that the snapshot will be
-   created for. */
+   used to indicate if a snapshot is ready to be created and if the snapshot
+   shoudl be incremental. The other bytes represent the slot that the snapshot
+   will be created for. The most significant 8 bits determine if the snapshot
+   is incremental and the least significant 56 bits are reserved for the slot.
+   
+   These functions are used for snapshot creation in the full client. */
 
 static ulong FD_FN_UNUSED
 fd_snapshot_create_pack_fseq( ulong is_incremental, ulong smr ) {
@@ -107,8 +114,8 @@ fd_snapshot_create_get_slot( ulong fseq ) {
          encapsulated in the accounts.
       b. Append vec index. This is a list of all of the append vecs that are
          used to store the accounts. This is a slot indexed file.
-      c. The manifest also contains other relevant metadata like the hashes
-         of the accounts and the snapshot hash.
+      c. The manifest also contains other relevant metadata including the 
+         account/snapshot hash.
    3. Status cache - the status cache holds the transaction statuses for the 
       last 300 rooted slots. This is a nested data structure which is indexed
       by blockhash. See fd_txncache.h for more details on the status cache.
@@ -135,7 +142,9 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
    snapshots for offline replay. The reason that file descriptors are
    not managed by the snapshot library for running a live node is to 
    maintain the sandbox. While running the full client, the file descriptors
-   used by the snapshot service are maintained by the snapshot tile. */
+   used by the snapshot service are maintained by the snapshot tile.
+   
+   TODO: this could techically just be maintained in fd_ledger */
 
 int
 fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx,

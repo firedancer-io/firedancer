@@ -192,7 +192,6 @@ fd_snapshot_load( const char *         snapshotfile,
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
         fd_snapshot_hash(slot_ctx, tpool, &accounts_hash, check_hash);
       }
-      
 
       if (memcmp(fhash->uc, accounts_hash.uc, 32) != 0)
         FD_LOG_ERR(("incremental accounts_hash %s != %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));

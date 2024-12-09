@@ -1,6 +1,5 @@
 #include "fd_snapshot_create.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../runtime/fd_system_ids.h"
 #include "../runtime/fd_hashes.h"
 
 #include <stdio.h>
@@ -37,10 +36,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   fd_pubkey_t * * snapshot_slot_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
   ulong           snapshot_slot_key_cnt = 0UL;
 
-  /* FIXME: We need a better bound here. Technically, the bound should be
-     the max number of writable accounts in a slot * the frequency of full
-     snapshots. But this would be large and in practice will never get to that
-     number. */
+  /* TODO:FIXME: make this more dynamically allocated by reserving more and more. */
   fd_funk_rec_key_t const * * incremental_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * 10000000 );
   ulong                       incremental_key_cnt = 0UL;
 
@@ -152,7 +148,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   int err;
   if( !snapshot_ctx->is_incremental ) {
     err = fd_snapshot_service_hash( &snapshot_ctx->acc_hash, 
-                                    &snapshot_ctx->hash,
+                                    &snapshot_ctx->snap_hash,
                                     &snapshot_ctx->slot_bank, 
                                     &snapshot_ctx->epoch_bank,
                                     snapshot_ctx->acc_mgr->funk,
@@ -161,7 +157,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     accounts_db->bank_hash_info.accounts_hash = snapshot_ctx->acc_hash;
   } else {
     err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash, 
-                                        &snapshot_ctx->hash,
+                                        &snapshot_ctx->snap_hash,
                                         &snapshot_ctx->slot_bank, 
                                         &snapshot_ctx->epoch_bank,
                                         snapshot_ctx->acc_mgr->funk,
@@ -173,7 +169,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     fd_memset( &accounts_db->bank_hash_info.accounts_hash, 0, sizeof(fd_hash_t) );
   }
 
-  FD_LOG_WARNING(("Hashes calculated acc_hash=%s snapshot_hash=%s", FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->acc_hash), FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->hash)));
+  FD_LOG_NOTICE(( "Hashes calculated acc_hash=%s snapshot_hash=%s",
+                  FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->acc_hash),
+                  FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->snap_hash) ));
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Unable to calculate snapshot hash" ));
@@ -524,7 +522,9 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
   fd_slot_bank_t  * slot_bank  = &snapshot_ctx->slot_bank;
   fd_epoch_bank_t * epoch_bank = &snapshot_ctx->epoch_bank;
 
-  /* The blockhash queue has to be copied over along with all of its entries. */
+  /* The blockhash queue has to be copied over along with all of its entries.
+     As a note, the size is 300 but in fact is of size 301 due to a knwon bug
+     in the agave client that is emulated by the firedancer client. */
 
   bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
   bank->blockhash_queue.last_hash       = fd_valloc_malloc( snapshot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
@@ -630,7 +630,16 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
 static inline int
 fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
-  fd_funk_t * funk = snapshot_ctx->acc_mgr->funk;
+  fd_funk_t * funk = snapshot_ctx->funk;
+
+  /* Initialize the account manager. */
+
+  uchar * mem = fd_valloc_malloc( snapshot_ctx->valloc, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
+  snapshot_ctx->acc_mgr = fd_acc_mgr_new( mem, funk );
+  if( FD_UNLIKELY( !snapshot_ctx->acc_mgr ) ) {
+    FD_LOG_WARNING(( "Failed to initialize account manager" ));
+    return -1;
+  }
 
   /* First the epoch bank. */
 
@@ -666,7 +675,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
     return -1;
   }
 
-  /* Now the slot bank/ */
+  /* Now the slot bank. */
 
   fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
   fd_funk_rec_t const * slot_rec = fd_funk_rec_query( funk, NULL, &slot_id );
@@ -876,7 +885,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
   if( snapshot_ctx->is_incremental ) {
     manifest.bank_incremental_snapshot_persistence->full_slot                  = snapshot_ctx->last_snap_slot;
-    fd_memcpy( &manifest.bank_incremental_snapshot_persistence->full_hash, snapshot_ctx->last_snap_hash, sizeof(fd_hash_t) );
+    fd_memcpy( &manifest.bank_incremental_snapshot_persistence->full_hash, snapshot_ctx->last_snap_acc_hash, sizeof(fd_hash_t) );
     manifest.bank_incremental_snapshot_persistence->full_capitalization        = snapshot_ctx->last_snap_capitalization;
     manifest.bank_incremental_snapshot_persistence->incremental_hash           = snapshot_ctx->acc_hash;
     manifest.bank_incremental_snapshot_persistence->incremental_capitalization = capitalization;
@@ -1072,10 +1081,10 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   char directory_buf_zstd[ FD_SNAPSHOT_DIR_MAX ];
   if( !snapshot_ctx->is_incremental ) {
     err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/snapshot-%lu-%s.tar.zst", 
-                    snapshot_ctx->out_dir, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->hash) );
+                    snapshot_ctx->out_dir, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->snap_hash) );
   } else {
     err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/incremental-snapshot-%lu-%lu-%s.tar.zst", 
-                    snapshot_ctx->out_dir, snapshot_ctx->last_snap_slot, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->hash) );
+                    snapshot_ctx->out_dir, snapshot_ctx->last_snap_slot, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->snap_hash) );
   }
   if( FD_UNLIKELY( err<0 ) ) {
     FD_LOG_WARNING(( "Failed to format directory string" ));
@@ -1092,7 +1101,9 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
 }
 
 int
-fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx, fd_hash_t * out_hash, ulong * out_capitalization ) {
+fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx, 
+                                 fd_hash_t *         out_hash, 
+                                 ulong *             out_capitalization ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
 
@@ -1100,7 +1111,7 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx, fd_hash_t * o
 
   int err = 0;
 
-  /* Validate that the snapshot_ctx is setup correctly */
+  /* Validate that the snapshot_ctx is setup correctly. */
 
   err = fd_snapshot_create_setup_and_validate_ctx( snapshot_ctx );
   if( FD_UNLIKELY( err ) ) {
