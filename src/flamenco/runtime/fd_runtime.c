@@ -4036,8 +4036,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 /* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
 static
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_SCRATCH_SCOPE_BEGIN
-  {
+  FD_SCRATCH_SCOPE_BEGIN {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
 
     /* Copy epoch_bank->next_epoch_stakes into slot_ctx->slot_bank.epoch_stakes */
@@ -4070,8 +4069,7 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
         &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
         elem );
     }
-  }
-  FD_SCRATCH_SCOPE_END;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* Copy epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes. */
@@ -4523,7 +4521,7 @@ void fd_process_new_epoch(
     fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
     if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
-    refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch );
+    refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch, &temp_info );
     fd_update_stake_delegations( slot_ctx );
 
     /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */

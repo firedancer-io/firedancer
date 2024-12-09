@@ -51,7 +51,8 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 void
 refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                        fd_stake_history_t const * history,
-                       ulong *                    new_rate_activation_epoch );
+                       ulong *                    new_rate_activation_epoch,
+                       fd_epoch_info_t           *temp_info );
 
 FD_PROTOTYPES_END
 

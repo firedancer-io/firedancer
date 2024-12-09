@@ -161,7 +161,11 @@ https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506
 void
 refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                        fd_stake_history_t const * history,
-                       ulong *                    new_rate_activation_epoch ) {
+                       ulong *                    new_rate_activation_epoch,
+                       fd_epoch_info_t           *temp_info
+ ) {
+  (void) temp_info;
+
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
