@@ -711,17 +711,10 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     fd_replay_complete_msg_t msg2 = {
       .slot = curr_slot,
       .total_txn_count = fork->slot_ctx.slot_bank.transaction_count - fork->slot_ctx.parent_transaction_count,
-<<<<<<< HEAD
       .nonvote_txn_count = fork->slot_ctx.nonvote_txn_count,
       .failed_txn_count = fork->slot_ctx.failed_txn_count,
       .nonvote_failed_txn_count = fork->slot_ctx.nonvote_failed_txn_count,
       .compute_units = fork->slot_ctx.total_compute_units_used,
-=======
-      .nonvote_txn_count = 0,
-      .failed_txn_count = 0,
-      .nonvote_failed_txn_count = 0,
-      .compute_units = 0,
->>>>>>> main
       .transaction_fee = fork->slot_ctx.slot_bank.collected_execution_fees,
       .priority_fee = fork->slot_ctx.slot_bank.collected_priority_fees,
       .parent_slot = ctx->parent_slot,
