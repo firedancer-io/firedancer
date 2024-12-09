@@ -2,9 +2,9 @@
 
 /* `loader_v4::get_state()`
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L28-L40 */
-static int
-loader_v4_get_state( fd_borrowed_account_t const * program,
-                     fd_loader_v4_state_t *        state ) {
+int
+fd_loader_v4_get_state( fd_borrowed_account_t const * program,
+                        fd_loader_v4_state_t *        state ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L30-L34 */
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = program->const_data,
@@ -66,7 +66,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L66 */
-  err = loader_v4_get_state( program, state );
+  err = fd_loader_v4_get_state( program, state );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -639,7 +639,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L430 */
     fd_loader_v4_state_t state_of_next_version = {0};
-    err = loader_v4_get_state( next_version, &state_of_next_version );
+    err = fd_loader_v4_get_state( next_version, &state_of_next_version );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -761,7 +761,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L490 */
       fd_loader_v4_state_t state = {0};
-      rc = loader_v4_get_state( program, &state );
+      rc = fd_loader_v4_get_state( program, &state );
       if( FD_UNLIKELY( rc ) ) {
         return rc;
       }

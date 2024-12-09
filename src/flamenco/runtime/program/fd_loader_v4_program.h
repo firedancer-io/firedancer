@@ -48,6 +48,10 @@
 FD_PROTOTYPES_BEGIN
 
 int
+fd_loader_v4_get_state( fd_borrowed_account_t const * program,
+                        fd_loader_v4_state_t *        state );
+
+int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
 FD_PROTOTYPES_END
