@@ -288,10 +288,10 @@ INLINE void compress_pre(__m128i rows[4], const uint32_t cv[8],
   undiagonalize(&rows[0], &rows[2], &rows[3]);
 }
 
-void blake3_compress_xof_avx512(const uint32_t cv[8],
-                                const uint8_t block[BLAKE3_BLOCK_LEN],
-                                uint8_t block_len, uint64_t counter,
-                                uint8_t flags, uint8_t out[64]) {
+void fd_blake3_compress_xof_avx512(const uint32_t cv[8],
+                                   const uint8_t block[BLAKE3_BLOCK_LEN],
+                                   uint8_t block_len, uint64_t counter,
+                                   uint8_t flags, uint8_t out[64]) {
   __m128i rows[4];
   compress_pre(rows, cv, block, block_len, counter, flags);
   storeu_128(xor_128(rows[0], rows[2]), &out[0]);
@@ -300,10 +300,10 @@ void blake3_compress_xof_avx512(const uint32_t cv[8],
   storeu_128(xor_128(rows[3], loadu_128((uint8_t *)&cv[4])), &out[48]);
 }
 
-void blake3_compress_in_place_avx512(uint32_t cv[8],
-                                     const uint8_t block[BLAKE3_BLOCK_LEN],
-                                     uint8_t block_len, uint64_t counter,
-                                     uint8_t flags) {
+void fd_blake3_compress_in_place_avx512(uint32_t cv[8],
+                                        const uint8_t block[BLAKE3_BLOCK_LEN],
+                                        uint8_t block_len, uint64_t counter,
+                                        uint8_t flags) {
   __m128i rows[4];
   compress_pre(rows, cv, block, block_len, counter, flags);
   storeu_128(xor_128(rows[0], rows[2]), (uint8_t *)&cv[0]);
@@ -493,10 +493,10 @@ INLINE void load_counters4(uint64_t counter, bool increment_counter,
 }
 
 static
-void blake3_hash4_avx512(const uint8_t *const *inputs, size_t blocks,
-                         const uint32_t key[8], uint64_t counter,
-                         bool increment_counter, uint8_t flags,
-                         uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
+void fd_blake3_hash4_avx512(const uint8_t *const *inputs, size_t blocks,
+                            const uint32_t key[8], uint64_t counter,
+                            bool increment_counter, uint8_t flags,
+                            uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
   __m128i h_vecs[8] = {
       set1_128(key[0]), set1_128(key[1]), set1_128(key[2]), set1_128(key[3]),
       set1_128(key[4]), set1_128(key[5]), set1_128(key[6]), set1_128(key[7]),
@@ -748,10 +748,10 @@ INLINE void load_counters8(uint64_t counter, bool increment_counter,
 }
 
 static
-void blake3_hash8_avx512(const uint8_t *const *inputs, size_t blocks,
-                         const uint32_t key[8], uint64_t counter,
-                         bool increment_counter, uint8_t flags,
-                         uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
+void fd_blake3_hash8_avx512(const uint8_t *const *inputs, size_t blocks,
+                            const uint32_t key[8], uint64_t counter,
+                            bool increment_counter, uint8_t flags,
+                            uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
   __m256i h_vecs[8] = {
       set1_256(key[0]), set1_256(key[1]), set1_256(key[2]), set1_256(key[3]),
       set1_256(key[4]), set1_256(key[5]), set1_256(key[6]), set1_256(key[7]),
@@ -1074,11 +1074,11 @@ INLINE void load_counters16(uint64_t counter, bool increment_counter,
 }
 
 static
-void blake3_hash16_avx512(const uint8_t *const *inputs, size_t blocks,
-                          const uint32_t key[8], uint64_t counter,
-                          bool increment_counter, uint8_t flags,
-                          uint8_t flags_start, uint8_t flags_end,
-                          uint8_t *out) {
+void fd_blake3_hash16_avx512(const uint8_t *const *inputs, size_t blocks,
+                             const uint32_t key[8], uint64_t counter,
+                             bool increment_counter, uint8_t flags,
+                             uint8_t flags_start, uint8_t flags_end,
+                             uint8_t *out) {
   __m512i h_vecs[8] = {
       set1_512(key[0]), set1_512(key[1]), set1_512(key[2]), set1_512(key[3]),
       set1_512(key[4]), set1_512(key[5]), set1_512(key[6]), set1_512(key[7]),
@@ -1167,8 +1167,8 @@ INLINE void hash_one_avx512(const uint8_t *input, size_t blocks,
     if (blocks == 1) {
       block_flags |= flags_end;
     }
-    blake3_compress_in_place_avx512(cv, input, BLAKE3_BLOCK_LEN, counter,
-                                    block_flags);
+    fd_blake3_compress_in_place_avx512(cv, input, BLAKE3_BLOCK_LEN, counter,
+                                       block_flags);
     input = &input[BLAKE3_BLOCK_LEN];
     blocks -= 1;
     block_flags = flags;
@@ -1176,14 +1176,14 @@ INLINE void hash_one_avx512(const uint8_t *input, size_t blocks,
   memcpy(out, cv, BLAKE3_OUT_LEN);
 }
 
-void blake3_hash_many_avx512(const uint8_t *const *inputs, size_t num_inputs,
-                             size_t blocks, const uint32_t key[8],
-                             uint64_t counter, bool increment_counter,
-                             uint8_t flags, uint8_t flags_start,
-                             uint8_t flags_end, uint8_t *out) {
+void fd_blake3_hash_many_avx512(const uint8_t *const *inputs, size_t num_inputs,
+                                size_t blocks, const uint32_t key[8],
+                                uint64_t counter, bool increment_counter,
+                                uint8_t flags, uint8_t flags_start,
+                                uint8_t flags_end, uint8_t *out) {
   while (num_inputs >= 16) {
-    blake3_hash16_avx512(inputs, blocks, key, counter, increment_counter, flags,
-                         flags_start, flags_end, out);
+    fd_blake3_hash16_avx512(inputs, blocks, key, counter, increment_counter, flags,
+                            flags_start, flags_end, out);
     if (increment_counter) {
       counter += 16;
     }
@@ -1192,8 +1192,8 @@ void blake3_hash_many_avx512(const uint8_t *const *inputs, size_t num_inputs,
     out = &out[16 * BLAKE3_OUT_LEN];
   }
   while (num_inputs >= 8) {
-    blake3_hash8_avx512(inputs, blocks, key, counter, increment_counter, flags,
-                        flags_start, flags_end, out);
+    fd_blake3_hash8_avx512(inputs, blocks, key, counter, increment_counter, flags,
+                           flags_start, flags_end, out);
     if (increment_counter) {
       counter += 8;
     }
@@ -1202,8 +1202,8 @@ void blake3_hash_many_avx512(const uint8_t *const *inputs, size_t num_inputs,
     out = &out[8 * BLAKE3_OUT_LEN];
   }
   while (num_inputs >= 4) {
-    blake3_hash4_avx512(inputs, blocks, key, counter, increment_counter, flags,
-                        flags_start, flags_end, out);
+    fd_blake3_hash4_avx512(inputs, blocks, key, counter, increment_counter, flags,
+                           flags_start, flags_end, out);
     if (increment_counter) {
       counter += 4;
     }
