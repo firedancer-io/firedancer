@@ -1589,7 +1589,8 @@
         { "name": "truncate", "type": "loader_v4_program_instruction_truncate" },
         { "name": "deploy" },
         { "name": "retract" },
-        { "name": "transfer_authority" }
+        { "name": "transfer_authority" },
+        { "name": "finalize" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L5-L6"
     },

@@ -20,8 +20,8 @@
         - Programs cannot be retracted within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots of deployment.
       - Finalized
         - The program is immutable.
-        - Users can specify a "next version" which, from my inspection, serves no functional purpose besides showing up
-          as extra information for the user on a block explorer.
+        - Users must specify a "next version" which, from my inspection, serves no functional purpose besides showing up
+          as extra information on a block explorer.
     - There is no longer a concept of a program account vs. a program data account. The program account is the program data account.
       - "Look at me... I'm the programdata account now..."
     - Buffer accounts are no longer necessary. Instead, the `write` instruction writes directly into the program account.

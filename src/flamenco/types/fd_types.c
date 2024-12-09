@@ -21112,6 +21112,9 @@ FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract(fd_loader_v4_progra
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 4;
 }
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize(fd_loader_v4_program_instruction_t const * self) {
+  return self->discriminant == 5;
+}
 void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instruction_inner_t * self, uint discriminant );
 int fd_loader_v4_program_instruction_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   int err;
@@ -21135,6 +21138,9 @@ int fd_loader_v4_program_instruction_inner_decode_preflight( uint discriminant, 
   case 4: {
     return FD_BINCODE_SUCCESS;
   }
+  case 5: {
+    return FD_BINCODE_SUCCESS;
+  }
   default: return FD_BINCODE_ERR_ENCODING;
   }
 }
@@ -21155,6 +21161,9 @@ void fd_loader_v4_program_instruction_inner_decode_unsafe( fd_loader_v4_program_
     break;
   }
   case 4: {
+    break;
+  }
+  case 5: {
     break;
   }
   }
@@ -21197,6 +21206,9 @@ void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instructio
     break;
   }
   case 4: {
+    break;
+  }
+  case 5: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -21253,6 +21265,10 @@ void fd_loader_v4_program_instruction_walk( void * w, fd_loader_v4_program_instr
   }
   case 4: {
     fun( w, self, "transfer_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 5: {
+    fun( w, self, "finalize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }

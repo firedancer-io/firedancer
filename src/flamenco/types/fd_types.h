@@ -7004,12 +7004,14 @@ FD_FN_PURE uchar fd_loader_v4_program_instruction_is_truncate( fd_loader_v4_prog
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_deploy( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize( fd_loader_v4_program_instruction_t const * self );
 enum {
 fd_loader_v4_program_instruction_enum_write = 0,
 fd_loader_v4_program_instruction_enum_truncate = 1,
 fd_loader_v4_program_instruction_enum_deploy = 2,
 fd_loader_v4_program_instruction_enum_retract = 3,
 fd_loader_v4_program_instruction_enum_transfer_authority = 4,
+fd_loader_v4_program_instruction_enum_finalize = 5,
 }; 
 void fd_bpf_upgradeable_loader_program_instruction_write_new( fd_bpf_upgradeable_loader_program_instruction_write_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_write_decode( fd_bpf_upgradeable_loader_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );

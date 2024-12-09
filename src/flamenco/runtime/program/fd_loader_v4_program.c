@@ -60,7 +60,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
                        fd_loader_v4_state_t *        state ) {
   int err;
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L62-L65 */
-  if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
@@ -181,7 +181,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L136-L164 */
     if( is_initialization ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L137-L140 */
-      if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( memcmp( program->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       }
@@ -304,11 +304,10 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 }
 
 /* `process_instruction_deploy()` will verify the ELF bytes of a program account in a `Retracted`
-   state and deploy it if successful, setting the executable status and making it ready for use.
-   Optionally, a source buffer account may be provided to copy the ELF bytes from. In this case,
-   the program data is overwritten by the data in the buffer account, and the buffer account is closed
-   with some of its lamports transferred to the program account if needed to meet the minimum rent exemption
-   balance. 
+   state and deploy it if successful, making it ready for use. Optionally, a source buffer account 
+   may be provided to copy the ELF bytes from. In this case, the program data is overwritten by the 
+   data in the buffer account, and the buffer account is closed with some of its lamports transferred 
+   to the program account if needed to meet the minimum rent exemption balance. 
 
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
@@ -468,7 +467,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   /* Reacquire the program account to persist state changes to it. */
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L304-L306 */
-    program_state.slot = clock->slot;
+    program_state.slot                = clock->slot;
     program_state.status.discriminant = fd_loader_v4_status_enum_deployed;
     err = loader_v4_set_state( instr_ctx, 0UL, &program_state );
     if( FD_UNLIKELY( err ) ) {
@@ -485,6 +484,8 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
    
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
+   - When a program is retracted, the executable flag is not changed (though `deploy` never seems to set it in the first place.)
+     TODO: Find out if this is intentional or accidental.
    
    Accounts:
     0. Program account (writable)
@@ -538,6 +539,138 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   } FD_BORROWED_ACCOUNT_DROP( program );
 }
 
+/* `process_instruction_transfer_authority()` transfers the authority of a program account.
+
+   Accounts:
+   0. Program account (writable)
+   1. Current authority (signer)
+   2. New authority (signer
+   
+   https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L371-L401 */
+static int
+fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr_ctx ) {
+  int err;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L377 */
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L378-L380 */
+    fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+    
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L381-L383 */
+    fd_pubkey_t const * new_authority_address = &instr_ctx->instr->acct_pubkeys[ 2UL ];
+    
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L384-L389 */
+    fd_loader_v4_state_t state = {0};
+    err = check_program_account( instr_ctx, program, authority_address, &state );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L390-L393 */
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L394-L397 */
+    if( FD_UNLIKELY( !memcmp( state.authority_address_or_next_version.key, new_authority_address, sizeof(fd_pubkey_t) ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "No change" );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L398-L399 */
+    state.authority_address_or_next_version = *new_authority_address;
+    err = loader_v4_set_state( instr_ctx, 0UL, &state );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  } FD_BORROWED_ACCOUNT_DROP( program );
+}
+
+/* `process_instruction_finalize()` finalizes the program account, rendering it immutable. 
+
+   Other notes:
+   - Users must specify a "next version" which, from my inspection, serves no functional purpose besides showing up
+     as extra information on a block explorer. The next version can be itself.
+   - The next version must be a program that...
+    - Is not finalized
+    - Has the same authority as the current program
+
+   Accounts:
+   0. Program account (writable)
+   1. Authority account (signer)
+   2. Next version of the program
+
+   https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L403-L446 */
+static int
+fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
+  int err;
+
+  /* Contains variables that need to be accessed in multiple borrowed account scopes.
+     https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L410-L412 */
+  fd_pubkey_t const *  authority_address       = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const *  address_of_next_version = &instr_ctx->instr->acct_pubkeys[ 2UL ]; 
+  fd_loader_v4_state_t state                   = {0};
+
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L413-L418 */
+    
+    err = check_program_account( instr_ctx, program, authority_address, &state );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L419-L422 */
+    if( FD_UNLIKELY( !fd_loader_v4_status_is_deployed( &state.status ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Program must be deployed to be finalized" );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+  } FD_BORROWED_ACCOUNT_DROP( program );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L424-L425 */
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, next_version ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L426-L429 */
+    if( FD_UNLIKELY( memcmp( next_version->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Next version is not owned by loader" );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L430 */
+    fd_loader_v4_state_t state_of_next_version = {0};
+    err = loader_v4_get_state( next_version, &state_of_next_version );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L431-L434 */
+    if( FD_UNLIKELY( memcmp( state_of_next_version.authority_address_or_next_version.key, authority_address, sizeof(fd_pubkey_t) ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Next version has different authority" );
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L435-L438 */
+    if( FD_UNLIKELY( fd_loader_v4_status_is_finalized( &state_of_next_version.status ) ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Next version is finalized" );
+      return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    }
+  } FD_BORROWED_ACCOUNT_DROP( next_version );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L441 */
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L442-L444 */
+    state.authority_address_or_next_version = *address_of_next_version;
+    state.status.discriminant               = fd_loader_v4_status_enum_finalized;
+    err = loader_v4_set_state( instr_ctx, 0UL, &state );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  } FD_BORROWED_ACCOUNT_DROP( program );
+}
+
 /* `process_instruction_inner()`, the entrypoint for all loader v4 instruction invocations +
    any loader v4-owned programs.
    
@@ -576,41 +709,48 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L473-L486 */
       switch( instruction.discriminant ) {
         case fd_loader_v4_program_instruction_enum_write: {
-          if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-            return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-          }
+          CHECK_NUM_INSN_ACCS( instr_ctx, 2U );
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L474-L476 */
           rc = fd_loader_v4_program_instruction_write( instr_ctx, &instruction.inner.write );
           break;
         }
         case fd_loader_v4_program_instruction_enum_truncate: {
-          if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-            return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-          }
+          CHECK_NUM_INSN_ACCS( instr_ctx, 2U );
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L477-L479 */
           rc = fd_loader_v4_program_instruction_truncate( instr_ctx, &instruction.inner.truncate );
           break;
         }
         case fd_loader_v4_program_instruction_enum_deploy: {
-          if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-            return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-          }
+          CHECK_NUM_INSN_ACCS( instr_ctx, 2U );
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L480 */
           rc = fd_loader_v4_program_instruction_deploy( instr_ctx );
           break;
         }
         case fd_loader_v4_program_instruction_enum_retract: {
+          CHECK_NUM_INSN_ACCS( instr_ctx, 2U );
+
+          /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L481 */
           rc = fd_loader_v4_program_instruction_retract( instr_ctx );
           break;
         }
         case fd_loader_v4_program_instruction_enum_transfer_authority: {
+          CHECK_NUM_INSN_ACCS( instr_ctx, 3U );
+
+          /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L482-L484 */
+          rc = fd_loader_v4_program_instruction_transfer_authority( instr_ctx );
+          break;
+        }
+        case fd_loader_v4_program_instruction_enum_finalize: {
+          CHECK_NUM_INSN_ACCS( instr_ctx, 3U );
+
+          /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L485 */
+          rc = fd_loader_v4_program_instruction_finalize( instr_ctx );
           break;
         }
       }
-
     } else {
 
     }
