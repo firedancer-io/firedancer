@@ -83,7 +83,7 @@ after_frag( fd_plugin_ctx_t *   ctx,
   switch( in_idx ) {
     /* replay_plugin */
     case 0UL: {
-      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_ROOTED || sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || sig==FD_PLUGIN_MSG_SLOT_COMPLETED || sig==FD_PLUGIN_MSG_SLOT_RESET );
+      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_ROOTED || sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || sig==FD_PLUGIN_MSG_SLOT_COMPLETED || sig==FD_PLUGIN_MSG_SLOT_RESET || sig==FD_PLUGIN_MSG_START_PROGRESS );
       break;
     }
     /* gossip_plugin */
