@@ -101,7 +101,8 @@ fd_exec_instr_test_runner_new( void * mem,
   runner->funk = funk;
 
   /* Create spad */
-  runner->spad = fd_spad_join( fd_spad_new( spad_mem, fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) ) ) );
+  runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
+  fd_spad_push( runner->spad );
   return runner;
 }
 
@@ -110,8 +111,16 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   if( FD_UNLIKELY( !runner ) ) return NULL;
   fd_funk_delete( fd_funk_leave( runner->funk ) );
   runner->funk = NULL;
+  FD_TEST( !fd_spad_verify( runner->spad ) );
+  fd_spad_pop( runner->spad );
+  FD_TEST( fd_spad_frame_used( runner->spad )==0 );
   runner->spad = NULL;
   return runner;
+}
+
+fd_spad_t *
+fd_exec_instr_test_runner_get_spad( fd_exec_instr_test_runner_t * runner ) {
+  return runner->spad;
 }
 
 static int
@@ -1656,6 +1665,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
+  fd_spad_t * spad = fd_exec_instr_test_runner_get_spad( runner );
 
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -1699,8 +1709,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   fd_vm_input_region_t * input_regions = NULL;
   uint input_regions_count = 0U;
   if( !!(input->vm_ctx.input_data_regions_count) ) {
-    input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+    input_regions       = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
     if ( !input_regions_count ) {
       goto error;
     }

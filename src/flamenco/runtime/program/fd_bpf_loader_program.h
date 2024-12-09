@@ -50,9 +50,9 @@
 FD_PROTOTYPES_BEGIN
 
 int
-fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t *                instr_ctx,
-                                     fd_borrowed_account_t *             borrowed_acc,
-                                     fd_bpf_upgradeable_loader_state_t * state );
+fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t const *         instr_ctx,
+                                    fd_borrowed_account_t const *       borrowed_acc,
+                                    fd_bpf_upgradeable_loader_state_t * state );
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
