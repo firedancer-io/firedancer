@@ -22243,8 +22243,8 @@ FD_FN_PURE uchar fd_loader_v4_status_is_deployed(fd_loader_v4_status_t const * s
 FD_FN_PURE uchar fd_loader_v4_status_is_finalized(fd_loader_v4_status_t const * self) {
   return self->discriminant == 2;
 }
-void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, uint discriminant );
-int fd_loader_v4_status_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, ulong discriminant );
+int fd_loader_v4_status_inner_decode_preflight( ulong discriminant, fd_bincode_decode_ctx_t * ctx ) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -22259,7 +22259,7 @@ int fd_loader_v4_status_inner_decode_preflight( uint discriminant, fd_bincode_de
   default: return FD_BINCODE_ERR_ENCODING;
   }
 }
-void fd_loader_v4_status_inner_decode_unsafe( fd_loader_v4_status_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+void fd_loader_v4_status_inner_decode_unsafe( fd_loader_v4_status_inner_t * self, ulong discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
     break;
@@ -22284,16 +22284,16 @@ int fd_loader_v4_status_decode( fd_loader_v4_status_t * self, fd_bincode_decode_
   return FD_BINCODE_SUCCESS;
 }
 int fd_loader_v4_status_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  uint discriminant = 0;
-  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  ulong discriminant = 0;
+  int err = fd_bincode_uint64_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return fd_loader_v4_status_inner_decode_preflight( discriminant, ctx );
 }
 void fd_loader_v4_status_decode_unsafe( fd_loader_v4_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->discriminant, ctx );
   fd_loader_v4_status_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
 }
-void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, uint discriminant ) {
+void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, ulong discriminant ) {
   switch( discriminant ) {
   case 0: {
     break;
@@ -22307,15 +22307,15 @@ void fd_loader_v4_status_inner_new( fd_loader_v4_status_inner_t * self, uint dis
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_loader_v4_status_new_disc( fd_loader_v4_status_t * self, uint discriminant ) {
+void fd_loader_v4_status_new_disc( fd_loader_v4_status_t * self, ulong discriminant ) {
   self->discriminant = discriminant;
   fd_loader_v4_status_inner_new( &self->inner, self->discriminant );
 }
 void fd_loader_v4_status_new( fd_loader_v4_status_t * self ) {
   fd_memset( self, 0, sizeof(fd_loader_v4_status_t) );
-  fd_loader_v4_status_new_disc( self, UINT_MAX );
+  fd_loader_v4_status_new_disc( self, ULONG_MAX );
 }
-void fd_loader_v4_status_inner_destroy( fd_loader_v4_status_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+void fd_loader_v4_status_inner_destroy( fd_loader_v4_status_inner_t * self, ulong discriminant, fd_bincode_destroy_ctx_t * ctx ) {
   switch( discriminant ) {
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
@@ -22347,17 +22347,17 @@ void fd_loader_v4_status_walk( void * w, fd_loader_v4_status_t const * self, fd_
 }
 ulong fd_loader_v4_status_size( fd_loader_v4_status_t const * self ) {
   ulong size = 0;
-  size += sizeof(uint);
+  size += sizeof(ulong);
   switch (self->discriminant) {
   }
   return size;
 }
 
-int fd_loader_v4_status_inner_encode( fd_loader_v4_status_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+int fd_loader_v4_status_inner_encode( fd_loader_v4_status_inner_t const * self, ulong discriminant, fd_bincode_encode_ctx_t * ctx ) {
   return FD_BINCODE_SUCCESS;
 }
 int fd_loader_v4_status_encode( fd_loader_v4_status_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  int err = fd_bincode_uint64_encode( self->discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return fd_loader_v4_status_inner_encode( &self->inner, self->discriminant, ctx );
 }

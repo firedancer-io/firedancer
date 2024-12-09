@@ -3506,7 +3506,7 @@ typedef union fd_loader_v4_status_inner fd_loader_v4_status_inner_t;
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L20-L27 */
 struct fd_loader_v4_status {
-  uint discriminant;
+  ulong discriminant;
   fd_loader_v4_status_inner_t inner;
 };
 typedef struct fd_loader_v4_status fd_loader_v4_status_t;
@@ -7137,7 +7137,7 @@ fd_bpf_upgradeable_loader_state_enum_buffer = 1,
 fd_bpf_upgradeable_loader_state_enum_program = 2,
 fd_bpf_upgradeable_loader_state_enum_program_data = 3,
 }; 
-void fd_loader_v4_status_new_disc( fd_loader_v4_status_t * self, uint discriminant );
+void fd_loader_v4_status_new_disc( fd_loader_v4_status_t * self, ulong discriminant );
 void fd_loader_v4_status_new( fd_loader_v4_status_t * self );
 int fd_loader_v4_status_decode( fd_loader_v4_status_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_loader_v4_status_decode_preflight( fd_bincode_decode_ctx_t * ctx );

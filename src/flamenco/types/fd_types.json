@@ -1673,6 +1673,7 @@
     {
       "name": "loader_v4_status",
       "type": "enum",
+      "repr": "ulong",
       "variants": [
         { "name": "retracted" },
         { "name": "deployed" },
