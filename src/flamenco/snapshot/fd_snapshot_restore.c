@@ -271,7 +271,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   }
 
   if( manifest->bank_incremental_snapshot_persistence ) {
-    FD_LOG_NOTICE(( "Snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
+    FD_LOG_NOTICE(( "Incremental napshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
                     FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash),
                     FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->incremental_hash) ));
 

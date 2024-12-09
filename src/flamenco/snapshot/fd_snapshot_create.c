@@ -544,8 +544,8 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
 
   /* Ancestor can be omitted to boot off of for both clients */
 
-  bank->ancestors_len                        = 0UL;
-  bank->ancestors                            = NULL;
+  bank->ancestors_len                         = 0UL;
+  bank->ancestors                             = NULL;
 
   bank->hash                                  = slot_bank->banks_hash;
   bank->parent_hash                           = slot_bank->prev_banks_hash;
@@ -588,7 +588,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
   bank->epoch_schedule                        = epoch_bank->epoch_schedule;
   bank->inflation                             = epoch_bank->inflation;
   
-  /* Unused accounts can be left as NULL for both clients */
+  /* Unused accounts can be left as NULL for both clients. */
 
   fd_memset( &bank->unused_accounts, 0, sizeof(fd_unused_accounts_t) );
 
@@ -834,7 +834,8 @@ fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t *  snapshot_ctx ) {
     return -1;
   }
 
-  /* Registers all roots and unconstipates the status cache */
+  /* Registers all roots and unconstipates the status cache. */
+
   fd_txncache_flush_constipated_slots( snapshot_ctx->status_cache );
 
   fd_valloc_free( snapshot_ctx->valloc, out_status_cache );
@@ -866,14 +867,15 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
   manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
   manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
 
-  /* TODO: The versioned epoch stakes needs to be implemented */
+  /* TODO: The versioned epoch stakes needs to be implemented. */
+
   manifest.versioned_epoch_stakes_len            = 0UL;
   manifest.versioned_epoch_stakes                = NULL;
 
   /* Populate the append vec index and write out the corresponding acc files. */
 
-  ulong capitalization = 0UL;
-  err = fd_snapshot_create_populate_acc_vecs( snapshot_ctx, &manifest, snapshot_ctx->writer, &capitalization );
+  ulong incr_capitalization = 0UL;
+  err = fd_snapshot_create_populate_acc_vecs( snapshot_ctx, &manifest, snapshot_ctx->writer, &incr_capitalization );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to populate the account vectors" ));
     return -1;
@@ -888,7 +890,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
     fd_memcpy( &manifest.bank_incremental_snapshot_persistence->full_hash, snapshot_ctx->last_snap_acc_hash, sizeof(fd_hash_t) );
     manifest.bank_incremental_snapshot_persistence->full_capitalization        = snapshot_ctx->last_snap_capitalization;
     manifest.bank_incremental_snapshot_persistence->incremental_hash           = snapshot_ctx->acc_hash;
-    manifest.bank_incremental_snapshot_persistence->incremental_capitalization = capitalization;
+    manifest.bank_incremental_snapshot_persistence->incremental_capitalization = incr_capitalization;
   } else {
     memcpy( out_hash, &manifest.accounts_db.bank_hash_info.accounts_hash, sizeof(fd_hash_t) );
     *out_capitalization = snapshot_ctx->slot_bank.capitalization;
@@ -931,7 +933,9 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
   /* FIXME: A lot of the allocations can leak if the snaphshot loader 
      fails out. There also might be some other leaks and this should 
      be tracked down. This is mostly mitigated if you use scratch and 
-     some other allocator for the accounts hash. */
+     some other allocator for the accounts hash. The snapshot tile currently
+     uses scratch. The other option is to crash out if any step in snapshot
+     creation fails. */
 
   /* This is kind of a hack but we need to do this so we don't accidentally 
      corrupt memory when we try to double destory. Everything below is
@@ -956,11 +960,15 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   /* Compress the file using zstd. First open the non-compressed file and
      create a file for the compressed file. The reason why we can't do this
      as we stream out the snapshot archive is that we write back into the
-     manifest buffer. */
+     manifest buffer. TODO: A way to eliminate this and to just stream out
+     1 compressed file would be to totally precompute the index such that 
+     we don't have to write back into funk. */
 
   ulong in_buf_sz   = ZSTD_CStreamInSize();
   ulong zstd_buf_sz = ZSTD_CStreamOutSize();
   ulong out_buf_sz  = ZSTD_CStreamOutSize();
+
+  /* TODO: Define a consant for this */
 
   char * in_buf   = fd_valloc_malloc( snapshot_ctx->valloc, 64UL, in_buf_sz );
   char * zstd_buf = fd_valloc_malloc( snapshot_ctx->valloc, 64UL, out_buf_sz );
@@ -987,7 +995,11 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   }
 
   err = ftruncate( snapshot_ctx->snapshot_fd, 0 );
-  FD_TEST( err!=-1 );
+  if( FD_UNLIKELY( err=-1) ) {
+    FD_LOG_WARNING(( "Failed to truncate the snapshot file" ));
+    return -1;
+  }
+
   lseek( snapshot_ctx->snapshot_fd, 0, SEEK_SET );
 
   /* At this point, the tar archive and the new zstd file is open. The zstd
@@ -1156,49 +1168,4 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
   return err;
 
   } FD_SCRATCH_SCOPE_END;
-}
-
-int
-fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx, fd_hash_t * out_hash, ulong * out_capitalization ) {
-
-  /* Write out the snapshot tar archive to a temporary location that will be 
-     written to when the snapshot account hash is recalculated.
-     TODO: This temporary file should be made harder to access by an operator. */
-
-  char tmp_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
-  int err = snprintf( tmp_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", snapshot_ctx->out_dir, snapshot_ctx->is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE : FD_SNAPSHOT_TMP_ARCHIVE );
-  if( FD_UNLIKELY( err<0 ) ) {
-    FD_LOG_WARNING(( "Failed to format directory string" ));
-    return -1;
-  }
-
-  char zstd_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
-  err = snprintf( zstd_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", snapshot_ctx->out_dir, snapshot_ctx->is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD : FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
-  if( FD_UNLIKELY( err<0 ) ) {
-    FD_LOG_WARNING(( "Failed to format directory string" ));
-    return -1;
-  }
-
-  /* Create and open the relevant files for snapshots. */
-
-  snapshot_ctx->tmp_fd = open( tmp_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( snapshot_ctx->tmp_fd==-1 ) ) {
-    FD_LOG_WARNING(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-
-  snapshot_ctx->snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( snapshot_ctx->snapshot_fd==-1 ) ) {
-    FD_LOG_WARNING(( "Failed to open the snapshot file (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-
-  /* Now that all of the files are open, create a snapshot. */
-
-  if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( snapshot_ctx, out_hash, out_capitalization ) ) ) {
-    FD_LOG_ERR(( "Failed to create the snapshot" ));
-  }
-
-  return 0;
-
 }

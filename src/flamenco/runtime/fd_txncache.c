@@ -592,6 +592,9 @@ fd_txncache_register_constipated_slot( fd_txncache_t * tc,
 void
 fd_txncache_flush_constipated_slots( fd_txncache_t * tc ) {
 
+  /* Register all previously constipated slots and unconstipate registration
+     into the status cache. */
+
   fd_rwlock_write( tc->lock );
 
   ulong * constipated_slots = fd_txncache_get_constipated_slots( tc );

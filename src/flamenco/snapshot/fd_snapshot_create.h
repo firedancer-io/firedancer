@@ -136,21 +136,6 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
                                  fd_hash_t *         out_hash,
                                  ulong *             out_capitalization );
 
-/* fd_snapshot_create_new_snapshot_offline is a strict superset of the 
-   above function. It is repsonsible for managing the file descriptors
-   used in snapshot creation. It should ONLY be used for creating
-   snapshots for offline replay. The reason that file descriptors are
-   not managed by the snapshot library for running a live node is to 
-   maintain the sandbox. While running the full client, the file descriptors
-   used by the snapshot service are maintained by the snapshot tile.
-   
-   TODO: this could techically just be maintained in fd_ledger */
-
-int
-fd_snapshot_create_new_snapshot_offline( fd_snapshot_ctx_t * snapshot_ctx,
-                                         fd_hash_t *         out_hash,
-                                         ulong *             out_capitalization );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_create_h */

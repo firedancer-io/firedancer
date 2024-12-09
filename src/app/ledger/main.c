@@ -136,11 +136,43 @@ fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
   fd_snapshot_ctx_t * snapshot_ctx = (fd_snapshot_ctx_t *)t0;
   fd_ledger_args_t *  ledger_args  = (fd_ledger_args_t *)t1;
 
+  char tmp_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
+  int err = snprintf( tmp_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", 
+                      snapshot_ctx->out_dir, 
+                      snapshot_ctx->is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE : FD_SNAPSHOT_TMP_ARCHIVE );
+  if( FD_UNLIKELY( err<0 ) ) {
+    FD_LOG_WARNING(( "Failed to format directory string" ));
+    return;
+  }
+
+  char zstd_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
+  err = snprintf( zstd_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s",
+                  snapshot_ctx->out_dir, 
+                  snapshot_ctx->is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD : FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
+  if( FD_UNLIKELY( err<0 ) ) {
+    FD_LOG_WARNING(( "Failed to format directory string" ));
+    return;
+  }
+
+  /* Create and open the relevant files for snapshots. */
+
+  snapshot_ctx->tmp_fd = open( tmp_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( snapshot_ctx->tmp_fd==-1 ) ) {
+    FD_LOG_WARNING(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  snapshot_ctx->snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( snapshot_ctx->snapshot_fd==-1 ) ) {
+    FD_LOG_WARNING(( "Failed to open the snapshot file (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
   FD_LOG_WARNING(( "Starting snapshot creation at slot=%lu", snapshot_ctx->slot ));
 
-  int err = fd_snapshot_create_new_snapshot_offline( snapshot_ctx, 
-                                                     &ledger_args->last_snapshot_hash, 
-                                                     &ledger_args->last_snapshot_capitalization );
+  err = fd_snapshot_create_new_snapshot( snapshot_ctx, 
+                                         &ledger_args->last_snapshot_hash, 
+                                         &ledger_args->last_snapshot_capitalization );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "failed to create snapshot" ));
   }
@@ -149,13 +181,21 @@ fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
   ledger_args->slot_ctx->epoch_ctx->constipate_root = 0;
   ledger_args->is_snapshotting                      = 0;
 
+  err = close( snapshot_ctx->tmp_fd );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to close tmp_fd" ));
+  }
+  err = close( snapshot_ctx->snapshot_fd );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to close snapshot_fd" ));
+  }
+
 }
 
 /* Runtime Replay *************************************************************/
 static int
 init_tpool( fd_ledger_args_t * ledger_args ) {
 
-  // ulong snapshot_tcnt = ledger_args->snapshot_freq != ULONG_MAX ? ledger_args->snapshot_tcnt: 0UL;
   ulong snapshot_tcnt = ledger_args->snapshot_tcnt;
 
   ulong tcnt = fd_tile_cnt() - snapshot_tcnt;
@@ -186,6 +226,8 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
 
   ledger_args->tpool = tpool;
 
+  /* Setup a background thread for the snapshot service as well as a tpool used
+     for snapshot hashing. */
 
   if( !snapshot_tcnt ) {
     return 0;
@@ -201,13 +243,13 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
   if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_bg_tpool, start_idx++, tpool_scr_mem, scratch_sz ) ) ) {
       FD_LOG_ERR(( "failed to launch worker" ));
   } else {
-    FD_LOG_NOTICE(( "launched worker 2 %lu", start_idx - 1UL ));
+    FD_LOG_NOTICE(( "launched snapshot worker %lu", start_idx - 1UL ));
   }
 
   ledger_args->snapshot_bg_tpool = snapshot_bg_tpool;
 
 
-  if( snapshot_tcnt == 2 ) {
+  if( snapshot_tcnt==2UL ) {
     return 0;
   }
 

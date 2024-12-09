@@ -18,14 +18,12 @@
 #define SCRATCH_DEPTH  (256UL)          /* 256 scratch frames */
 #define TPOOL_WORKER_MEM_SZ (1UL<<30UL) /* 256MB */
 
-#define FD_FUNK_FILE_MAX (256UL)
-
 struct fd_snapshot_tile_ctx {
   /* User defined parameters. */
   ulong           full_interval;
   ulong           incremental_interval;
   char const    * out_dir;
-  char            funk_file[ FD_FUNK_FILE_MAX ];
+  char            funk_file[ PATH_MAX ];
 
   /* Shared data structures. */
   fd_txncache_t * status_cache;
@@ -200,8 +198,7 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
      replay tile. 
      TODO: Eventually funk will be joined via a shared topology object. */
   ctx->is_funk_active = 0;
-  ctx->funk_file = tile->replay.funk_file;
-  FD_LOG_WARNING(("FUNK FILE %s", ctx->funk_file));
+  memcpy( ctx->funk_file, tile->replay.funk_file, sizeof(tile->replay.funk_file) );
 
   /**********************************************************************/
   /* status cache                                                       */
@@ -212,13 +209,10 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
     FD_LOG_ERR(( "no status cache object id" ));
   }
 
-  FD_LOG_WARNING(("TRYING TO JOIN TXNCACHE"));
   ctx->status_cache = fd_txncache_join( fd_topo_obj_laddr( topo, status_cache_obj_id ) );
   if( FD_UNLIKELY( !ctx->status_cache ) ) {
     FD_LOG_ERR(( "no status cache" ));
   }
-  FD_LOG_WARNING(("DONE WITH JOIN TXNCACHE"));
-
 
   /**********************************************************************/
   /* scratch                                                            */
@@ -260,8 +254,6 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   ctx->last_full_snap_slot = 0UL;
   ctx->last_capitalization = 0UL;
   fd_memset( &ctx->last_hash, 0, sizeof(fd_hash_t) );
-
-  FD_LOG_WARNING(("REACH HERE"));
 }
 
 static void
@@ -277,8 +269,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
   }
 
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
-    /* TODO:FIXME: need to turn the funkfile into a shared param */
-    ctx->funk = fd_funk_open_file( "/data/ibhatt/funkfile", 
+    ctx->funk = fd_funk_open_file( ctx->funk_file, 
                                    1, 
                                    0, 
                                    0, 
@@ -291,7 +282,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     }
     ctx->is_funk_active = 1;
 
-    FD_LOG_WARNING(( "Just joined funk" ));
+    FD_LOG_WARNING(( "Just joined funk at file=%s", ctx->funk_file ));
   }
 
   ulong is_incremental = fd_snapshot_create_get_is_incremental( is_constipated );
@@ -327,34 +318,43 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
       permissions should be made to not acessible by users and should be
       renamed to the constant file that is expected. */
 
+  char proc_filename[ FD_SNAPSHOT_DIR_MAX ];
   char prev_filename[ FD_SNAPSHOT_DIR_MAX ];
-  snprintf( prev_filename, FD_SNAPSHOT_DIR_MAX, "/proc/self/fd/%d", is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd );
-  char temp_filename[ FD_SNAPSHOT_DIR_MAX ];
-  long len = readlink(prev_filename, temp_filename, FD_SNAPSHOT_DIR_MAX);
+  char new_filename [ FD_SNAPSHOT_DIR_MAX ];
+  snprintf( proc_filename, FD_SNAPSHOT_DIR_MAX, "/proc/self/fd/%d", is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd );
+  long len = readlink( proc_filename, prev_filename, FD_SNAPSHOT_DIR_MAX );
   if( FD_UNLIKELY( len<=0L ) ) {
     FD_LOG_ERR(( "Failed to readlink the snapshot file" ));
   }
   prev_filename[ len ] = '\0';
 
-  char new_filename[ FD_SNAPSHOT_DIR_MAX ];
-  snprintf( new_filename, FD_SNAPSHOT_DIR_MAX, "%s/%s", ctx->out_dir, is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD : FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
+  int err = snprintf( new_filename, FD_SNAPSHOT_DIR_MAX, "%s/%s", ctx->out_dir, is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD : FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
+  if( FD_UNLIKELY( err<0 ) ) {
+    FD_LOG_ERR(( "Can't format filename" ));
+    return;
+  }
 
-  rename( temp_filename, new_filename );
-  FD_LOG_WARNING(("PREV FILENAME %s %s", temp_filename, new_filename ));
+  err = rename( new_filename, new_filename );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "Failed to rename file from %s to %s", prev_filename, new_filename ));
+  }
+  FD_LOG_NOTICE(( "Renaming file from %s to %s", prev_filename, new_filename ));
 
-  int err = ftruncate( snapshot_ctx.tmp_fd, 0UL );
-  FD_TEST( err!=-1 );
-  lseek( snapshot_ctx.tmp_fd, 0UL, SEEK_SET );
+  err = ftruncate( snapshot_ctx.tmp_fd, 0UL );
+  if( FD_UNLIKELY( err==-1 ) ) {
+    FD_LOG_ERR(( "Failed to truncate the file" ));
+  }
+
+  long seek = lseek( snapshot_ctx.tmp_fd, 0UL, SEEK_SET );
+  if( FD_UNLIKELY( seek!=0L ) ) {
+    FD_LOG_ERR(( "Failed to seek to the beginning of the file" ));
+  }
 
   if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( &snapshot_ctx, &ctx->last_hash, &ctx->last_capitalization ) ) ) {
     FD_LOG_ERR(( "Failed to create a new snapshot" ));
   }
 
-  if( is_incremental ) {
-    FD_LOG_ERR(("Done creating an incremental snapshot"));
-  }
-
-  FD_LOG_NOTICE(( "Done creating a snapshot" ));
+  FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
 
   fd_fseq_update( ctx->is_constipated, 0UL );
 
@@ -383,7 +383,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   (void)topo;
-  (void)tile;
 
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) {
     FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
