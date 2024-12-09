@@ -12,6 +12,7 @@
 #include "fd_account.h"
 #include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_loader_program.h"
+#include "program/fd_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_config_program.h"
 #include "program/fd_precompiles.h"
@@ -94,9 +95,10 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #define MAP_PERFECT_7       ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_8       ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute
-#define MAP_PERFECT_10      ( ED25519_SV_PROG_ID      ), .fn = fd_noop_instr_execute
-#define MAP_PERFECT_11      ( KECCAK_SECP_PROG_ID     ), .fn = fd_noop_instr_execute
-#define MAP_PERFECT_12      ( SECP256R1_PROG_ID       ), .fn = fd_noop_instr_execute
+#define MAP_PERFECT_10      ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute
+#define MAP_PERFECT_11      ( ED25519_SV_PROG_ID      ), .fn = fd_noop_instr_execute
+#define MAP_PERFECT_12      ( KECCAK_SECP_PROG_ID     ), .fn = fd_noop_instr_execute
+#define MAP_PERFECT_13      ( SECP256R1_PROG_ID       ), .fn = fd_noop_instr_execute
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
