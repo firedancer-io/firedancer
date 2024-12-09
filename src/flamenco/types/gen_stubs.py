@@ -405,7 +405,6 @@ class StructMember:
     def emitWalk(self, inner):
         print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level );', file=body)
 
-
 class VectorMember:
     def __init__(self, container, json):
         self.name = json["name"]
@@ -584,6 +583,168 @@ class VectorMember:
         print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );', file=body)
         print('  }', file=body)
 
+class StaticVectorMember:
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = json["element"]
+        self.size = (json["size"] if "size" in json else None)
+        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
+
+    def propogateArchival(self, nametypes):
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
+
+    def metaTag(self):
+        return "FD_ARCHIVE_META_STATIC_VECTOR"
+
+    def isFixedSize(self):
+        return False
+
+    def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        print(f'  ulong {self.name}_len;', file=header)
+        print(f'  ulong {self.name}_size;', file=header)
+        print(f'  ulong {self.name}_offset;', file=header)
+
+        if self.element in simpletypes:
+            print(f'  {self.element} {self.name}[{self.size}];', file=header)
+        else:
+            print(f'  {namespace}_{self.element}_t {self.name}[{self.size}];', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
+    def emitNew(self):
+        size = self.size
+        print(f'  self->{self.name}_size = {self.size};', file=body)
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
+            print(f'    {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
+
+
+    def emitDestroy(self):
+        size = self.size
+
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
+            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i, ctx );', file=body)
+
+    def emitDecodePreflight(self, archival):
+        atag = ('_archival' if archival else '')
+        print(f'  ulong {self.name}_len;', file=body)
+        print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  if( {self.name}_len ) {{', file=body)
+        el = f'{namespace}_{self.element}'
+        el = el.upper()
+
+        if self.element == "uchar":
+            print(f'    err = fd_bincode_bytes_decode_preflight( {self.name}_len, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+
+        else:
+            print(f'    for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
+
+            if self.element in simpletypes:
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+            else:
+                print(f'      err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+
+            print(f'      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+            print('    }', file=body)
+
+        print('  }', file=body)
+
+    def emitDecodeUnsafe(self, archival):
+        atag = ('_archival' if archival else '')
+        print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+        print(f'  self->{self.name}_size = {self.size};', file=body)
+        print(f'  self->{self.name}_offset = 0;', file=body)
+
+        if self.element == "uchar":
+            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, self->{self.name}_len, ctx );', file=body)
+            return
+
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_decode{atag}_unsafe( self->{self.name} + i, ctx );', file=body)
+        print('  }', file=body)
+
+    def emitEncode(self, archival):
+        atag = ('_archival' if archival else '')
+
+        atag = ('_archival' if archival else '')
+        print(f'  err = fd_bincode_uint64_encode( self->{self.name}_len, ctx );', file=body)
+        print(f'  if( FD_UNLIKELY(err) ) return err;', file=body)
+        print(f'  if( FD_UNLIKELY( 0 == self->{self.name}_len ) ) return FD_BINCODE_SUCCESS;', file=body)
+
+        if self.element == "uchar":
+            #print(f'  err = fd_bincode_bytes_encode( self->{self.name}, self->{self.name}_len, ctx );', file=body)
+            print(f'  TODO: implement this windowed properly', file=body)
+            print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
+            return
+
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if (self.size & (self.size - 1)) == 0:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
+        else:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}[idx], ctx );', file=body)
+        else:
+            print(f'    err = {namespace}_{self.element}_encode{atag}( self->{self.name} + idx, ctx );', file=body)
+        print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        print('  size += sizeof(ulong);', file=body)
+        if self.element == "uchar":
+            print(f'  size += self->{self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += self->{self.name}_len * sizeof({self.element});', file=body)
+        else:
+            print(f'  for( ulong i=0; i<self->{self.name}_len; i++ )', file=body)
+            print(f'    size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
+
+    emitWalkMap = {
+        "double" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
+        "long" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
+        "uint" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
+        "uint128" : lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
+        "ulong" :   lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
+        "ushort" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body)
+    }
+
+    def emitWalk(self, inner):
+        if self.element == "uchar":
+            print(f'  TODO: IMPLEMENT', file=body),
+            return
+
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++ );', file=body)
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if (self.size & (self.size - 1)) == 0:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
+        else:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
+        if self.element in VectorMember.emitWalkMap:
+            body.write("  ")
+            VectorMember.emitWalkMap[self.element](self.name)
+        else:
+            print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + idx, fun, "{self.element}", level );', file=body)
+        print('  }', file=body)
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level-- );', file=body)
 
 class StringMember(VectorMember):
     def __init__(self, container, json):
@@ -607,7 +768,6 @@ class StringMember(VectorMember):
         print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
         print('  }', file=body)
-
 
 class DequeMember:
     def __init__(self, container, json):
@@ -1049,6 +1209,7 @@ class TreapMember:
         self.min = int(json["min"])
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
+        self.treap_optimize = (json["optimize"] if "optimize" in json else None)
         self.rev = json.get("rev", False)
         self.upsert = json.get("upsert", False)
         self.min_name = f"{self.name.upper()}_MIN"
@@ -1094,6 +1255,8 @@ class TreapMember:
         print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
         print(f"#define TREAP_CMP(q,e) {treap_cmp}", file=header)
         print(f"#define TREAP_LT(e0,e1) {treap_lt}", file=header)
+        if self.treap_optimize is not None:
+            print(f"#define TREAP_OPTIMIZE_ITERATION 1", file=header)
         if self.treap_prio is not None:
             print(f"#define TREAP_PRIO {self.treap_prio}", file=header)
         print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
@@ -1462,7 +1625,6 @@ class OptionMember:
                 print(f'    {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level );', file=body)
             print( '  }', file=body)
 
-
 class ArrayMember:
     def __init__(self, container, json):
         self.name = json["name"]
@@ -1591,8 +1753,8 @@ class ArrayMember:
             print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
         print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level-- );', file=body)
 
-
 memberTypeMap = {
+    "static_vector" :    StaticVectorMember,
     "vector" :    VectorMember,
     "string" :    StringMember,
     "deque" :     DequeMember,
@@ -1993,7 +2155,7 @@ class EnumType:
         self.repr = (json["repr"] if "repr" in json else "uint")
         self.repr_codec_stem = "uint32"
         self.repr_max_val = "UINT_MAX"
-        
+
         if self.repr == "ulong":
             self.repr_codec_stem = "uint64"
             self.repr_max_val = "ULONG_MAX"

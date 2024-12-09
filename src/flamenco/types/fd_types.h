@@ -284,16 +284,12 @@ typedef struct fd_rent_collector_off fd_rent_collector_off_t;
 #define FD_RENT_COLLECTOR_OFF_FOOTPRINT sizeof(fd_rent_collector_off_t)
 #define FD_RENT_COLLECTOR_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (64 bytes) */
+/* Encoded Size: Fixed (32 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_history_entry {
   ulong epoch;
   ulong effective;
   ulong activating;
   ulong deactivating;
-  ulong parent;
-  ulong left;
-  ulong right;
-  ulong prio;
 };
 typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_FOOTPRINT sizeof(fd_stake_history_entry_t)
@@ -304,49 +300,18 @@ struct __attribute__((aligned(8UL))) fd_stake_history_entry_off {
   uint effective_off;
   uint activating_off;
   uint deactivating_off;
-  uint parent_off;
-  uint left_off;
-  uint right_off;
-  uint prio_off;
 };
 typedef struct fd_stake_history_entry_off fd_stake_history_entry_off_t;
 #define FD_STAKE_HISTORY_ENTRY_OFF_FOOTPRINT sizeof(fd_stake_history_entry_off_t)
 #define FD_STAKE_HISTORY_ENTRY_OFF_ALIGN (8UL)
 
-#define FD_STAKE_HISTORY_MIN 512
-#define POOL_NAME fd_stake_history_pool
-#define POOL_T fd_stake_history_entry_t
-#define POOL_NEXT parent
-#include "../../util/tmpl/fd_pool.c"
-static inline fd_stake_history_entry_t *
-fd_stake_history_pool_alloc( fd_valloc_t valloc, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  return fd_stake_history_pool_join( fd_stake_history_pool_new(
-      fd_valloc_malloc( valloc,
-                        fd_stake_history_pool_align(),
-                        fd_stake_history_pool_footprint( num ) ),
-      num ) );
-}
-#define TREAP_NAME fd_stake_history_treap
-#define TREAP_T fd_stake_history_entry_t
-#define TREAP_QUERY_T ulong
-#define TREAP_CMP(q,e) ((q == (e)->epoch) ? 0 : ((q < (e)->epoch) ? -1 : 1 ) )
-#define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
-#include "../../util/tmpl/fd_treap.c"
-static inline fd_stake_history_treap_t *
-fd_stake_history_treap_alloc( fd_valloc_t valloc, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  return fd_stake_history_treap_join( fd_stake_history_treap_new(
-      fd_valloc_malloc( valloc,
-                        fd_stake_history_treap_align(),
-                        fd_stake_history_treap_footprint( num ) ),
-      num ) );
-}
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stake_history {
-  fd_stake_history_entry_t * pool;
-  fd_stake_history_treap_t * treap;
+  ulong fd_stake_history_len;
+  ulong fd_stake_history_size;
+  ulong fd_stake_history_offset;
+  fd_stake_history_entry_t fd_stake_history[512];
 };
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_FOOTPRINT sizeof(fd_stake_history_t)
@@ -686,6 +651,39 @@ struct __attribute__((aligned(8UL))) fd_stake_off {
 typedef struct fd_stake_off fd_stake_off_t;
 #define FD_STAKE_OFF_FOOTPRINT sizeof(fd_stake_off_t)
 #define FD_STAKE_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_epoch_info_pair {
+  fd_pubkey_t account;
+  fd_stake_t stake;
+};
+typedef struct fd_epoch_info_pair fd_epoch_info_pair_t;
+#define FD_EPOCH_INFO_PAIR_FOOTPRINT sizeof(fd_epoch_info_pair_t)
+#define FD_EPOCH_INFO_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_epoch_info_pair_off {
+  uint account_off;
+  uint stake_off;
+};
+typedef struct fd_epoch_info_pair_off fd_epoch_info_pair_off_t;
+#define FD_EPOCH_INFO_PAIR_OFF_FOOTPRINT sizeof(fd_epoch_info_pair_off_t)
+#define FD_EPOCH_INFO_PAIR_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_epoch_info {
+  ulong infos_len;
+  fd_epoch_info_pair_t * infos;
+};
+typedef struct fd_epoch_info fd_epoch_info_t;
+#define FD_EPOCH_INFO_FOOTPRINT sizeof(fd_epoch_info_t)
+#define FD_EPOCH_INFO_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_epoch_info_off {
+  uint infos_off;
+};
+typedef struct fd_epoch_info_off fd_epoch_info_off_t;
+#define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
+#define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stake_pair {
@@ -5355,6 +5353,30 @@ void fd_stake_walk( void * w, fd_stake_t const * self, fd_types_walk_fn_t fun, c
 ulong fd_stake_size( fd_stake_t const * self );
 ulong fd_stake_footprint( void );
 ulong fd_stake_align( void );
+
+void fd_epoch_info_pair_new( fd_epoch_info_pair_t * self );
+int fd_epoch_info_pair_decode( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_epoch_info_pair_decode_unsafe( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_pair_decode_offsets( fd_epoch_info_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_pair_encode( fd_epoch_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_epoch_info_pair_destroy( fd_epoch_info_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_epoch_info_pair_walk( void * w, fd_epoch_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_epoch_info_pair_size( fd_epoch_info_pair_t const * self );
+ulong fd_epoch_info_pair_footprint( void );
+ulong fd_epoch_info_pair_align( void );
+
+void fd_epoch_info_new( fd_epoch_info_t * self );
+int fd_epoch_info_decode( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_epoch_info_decode_unsafe( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_decode_offsets( fd_epoch_info_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_epoch_info_destroy( fd_epoch_info_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_epoch_info_size( fd_epoch_info_t const * self );
+ulong fd_epoch_info_footprint( void );
+ulong fd_epoch_info_align( void );
 
 void fd_stake_pair_new( fd_stake_pair_t * self );
 int fd_stake_pair_decode( fd_stake_pair_t * self, fd_bincode_decode_ctx_t * ctx );
