@@ -49,11 +49,18 @@
 #define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
 #define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
 
+/* Convenience macro for `fd_account_check_num_insn_accounts()` */
+#define CHECK_NUM_INSN_ACCS( _ctx, _expected ) do {                        \
+  if( FD_UNLIKELY( (_ctx)->instr->acct_cnt<(_expected) ) ) {               \
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                      \
+  }                                                                        \
+} while(0)
+
 FD_PROTOTYPES_BEGIN
 
 /* Instruction account APIs *******************************************/
 
-/* Assert that enougha ccounts were supplied to this instruction. Returns 
+/* Assert that enough ccounts were supplied to this instruction. Returns 
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and 
    FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
