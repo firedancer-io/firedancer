@@ -723,13 +723,29 @@ struct fd_blockstore_ser {
 };
 typedef struct fd_blockstore_ser fd_blockstore_ser_t;
 
-/* Archives a block and block map entry to fd. If fd is -1, no write is attempted */
+/* Archives a block and block map entry to fd. If fd is -1, no write is attempted.
+   Should always be followed by a fd_blockstore_checkpt_update. */
 ulong
-fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED, 
+fd_blockstore_block_checkpt( fd_blockstore_t * blockstore, 
                              fd_blockstore_ser_t * ser, 
                              int fd, 
                              ulong write_off,
                              ulong slot );
+
+/* Performs any block index & lrw/mrw updates after archiving a block. Returns the new lrw. */
+ulong
+fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, 
+                              fd_block_map_t * block_map_entry, 
+                              ulong slot, 
+                              ulong wsz, 
+                              ulong write_off );
+
+/* Computes the correct offset to write the next block into. */
+ulong
+fd_blockstore_checkpt_write_offset( fd_blockstore_t * blockstore, 
+                                    int fd, 
+                                    fd_blockstore_ser_t * ser );
+
 
 /* Restores a block and block map entry from fd at given offset. As this used by
    rpcserver, it must return an error code instead of throwing an error on failure */

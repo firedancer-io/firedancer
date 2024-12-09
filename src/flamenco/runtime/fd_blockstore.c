@@ -583,7 +583,7 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
   check_read_write_err( err );
   off += wsz;
 
-  FD_LOG_DEBUG(( "[%s] archived block %lu", __func__, slot ));
+  FD_LOG_NOTICE(( "[%s] archived block %lu at %lu", __func__, slot, write_off ));
   return off;
 }
 
@@ -602,7 +602,7 @@ fd_blockstore_block_meta_restore( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
   // Not throwing on error here because we want to return the error code to the caller
   err |= fd_io_read( fd, block_out, sizeof(fd_block_t), sizeof(fd_block_t), &rsz );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "failed to read and/or block_map_entry" ));
+    FD_LOG_WARNING(( "failed to read block and/or block_map_entry" ));
     return FD_BLOCKSTORE_ERR_SLOT_MISSING;
   }
   return FD_BLOCKSTORE_OK;
@@ -634,8 +634,8 @@ fd_blockstore_block_data_restore( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
   return FD_BLOCKSTORE_OK;
 }
 
-static ulong
-get_checkpt_offset( fd_blockstore_t * blockstore, int fd, fd_blockstore_ser_t * ser ) {
+ulong
+fd_blockstore_checkpt_write_offset( fd_blockstore_t * blockstore, int fd, fd_blockstore_ser_t * ser ) {
   if( FD_UNLIKELY( fd == -1 ) ) {
     FD_LOG_WARNING(( "[%s] fd is -1", __func__ ));
     return 0;
@@ -647,6 +647,57 @@ get_checkpt_offset( fd_blockstore_t * blockstore, int fd, fd_blockstore_ser_t * 
     return 0;
   }
   return blockstore->off;
+}
+
+void
+fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, fd_block_map_t * block_map_entry, ulong slot, ulong wsz, ulong write_off ) {
+  fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
+  {
+    fd_block_idx_t * lrw_block_index = fd_block_idx_query(block_idx, blockstore->lrw_slot, NULL);
+
+    if ( lrw_block_index && write_off <= lrw_block_index->off){
+      // we are chancing overwriting the lrw block
+      // we need to update the lrw block index to the next block
+      ulong new_last_offset = write_off + wsz;
+      //__asm__("int $3");
+      while( lrw_block_index 
+             && lrw_block_index->off < new_last_offset // if this covers the lrw below it
+             && write_off <= lrw_block_index->off      // if the lru block has cycled back to top of file
+             // it's not possible that write_off <= lrw_block_index->off + lrw_wsz, 
+             // no matter how large lrw_wsz is.
+           ){
+        FD_LOG_NOTICE(( "[%s] overwriting lrw block %lu", __func__, blockstore->lrw_slot ));
+        blockstore->lrw_slot = lrw_block_index->next;
+        fd_block_idx_remove( block_idx, lrw_block_index );
+        lrw_block_index = fd_block_idx_query(block_idx, blockstore->lrw_slot, NULL);
+      }
+    }
+    if ( FD_UNLIKELY(!lrw_block_index ) ){
+      // no lrw block yet
+      blockstore->lrw_slot = slot;
+    }
+  }
+
+  /* Successfully archived block, so update index and offset. */
+
+  fd_block_idx_t * idx_entry = fd_block_idx_insert( fd_blockstore_block_idx( blockstore ), slot );
+  idx_entry->off             = write_off;
+  blockstore->off            = write_off + wsz;
+  idx_entry->block_hash      = block_map_entry->block_hash;
+  idx_entry->bank_hash       = block_map_entry->bank_hash;
+
+  /* Update previous slot index with the next field */
+  {
+      if( FD_LIKELY( blockstore->mrw_slot != FD_SLOT_NULL ) ) {
+        fd_block_idx_t * mrw_block_index = fd_block_idx_query(block_idx, blockstore->mrw_slot, NULL);
+        if( FD_LIKELY( mrw_block_index ) ) {
+          mrw_block_index->next = slot;
+        } else {
+          // TODO: what should happen? ERR?
+        }
+      }
+      blockstore->mrw_slot = slot;
+  }
 }
 
 void
@@ -712,9 +763,6 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
       fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
 
-      //if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ) ) {
-      //  FD_LOG_WARNING(( "[%s] reached blockstore idx_max limit. not archiving finalized block: %lu", __func__, slot ));
-      //}  
       if( FD_UNLIKELY( fd_block_idx_query( block_idx, slot, NULL ) ) ) {
         FD_LOG_ERR(( "[%s] invariant violation. attempted to re-archive finalized block: %lu", __func__, slot ));
       } else {
@@ -723,52 +771,9 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
           .block     = block,
           .data      = data
         };
-        ulong write_off = get_checkpt_offset( blockstore, fd, &ser );
+        ulong write_off = fd_blockstore_checkpt_write_offset( blockstore, fd, &ser );
         ulong wsz = fd_blockstore_block_checkpt( blockstore,&ser, fd, write_off, slot );
-        /* check if we overwrote the lrw block in the circular buffer file*/
-        {
-          fd_block_idx_t * lrw_block_index = fd_block_idx_query(block_idx, blockstore->lrw_slot, NULL);
-           //when ( write_off > lrw_block_index->off )
-            // no chance of overwriting the lrw block
-            // happens when we filling up empty file (no circular buffer-ing yet) 
-          //
-          __asm__("int $3");
-          if ( lrw_block_index && write_off <= lrw_block_index->off){
-            // we are chancing overwriting the lrw block
-            // we need to update the lrw block index to the next block
-            ulong new_last_offset = blockstore->off + wsz;
-            while( lrw_block_index && lrw_block_index->off < new_last_offset ) {
-              FD_LOG_NOTICE(( "[%s] overwriting lrw block %lu", __func__, blockstore->lrw_slot ));
-              blockstore->lrw_slot = lrw_block_index->next;
-              lrw_block_index = fd_block_idx_query(block_idx, blockstore->lrw_slot, NULL);
-            }
-          }
-          if ( FD_UNLIKELY(!lrw_block_index ) ){
-            // no lrw block yet
-            blockstore->lrw_slot = slot;
-          }
-        }
-
-        /* Successfully archived block, so update index and offset. */
-
-        fd_block_idx_t * idx_entry = fd_block_idx_insert( fd_blockstore_block_idx( blockstore ), slot );
-        idx_entry->off             = blockstore->off;
-        blockstore->off            = blockstore->off + wsz;
-        idx_entry->block_hash      = block_map_entry->block_hash;
-        idx_entry->bank_hash       = block_map_entry->bank_hash;
-
-        /* Update previous slot index with the next field */
-        {
-            if( FD_LIKELY( blockstore->mrw_slot != FD_SLOT_NULL ) ) {
-              fd_block_idx_t * mrw_block_index = fd_block_idx_query(block_idx, blockstore->mrw_slot, NULL);
-              if( FD_LIKELY( mrw_block_index ) ) {
-                mrw_block_index->next = slot;
-              } else {
-                // TODO: what should happen? ERR?
-              }
-            }
-            blockstore->mrw_slot = slot;
-        }
+        fd_blockstore_checkpt_update( blockstore, block_map_entry, slot, wsz, write_off );
       }
     }
 
