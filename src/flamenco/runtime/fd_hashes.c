@@ -227,12 +227,6 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
   fd_pubkey_hash_pair_list_t list1 = { .pairs = dirty_keys, .pairs_len = dirty_key_cnt };
 
-  for( ulong i = 0; i < dirty_key_cnt; ++i ) {
-    if( !memcmp(list1.pairs[i].rec->pair.key, &fd_sysvar_last_restart_slot_id, sizeof(fd_pubkey_t)) ) {
-      FD_LOG_WARNING(("PURR"));
-    }
-  }
-
   fd_hash_account_deltas(&list1, 1, &slot_ctx->account_delta_hash );
 
   fd_sha256_t sha;

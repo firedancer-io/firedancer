@@ -518,11 +518,6 @@ fdctl_obj_new( fd_topo_t const *     topo,
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
 
-  #define VAL_STR(name) (__extension__({                                                            \
-      char const * __x = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.%s", obj->id, name ); \
-      if( FD_UNLIKELY( __x==NULL ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name ));       \
-      __x; }))
-
   void * laddr = fd_topo_obj_laddr( topo, obj->id );
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {

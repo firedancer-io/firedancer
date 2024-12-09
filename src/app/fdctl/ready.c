@@ -27,7 +27,6 @@ ready_cmd_fn( args_t *         args,
     if( strncmp( tile->name, "thread", 7 )==0 ) continue;
     if( strncmp( tile->name, "sthrea", 7 )==0 ) continue;
 
-
     long start = fd_log_wallclock();
     int printed = 0;
     do {

@@ -53,11 +53,9 @@ tpool_snap_boot( fd_topo_t * topo, ulong total_thread_count ) {
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( strcmp( topo->tiles[i].name, "sthrea" ) == 0 ) {
-      tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
-      thread_count++;
+      tile_to_cpu[ thread_count++ ] = (ushort)topo->tiles[i].cpu_idx;
     }
   }
-
 
   if( thread_count != total_thread_count )
     FD_LOG_WARNING(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", thread_count, total_thread_count, main_thread_seen ));

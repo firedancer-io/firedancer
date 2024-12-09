@@ -56,7 +56,6 @@ fd_topob_obj( fd_topo_t *  topo,
   strncpy( obj->name, obj_name, sizeof(obj->name) );
   obj->id      = topo->obj_cnt;
   obj->wksp_id = wksp_id;
-  FD_LOG_WARNING(("OBJECT %s %lu %lu %s", obj->name, obj->id, obj->wksp_id, wksp_name));
   topo->obj_cnt++;
 
   return obj;
@@ -119,8 +118,6 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave ) {
-
-  FD_LOG_WARNING(("TILE TILE %s", tile_name));
 
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
