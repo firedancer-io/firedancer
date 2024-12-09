@@ -187,14 +187,14 @@ do{
   }
 
   /* Setup calldests from call_whitelist.
-     Alloc */
+     Alloc calldests with the expected size (1 bit per ix, rounded up to ulong) */
   ulong max_pc = (rodata_sz + 7) / 8;
   ulong calldests_sz = ((max_pc + 63) / 64) * 8;
   ulong * calldests = fd_valloc_malloc( valloc, fd_sbpf_calldests_align(), calldests_sz );
   memset( calldests, 0, calldests_sz );
-  FD_LOG_WARNING(( "calldests_sz = %lu", calldests_sz ));
   if( input->vm_ctx.call_whitelist && input->vm_ctx.call_whitelist->size > 0 ) {
     memcpy( calldests, input->vm_ctx.call_whitelist->bytes, input->vm_ctx.call_whitelist->size );
+    /* Make sure bits over max_pc are all 0s. */
     ulong mask = (1UL << (max_pc % 64)) - 1UL;
     calldests[ max_pc / 64 ] &= mask;
   }
