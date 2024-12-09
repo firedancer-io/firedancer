@@ -15,7 +15,7 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/ledgers.yml
     secrets: inherit
-  # firedancer:
-  #   if: github.event.pull_request.draft == false
-  #   uses: ./.github/workflows/test_firedancer_localnet.yml
-  #   secrets: inherit
+  firedancer:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/test_firedancer_localnet.yml
+    secrets: inherit
