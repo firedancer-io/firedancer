@@ -10,7 +10,22 @@ metric introduced.
 
 <metrics>
 
-<enum name="StemRegime">
+<linkin>
+    <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment." />
+    <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer." />
+    <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed." />
+    <counter name="FilteredSizeBytes" summary="The total number of bytes read by the link consumer that were filtered." />
+    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
+    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
+    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
+    <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading." />
+</linkin>
+
+<linkout>
+    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
+</linkout>
+
+<enum name="TileRegime">
     <int value="0" name="CaughtUpHousekeeping" label="Caught up + Housekeeping" />
     <int value="1" name="ProcessingHousekeeping" label="Processing + Housekeeping" />
     <int value="2" name="BackpressureHousekeeping" label="Backpressure + Housekeeping" />
@@ -24,52 +39,259 @@ metric introduced.
     <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
 </enum>
 
+<common>
+    <gauge name="Pid" summary="The process ID of the tile." />
+    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
+    <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
+    <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
+    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
+    <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
+    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
+    <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
+    <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
+</common>
+
+<tile name="net">
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP headers)." />
+    <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
+    <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
+    <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
+</tile>
+
+<enum name="TpuRecvType">
+    <int value="0" name="Udp" label="TPU/UDP" />
+    <int value="1" name="QuicFast" label="TPU/QUIC unfragmented" />
+    <int value="2" name="QuicFrag" label="TPU/QUIC fragmented" />
+</enum>
+
+<enum name="QuicFrameType">
+    <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
+    <int value="0" name="Unknown" label="Unknown frame type" />
+    <int value="1" name="Ack" label="ACK frame" />
+    <int value="2" name="ResetStream" label="RESET_STREAM frame" />
+    <int value="3" name="StopSending" label="STOP_SENDING frame" />
+    <int value="4" name="Crypto" label="CRYPTO frame" />
+    <int value="5" name="NewToken" label="NEW_TOKEN frame" />
+    <int value="6" name="Stream" label="STREAM frame" />
+    <int value="7" name="MaxData" label="MAX_DATA frame" />
+    <int value="8" name="MaxStreamData" label="MAX_STREAM_DATA frame" />
+    <int value="9" name="MaxStreams" label="MAX_STREAMS frame" />
+    <int value="10" name="DataBlocked" label="DATA_BLOCKED frame" />
+    <int value="11" name="StreamDataBlocked" label="STREAM_DATA_BLOCKED frame" />
+    <int value="12" name="StreamsBlocked" label="STREAMS_BLOCKED(bidi) frame" />
+    <int value="13" name="NewConnId" label="NEW_CONN_ID frame" />
+    <int value="14" name="RetireConnId" label="RETIRE_CONN_ID frame" />
+    <int value="15" name="PathChallenge" label="PATH_CHALLENGE frame" />
+    <int value="16" name="PathResponse" label="PATH_RESPONSE frame" />
+    <int value="17" name="ConnCloseQuic" label="CONN_CLOSE(transport) frame" />
+    <int value="18" name="ConnCloseApp" label="CONN_CLOSE(app) frame" />
+    <int value="19" name="HandshakeDone" label="HANDSHAKE_DONE frame" />
+    <int value="20" name="Ping" label="PING frame" />
+    <int value="21" name="Padding" label="PADDING frame" />
+</enum>
+
+<enum name="QuicStreamCloseType">
+    <int value="0" name="End" label="gracefully closed" />
+    <int value="1" name="PeerReset" label="RESET_STREAM event received" />
+    <int value="2" name="PeerStop" label="STOP_SENDING events received" />
+    <int value="3" name="Drop" label="dropped due to excessive concurrency" />
+    <int value="4" name="ConnAbort" label="connection abort" />
+</enum>
+
+<enum name="QuicAckTx">
+    <int value="0" name="Noop" label="non-ACK-eliciting packet" />
+    <int value="1" name="New" label="new ACK range" />
+    <int value="2" name="Merged" label="merged into existing ACK range" />
+    <int value="3" name="Drop" label="out of buffers" />
+    <int value="4" name="Cancel" label="ACK suppressed by handler" />
+</enum>
+
+<tile name="quic">
+    <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
+    <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
+    <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active." />
+    <counter name="FragsOk" summary="Count of txn frags received" />
+    <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
+    <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
+    <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU." />
+    <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost." />
+
+    <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
+    <counter name="QuicTxnTooSmall" summary="Count of txns received via QUIC dropped because they were too small." />
+    <counter name="QuicTxnTooLarge" summary="Count of txns received via QUIC dropped because they were too large." />
+
+    <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
+    <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
+
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
+
+    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
+    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
+    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
+    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
+    <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
+    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
+    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
+    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
+
+    <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
+    <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
+    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
+
+    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
+    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
+
+    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
+    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+
+    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
+
+    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
+
+    <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent in service</summary>
+    </histogram>
+    <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent receiving packets</summary>
+    </histogram>
+
+    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
+</tile>
+
+<tile name="verify">
+    <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
+    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
+    <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
+</tile>
+
+<tile name="dedup">
+    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
+    <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
+</tile>
+
+<enum name="LutResolveResult">
+    <int value="-5" name="InvalidLookupIndex" label="The transaction referenced an index in a LUT that didn't exist" />
+    <int value="-4" name="AccountUninitialized" label="The account referenced as a LUT hasn't been initialized" />
+    <int value="-3" name="InvalidAccountData" label="The account referenced as a LUT couldn't be parsed" />
+    <int value="-2" name="InvalidAccountOwner" label="The account referenced as a LUT wasn't owned by the ALUT program ID" />
+    <int value="-1" name="AccountNotFound" label="The account referenced as a LUT couldn't be found" />
+    <int value="0" name="Success" label="Resolved successfully" />
+</enum>
+
+<tile name="resolv">
+    <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
+    <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
+    <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
+    <counter name="BlockhashUnknown" summary="Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." />
+</tile>
+
 <enum name="PackTxnInsertReturn">
-  <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
-  <int value="-11" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
-  <int value="-10" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
-  <int value="-9" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
-  <int value="-8" name="DuplicateAccount" label="Transaction included an account address twice" />
-  <int value="-7" name="TooManyAccounts" label="Transaction tried to load too many accounts" />
-  <int value="-6" name="TooLarge" label="Transaction requests too many CUs" />
-  <int value="-5" name="Expired" label="Transaction already expired" />
-  <int value="-4" name="AddrLut" label="Transaction loaded accounts from a lookup table" />
-  <int value="-3" name="Unaffordable" label="Fee payer's balance below transaction fee" />
-  <int value="-2" name="Duplicate" label="Pack aware of transaction with same signature" />
-  <int value="-1" name="Priority" label="Transaction's fee was too low given its compute unit requirement and other competing transactions" />
-  <int value="0" name="NonvoteAdd" label="Transaction that was not a simple vote added to pending transactions" />
-  <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
-  <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
-  <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
+    <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
+    <int value="-11" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
+    <int value="-10" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
+    <int value="-9" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+    <int value="-8" name="DuplicateAccount" label="Transaction included an account address twice" />
+    <int value="-7" name="TooManyAccounts" label="Transaction tried to load too many accounts" />
+    <int value="-6" name="TooLarge" label="Transaction requests too many CUs" />
+    <int value="-5" name="Expired" label="Transaction already expired" />
+    <int value="-4" name="AddrLut" label="Transaction loaded accounts from a lookup table" />
+    <int value="-3" name="Unaffordable" label="Fee payer's balance below transaction fee" />
+    <int value="-2" name="Duplicate" label="Pack aware of transaction with same signature" />
+    <int value="-1" name="Priority" label="Transaction's fee was too low given its compute unit requirement and other competing transactions" />
+    <int value="0" name="NonvoteAdd" label="Transaction that was not a simple vote added to pending transactions" />
+    <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
+    <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
+    <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
 </enum>
 
 <enum name="PackTxnSchedule">
-  <int value="0" name="Taken" label="Pack included the transaction in the microblock" />
-  <int value="1" name="CuLimit" label="Pack skipped the transaction because it would have exceeded the block CU limit" />
-  <int value="2" name="FastPath" label="Pack skipped the transaction because of account conflicts using the fast bitvector check" />
-  <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
-  <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
-  <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
+    <int value="0" name="Taken" label="Pack included the transaction in the microblock" />
+    <int value="1" name="CuLimit" label="Pack skipped the transaction because it would have exceeded the block CU limit" />
+    <int value="2" name="FastPath" label="Pack skipped the transaction because of account conflicts using the fast bitvector check" />
+    <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
+    <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
+    <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
 </enum>
 
 <enum name="PackTimingState">
-  <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
-  <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
-  <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader?" />
-  <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader?" />
-  <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
-  <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
-  <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
-  <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
-  <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
-  <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
-  <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
-  <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
+    <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
+    <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
+    <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader?" />
+    <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader?" />
+    <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
+    <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
+    <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
+    <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
+    <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+    <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+    <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+    <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+    <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
+    <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
+    <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
+    <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
+
+<tile name="pack">
+    <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+        <summary>Duration of scheduling one microblock</summary>
+    </histogram>
+    <histogram name="NoSchedMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+        <summary>Duration of discovering that there are no schedulable transactions</summary>
+    </histogram>
+    <histogram name="InsertTransactionDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+        <summary>Duration of inserting one transaction into the pool of available transactions</summary>
+    </histogram>
+    <histogram name="CompleteMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+        <summary>Duration of the computation associated with marking one microblock as complete</summary>
+    </histogram>
+    <histogram name="TotalTransactionsPerMicroblockCount" min="0" max="64">
+        <summary>Count of transactions in a scheduled microblock, including both votes and non-votes</summary>
+    </histogram>
+    <histogram name="VotesPerMicroblockCount" min="0" max="64">
+        <summary>Count of simple vote transactions in a scheduled microblock</summary>
+    </histogram>
+    <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
+    <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
+    <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />
+
+    <counter name="TransactionDroppedFromExtra" summary="Transactions dropped from the extra transaction storage because it was full" />
+    <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
+    <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
+    <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
+
+    <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
+    <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
+    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
+    <gauge name="ConflictingTransactions" summary="The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions" />
+
+    <gauge name="SmallestPendingTransaction" summary="A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
+
+    <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
+    <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
+    <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
+
+    <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
+    <histogram name="CusScheduled" min="1000000" max="192000000">
+        <summary>The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.</summary>
+    </histogram>
+    <histogram name="CusRebated" min="1000000" max="192000000">
+        <!-- Note: The switch from cost units to compute units here is deliberate.  Of the various types of cost units, only compute units can be rebated. -->
+        <summary>The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
+    </histogram>
+    <histogram name="CusNet" min="1000000" max="48000000">
+        <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
+    </histogram>
+
+    <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
+    <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
+</tile>
 
 <enum name="BankSlotAcquire">
     <int value="0" name="Success" label="Success" />
@@ -128,104 +350,6 @@ metric introduced.
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
 </enum>
 
-<linkout>
-    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
-</linkout>
-
-<linkin>
-    <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment." />
-    <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer." />
-    <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed." />
-    <counter name="FilteredSizeBytes" summary="The total number of bytes read by the link consumer that were filtered." />
-    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
-    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
-    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
-    <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading." />
-</linkin>
-
-<common>
-    <gauge name="Pid" summary="The process ID of the tile." />
-    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
-    <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
-    <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
-    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
-    <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
-    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
-    <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
-    <counter name="RegimeDurationNanos" enum="StemRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
-</common>
-
-<tile name="net">
-    <counter name="ReceivedPackets" summary="Number of IP packets received." />
-    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
-    <counter name="SentPackets" summary="Number of IP packets sent." />
-    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP headers)." />
-    <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
-    <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
-    <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
-</tile>
-
-<enum name="TpuRecvType">
-    <int value="0" name="Udp" label="TPU/UDP" />
-    <int value="1" name="QuicFast" label="TPU/QUIC unfragmented" />
-    <int value="2" name="QuicFrag" label="TPU/QUIC fragmented" />
-</enum>
-
-<tile name="quic">
-    <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
-    <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
-    <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active." />
-    <counter name="FragsOk" summary="Count of txn frags received" />
-    <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
-    <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
-    <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU." />
-    <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost." />
-
-    <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
-    <counter name="QuicTxnTooSmall" summary="Count of txns received via QUIC dropped because they were too small." />
-    <counter name="QuicTxnTooLarge" summary="Count of txns received via QUIC dropped because they were too large." />
-
-    <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
-    <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
-
-    <counter name="ReceivedPackets" summary="Number of IP packets received." />
-    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
-    <counter name="SentPackets" summary="Number of IP packets sent." />
-    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
-
-    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
-    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
-    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
-    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
-    <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
-    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
-    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
-    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
-
-    <counter name="PktCryptoFailed" summary="Number of packets that failed decryption." />
-    <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
-    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
-
-    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
-    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
-
-    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
-    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
-
-    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
-
-    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
-
-    <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-      <summary>Duration spent in service</summary>
-    </histogram>
-    <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-      <summary>Duration spent receiving packets</summary>
-    </histogram>
-
-    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
-</tile>
-
 <tile name="bank">
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
@@ -242,177 +366,53 @@ metric introduced.
 </tile>
 
 <tile name="poh">
-  <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
-    <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
-  </histogram>
-  <histogram name="FirstMicroblockDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
-    <summary>Delay between when we become leader in a slot and when we receive the first microblock.</summary>
-  </histogram>
-  <histogram name="SlotDoneDelaySeconds" min="0.001" max="0.6" converter="seconds">
-    <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
-  </histogram>
-</tile>
-
-<enum name="QuicFrameType">
-  <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
-  <int value="0" name="Unknown" label="Unknown frame type" />
-  <int value="1" name="Ack" label="ACK frame" />
-  <int value="2" name="ResetStream" label="RESET_STREAM frame" />
-  <int value="3" name="StopSending" label="STOP_SENDING frame" />
-  <int value="4" name="Crypto" label="CRYPTO frame" />
-  <int value="5" name="NewToken" label="NEW_TOKEN frame" />
-  <int value="6" name="Stream" label="STREAM frame" />
-  <int value="7" name="MaxData" label="MAX_DATA frame" />
-  <int value="8" name="MaxStreamData" label="MAX_STREAM_DATA frame" />
-  <int value="9" name="MaxStreams" label="MAX_STREAMS frame" />
-  <int value="10" name="DataBlocked" label="DATA_BLOCKED frame" />
-  <int value="11" name="StreamDataBlocked" label="STREAM_DATA_BLOCKED frame" />
-  <int value="12" name="StreamsBlocked" label="STREAMS_BLOCKED(bidi) frame" />
-  <int value="13" name="NewConnId" label="NEW_CONN_ID frame" />
-  <int value="14" name="RetireConnId" label="RETIRE_CONN_ID frame" />
-  <int value="15" name="PathChallenge" label="PATH_CHALLENGE frame" />
-  <int value="16" name="PathResponse" label="PATH_RESPONSE frame" />
-  <int value="17" name="ConnCloseQuic" label="CONN_CLOSE(transport) frame" />
-  <int value="18" name="ConnCloseApp" label="CONN_CLOSE(app) frame" />
-  <int value="19" name="HandshakeDone" label="HANDSHAKE_DONE frame" />
-  <int value="20" name="Ping" label="PING frame" />
-  <int value="21" name="Padding" label="PADDING frame" />
-</enum>
-
-<enum name="QuicStreamCloseType">
-  <int value="0" name="End" label="gracefully closed" />
-  <int value="1" name="PeerReset" label="RESET_STREAM event received" />
-  <int value="2" name="PeerStop" label="STOP_SENDING events received" />
-  <int value="3" name="Drop" label="dropped due to excessive concurrency" />
-  <int value="4" name="ConnAbort" label="connection abort" />
-</enum>
-
-<enum name="QuicAckTx">
-  <int value="0" name="Noop" label="non-ACK-eliciting packet" />
-  <int value="1" name="New" label="new ACK range" />
-  <int value="2" name="Merged" label="merged into existing ACK range" />
-  <int value="3" name="Drop" label="out of buffers" />
-  <int value="4" name="Cancel" label="ACK suppressed by handler" />
-</enum>
-
-<tile name="verify">
-    <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
-    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
-    <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
-</tile>
-
-<tile name="dedup">
-  <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
-  <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
-</tile>
-
-<enum name="LutResolveResult">
-  <int value="-5" name="InvalidLookupIndex" label="The transaction referenced an index in a LUT that didn't exist" />
-  <int value="-4" name="AccountUninitialized" label="The account referenced as a LUT hasn't been initialized" />
-  <int value="-3" name="InvalidAccountData" label="The account referenced as a LUT couldn't be parsed" />
-  <int value="-2" name="InvalidAccountOwner" label="The account referenced as a LUT wasn't owned by the ALUT program ID" />
-  <int value="-1" name="AccountNotFound" label="The account referenced as a LUT couldn't be found" />
-  <int value="0" name="Success" label="Resolved successfully" />
-</enum>
-
-<tile name="resolv">
-  <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
-  <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
-  <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
-  <counter name="BlockhashUnknown" summary="Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." />
-</tile>
-
-<tile name="pack">
-  <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-    <summary>Duration of scheduling one microblock</summary>
-  </histogram>
-  <histogram name="NoSchedMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-    <summary>Duration of discovering that there are no schedulable transactions</summary>
-  </histogram>
-  <histogram name="InsertTransactionDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-    <summary>Duration of inserting one transaction into the pool of available transactions</summary>
-  </histogram>
-  <histogram name="CompleteMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
-    <summary>Duration of the computation associated with marking one microblock as complete</summary>
-  </histogram>
-  <histogram name="TotalTransactionsPerMicroblockCount" min="0" max="64">
-    <summary>Count of transactions in a scheduled microblock, including both votes and non-votes</summary>
-  </histogram>
-  <histogram name="VotesPerMicroblockCount" min="0" max="64">
-    <summary>Count of simple vote transactions in a scheduled microblock</summary>
-  </histogram>
-  <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
-  <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
-  <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />
-
-  <counter name="TransactionDroppedFromExtra" summary="Transactions dropped from the extra transaction storage because it was full" />
-  <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
-  <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
-  <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
-
-  <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
-  <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
-  <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
-  <gauge name="ConflictingTransactions" summary="The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions" />
-
-  <gauge name="SmallestPendingTransaction" summary="A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
-
-  <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
-  <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
-  <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
-
-  <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
-  <histogram name="CusScheduled" min="1000000" max="192000000">
-    <summary>The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.</summary>
-  </histogram>
-  <histogram name="CusRebated" min="1000000" max="192000000">
-    <!-- Note: The switch from cost units to compute units here is deliberate.  Of the various types of cost units, only compute units can be rebated. -->
-    <summary>The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
-  </histogram>
-  <histogram name="CusNet" min="1000000" max="48000000">
-    <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
-  </histogram>
-
-  <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
-  <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
+    <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
+        <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
+    </histogram>
+    <histogram name="FirstMicroblockDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
+        <summary>Delay between when we become leader in a slot and when we receive the first microblock.</summary>
+    </histogram>
+    <histogram name="SlotDoneDelaySeconds" min="0.001" max="0.6" converter="seconds">
+        <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
+    </histogram>
 </tile>
 
 <enum name="ShredProcessingResult">
-  <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
-  <int value="-3" name="ParseFailed" label="Shred parsing failed" />
-  <!-- The following need to stay in sync with the #defines in
-       fd_fec_resolver.h -->
-  <int value="-2" name="Rejected" label="Shred was invalid for one of many reasons" />
-  <int value="-1" name="Ignored" label="Shred was ignored because we had already received or reconstructed it" />
-  <int value="0" name="Okay" label="Shred accepted to an incomplete FEC set" />
-  <int value="1" name="Completes" label="Shred accepted and resulted in a valid, complete FEC set" />
+    <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
+    <int value="-3" name="ParseFailed" label="Shred parsing failed" />
+    <!-- The following need to stay in sync with the #defines in
+         fd_fec_resolver.h -->
+    <int value="-2" name="Rejected" label="Shred was invalid for one of many reasons" />
+    <int value="-1" name="Ignored" label="Shred was ignored because we had already received or reconstructed it" />
+    <int value="0" name="Okay" label="Shred accepted to an incomplete FEC set" />
+    <int value="1" name="Completes" label="Shred accepted and resulted in a valid, complete FEC set" />
 </enum>
 
 <tile name="shred">
-  <histogram name="ClusterContactInfoCnt" min="0" max="40200">
-    <summary>Number of contact infos in the cluster contact info message</summary>
-  </histogram>
-  <counter name="MicroblocksAbandoned" summary="The number of microblocks that were abandoned because we switched slots without finishing the current slot" />
-  <histogram name="BatchSz" min="1024" max="65536">
-    <summary>The size (in bytes) of each microblock batch that is shredded</summary>
-  </histogram>
-  <histogram name="BatchMicroblockCnt" min="2" max="256">
-    <summary>The number of microblocks in each microblock batch that is shredded</summary>
-  </histogram>
-  <histogram name="ShreddingDurationSeconds" min="0.00001" max="0.01" converter="seconds">
-    <summary>Duration of producing one FEC set from the shredder</summary>
-  </histogram>
-  <histogram name="AddShredDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Duration of verifying and processing one shred received from the network</summary>
-  </histogram>
-  <counter name="ShredProcessed" enum="ShredProcessingResult" summary="The result of processing a thread from the network" />
-  <counter name="FecSetSpilled" summary="The number of FEC sets that were spilled because they didn't complete in time and we needed space" />
-  <counter name="ShredRejectedInitial" summary="The number shreds that were rejected before any resources were allocated for the FEC set" />
-  <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
+    <histogram name="ClusterContactInfoCnt" min="0" max="40200">
+        <summary>Number of contact infos in the cluster contact info message</summary>
+    </histogram>
+    <counter name="MicroblocksAbandoned" summary="The number of microblocks that were abandoned because we switched slots without finishing the current slot" />
+    <histogram name="BatchSz" min="1024" max="65536">
+        <summary>The size (in bytes) of each microblock batch that is shredded</summary>
+    </histogram>
+    <histogram name="BatchMicroblockCnt" min="2" max="256">
+        <summary>The number of microblocks in each microblock batch that is shredded</summary>
+    </histogram>
+    <histogram name="ShreddingDurationSeconds" min="0.00001" max="0.01" converter="seconds">
+        <summary>Duration of producing one FEC set from the shredder</summary>
+    </histogram>
+    <histogram name="AddShredDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
+        <summary>Duration of verifying and processing one shred received from the network</summary>
+    </histogram>
+    <counter name="ShredProcessed" enum="ShredProcessingResult" summary="The result of processing a thread from the network" />
+    <counter name="FecSetSpilled" summary="The number of FEC sets that were spilled because they didn't complete in time and we needed space" />
+    <counter name="ShredRejectedInitial" summary="The number shreds that were rejected before any resources were allocated for the FEC set" />
+    <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
 </tile>
 
 <tile name="store">
-  <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
+    <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
 </metrics>
