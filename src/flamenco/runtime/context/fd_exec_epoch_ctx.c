@@ -267,6 +267,7 @@ void
 fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, fd_exec_epoch_ctx_t * prev ) {
   fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );
   self->bank_hash_cmp = prev->bank_hash_cmp;
+  self->total_epoch_stake = 0UL;
 
   fd_epoch_bank_t * old_epoch_bank = fd_exec_epoch_ctx_epoch_bank( prev );
   fd_epoch_bank_t * new_epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( self );

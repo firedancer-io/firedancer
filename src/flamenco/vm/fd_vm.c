@@ -13,30 +13,37 @@ fd_vm_syscall_strerror( int err ) {
 
   switch( err ) {
 
-  case FD_VM_ERR_SYSCALL_INVALID_STRING:                         return "invalid utf-8 sequence"; // truncated
-  case FD_VM_ERR_SYSCALL_ABORT:                                  return "SBF program panicked";
-  case FD_VM_ERR_SYSCALL_PANIC:                                  return "SBF program Panicked in..."; // truncated
-  case FD_VM_ERR_SYSCALL_INVOKE_CONTEXT_BORROW_FAILED:           return "Cannot borrow invoke context";
-  case FD_VM_ERR_SYSCALL_MALFORMED_SIGNER_SEED:                  return "Malformed signer seed"; // truncated
-  case FD_VM_ERR_SYSCALL_BAD_SEEDS:                              return "Could not create program address with signer seeds"; // truncated
-  case FD_VM_ERR_SYSCALL_PROGRAM_NOT_SUPPORTED:                  return "Program not supported by inner instructions"; // truncated
-  case FD_VM_ERR_SYSCALL_UNALIGNED_POINTER:                      return "Unaligned pointer";
-  case FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS:                       return "Too many signers";
-  case FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE:                  return "Instruction passed to inner instruction is too large"; // truncated
-  case FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS:                      return "Too many accounts passed to inner instruction";
-  case FD_VM_ERR_SYSCALL_COPY_OVERLAPPING:                       return "Overlapping copy";
-  case FD_VM_ERR_SYSCALL_RETURN_DATA_TOO_LARGE:                  return "Return data too large"; // truncated
-  case FD_VM_ERR_SYSCALL_TOO_MANY_SLICES:                        return "Hashing too many sequences";
-  case FD_VM_ERR_SYSCALL_INVALID_LENGTH:                         return "InvalidLength";
-  case FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_DATA_LEN_EXCEEDED:      return "Invoked an instruction with data that is too large"; // truncated
-  case FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED:      return "Invoked an instruction with too many accounts"; // truncated
-  case FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED: return "Invoked an instruction with too many account info's"; // truncated
-  case FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE:                      return "InvalidAttribute";
-  case FD_VM_ERR_SYSCALL_INVALID_POINTER:                        return "Invalid pointer";
-  case FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW:                    return "Arithmetic overflow";
+  case FD_VM_SYSCALL_ERR_INVALID_STRING:                         return "invalid utf-8 sequence"; // truncated
+  case FD_VM_SYSCALL_ERR_ABORT:                                  return "SBF program panicked";
+  case FD_VM_SYSCALL_ERR_PANIC:                                  return "SBF program Panicked in..."; // truncated
+  case FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED:           return "Cannot borrow invoke context";
+  case FD_VM_SYSCALL_ERR_MALFORMED_SIGNER_SEED:                  return "Malformed signer seed"; // truncated
+  case FD_VM_SYSCALL_ERR_BAD_SEEDS:                              return "Could not create program address with signer seeds"; // truncated
+  case FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED:                  return "Program not supported by inner instructions"; // truncated
+  case FD_VM_SYSCALL_ERR_UNALIGNED_POINTER:                      return "Unaligned pointer";
+  case FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS:                       return "Too many signers";
+  case FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE:                  return "Instruction passed to inner instruction is too large"; // truncated
+  case FD_VM_SYSCALL_ERR_TOO_MANY_ACCOUNTS:                      return "Too many accounts passed to inner instruction";
+  case FD_VM_SYSCALL_ERR_COPY_OVERLAPPING:                       return "Overlapping copy";
+  case FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE:                  return "Return data too large"; // truncated
+  case FD_VM_SYSCALL_ERR_TOO_MANY_SLICES:                        return "Hashing too many sequences";
+  case FD_VM_SYSCALL_ERR_INVALID_LENGTH:                         return "InvalidLength";
+  case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED:      return "Invoked an instruction with data that is too large"; // truncated
+  case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED:      return "Invoked an instruction with too many accounts"; // truncated
+  case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED: return "Invoked an instruction with too many account info's"; // truncated
+  case FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE:                      return "InvalidAttribute";
+  case FD_VM_SYSCALL_ERR_INVALID_POINTER:                        return "Invalid pointer";
+  case FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW:                    return "Arithmetic overflow";
 
-  case FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS:                return "Syscall error: Invalid parameters.";
-  case FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS:            return "Syscall error: Invalid endianness.";
+  case FD_VM_SYSCALL_ERR_INSTR_ERR:                              return "Instruction error";
+  case FD_VM_SYSCALL_ERR_INVALID_PDA:                            return "Invalid PDA";
+  case FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED:                return "Compute budget exceeded";
+  case FD_VM_SYSCALL_ERR_SEGFAULT:                               return "Segmentation fault";
+  case FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME:                        return "Syscall executed outside runtime";
+
+
+  case FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS:                return "Syscall error: Invalid parameters.";
+  case FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS:            return "Syscall error: Invalid endianness.";
 
   default: break;
   }
@@ -100,27 +107,19 @@ fd_vm_strerror( int err ) {
 
   /* VM exec error codes */
 
-  case FD_VM_ERR_SIGTEXT:   return "SIGTEXT illegal program counter";
-  case FD_VM_ERR_SIGSPLIT:  return "SIGSPLIT split multiword instruction";
-  case FD_VM_ERR_SIGCALL:   return "unsupported BPF instruction";
-  case FD_VM_ERR_SIGSTACK:  return "SIGSTACK call depth limit exceeded";
-  case FD_VM_ERR_SIGILL:    return "SIGILL illegal instruction";
-  case FD_VM_ERR_SIGSEGV:   return "SIGSEGV illegal memory address";
-  case FD_VM_ERR_SIGBUS:    return "SIGBUS misaligned memory address";
-  case FD_VM_ERR_SIGRDONLY: return "SIGRDONLY illegal write";
-  case FD_VM_ERR_SIGCOST:   return "SIGCOST compute unit limit exceeded";
-  case FD_VM_ERR_SIGFPE:    return "SIGFPE division by zero";
-  case FD_VM_ERR_SIGFPE_OF: return "SIGFPE division overflow";
-
-  /* VM syscall error codes */
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L81 */
-
-  case FD_VM_ERR_ABORT:                        return "SBF program panicked";
-  case FD_VM_ERR_PANIC:                        return "PANIC";                        /* FIXME: description */
-  case FD_VM_ERR_MEM_OVERLAP:                  return "MEM_OVERLAP";                  /* FIXME: description */
-  case FD_VM_ERR_INSTR_ERR:                    return "INSTR_ERR";                    /* FIXME: description */
-  case FD_VM_ERR_RETURN_DATA_TOO_LARGE:        return "RETURN_DATA_TOO_LARGE";        /* FIXME: description */
-  case FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED: return "INVOKE_CONTEXT_BORROW_FAILED"; /* FIXME: description */
+  case FD_VM_ERR_SIGTEXT:     return "SIGTEXT illegal program counter";
+  case FD_VM_ERR_SIGSPLIT:    return "SIGSPLIT split multiword instruction";
+  case FD_VM_ERR_SIGCALL:     return "unsupported BPF instruction";
+  case FD_VM_ERR_SIGSTACK:    return "SIGSTACK call depth limit exceeded";
+  case FD_VM_ERR_SIGILL:      return "SIGILL illegal instruction";
+  case FD_VM_ERR_SIGSEGV:     return "SIGSEGV illegal memory address";
+  case FD_VM_ERR_SIGBUS:      return "SIGBUS misaligned memory address";
+  case FD_VM_ERR_SIGRDONLY:   return "SIGRDONLY illegal write";
+  case FD_VM_ERR_SIGCOST:     return "SIGCOST compute unit limit exceeded";
+  case FD_VM_ERR_SIGFPE:      return "SIGFPE division by zero";
+  case FD_VM_ERR_SIGFPE_OF:   return "SIGFPE division overflow";
+  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error"; 
+  case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
   /* VM validate error codes */
 

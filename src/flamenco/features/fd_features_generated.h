@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (213UL)
+#define FD_FEATURE_ID_CNT (214UL)
 
 union fd_features {
 
@@ -226,6 +226,7 @@ union fd_features {
     /* 0xf46b1f18665c4236 */ ulong migrate_feature_gate_program_to_core_bpf;
     /* 0xa9a90df1904da912 */ ulong migrate_config_program_to_core_bpf;
     /* 0x2434a84be5b684a5 */ ulong migrate_address_lookup_table_program_to_core_bpf;
+    /* 0xaebbcc5ad0a28864 */ ulong enable_get_epoch_stake_syscall;
   };
 
 };

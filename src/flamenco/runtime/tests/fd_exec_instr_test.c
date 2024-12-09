@@ -1806,10 +1806,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
         access violations in Agave. The agave_access_violation_mask bitset sets
         the error codes that are expected to be access violations in Agave. */
     if( is_cpi &&
-      ( syscall_err == FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS ||
-        syscall_err == FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE ||
-        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
-        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
+      ( syscall_err == FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||
+        syscall_err == FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE ||
+        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
+        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
 
       /* FD performs pre-flight checks that manifest as access violations in Agave */
       vm->instr_ctx->txn_ctx->exec_err      = FD_VM_ERR_EBPF_ACCESS_VIOLATION;
