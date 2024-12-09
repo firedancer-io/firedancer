@@ -1085,7 +1085,6 @@ fd_txncache_get_entries( fd_txncache_t * tc,
   ulong                         * root_slots = fd_txncache_get_root_slots( tc );
   for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {    
     ulong slot = root_slots[ i ];
-    FD_LOG_WARNING(("FLUSHED SLOT %lu", slot));
 
     slot_deltas->slot_deltas[ i ].slot               = slot;
     slot_deltas->slot_deltas[ i ].is_root            = 1;

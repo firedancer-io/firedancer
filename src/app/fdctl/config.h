@@ -294,7 +294,6 @@ typedef struct {
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
-      ulong snapshot_interval;
       int   in_wen_restart;
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } replay;

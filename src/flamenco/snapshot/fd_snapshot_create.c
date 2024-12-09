@@ -1,5 +1,6 @@
 #include "fd_snapshot_create.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../ballet/zstd/fd_zstd.h"
 #include "../runtime/fd_hashes.h"
 
 #include <stdio.h>
@@ -36,9 +37,19 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   fd_pubkey_t * * snapshot_slot_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
   ulong           snapshot_slot_key_cnt = 0UL;
 
-  /* TODO:FIXME: make this more dynamically allocated by reserving more and more. */
-  fd_funk_rec_key_t const * * incremental_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * 10000000 );
-  ulong                       incremental_key_cnt = 0UL;
+
+  /* We will dynamically resize the number of incremental keys because the upper
+     bound will be roughly 8 bytes * writable accs in a slot * number of slots
+     since the last full snapshot which can quickly grow to be severalgigabytes
+     or more. In the normal case, this won't require dynamic resizing. */
+  #define FD_INCREMENTAL_KEY_INIT_BOUND (100000UL)
+  ulong                       incremental_key_bound = FD_INCREMENTAL_KEY_INIT_BOUND;
+  ulong                       incremental_key_cnt   = 0UL;
+  fd_funk_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ? 
+                                                      fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * incremental_key_bound ) :
+                                                      NULL;
+
+  #undef FD_INCREMENTAL_KEY_INIT_BOUND
 
   /* In order to size out the accounts DB index in the manifest, we must
      iterate through funk and accumulate the size of all of the records
@@ -74,6 +85,17 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       }
       incremental_keys[ incremental_key_cnt++ ] = rec->pair.key;
       *out_cap += metadata->info.lamports;
+
+      if( FD_UNLIKELY( incremental_key_cnt==incremental_key_bound ) ) {
+        /* Dynamically resize if needed. */
+        incremental_key_bound *= 2UL;
+        fd_funk_rec_key_t const * * new_incremental_keys = fd_valloc_malloc( snapshot_ctx->valloc, 
+                                                                             alignof(fd_funk_rec_key_t*),
+                                                                             sizeof(fd_funk_rec_key_t*) * incremental_key_bound );
+        fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funk_rec_key_t*) * incremental_key_cnt );
+        fd_valloc_free( snapshot_ctx->valloc, incremental_keys );
+        incremental_keys = new_incremental_keys;
+      }
     }
 
     /* We know that all of the accounts from the snapshot slot can fit into
@@ -805,7 +827,7 @@ fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t *  snapshot_ctx ) {
   }
   ulong   bank_slot_deltas_sz = fd_bank_slot_deltas_size( &slot_deltas_new );
   uchar * out_status_cache    = fd_valloc_malloc( snapshot_ctx->valloc,
-                                                  FD_BANK_SLOT_DELTAS_ALIGN,
+                                                  FD_BANK_SLOT_DELTAS_ALIGN, 
                                                   bank_slot_deltas_sz );
   fd_bincode_encode_ctx_t encode_status_cache = {
     .data    = out_status_cache,
@@ -960,19 +982,23 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   /* Compress the file using zstd. First open the non-compressed file and
      create a file for the compressed file. The reason why we can't do this
      as we stream out the snapshot archive is that we write back into the
-     manifest buffer. TODO: A way to eliminate this and to just stream out
+     manifest buffer. 
+     
+     TODO: A way to eliminate this and to just stream out
      1 compressed file would be to totally precompute the index such that 
-     we don't have to write back into funk. */
+     we don't have to write back into funk.
+     
+     TODO: Currently, the snapshot service interfaces directly with the zstd 
+     library but a generalized cstream defined in fd_zstd should be used 
+     instead. */
 
   ulong in_buf_sz   = ZSTD_CStreamInSize();
   ulong zstd_buf_sz = ZSTD_CStreamOutSize();
   ulong out_buf_sz  = ZSTD_CStreamOutSize();
 
-  /* TODO: Define a consant for this */
-
-  char * in_buf   = fd_valloc_malloc( snapshot_ctx->valloc, 64UL, in_buf_sz );
-  char * zstd_buf = fd_valloc_malloc( snapshot_ctx->valloc, 64UL, out_buf_sz );
-  char * out_buf  = fd_valloc_malloc( snapshot_ctx->valloc, 64UL, out_buf_sz );
+  char * in_buf   = fd_valloc_malloc( snapshot_ctx->valloc, FD_ZSTD_CSTREAM_ALIGN, in_buf_sz );
+  char * zstd_buf = fd_valloc_malloc( snapshot_ctx->valloc, FD_ZSTD_CSTREAM_ALIGN, out_buf_sz );
+  char * out_buf  = fd_valloc_malloc( snapshot_ctx->valloc, FD_ZSTD_CSTREAM_ALIGN, out_buf_sz );
 
   /* Reopen the tarball and open/overwrite the filename for the compressed,
      finalized full snapshot. Setup the zstd compression stream. */
@@ -994,13 +1020,12 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     goto cleanup;
   }
 
-  err = ftruncate( snapshot_ctx->snapshot_fd, 0 );
-  if( FD_UNLIKELY( err=-1) ) {
-    FD_LOG_WARNING(( "Failed to truncate the snapshot file" ));
-    return -1;
+  long seek = lseek( snapshot_ctx->snapshot_fd, 0, SEEK_SET );
+  if( FD_UNLIKELY( seek!=0L ) ) {
+    FD_LOG_WARNING(( "Failed to seek to the start of the file" ));
+    err = -1;
+    goto cleanup;
   }
-
-  lseek( snapshot_ctx->snapshot_fd, 0, SEEK_SET );
 
   /* At this point, the tar archive and the new zstd file is open. The zstd
      streamer is still open. Now, we are ready to read in bytes and stream
@@ -1098,6 +1123,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/incremental-snapshot-%lu-%lu-%s.tar.zst", 
                     snapshot_ctx->out_dir, snapshot_ctx->last_snap_slot, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->snap_hash) );
   }
+
   if( FD_UNLIKELY( err<0 ) ) {
     FD_LOG_WARNING(( "Failed to format directory string" ));
     return -1;

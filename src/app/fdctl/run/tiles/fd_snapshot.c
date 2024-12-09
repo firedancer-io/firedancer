@@ -334,7 +334,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     return;
   }
 
-  err = rename( new_filename, new_filename );
+  err = rename( prev_filename, new_filename );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to rename file from %s to %s", prev_filename, new_filename ));
   }
@@ -342,7 +342,12 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
 
   err = ftruncate( snapshot_ctx.tmp_fd, 0UL );
   if( FD_UNLIKELY( err==-1 ) ) {
-    FD_LOG_ERR(( "Failed to truncate the file" ));
+    FD_LOG_ERR(( "Failed to truncate the temporary file (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  err = ftruncate( snapshot_ctx.snapshot_fd, 0UL );
+  if( FD_UNLIKELY( err==-1 ) ) {
+    FD_LOG_ERR(( "Failed to truncate the snapshot file (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   long seek = lseek( snapshot_ctx.tmp_fd, 0UL, SEEK_SET );
@@ -350,8 +355,14 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
     FD_LOG_ERR(( "Failed to seek to the beginning of the file" ));
   }
 
+  /* Now that the files are in an expected state, create the snapshot. */
+
   if( FD_UNLIKELY( fd_snapshot_create_new_snapshot( &snapshot_ctx, &ctx->last_hash, &ctx->last_capitalization ) ) ) {
     FD_LOG_ERR(( "Failed to create a new snapshot" ));
+  }
+
+  if( is_incremental ) {
+    FD_LOG_ERR(( "Terminating out" ));
   }
 
   FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
