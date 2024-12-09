@@ -1427,7 +1427,7 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
   ulong main_thread_seen = 0;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( strcmp( topo->tiles[i].name, "thread" ) == 0 ) {
+    if( strcmp( topo->tiles[i].name, "rtpool" ) == 0 ) {
       tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
       thread_count++;
     }
@@ -1815,7 +1815,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->incremental_interval = tile->replay.incremental_interval ? tile->replay.incremental_interval : ULONG_MAX;
   ctx->last_full_snap       = 0UL;
 
-  FD_LOG_WARNING(("INTERVALS %lu %lu", ctx->snapshot_interval, ctx->incremental_interval));
+  FD_LOG_NOTICE(( "Snapshot intervals full=%lu incremental=%lu", ctx->snapshot_interval, ctx->incremental_interval ));
 
   /**********************************************************************/
   /* funk                                                               */

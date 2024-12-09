@@ -14973,6 +14973,8 @@ int fd_epoch_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_schedule_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  err = fd_hard_forks_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_bank_decode_unsafe( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -14996,6 +14998,7 @@ void fd_epoch_bank_decode_unsafe( fd_epoch_bank_t * self, fd_bincode_decode_ctx_
   }
   fd_vote_accounts_decode_unsafe( &self->next_epoch_stakes, ctx );
   fd_epoch_schedule_decode_unsafe( &self->rent_epoch_schedule, ctx );
+  fd_hard_forks_decode_unsafe( &self->hard_forks, ctx );
 }
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -15037,6 +15040,8 @@ int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_schedule_encode( &self->rent_epoch_schedule, ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  err = fd_hard_forks_encode( &self->hard_forks, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 enum {
@@ -15058,6 +15063,7 @@ enum {
   fd_epoch_bank_cluster_version_TAG = (15 << 6) | FD_ARCHIVE_META_ARRAY,
   fd_epoch_bank_next_epoch_stakes_TAG = (16 << 6) | FD_ARCHIVE_META_STRUCT,
   fd_epoch_bank_rent_epoch_schedule_TAG = (17 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_epoch_bank_hard_forks_TAG = (18 << 6) | FD_ARCHIVE_META_STRUCT,
 };
 int fd_epoch_bank_decode_archival( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
@@ -15203,6 +15209,15 @@ int fd_epoch_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   break;
   }
+  case (ushort)fd_epoch_bank_hard_forks_TAG: {
+  err = fd_archive_decode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_hard_forks_decode_archival_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_decode_check_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  break;
+  }
   default:
     err = fd_archive_decode_skip_field( ctx, tag );
     if( FD_UNLIKELY( err ) ) return err;
@@ -15298,6 +15313,11 @@ void fd_epoch_bank_decode_archival_unsafe( fd_epoch_bank_t * self, fd_bincode_de
   case (ushort)fd_epoch_bank_rent_epoch_schedule_TAG: {
   fd_archive_decode_setup_length( ctx, &offset );
   fd_epoch_schedule_decode_archival_unsafe( &self->rent_epoch_schedule, ctx );
+  break;
+  }
+  case (ushort)fd_epoch_bank_hard_forks_TAG: {
+  fd_archive_decode_setup_length( ctx, &offset );
+  fd_hard_forks_decode_archival_unsafe( &self->hard_forks, ctx );
   break;
   }
   default:
@@ -15415,6 +15435,14 @@ int fd_epoch_bank_encode_archival( fd_epoch_bank_t const * self, fd_bincode_enco
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( (ushort)fd_epoch_bank_hard_forks_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_encode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_hard_forks_encode_archival( &self->hard_forks, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_encode_set_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -15478,6 +15506,9 @@ int fd_epoch_bank_decode_offsets( fd_epoch_bank_off_t * self, fd_bincode_decode_
   self->rent_epoch_schedule_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_epoch_schedule_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  self->hard_forks_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_hard_forks_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_bank_new(fd_epoch_bank_t * self) {
@@ -15489,6 +15520,7 @@ void fd_epoch_bank_new(fd_epoch_bank_t * self) {
   fd_hash_new( &self->genesis_hash );
   fd_vote_accounts_new( &self->next_epoch_stakes );
   fd_epoch_schedule_new( &self->rent_epoch_schedule );
+  fd_hard_forks_new( &self->hard_forks );
 }
 void fd_epoch_bank_destroy( fd_epoch_bank_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_stakes_destroy( &self->stakes, ctx );
@@ -15498,6 +15530,7 @@ void fd_epoch_bank_destroy( fd_epoch_bank_t * self, fd_bincode_destroy_ctx_t * c
   fd_hash_destroy( &self->genesis_hash, ctx );
   fd_vote_accounts_destroy( &self->next_epoch_stakes, ctx );
   fd_epoch_schedule_destroy( &self->rent_epoch_schedule, ctx );
+  fd_hard_forks_destroy( &self->hard_forks, ctx );
 }
 
 ulong fd_epoch_bank_footprint( void ){ return FD_EPOCH_BANK_FOOTPRINT; }
@@ -15526,6 +15559,7 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
   fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR_END, "uint[]", level-- );
   fd_vote_accounts_walk( w, &self->next_epoch_stakes, fun, "next_epoch_stakes", level );
   fd_epoch_schedule_walk( w, &self->rent_epoch_schedule, fun, "rent_epoch_schedule", level );
+  fd_hard_forks_walk( w, &self->hard_forks, fun, "hard_forks", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_bank", level-- );
 }
 ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
@@ -15548,6 +15582,7 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
   size += 3 * sizeof(uint);
   size += fd_vote_accounts_size( &self->next_epoch_stakes );
   size += fd_epoch_schedule_size( &self->rent_epoch_schedule );
+  size += fd_hard_forks_size( &self->hard_forks );
   return size;
 }
 
@@ -15623,8 +15658,6 @@ int fd_slot_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  err = fd_hard_forks_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -15661,7 +15694,6 @@ void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t 
       fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
     }
   }
-  fd_hard_forks_decode_unsafe( &self->hard_forks, ctx );
 }
 int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -15721,8 +15753,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
     err = fd_bincode_uint64_encode( self->use_preceeding_epoch_stakes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_hard_forks_encode( &self->hard_forks, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 enum {
@@ -15752,7 +15782,6 @@ enum {
   fd_slot_bank_parent_signature_cnt_TAG = (23 << 6) | FD_ARCHIVE_META_ULONG,
   fd_slot_bank_tick_height_TAG = (24 << 6) | FD_ARCHIVE_META_ULONG,
   fd_slot_bank_use_preceeding_epoch_stakes_TAG = (25 << 6) | FD_ARCHIVE_META_OPTION,
-  fd_slot_bank_hard_forks_TAG = (26 << 6) | FD_ARCHIVE_META_STRUCT,
 };
 int fd_slot_bank_decode_archival( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
@@ -15967,15 +15996,6 @@ int fd_slot_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   break;
   }
-  case (ushort)fd_slot_bank_hard_forks_TAG: {
-  err = fd_archive_decode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hard_forks_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_decode_check_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  break;
-  }
   default:
     err = fd_archive_decode_skip_field( ctx, tag );
     if( FD_UNLIKELY( err ) ) return err;
@@ -16114,11 +16134,6 @@ void fd_slot_bank_decode_archival_unsafe( fd_slot_bank_t * self, fd_bincode_deco
       fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
     }
   }
-  break;
-  }
-  case (ushort)fd_slot_bank_hard_forks_TAG: {
-  fd_archive_decode_setup_length( ctx, &offset );
-  fd_hard_forks_decode_archival_unsafe( &self->hard_forks, ctx );
   break;
   }
   default:
@@ -16294,14 +16309,6 @@ int fd_slot_bank_encode_archival( fd_slot_bank_t const * self, fd_bincode_encode
   }
   err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_hard_forks_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hard_forks_encode_archival( &self->hard_forks, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_set_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -16394,9 +16401,6 @@ int fd_slot_bank_decode_offsets( fd_slot_bank_off_t * self, fd_bincode_decode_ct
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  self->hard_forks_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_hard_forks_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_new(fd_slot_bank_t * self) {
@@ -16414,7 +16418,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_slot_lthash_new( &self->lthash );
   fd_block_hash_queue_new( &self->block_hash_queue );
   fd_hash_new( &self->prev_banks_hash );
-  fd_hard_forks_new( &self->hard_forks );
 }
 void fd_slot_bank_destroy( fd_slot_bank_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_recent_block_hashes_destroy( &self->recent_block_hashes, ctx );
@@ -16433,7 +16436,6 @@ void fd_slot_bank_destroy( fd_slot_bank_t * self, fd_bincode_destroy_ctx_t * ctx
   if( self->has_use_preceeding_epoch_stakes ) {
     self->has_use_preceeding_epoch_stakes = 0;
   }
-  fd_hard_forks_destroy( &self->hard_forks, ctx );
 }
 
 ulong fd_slot_bank_footprint( void ){ return FD_SLOT_BANK_FOOTPRINT; }
@@ -16471,7 +16473,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   } else {
     fun( w, &self->use_preceeding_epoch_stakes, "use_preceeding_epoch_stakes", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
-  fd_hard_forks_walk( w, &self->hard_forks, fun, "hard_forks", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_bank", level-- );
 }
 ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
@@ -16505,7 +16506,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   if( self->has_use_preceeding_epoch_stakes ) {
     size += sizeof(ulong);
   }
-  size += fd_hard_forks_size( &self->hard_forks );
   return size;
 }
 

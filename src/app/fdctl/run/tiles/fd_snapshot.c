@@ -57,7 +57,7 @@ tpool_snap_boot( fd_topo_t * topo, ulong total_thread_count ) {
   ulong main_thread_seen            = 0UL;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( !strcmp( topo->tiles[i].name, "sthrea" ) ) {
+    if( !strcmp( topo->tiles[i].name, "stpool" ) ) {
       tile_to_cpu[ thread_count++ ] = (ushort)topo->tiles[ i ].cpu_idx;
     }
   }
@@ -81,7 +81,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tcnt * TPOOL_WORKER_MEM_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -156,7 +156,7 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapshot_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_snapshot_tile_ctx_t) );
-  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tcnt * TPOOL_WORKER_MEM_SZ );
+  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX    ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
@@ -173,17 +173,18 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   /* tpool                                                              */
   /**********************************************************************/
 
-  FD_LOG_NOTICE(( "Number of threads in hash tpool: %lu", tile->snaps.hash_tcnt ));
+  FD_LOG_NOTICE(( "Number of threads in hash tpool: %lu", tile->snaps.hash_tpool_thread_count ));
 
-  if( FD_LIKELY( tile->snaps.hash_tcnt>1 ) ) {
-    tpool_snap_boot( topo, tile->snaps.hash_tcnt );
+  if( FD_LIKELY( tile->snaps.hash_tpool_thread_count>1UL ) ) {
+    tpool_snap_boot( topo, tile->snaps.hash_tpool_thread_count );
+    ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->snaps.hash_tpool_thread_count );
+  } else {
+    ctx->tpool = NULL;
   }
 
-  ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->snaps.hash_tcnt );
-
-  if( FD_LIKELY( tile->snaps.hash_tcnt>1UL ) ) {
+  if( FD_LIKELY( tile->snaps.hash_tpool_thread_count>1UL ) ) {
     /* Start the tpool workers */
-    for( ulong i=1UL; i<tile->snaps.hash_tcnt; i++ ) {
+    for( ulong i=1UL; i<tile->snaps.hash_tpool_thread_count; i++ ) {
       if( FD_UNLIKELY( !fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) ) ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }

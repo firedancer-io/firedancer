@@ -2330,8 +2330,6 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
   //   return result;
   // }
 
-  FD_LOG_WARNING(("HARD FORKS LENGTH %lu", slot_ctx->slot_bank.hard_forks.hard_forks_len));
-
   result = fd_runtime_save_slot_bank(slot_ctx);
   if( result != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_WARNING(("failed to save slot bank"));

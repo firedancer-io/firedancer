@@ -354,12 +354,12 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
-    "thread", /* FIREDANCER only */
+    "rtpool", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "snaps",  /* FIREDANCER only */
-    "sthrea", /* FIREDANCER only */
+    "stpool", /* FIREDANCER only */
 #endif
   };
 

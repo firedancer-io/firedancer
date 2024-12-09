@@ -1168,7 +1168,8 @@
         { "name": "cluster_type",          "type": "uint" },
         { "name": "cluster_version",       "type": "array", "element": "uint", "length": 3 },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"},
-        { "name": "rent_epoch_schedule",   "type": "epoch_schedule" }
+        { "name": "rent_epoch_schedule",   "type": "epoch_schedule" },
+        { "name": "hard_forks",            "type": "hard_forks" }
       ]
     },
     {
@@ -1202,8 +1203,7 @@
         { "name": "prev_banks_hash",             "type": "hash" },
         { "name": "parent_signature_cnt",        "type": "ulong" },
         { "name": "tick_height",                 "type": "ulong" },
-        { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." },
-        { "name": "hard_forks",                  "type": "hard_forks" }
+        { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." }
       ]
     },
     {

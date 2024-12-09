@@ -23,7 +23,7 @@
     [tiles.pack]
         use_consumed_cus = false
     [tiles.snaps]
-        hash_tcnt = 2
+        hash_tpool_thread_count = 2
 
 [consensus]
     vote = true

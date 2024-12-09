@@ -308,7 +308,7 @@ typedef struct {
       ulong full_interval;
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
-      ulong hash_tcnt;
+      ulong hash_tpool_thread_count;
     } snaps;
 
   } tiles;

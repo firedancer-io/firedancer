@@ -307,13 +307,13 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* The hard forks should be deep copied over.
      TODO:This should be in the epoch bank and not the slot bank. */
-  slot_bank->hard_forks                = oldbank->hard_forks;
-  slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
-  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_valloc, 
-                                                           FD_SLOT_PAIR_ALIGN, 
-                                                           oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
+  epoch_bank->hard_forks                = oldbank->hard_forks;
+  epoch_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
+  epoch_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_valloc, 
+                                                            FD_SLOT_PAIR_ALIGN, 
+                                                            oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
   for( ulong i=0UL; i < oldbank->hard_forks.hard_forks_len; i++ ) {
-    slot_bank->hard_forks.hard_forks[i] = oldbank->hard_forks.hard_forks[i];
+    epoch_bank->hard_forks.hard_forks[i] = oldbank->hard_forks.hard_forks[i];
   }
 
   /* Update last restart slot
