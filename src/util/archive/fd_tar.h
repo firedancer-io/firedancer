@@ -7,7 +7,6 @@
 
 #include "../fd_util_base.h"
 #include "../io/fd_io.h"
-#include <stdio.h>
 
 /* File Format ********************************************************/
 
