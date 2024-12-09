@@ -32,6 +32,7 @@
 #include "../../../../choreo/fd_choreo.h"
 #include "../../../../disco/store/fd_epoch_forks.h"
 #include "../../../../funk/fd_funk_filemap.h"
+#include "../../../../disco/plugin/fd_plugin.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -44,9 +45,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-
-
-// #define STOP_SLOT 280859632
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
@@ -63,6 +61,7 @@
 #define GOSSIP_OUT_IDX (3UL)
 #define STORE_OUT_IDX  (4UL)
 #define POH_OUT_IDX    (5UL)
+#define REPLAY_PLUG_OUT_IDX (6UL)
 
 /* Scratch space estimates.
    TODO: Update constants and add explanation
@@ -164,6 +163,13 @@ struct fd_replay_tile_ctx {
   ulong       stake_weights_out_chunk0;
   ulong       stake_weights_out_wmark;
   ulong       stake_weights_out_chunk;
+
+  // Inputs to plugin/gui
+
+  fd_wksp_t * replay_plugin_out_mem;
+  ulong       replay_plugin_out_chunk0;
+  ulong       replay_plugin_out_wmark;
+  ulong       replay_plugin_out_chunk;
 
   char const * blockstore_checkpt;
   int          tx_metadata_storage;
@@ -651,7 +657,21 @@ publish_account_notifications( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
+replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
+                       fd_stem_context_t * stem,
+                       ulong sig,
+                       uchar const * data,
+                       ulong data_sz ) {
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->replay_plugin_out_mem, ctx->replay_plugin_out_chunk );
+  fd_memcpy( dst, data, data_sz );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, REPLAY_PLUG_OUT_IDX, sig, ctx->replay_plugin_out_chunk, data_sz, 0UL, 0UL, tspub );
+  ctx->replay_plugin_out_chunk = fd_dcache_compact_next( ctx->replay_plugin_out_chunk, data_sz, ctx->replay_plugin_out_chunk0, ctx->replay_plugin_out_wmark );
+}
+
+static void
 publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
+                            fd_stem_context_t *    stem,
                             fd_fork_t *            fork,
                             fd_block_map_t const * block_map_entry,
                             ulong                  curr_slot ) {
@@ -686,6 +706,21 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
 #undef NOTIFY_END
   notify_time_ns += fd_log_wallclock();
   FD_LOG_DEBUG(("TIMING: notify_slot_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)notify_time_ns * 1e-6));
+
+  if( ctx->replay_plugin_out_mem ) {
+    fd_replay_complete_msg_t msg2 = {
+      .slot = curr_slot,
+      .total_txn_count = fork->slot_ctx.slot_bank.transaction_count - fork->slot_ctx.parent_transaction_count,
+      .nonvote_txn_count = 0,
+      .failed_txn_count = 0,
+      .nonvote_failed_txn_count = 0,
+      .compute_units = 0,
+      .transaction_fee = fork->slot_ctx.slot_bank.collected_execution_fees,
+      .priority_fee = fork->slot_ctx.slot_bank.collected_priority_fees,
+      .parent_slot = ctx->parent_slot,
+    };
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_COMPLETED, (uchar const *)&msg2, sizeof(msg2) );
+  }
 }
 
 static void
@@ -1021,7 +1056,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       }
 
       // Notify for updated slot info
-      publish_slot_notifications( ctx, fork, block_map_entry, curr_slot );
+      publish_slot_notifications( ctx, stem, fork, block_map_entry, curr_slot );
 
       fd_blockstore_start_write( ctx->blockstore );
 
@@ -1058,6 +1093,35 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
         new_reset_fork->lock = 0;
         reset_fork = new_reset_fork;
+      }
+
+      /* Update the gui */
+
+      if( ctx->replay_plugin_out_mem ) {
+        /* FIXME. We need a more efficient way to compute the ancestor chain. */
+        uchar msg[4098*8] __attribute__( ( aligned( 8U ) ) );
+        fd_memset( msg, 0, sizeof(msg) );
+        fd_blockstore_start_read( ctx->blockstore );
+        ulong s = reset_fork->slot_ctx.slot_bank.slot;
+        *(ulong*)(msg + 16U) = s;
+        ulong i = 0;
+        do {
+          block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, s );
+          if( block_map_entry == NULL ) {
+            break;
+          }
+          s = block_map_entry->parent_slot;
+          if( s < ctx->blockstore->smr ) {
+            break;
+          }
+          *(ulong*)(msg + 24U + i*8U) = s;
+          if( ++i == 4095U ) {
+            break;
+          }
+        } while( 1 );
+        *(ulong*)(msg + 8U) = i;
+        fd_blockstore_end_read( ctx->blockstore );
+        replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_RESET, msg, sizeof(msg) );
       }
 
       fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
@@ -1262,8 +1326,20 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
 }
 
 static void
-read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental ) {
+read_snapshot( void * _ctx,
+               fd_stem_context_t * stem,
+               char const * snapshotfile,
+               char const * incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+
+  if( ctx->replay_plugin_out_mem ) {
+    // ValidatorStartProgress::DownloadingSnapshot
+    uchar msg[56];
+    fd_memset( msg, 0, sizeof(msg) );
+    msg[0] = 2;
+    msg[1] = 1;
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+  }
 
   /* Pass the slot_ctx to snapshot_load or recover_banks */
 
@@ -1277,8 +1353,25 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
   /* Load incremental */
 
+  if( ctx->replay_plugin_out_mem ) {
+    // ValidatorStartProgress::DownloadingSnapshot
+    uchar msg[56];
+    fd_memset( msg, 0, sizeof(msg) );
+    msg[0] = 2;
+    msg[1] = 0;
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+  }
+
   if( strlen( incremental ) > 0 ) {
     fd_snapshot_load( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+  }
+
+  if( ctx->replay_plugin_out_mem ) {
+    // ValidatorStartProgress::DownloadedFullSnapshot
+    uchar msg[56];
+    fd_memset( msg, 0, sizeof(msg) );
+    msg[0] = 3;
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
@@ -1391,7 +1484,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   FD_SCRATCH_SCOPE_BEGIN {
     uchar is_snapshot = strlen( ctx->snapshot ) > 0;
     if( is_snapshot ) {
-      read_snapshot( ctx, ctx->snapshot, ctx->incremental );
+      read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental );
     }
 
     fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx, ctx->tpool );
@@ -1474,6 +1567,14 @@ after_credit( fd_replay_tile_ctx_t * ctx,
         } FD_SCRATCH_SCOPE_END;
       }
     }
+
+    if( ctx->replay_plugin_out_mem ) {
+      // ValidatorStartProgress::Running
+      uchar msg[56];
+      fd_memset( msg, 0, sizeof(msg) );
+      msg[0] = 11;
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    }
   }
 
   if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
@@ -1492,7 +1593,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
   }
 }
-
 
 static void
 during_housekeeping( void * _ctx ) {
@@ -1847,12 +1947,6 @@ unprivileged_init( fd_topo_t *      topo,
     poh_out->chunk            = poh_out->chunk0;
   }
 
-  // ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );
-  // FD_TEST( busy_obj_id != ULONG_MAX );
-  // ctx->first_turbine = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-  // if( FD_UNLIKELY( !ctx->first_turbine ) )
-  //   FD_LOG_ERR( ( "replay tile %lu has no busy flag", tile->kind_id ) );
-
   ctx->poh_init_done = 0U;
   ctx->snapshot_init_done = 0;
 
@@ -1948,6 +2042,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_chunk0 = fd_dcache_compact_chunk0( ctx->stake_weights_out_mem, stake_weights_out->dcache );
   ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
+
+  if( FD_LIKELY( tile->replay.plugins_enabled ) ) {
+    fd_topo_link_t const * replay_plugin_out = &topo->links[ tile->out_link_id[ REPLAY_PLUG_OUT_IDX] ];
+    if( strcmp( replay_plugin_out->name, "replay_plugi" ) ) {
+      FD_LOG_ERR(("output link confusion for output %lu", REPLAY_PLUG_OUT_IDX));
+    }
+    ctx->replay_plugin_out_mem         = topo->workspaces[ topo->objs[ replay_plugin_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->replay_plugin_out_chunk0      = fd_dcache_compact_chunk0( ctx->replay_plugin_out_mem, replay_plugin_out->dcache );
+    ctx->replay_plugin_out_wmark       = fd_dcache_compact_wmark ( ctx->replay_plugin_out_mem, replay_plugin_out->dcache, replay_plugin_out->mtu );
+    ctx->replay_plugin_out_chunk       = ctx->replay_plugin_out_chunk0;
+  }
 
   if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
