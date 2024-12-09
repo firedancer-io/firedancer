@@ -4164,6 +4164,171 @@ ulong fd_stake_size( fd_stake_t const * self ) {
   return size;
 }
 
+int fd_epoch_info_pair_decode( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_epoch_info_pair_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_epoch_info_pair_new( self );
+  }
+  fd_epoch_info_pair_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_epoch_info_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_bytes_decode_preflight( 32, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_delegation_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_epoch_info_pair_decode_unsafe( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pubkey_decode_unsafe( &self->account, ctx );
+  fd_delegation_decode_unsafe( &self->delegation, ctx );
+}
+int fd_epoch_info_pair_encode( fd_epoch_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->account, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_delegation_encode( &self->delegation, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_epoch_info_pair_decode_offsets( fd_epoch_info_pair_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->account_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_bytes_decode_preflight( 32, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->delegation_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_delegation_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_epoch_info_pair_new(fd_epoch_info_pair_t * self) {
+  fd_memset( self, 0, sizeof(fd_epoch_info_pair_t) );
+  fd_pubkey_new( &self->account );
+  fd_delegation_new( &self->delegation );
+}
+void fd_epoch_info_pair_destroy( fd_epoch_info_pair_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_pubkey_destroy( &self->account, ctx );
+  fd_delegation_destroy( &self->delegation, ctx );
+}
+
+ulong fd_epoch_info_pair_footprint( void ){ return FD_EPOCH_INFO_PAIR_FOOTPRINT; }
+ulong fd_epoch_info_pair_align( void ){ return FD_EPOCH_INFO_PAIR_ALIGN; }
+
+void fd_epoch_info_pair_walk( void * w, fd_epoch_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_info_pair", level++ );
+  fd_pubkey_walk( w, &self->account, fun, "account", level );
+  fd_delegation_walk( w, &self->delegation, fun, "delegation", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_info_pair", level-- );
+}
+ulong fd_epoch_info_pair_size( fd_epoch_info_pair_t const * self ) {
+  ulong size = 0;
+  size += fd_pubkey_size( &self->account );
+  size += fd_delegation_size( &self->delegation );
+  return size;
+}
+
+int fd_epoch_info_decode( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_epoch_info_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_epoch_info_new( self );
+  }
+  fd_epoch_info_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_epoch_info_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  ulong delegations_len;
+  err = fd_bincode_uint64_decode( &delegations_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( delegations_len ) {
+    for( ulong i=0; i < delegations_len; i++ ) {
+      err = fd_epoch_info_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_epoch_info_decode_unsafe( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->delegations_len, ctx );
+  if( self->delegations_len ) {
+    self->delegations = (fd_epoch_info_pair_t *)fd_valloc_malloc( ctx->valloc, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*self->delegations_len );
+    for( ulong i=0; i < self->delegations_len; i++ ) {
+      fd_epoch_info_pair_new( self->delegations + i );
+      fd_epoch_info_pair_decode_unsafe( self->delegations + i, ctx );
+    }
+  } else
+    self->delegations = NULL;
+}
+int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->delegations_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->delegations_len ) {
+    for( ulong i=0; i < self->delegations_len; i++ ) {
+      err = fd_epoch_info_pair_encode( self->delegations + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_epoch_info_decode_offsets( fd_epoch_info_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->delegations_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong delegations_len;
+  err = fd_bincode_uint64_decode( &delegations_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( delegations_len ) {
+    for( ulong i=0; i < delegations_len; i++ ) {
+      err = fd_epoch_info_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_epoch_info_new(fd_epoch_info_t * self) {
+  fd_memset( self, 0, sizeof(fd_epoch_info_t) );
+}
+void fd_epoch_info_destroy( fd_epoch_info_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  if( self->delegations ) {
+    for( ulong i=0; i < self->delegations_len; i++ )
+      fd_epoch_info_pair_destroy( self->delegations + i, ctx );
+    fd_valloc_free( ctx->valloc, self->delegations );
+    self->delegations = NULL;
+  }
+}
+
+ulong fd_epoch_info_footprint( void ){ return FD_EPOCH_INFO_FOOTPRINT; }
+ulong fd_epoch_info_align( void ){ return FD_EPOCH_INFO_ALIGN; }
+
+void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_info", level++ );
+  if( self->delegations_len ) {
+    fun( w, NULL, "delegations", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->delegations_len; i++ )
+      fd_epoch_info_pair_walk(w, self->delegations + i, fun, "epoch_info_pair", level );
+    fun( w, NULL, "delegations", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_info", level-- );
+}
+ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
+  ulong size = 0;
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->delegations_len; i++ )
+      size += fd_epoch_info_pair_size( self->delegations + i );
+  } while(0);
+  return size;
+}
+
 int fd_stake_pair_decode( fd_stake_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
   int err = fd_stake_pair_decode_preflight( ctx );

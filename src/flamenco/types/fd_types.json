@@ -316,6 +316,21 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
     },
     {
+      "name": "epoch_info_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "pubkey" },
+        { "name": "delegation", "type": "delegation" }
+      ]
+    },
+    {
+      "name": "epoch_info",
+      "type": "struct",
+      "fields": [
+        { "name": "delegations", "type": "vector", "element":"epoch_info_pair" }
+      ]
+    },
+    {
       "name": "stake_pair",
       "type": "struct",
       "fields": [

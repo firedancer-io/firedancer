@@ -277,8 +277,11 @@ refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
-                          ulong *               new_rate_activation_epoch ) {
-  
+                          ulong *               new_rate_activation_epoch,
+                          fd_epoch_info_t      *temp_info
+ ) {
+  (void) temp_info;
+
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
@@ -288,7 +291,16 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
   fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+
+  ulong stake_delegations_size = fd_delegation_pair_t_map_size(
+    stakes->stake_delegations_pool, stakes->stake_delegations_root );
+  stake_delegations_size += fd_stake_accounts_pair_t_map_size(
+    slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+  temp_info->delegations_len = stake_delegations_size;
+  temp_info->delegations = (fd_epoch_info_pair_t *)fd_scratch_alloc( FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegations_size );
+  fd_memset( temp_info->delegations, 0, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegations_size );
+  int delegation_idx = 0;
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -313,6 +325,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
+    fd_memcpy(&temp_info->delegations[delegation_idx  ].delegation, delegation, sizeof(fd_delegation_t));
+    fd_memcpy(&temp_info->delegations[delegation_idx++].account, &n->elem.account, sizeof(fd_pubkey_t));
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
@@ -348,6 +362,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
+    fd_memcpy(&temp_info->delegations[delegation_idx  ].delegation, delegation, sizeof(fd_delegation_t));
+    fd_memcpy(&temp_info->delegations[delegation_idx++].account, &n->elem.key, sizeof(fd_pubkey_t));
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
