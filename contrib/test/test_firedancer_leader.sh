@@ -65,6 +65,8 @@ name = \"fd1\"
         cluster_version = \"2.0.14\"
     [tiles.pack]
         use_consumed_cus = false
+    [tiles.gui]
+        enabled = false
 [consensus]
     expected_shred_version = $SHRED_VERS
     vote = true
