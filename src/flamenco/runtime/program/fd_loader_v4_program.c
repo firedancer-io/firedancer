@@ -699,7 +699,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         .valloc  = instr_ctx->valloc,
       };
 
-      if( FD_UNLIKELY( !fd_loader_v4_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
+      if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
 
