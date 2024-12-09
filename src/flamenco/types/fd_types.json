@@ -1565,7 +1565,7 @@
       "comment": ""
     },
     {
-      "name": "bpf_loader_v4_program_instruction_write",
+      "name": "loader_v4_program_instruction_write",
       "type": "struct",
       "fields": [
         { "name": "offset", "type": "uint" },
@@ -1574,7 +1574,7 @@
       "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L18"
     },
     {
-      "name": "bpf_loader_v4_program_instruction_truncate",
+      "name": "loader_v4_program_instruction_truncate",
       "type": "struct",
       "fields": [
         { "name": "new_size", "type": "uint" }
@@ -1582,11 +1582,11 @@
       "comment": "https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L35"
     },
     {
-      "name": "bpf_loader_v4_program_instruction",
+      "name": "loader_v4_program_instruction",
       "type": "enum",
       "variants": [
-        { "name": "write", "type": "bpf_loader_v4_program_instruction_write" },
-        { "name": "truncate", "type": "bpf_loader_v4_program_instruction_truncate" },
+        { "name": "write", "type": "loader_v4_program_instruction_write" },
+        { "name": "truncate", "type": "loader_v4_program_instruction_truncate" },
         { "name": "deploy" },
         { "name": "retract" },
         { "name": "transfer_authority" }

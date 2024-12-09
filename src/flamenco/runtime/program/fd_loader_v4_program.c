@@ -109,8 +109,8 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
 
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L86-L121 */
 static int
-fd_bpf_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                                instr_ctx,
-                                            fd_bpf_loader_v4_program_instruction_write_t const * write ) {
+fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                            instr_ctx,
+                                        fd_loader_v4_program_instruction_write_t const * write ) {
   int           err;
   uint          offset    = write->offset;
   uchar const * bytes     = write->bytes;
@@ -165,8 +165,8 @@ fd_bpf_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *               
 
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L123-L208 */
 static int
-fd_bpf_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                                   instr_ctx,
-                                               fd_bpf_loader_v4_program_instruction_truncate_t const * truncate ) {
+fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                               instr_ctx,
+                                           fd_loader_v4_program_instruction_truncate_t const * truncate ) {
   int  err;
   uint new_size = truncate->new_size;
 
@@ -320,7 +320,7 @@ fd_bpf_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *            
 
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L210-L325 */
 static int
-fd_bpf_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
+fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   int err;
 
   /* These variables should exist outside of borrowed account scopes. */
@@ -477,6 +477,21 @@ fd_bpf_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   } FD_BORROWED_ACCOUNT_DROP( program );
 }
 
+/* `process_instruction_retract()` retracts a currently deployed program, making it writable
+   and uninvokable. After a program is retracted, users can write and truncate data freely,
+   allowing them to upgrade or close the program account. This also unsets the program account's
+   executable status. */
+static int
+fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
+  // int err;
+
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
+    // fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  } FD_BORROWED_ACCOUNT_DROP( program );
+}
+
 /* `process_instruction_inner()`, the entrypoint for all loader v4 instruction invocations +
    any loader v4-owned programs.
    
@@ -501,50 +516,51 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L473 */
       uchar const * data = instr_ctx->instr->data;
 
-      fd_bpf_loader_v4_program_instruction_t instruction = {0};
+      fd_loader_v4_program_instruction_t instruction = {0};
       fd_bincode_decode_ctx_t decode_ctx = {
         .data    = data,
         .dataend = &data[ instr_ctx->instr->data_sz > 1232UL ? 1232UL : instr_ctx->instr->data_sz ],
         .valloc  = instr_ctx->valloc,
       };
 
-      if( FD_UNLIKELY( !fd_bpf_loader_v4_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
+      if( FD_UNLIKELY( !fd_loader_v4_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L473-L486 */
       switch( instruction.discriminant ) {
-        case fd_bpf_loader_v4_program_instruction_enum_write: {
+        case fd_loader_v4_program_instruction_enum_write: {
           if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
             return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
           }
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L474-L476 */
-          rc = fd_bpf_loader_v4_program_instruction_write( instr_ctx, &instruction.inner.write );
+          rc = fd_loader_v4_program_instruction_write( instr_ctx, &instruction.inner.write );
           break;
         }
-        case fd_bpf_loader_v4_program_instruction_enum_truncate: {
+        case fd_loader_v4_program_instruction_enum_truncate: {
           if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
             return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
           }
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L477-L479 */
-          rc = fd_bpf_loader_v4_program_instruction_truncate( instr_ctx, &instruction.inner.truncate );
+          rc = fd_loader_v4_program_instruction_truncate( instr_ctx, &instruction.inner.truncate );
           break;
         }
-        case fd_bpf_loader_v4_program_instruction_enum_deploy: {
+        case fd_loader_v4_program_instruction_enum_deploy: {
           if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
             return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
           }
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L480 */
-          rc = fd_bpf_loader_v4_program_instruction_deploy( instr_ctx );
+          rc = fd_loader_v4_program_instruction_deploy( instr_ctx );
           break;
         }
-        case fd_bpf_loader_v4_program_instruction_enum_retract: {
+        case fd_loader_v4_program_instruction_enum_retract: {
+          rc = fd_loader_v4_program_instruction_retract( instr_ctx );
           break;
         }
-        case fd_bpf_loader_v4_program_instruction_enum_transfer_authority: {
+        case fd_loader_v4_program_instruction_enum_transfer_authority: {
           break;
         }
       }
