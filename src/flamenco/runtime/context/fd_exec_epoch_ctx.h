@@ -15,8 +15,6 @@ struct fd_exec_epoch_ctx_layout {
 
   ulong stake_votes_off;
   ulong stake_delegations_off;
-  ulong stake_history_treap_off;
-  ulong stake_history_pool_off;
   ulong next_epoch_stakes_off;
   ulong leaders_off; /* Current epoch only */
 };
@@ -100,18 +98,6 @@ FD_FN_PURE static inline fd_delegation_pair_t_mapnode_t *
 fd_exec_epoch_ctx_stake_delegations_join( fd_exec_epoch_ctx_t * ctx ) {
   void * mem = (void *)((ulong)ctx + ctx->layout.stake_delegations_off);
   return fd_delegation_pair_t_map_join( mem );
-}
-
-FD_FN_PURE static inline fd_stake_history_treap_t *
-fd_exec_epoch_ctx_stake_history_treap_join( fd_exec_epoch_ctx_t * ctx ) {
-  void * mem = (void *)((ulong)ctx + ctx->layout.stake_history_treap_off);
-  return fd_stake_history_treap_join( mem );
-}
-
-FD_FN_PURE static inline fd_stake_history_entry_t *
-fd_exec_epoch_ctx_stake_history_pool_join( fd_exec_epoch_ctx_t * ctx ) {
-  void * mem = (void *)((ulong)ctx + ctx->layout.stake_history_pool_off);
-  return fd_stake_history_pool_join( mem );
 }
 
 FD_FN_PURE static inline fd_vote_accounts_pair_t_mapnode_t *

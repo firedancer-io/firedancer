@@ -166,18 +166,14 @@
         { "name": "epoch", "type": "ulong" },
         { "name": "effective", "type": "ulong" },
         { "name": "activating", "type": "ulong" },
-        { "name": "deactivating", "type": "ulong" },
-        { "name": "parent", "type": "ulong", "decode": false, "encode": false, "walk": false },
-        { "name": "left", "type": "ulong", "decode": false, "encode": false, "walk": false },
-        { "name": "right", "type": "ulong", "decode": false, "encode": false, "walk": false },
-        { "name": "prio", "type": "ulong", "decode": false, "encode": false, "walk": false }
+        { "name": "deactivating", "type": "ulong" }
       ]
     },
     {
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "fd_stake_history", "type": "treap", "treap_t": "fd_stake_history_entry_t", "treap_query_t": "ulong", "treap_cmp": "((q == (e)->epoch) ? 0 : ((q < (e)->epoch) ? -1 : 1 ) )", "treap_lt": "((e0)->epoch<(e1)->epoch)", "min": 512, "rev": true }
+        { "name": "fd_stake_history", "type": "static_vector", "element": "stake_history_entry", "size": 512 }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75"
     },
@@ -314,6 +310,21 @@
         { "name": "credits_observed", "type": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
+    },
+    {
+      "name": "epoch_info_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "pubkey" },
+        { "name": "stake", "type": "stake" }
+      ]
+    },
+    {
+      "name": "epoch_info",
+      "type": "struct",
+      "fields": [
+        { "name": "infos", "type": "vector", "element":"epoch_info_pair" }
+      ]
     },
     {
       "name": "stake_pair",
