@@ -12,7 +12,6 @@
 #include "../../vm/fd_vm.h"
 #include "../fd_executor.h"
 #include "fd_bpf_loader_serialization.h"
-#include "fd_bpf_program_util.h"
 #include "fd_native_cpi.h"
 
 #include <stdlib.h>
@@ -457,7 +456,7 @@ common_close_account( fd_pubkey_t * authority_address,
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
 int
-execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( instr_ctx->valloc,
                                                                           fd_sbpf_syscalls_align(),
@@ -1937,7 +1936,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    return execute( ctx, prog, is_deprecated );
+    return fd_bpf_execute( ctx, prog, is_deprecated );
   } FD_SCRATCH_SCOPE_END;
 }
 

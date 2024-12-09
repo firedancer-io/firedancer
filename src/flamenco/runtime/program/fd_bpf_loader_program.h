@@ -7,6 +7,7 @@
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
 #include "../fd_account.h"
+#include "fd_bpf_program_util.h"
 
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
 #define DEPRECATED_LOADER_COMPUTE_UNITS  (1140UL)
@@ -58,6 +59,9 @@ int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
                    ulong                 programdata_size );
+
+int
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated );
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );

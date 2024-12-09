@@ -752,7 +752,42 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         }
       }
     } else {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L489 */
+      fd_borrowed_account_t * program = NULL;
+      rc = fd_txn_borrowed_account_view_idx( instr_ctx->txn_ctx, instr_ctx->instr->program_id, &program );
+      if( FD_UNLIKELY( rc ) ) {
+        return rc;
+      }
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L490 */
+      fd_loader_v4_state_t state = {0};
+      rc = loader_v4_get_state( program, &state );
+      if( FD_UNLIKELY( rc ) ) {
+        return rc;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L491-L494 */
+      if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state.status ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is retracted" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+
+      /* Handle `DelayedVisibility` case */
+      if( FD_UNLIKELY( state.slot<instr_ctx->slot_ctx->slot_bank.slot ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+
+      /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
+         https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L496-L502 */
+      fd_sbpf_validated_program_t * prog = NULL;
+      if( FD_UNLIKELY( fd_bpf_load_cache_entry( instr_ctx->slot_ctx, &instr_ctx->instr->program_id_pubkey, &prog )!=0 ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L519 */
+      rc = fd_bpf_execute( instr_ctx, prog, 0 );
     }
 
     return rc;
