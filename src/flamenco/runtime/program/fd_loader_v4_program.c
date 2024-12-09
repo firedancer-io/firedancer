@@ -157,6 +157,9 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
    Initialization is taken care of when the program account size is first increased. Decreasing the size
    to 0 will close the program account.
 
+   Other notes:
+   - The executable status is set to true here on initialization.
+
    Accounts:
       0. Program account (writable + signer)
       1. Authority account (signer)
@@ -277,6 +280,9 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L200-L205 */
       if( is_initialization ) {
+        /* https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L197 */
+        program->meta->info.executable = true;
+
         /* Serialize into the program account directly. Note that an error is impossible
            because `new_program_dlen` > `LOADER_V4_PROGRAM_DATA_OFFSET`.
            https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L201-L204 */
@@ -311,8 +317,6 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
-   - This does NOT set the account's executable flag. TODO: Find out if this is intentional or accidental. This 
-     might be a part of a greater effort to deprecate the account executable flag.
 
   Accounts:
     0. Program account (writable)
@@ -401,17 +405,11 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
     }
     uchar const * programdata = buffer->const_data + LOADER_V4_PROGRAM_DATA_OFFSET;
 
-    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L266-L267 
-    
-       TODO: I think their logic here is incorrect - using a much older deployment slot from several epochs
-       prior means that program validation checks could potentially brick a program forever. For example,
-       if a program is newly deployed, we'd be performing ELF validations from the runtime environment from slot 0. */
-
     /* Our program cache is fundamentally different from Agave's. Here, they would perform verifications and
        add the program to their cache, but we only perform verifications now and defer cache population to the 
        end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
-       https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L269-L293 */
+       https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L262-L269 */
     err = fd_deploy_program( instr_ctx, programdata, buffer->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -484,8 +482,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
    
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
-   - When a program is retracted, the executable flag is not changed (though `deploy` never seems to set it in the first place.)
-     TODO: Find out if this is intentional or accidental.
+   - When a program is retracted, the executable flag is NOT changed.
    
    Accounts:
     0. Program account (writable)

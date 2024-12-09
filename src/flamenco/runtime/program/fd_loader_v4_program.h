@@ -31,9 +31,6 @@
         or write new bytes to a source buffer account and call `deploy`.
     - There is no `close` instruction anymore. Instead, the user must call `truncate` with a new size of 0 bytes, which automatically closes the program account
       and resets it into an uninitialized state.
-    - There seems to be no mentions of the `executable` flag anywhere - the `deploy` instruction does not set the account's executable status, but the program is still
-      added to the cache. 
-      - TODO: find out if this is intentional or accidental. This might be a part of a greater effort to deprecate the account executable flag.
 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.4/builtins-default-costs/src/lib.rs#L33 */
