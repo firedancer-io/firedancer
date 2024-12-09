@@ -334,8 +334,11 @@ calculate_reward_points_partitioned(
     fd_exec_slot_ctx_t *       slot_ctx,
     fd_stake_history_t const * stake_history,
     ulong                      rewards,
-    fd_point_value_t *         result
+    fd_point_value_t *         result,
+    fd_epoch_info_t           *temp_info
 ) {
+  (void) temp_info;
+
     /* There is a cache of vote account keys stored in the slot context */
     /* TODO: check this cache is correct */
 
@@ -741,7 +744,8 @@ calculate_validator_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong rewarded_epoch,
     ulong rewards,
-    fd_calculate_validator_rewards_result_t * result
+    fd_calculate_validator_rewards_result_t * result,
+    fd_epoch_info_t           *temp_info
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
     fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
@@ -750,7 +754,7 @@ calculate_validator_rewards(
     }
 
     /* Calculate the epoch reward points from stake/vote accounts */
-    calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, &result->point_value );
+    calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, &result->point_value, temp_info );
 
     /* Calculate the stake and vote rewards for each account */
     calculate_stake_vote_rewards(
@@ -856,7 +860,8 @@ calculate_rewards_for_partitioning(
     fd_exec_slot_ctx_t *                   slot_ctx,
     ulong                                  prev_epoch,
     const fd_hash_t *                      parent_blockhash,
-    fd_partitioned_rewards_calculation_t * result
+    fd_partitioned_rewards_calculation_t * result,
+    fd_epoch_info_t                       *temp_info
 ) {
     /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
     fd_prev_epoch_inflation_rewards_t rewards;
@@ -865,7 +870,7 @@ calculate_rewards_for_partitioning(
     fd_slot_bank_t const * slot_bank = &slot_ctx->slot_bank;
 
     fd_calculate_validator_rewards_result_t validator_result[1] = {0};
-    calculate_validator_rewards( slot_ctx, prev_epoch, rewards.validator_rewards, validator_result );
+    calculate_validator_rewards( slot_ctx, prev_epoch, rewards.validator_rewards, validator_result, temp_info );
 
     hash_rewards_into_partitions(
         slot_ctx,
@@ -893,11 +898,12 @@ calculate_rewards_and_distribute_vote_rewards(
     fd_exec_slot_ctx_t *                                        slot_ctx,
     ulong                                                       prev_epoch,
     const fd_hash_t *                                           parent_blockhash,
-    fd_calculate_rewards_and_distribute_vote_rewards_result_t * result
+    fd_calculate_rewards_and_distribute_vote_rewards_result_t * result,
+    fd_epoch_info_t                                            *temp_info
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
     fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
-    calculate_rewards_for_partitioning( slot_ctx, prev_epoch, parent_blockhash, rewards_calc_result );
+    calculate_rewards_for_partitioning( slot_ctx, prev_epoch, parent_blockhash, rewards_calc_result, temp_info );
 
     /* Iterate over all the vote reward nodes */
     for ( fd_vote_reward_t_mapnode_t* vote_reward_node = fd_vote_reward_t_map_minimum(
@@ -1099,7 +1105,8 @@ void
 fd_update_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
     const fd_hash_t *    parent_blockhash,
-    ulong                parent_epoch
+    ulong                parent_epoch,
+    fd_epoch_info_t     *temp_info
 ) {
 
     /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
@@ -1108,7 +1115,8 @@ fd_update_rewards(
         slot_ctx,
         parent_epoch,
         parent_blockhash,
-        rewards_result
+        rewards_result,
+        temp_info
     );
 
     /* Distribute all of the partitioned epoch rewards in one go */
@@ -1129,16 +1137,18 @@ void
 fd_begin_partitioned_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
     const fd_hash_t *    parent_blockhash,
-    ulong                parent_epoch
+    ulong                parent_epoch,
+    fd_epoch_info_t     *temp_info
 ) {
-FD_SCRATCH_SCOPE_BEGIN {
+  FD_SCRATCH_SCOPE_BEGIN {
     /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
     fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
     calculate_rewards_and_distribute_vote_rewards(
         slot_ctx,
         parent_epoch,
         parent_blockhash,
-        rewards_result
+        rewards_result,
+        temp_info
     );
 
     /* https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L62 */
@@ -1159,7 +1169,7 @@ FD_SCRATCH_SCOPE_BEGIN {
         rewards_result->point_value,
         parent_blockhash
      );
-} FD_SCRATCH_SCOPE_END;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /*
