@@ -710,7 +710,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   if( ctx->replay_plugin_out_mem ) {
     fd_replay_complete_msg_t msg2 = {
       .slot = curr_slot,
-      .total_txn_count = fork->slot_ctx.slot_bank.transaction_count - fork->slot_ctx.parent_transaction_count,
+      .total_txn_count = fork->slot_ctx.txn_count,
       .nonvote_txn_count = fork->slot_ctx.nonvote_txn_count,
       .failed_txn_count = fork->slot_ctx.failed_txn_count,
       .nonvote_failed_txn_count = fork->slot_ctx.nonvote_failed_txn_count,
@@ -1028,10 +1028,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     if( flags & REPLAY_FLAG_FINISHED_BLOCK ) {
+      fork->slot_ctx.txn_count = fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count;
       FD_LOG_INFO(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
                     curr_slot,
                     ctx->parent_slot,
-                    fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count,
+                    fork->slot_ctx.txn_count,
                     FD_BASE58_ENC_32_ALLOCA( ctx->blockhash.uc ) ));
       // Copy over latest blockhash to slot_bank poh for updating the sysvars
       fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
