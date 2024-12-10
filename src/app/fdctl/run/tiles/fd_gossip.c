@@ -499,9 +499,6 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   (void)sz;
   (void)tsorig;
 
-  /* TODO: This doesn't seem right... */
-  if( in_idx!=NET_IN_IDX ) return;
-
   /* Messages from the replay tile for wen-restart are handled by after_credit periodically */
   if( in_idx==REPLAY_IN_IDX ) return;
 
@@ -520,6 +517,8 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 
     return;
   }
+
+  if( in_idx!=NET_IN_IDX ) return;
 
   ctx->stem = stem;
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
