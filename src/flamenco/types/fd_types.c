@@ -32291,8 +32291,6 @@ ulong fd_duplicate_slot_proof_size( fd_duplicate_slot_proof_t const * self ) {
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_hash_hash_age_pair_t_map_compare( fd_hash_hash_age_pair_t_mapnode_t * left, fd_hash_hash_age_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32300,8 +32298,6 @@ long fd_hash_hash_age_pair_t_map_compare( fd_hash_hash_age_pair_t_mapnode_t * le
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_vote_accounts_pair_t_map_compare( fd_vote_accounts_pair_t_mapnode_t * left, fd_vote_accounts_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32309,8 +32305,6 @@ long fd_vote_accounts_pair_t_map_compare( fd_vote_accounts_pair_t_mapnode_t * le
 #define REDBLK_NAME fd_stake_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_stake_accounts_pair_t_map_compare( fd_stake_accounts_pair_t_mapnode_t * left, fd_stake_accounts_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32318,8 +32312,6 @@ long fd_stake_accounts_pair_t_map_compare( fd_stake_accounts_pair_t_mapnode_t * 
 #define REDBLK_NAME fd_stake_weight_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32327,8 +32319,6 @@ long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake
 #define REDBLK_NAME fd_delegation_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_delegation_pair_t_map_compare( fd_delegation_pair_t_mapnode_t * left, fd_delegation_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account) );
 }
@@ -32336,8 +32326,6 @@ long fd_delegation_pair_t_map_compare( fd_delegation_pair_t_mapnode_t * left, fd
 #define REDBLK_NAME fd_stake_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_stake_pair_t_map_compare( fd_stake_pair_t_mapnode_t * left, fd_stake_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account) );
 }
@@ -32345,8 +32333,6 @@ long fd_stake_pair_t_map_compare( fd_stake_pair_t_mapnode_t * left, fd_stake_pai
 #define REDBLK_NAME fd_clock_timestamp_vote_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_clock_timestamp_vote_t_map_compare( fd_clock_timestamp_vote_t_mapnode_t * left, fd_clock_timestamp_vote_t_mapnode_t * right ) {
   return memcmp( left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey) );
 }
