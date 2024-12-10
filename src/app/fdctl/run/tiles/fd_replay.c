@@ -1525,7 +1525,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   ulong i = 0;
   for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( pool, root );
        n && i < FD_CLUSTER_NODE_CNT;
-       n = fd_vote_accounts_pair_t_map_successor_const( pool, n ), ++i ) {
+       n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
     if( n->elem.stake == 0 ) continue;
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
     memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
@@ -1535,6 +1535,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     msg->last_vote = n->elem.value.last_timestamp_slot;
     msg->is_active = (uchar)1;
     msg->is_epoch_vote_account = (uchar)1;
+    ++i;
   }
 
   *(ulong *)dst = i;
