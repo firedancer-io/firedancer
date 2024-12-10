@@ -49,6 +49,9 @@ fd_exec_instr_test_runner_new( void * mem,
 void *
 fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner );
 
+fd_spad_t *
+fd_exec_instr_test_runner_get_spad( fd_exec_instr_test_runner_t * runner );
+
 /* fd_exec_test_instr_context_create takes in a test runner and InstrCtx protobuf
    and creates an fd_exec_instr_ctx_t that can be used in runtime.
    
