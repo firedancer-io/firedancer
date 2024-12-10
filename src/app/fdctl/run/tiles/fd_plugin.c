@@ -115,7 +115,7 @@ after_frag( fd_plugin_ctx_t *   ctx,
   }
 
   ulong true_size = sz;
-  if( FD_UNLIKELY( in_idx==1UL ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
+  if( FD_UNLIKELY( in_idx==1UL || ( in_idx==3UL && FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
   else if( FD_UNLIKELY( in_idx==2UL ) ) true_size = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
 
   fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, sz, 0UL, 0UL, 0UL ); /* Not true_sz which might not fit */

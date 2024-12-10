@@ -1533,8 +1533,6 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     memcpy( msg->node_pubkey, n->elem.value.node_pubkey.uc, sizeof(fd_pubkey_t) );
     msg->activated_stake = n->elem.stake;
     msg->last_vote = n->elem.value.last_timestamp_slot;
-    msg->is_active = (uchar)1;
-    msg->is_epoch_vote_account = (uchar)1;
     ++i;
   }
 

@@ -83,8 +83,7 @@ struct __attribute__((packed)) fd_vote_update_msg {
   ulong root_slot;		// 80..87
   ulong epoch_credits;		// 88..95
   uchar commission;		// 96
-  uchar is_active;		// 97
-  uchar is_epoch_vote_account;	// 98
+  uchar is_delinquent;		// 97
 };
 typedef struct fd_vote_update_msg fd_vote_update_msg_t;
 
