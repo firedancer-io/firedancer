@@ -231,6 +231,40 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
 }
 
+/* Ensure that outgoing ACKs and metrics are done correctly if incoming
+   packets skip packet numbers aggressively. */
+
+void
+test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
+                       fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t *    conn    = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_ack_gen_t * ack_gen = conn->ack_gen;
+  fd_quic_metrics_t * metrics = &conn->quic->metrics;
+  FD_TEST( ack_gen->tail==0 && ack_gen->head==0 );
+
+  /* Fill the ACK TX buffer with pending ACK frames */
+  ulong pktnum = 60UL;
+  for( ulong j=0UL; j<FD_QUIC_ACK_QUEUE_CNT; j++ ) {
+    fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum );
+    pktnum += 2UL;
+  }
+  FD_TEST( metrics->pkt_decrypt_fail_cnt==0 );
+  FD_TEST( ack_gen->head - ack_gen->tail == FD_QUIC_ACK_QUEUE_CNT );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NOOP   ] == 0                     );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW    ] == FD_QUIC_ACK_QUEUE_CNT );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_MERGED ] == 0                     );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_ENOSPC ] == 0                     );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_CANCEL ] == 0                     );
+
+  /* Overflow the ACK queue */
+  fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum );
+  pktnum += 2UL;
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_ENOSPC ] == 1 );
+
+}
+
 static __attribute__((noinline)) void
 test_quic_parse_path_challenge( void ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
@@ -250,8 +284,6 @@ test_quic_parse_path_challenge( void ) {
     FD_TEST( fd_quic_decode_path_response_frame( path_response, data, 10UL )==9UL );
   } while(0);
 }
-
-/* Test FIN arriving out of place */
 
 int
 main( int     argc,
@@ -304,6 +336,7 @@ main( int     argc,
   test_quic_stream_concurrency           ( sandbox, rng );
   test_quic_ping_frame                   ( sandbox, rng );
   test_quic_server_alpn_fail             ( sandbox, rng );
+  test_quic_pktnum_skip                  ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */
