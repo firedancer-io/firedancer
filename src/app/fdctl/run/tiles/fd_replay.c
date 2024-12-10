@@ -1416,7 +1416,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       FD_LOG_NOTICE(("bank_hash_cmp->watermark %lu, curr_slot %lu", bank_hash_cmp->watermark, curr_slot ));
 
       for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
-        FD_LOG_NOTICE(("ENTER HERE"));
         int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
         switch ( rc ) {
         case -1:
@@ -1440,7 +1439,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           /* Match*/
 
           bank_hash_cmp->watermark = cmp_slot;
-          FD_LOG_NOTICE(("Bank hash match on slot: %lu", cmp_slot ));
           break;
 
         default:;

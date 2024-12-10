@@ -395,6 +395,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     /* Write out the header. */
     fd_solana_account_hdr_t header = {0};
+    FD_TEST( metadata->info.lamports);
     /* Stored meta */
     header.meta.write_version_obsolete = 0UL;
     header.meta.data_len               = metadata->dlen;
@@ -424,6 +425,23 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       FD_LOG_WARNING(( "Unable to stream out account padding to tar archive" ));
       return -1;
     }
+  }
+
+  fd_funk_rec_key_t key = {0};
+  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_TOMBSTONES;
+  fd_funk_rec_t const * rec           = fd_funk_rec_query( funk, NULL, &key );
+  uchar const *         rec_val       = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
+  ulong                 tombstone_cnt = *(ulong*)rec_val;
+
+  for( ulong i=0UL; i<tombstone_cnt; i++ ) {
+    fd_pubkey_t const *     pubkey = (fd_pubkey_t*)(rec_val + sizeof(ulong) + i * sizeof(fd_pubkey_t));
+    fd_solana_account_hdr_t header = {0};
+    err = fd_tar_writer_write_file_data( writer, &header, sizeof(fd_solana_account_hdr_t) );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Unable to stream out account header to tar archive" ));
+      return -1;
+    }
+    FD_LOG_WARNING(("PUBKEY %s", FD_BASE58_ENC_32_ALLOCA(pubkey)));
   }
 
   err = fd_tar_writer_fini_file( writer );
