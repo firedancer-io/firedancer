@@ -17,9 +17,8 @@ struct fd_pack_pacing_private {
   /* Number of CUs in the block */
   ulong max_cus;
 
-  ulong home_stretch_cutoff; /* in CUs, where the slope switches */
-  float raw_slope; /* in ticks per CU */
-  float offset;    /* in ticks */
+  float ticks_per_cu;
+  float remaining_cus;
 };
 
 typedef struct fd_pack_pacing_private fd_pack_pacing_t;
@@ -33,46 +32,80 @@ static inline void
 fd_pack_pacing_init( fd_pack_pacing_t * pacer,
                      long               t_start,
                      long               t_end,
+                     float              ticks_per_ns,
                      ulong              max_cus ) {
-   /* The exact style of pacing needs to be the subject of quantitative
-   experimentation, so for now we're just doing something that passes
-   the gut check.  We'll pace for 90% of the CUs through the first 75%
-   of the block time, and then the last 10% through the last 25% of the
-   block time.  This gives us pretty good tolerance against transactions
-   taking longer to execute than we expect (the extreme of which being
-   transactions that fail to land). */
 
   pacer->t_start = t_start;
-  pacer->t_end   = t_end;
+  pacer->t_end   = t_end - (long)((t_start-t_end)/50L); /* try to finish 98% of the way through */
   pacer->max_cus = max_cus;
 
-  pacer->raw_slope = (float)(t_end - t_start)/(float)max_cus;
-  pacer->offset    = 1.5f * (float)(t_end - t_start); /* the math works out to be 1.5x */
-  pacer->home_stretch_cutoff = (max_cus*9UL + 4UL)/10UL;
+  /* Time per CU depends on the hardware, the transaction mix, what
+     fraction of the transactions land, etc.  It's hard to just come up
+     with a value, but a small sample says 8 ns/CU is in the right
+     ballpark. */
+  pacer->ticks_per_cu = 8.0f * ticks_per_ns;
+  pacer->remaining_cus = (float)max_cus;
 }
 
-/* fd_pack_pacing_next returns the time (in fd_tickcount() space) at
-   which the next attempt should be made to schedule transactions.
-
-   The returned value will typically be between t_start and t_end, but
-   may be slightly out of range due to rounding or if consumed_cus is
-   larger than the max cu value provided in fd_pack_pacing_init.
-   consumed_cus need not increase monotonically between calls.
-
-   now should be the time at which the consumed_cus was measured.  It's
-   not used right now, but is provided to allow for more sophisticated
-   implementations in the future.
-
-   fd_pack_pacing_init must have been called prior to the first call of
-   fd_pack_pacing_next. */
-static inline long
-fd_pack_pacing_next( fd_pack_pacing_t * pacer,
-                     ulong              consumed_cus,
-                     long               now ) {
+/* fd_pack_pacing_update_consumed_cus notes that the instantaneous value
+   of consumed CUs may have updated.  pacer must be a local join.
+   consumed_cus should be below the value of max_cus but it's treated as
+   max_cus if it's larger.  Now should be the time (in fd_tickcount
+   space) at which the measurement was taken.  */
+static inline void
+fd_pack_pacing_update_consumed_cus( fd_pack_pacing_t * pacer,
+                                    ulong              consumed_cus,
+                                    long               now ) {
+  /* Keep this function separate so in the future we can learn the
+     ticks_per_cu rate. */
   (void)now;
-  int non_home_stretch = consumed_cus < pacer->home_stretch_cutoff;
-  return pacer->t_start + (long)( (float)consumed_cus * pacer->raw_slope * fd_float_if( non_home_stretch, 0.75f/0.9f, 0.25f/0.1f    )
-                                                                         - fd_float_if( non_home_stretch, 0.0f,       pacer->offset ));
+  /* It's possible (but unlikely) that consumed_cus can be greater than
+     max_cus, so clamp the value at 0 */
+  pacer->remaining_cus = (float)(fd_ulong_max( pacer->max_cus, consumed_cus ) - consumed_cus);
+}
+
+
+/* fd_pack_pacing_enabled_bank_cnt computes how many banks should be
+   active at time `now` (in fd_tickcount space) given the most recent
+   value specified for consumed CUs.  The returned value may be 0, which
+   indicates that no banks should be active at the moment.  It may also
+   be higher than the number of available banks, which should be
+   interpreted as all banks being enabled. */
+FD_FN_PURE static inline ulong
+fd_pack_pacing_enabled_bank_cnt( fd_pack_pacing_t const * pacer,
+                                 long                     now ) {
+  /* We want to use as few banks as possible to fill the block in 400
+     milliseconds.  That way we pass up the best transaction because it
+     conflicts with something actively running as infrequently as
+     possible.  To do that, we draw lines through in the time-CU plane
+     that pass through (400 milliseconds, 48M CUs) with slope k*(single
+     bank speed), where k varies between 1 and the number of bank tiles
+     configured.  This splits the plane into several regions, and the
+     region we are in tells us how many bank tiles to use.
+
+
+       48M -                                                   / /|
+           |                                                /  / /
+           |                                             /   // |
+       U   |                                          /    / / /
+       s   |      0 banks active                   /     /  /  |
+       e   |                                    /      /   /  /
+       d   |                                 /    e  /    /   |
+           |                              /  k  v  /     /   /
+       C   |                           /   n  i  /      /    |
+       U   |                        /    a  t  /       /    /
+       s   |                     /     B  c  /        /     |
+           |                  /     1   a  / 2 Banks /     /
+           |               /             /   active / ...  |
+       0   |--------------------------------------------------------
+             0 ms                                                400ms
+       */
+  /* We want to be pretty careful with the math here.  We want to make
+     sure we never divide by 0, so clamp the denominator at 1.  The
+     numerator is non-negative.  Ticks_per_cu is between 1 and 100, so
+     it'll always fit in a ulong. */
+  return (ulong)(pacer->remaining_cus/
+                 (float)(fd_long_max( 1L, pacer->t_end - now )) * pacer->ticks_per_cu );
 }
 
 #endif /* HEADER_fd_src_ballet_pack_fd_pack_pacing_h */
