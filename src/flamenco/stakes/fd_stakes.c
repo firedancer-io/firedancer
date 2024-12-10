@@ -276,6 +276,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
       continue;
     }
 
+    if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake == 0 ) ) {
+      continue;
+    }
+
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
     fd_memcpy(&temp_info->infos[delegation_idx  ].stake, &stake_state.inner.stake.stake, sizeof(fd_stake_t));
     fd_memcpy(&temp_info->infos[delegation_idx++].account, &n->elem.account, sizeof(fd_pubkey_t));
@@ -314,6 +318,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     if ( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+      continue;
+    }
+
+    if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake == 0 ) ) {
       continue;
     }
 
