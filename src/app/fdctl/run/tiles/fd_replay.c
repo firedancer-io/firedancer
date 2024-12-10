@@ -1516,7 +1516,9 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out_mem, ctx->votes_plugin_out_chunk );
 
-  fd_vote_accounts_t * accts = &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
+  if( FD_UNLIKELY ( !fork  ) ) return;
+  fd_vote_accounts_t * accts = &fork->slot_ctx.slot_bank.epoch_stakes;
   fd_vote_accounts_pair_t_mapnode_t * root = accts->vote_accounts_root;
   fd_vote_accounts_pair_t_mapnode_t * pool = accts->vote_accounts_pool;
 
