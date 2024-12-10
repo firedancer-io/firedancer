@@ -82,6 +82,7 @@ GENESIS_OUTPUT=$($AGAVE_PATH/solana-genesis \
     --bootstrap-validator-stake-lamports 1000000000000000 \
     --faucet-pubkey test-ledger/faucet-keypair.json --faucet-lamports 1000000000000000000 \
     --slots-per-epoch 200 \
+    --enable-warmup-epochs \
     --hashes-per-tick 1024 \
     --ticks-per-slot 64 \
     ${genesis_args[@]})

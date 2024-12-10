@@ -1,5 +1,6 @@
 #include "fd_quic_sandbox.h"
 #include "../fd_quic_private.h"
+#include "../templ/fd_quic_parse_util.h"
 
 /* fd_quic_sandbox_capture_pkt captures a single outgoing packet sent by
    fd_quic. */
@@ -304,6 +305,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->handshake_complete = 1;
   conn->hs_data_empty      = 1;
   conn->peer_enc_level     = fd_quic_enc_level_appdata_id;
+  conn->keys_avail         = 1U<<fd_quic_enc_level_appdata_id;
 
   conn->idle_timeout  = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
   conn->last_activity = sandbox->wallclock;
@@ -381,4 +383,45 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
 
   /* Synchronize log seq[0] from tx to rx */
   fd_quic_log_tx_seq_update( fd_quic_get_state( sandbox->quic )->log_tx );
+}
+
+void
+fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
+                               fd_quic_conn_t *    conn,
+                               ulong               pktnum ) {
+
+  uchar pkt_buf[ 256 ];
+  pkt_buf[0] = fd_quic_one_rtt_h0( /* spin */         0,
+                                   /* key_phase */    !!conn->key_phase,
+                                   /* pktnum_len-1 */ 3 );
+  memcpy( pkt_buf+1, &conn->our_conn_id, FD_QUIC_CONN_ID_SZ );
+  uint pktnum_comp = fd_uint_bswap( (uint)( pktnum & UINT_MAX ) );
+  memcpy( pkt_buf+9, &pktnum_comp, 4 );
+  pkt_buf[13] = 0x01;  /* PING frame */
+  memset( pkt_buf+14, 0, 18UL );
+
+  fd_quic_crypto_keys_t * keys = &conn->keys[fd_quic_enc_level_appdata_id][!conn->server];
+  ulong out_sz = 48UL;
+  int crypt_res = fd_quic_crypto_encrypt( pkt_buf, &out_sz, pkt_buf, 13UL, pkt_buf+13, 19UL, keys, keys, pktnum );
+  FD_TEST( crypt_res==FD_QUIC_SUCCESS );
+
+  fd_quic_pkt_t pkt_meta = {
+    .ip4 = {{
+      .verihl       = FD_IP4_VERIHL(4,5),
+      .net_tot_len  = 28,
+      .net_frag_off = 0x4000u, /* don't fragment */
+      .ttl          = 64,
+      .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+      .net_len   = 8,
+    }},
+    .pkt_number = pktnum,
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_appdata_id,
+  };
+
+  fd_quic_process_quic_packet_v1( sandbox->quic, &pkt_meta, pkt_buf, out_sz );
 }

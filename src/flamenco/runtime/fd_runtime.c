@@ -2201,7 +2201,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         // Dump txns in waves
         if( dump_txn ) {
           for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
-            dump_txn_to_protobuf( wave_task_infos[i].txn_ctx, spads[0] );
+            fd_dump_txn_to_protobuf( wave_task_infos[i].txn_ctx, spads[0] );
           }
         }
 
@@ -3060,8 +3060,10 @@ fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
   return (txn_raw == NULL) ? fd_runtime_lamports_per_signature_for_blockhash(txn_ctx->slot_ctx, NULL) : fd_runtime_lamports_per_signature_for_blockhash(txn_ctx->slot_ctx, (fd_hash_t *)((uchar *)txn_raw->raw + txn_descriptor->recent_blockhash_off));
 }
 
-void compute_priority_fee(fd_exec_txn_ctx_t const *txn_ctx, ulong *fee, ulong *priority)
-{
+static void
+compute_priority_fee( fd_exec_txn_ctx_t const * txn_ctx,
+                      ulong *                   fee,
+                      ulong *                   priority ) {
   switch (txn_ctx->prioritization_fee_type)
   {
   case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED:

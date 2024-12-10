@@ -40,7 +40,7 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
 /* TODO: move this somewhere more appropiate */
-void
+static void
 write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   // really?! really!?
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -77,7 +77,7 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_system_program_id.key,         "system_program",         14UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_vote_program_id.key,           "vote_program",           12UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,          "stake_program",          13UL );
-  
+
   if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_config_program_to_core_bpf ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,       "config_program",         14UL );
   }
@@ -85,11 +85,11 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   if( FD_FEATURE_ACTIVE( slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "loader_v4",             9UL );
   }
-  
+
   if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key, "address_lookup_table_program",          28UL );
   }
-  
+
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_deprecated_program_id.key,  "solana_bpf_loader_deprecated_program",  36UL );
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );

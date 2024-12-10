@@ -112,9 +112,9 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
 }
 
 void
-setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
-                           fd_vm_t *                 vm,
-                           fd_exec_instr_ctx_t *     instr_ctx ) {
+fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
+                              fd_vm_t *                 vm,
+                              fd_exec_instr_ctx_t *     instr_ctx ) {
   /* cur_region is used to figure out what acc region index the account
      corresponds to. */
   uint cur_region = 0UL;
@@ -180,14 +180,24 @@ do{
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+  uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
   }
 
-  /* Setup calldests from call_whitelist */
-  ulong * calldests = (ulong *) input->vm_ctx.call_whitelist->bytes;
+  /* Setup calldests from call_whitelist.
+     Alloc calldests with the expected size (1 bit per ix, rounded up to ulong) */
+  ulong max_pc = (rodata_sz + 7) / 8;
+  ulong calldests_sz = ((max_pc + 63) / 64) * 8;
+  ulong * calldests = fd_valloc_malloc( valloc, fd_sbpf_calldests_align(), calldests_sz );
+  memset( calldests, 0, calldests_sz );
+  if( input->vm_ctx.call_whitelist && input->vm_ctx.call_whitelist->size > 0 ) {
+    memcpy( calldests, input->vm_ctx.call_whitelist->bytes, input->vm_ctx.call_whitelist->size );
+    /* Make sure bits over max_pc are all 0s. */
+    ulong mask = (1UL << (max_pc % 64)) - 1UL;
+    calldests[ max_pc / 64 ] &= mask;
+  }
 
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
@@ -262,7 +272,7 @@ do{
 
   // Propagate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Validate the vm
   if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
@@ -370,10 +380,10 @@ do{
 
 
 uint
-setup_vm_input_regions( fd_vm_input_region_t *                   input,
-                        fd_exec_test_input_data_region_t const * test_input,
-                        ulong                                    test_input_count,
-                        fd_valloc_t                              valloc ) {
+fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
+                           fd_exec_test_input_data_region_t const * test_input,
+                           ulong                                    test_input_count,
+                           fd_valloc_t                              valloc ) {
   ulong offset = 0UL;
   uint input_idx = 0UL;
   for( ulong i=0; i<test_input_count; i++ ) {

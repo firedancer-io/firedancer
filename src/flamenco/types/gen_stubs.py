@@ -866,8 +866,6 @@ class MapMember:
         print(f"#define REDBLK_NAME {mapname}", file=header)
         print(f"#define REDBLK_IMPL_STYLE 1", file=header)
         print(f'#include "../../util/tmpl/fd_redblack.c"', file=header)
-        print(f"#undef REDBLK_T", file=header)
-        print(f"#undef REDBLK_NAME", file=header)
         print(f"struct {nodename} {{", file=header)
         print(f"    {element_type} elem;", file=header)
         print(f"    ulong redblack_parent;", file=header)
@@ -893,8 +891,6 @@ class MapMember:
         print(f'#define REDBLK_NAME {mapname}', file=body)
         print(f'#define REDBLK_IMPL_STYLE 2', file=body)
         print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
-        print(f'#undef REDBLK_T', file=body)
-        print(f'#undef REDBLK_NAME', file=body)
         print(f'long {mapname}_compare( {nodename} * left, {nodename} * right ) {{', file=body)
         key = self.key
         if key == "pubkey" or key == "account" or key == "key":

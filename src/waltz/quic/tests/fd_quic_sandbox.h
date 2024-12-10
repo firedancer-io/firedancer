@@ -225,6 +225,14 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
                                  uchar const *       frame,
                                  ulong               frame_sz );
 
+/* fd_quic_sandbox_send_ping_pkt sends a 1-RTT packet containing only a
+   PING frame. */
+
+void
+fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
+                               fd_quic_conn_t *    conn,
+                               ulong               pktnum );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_tests_fd_quic_sandbox_h */

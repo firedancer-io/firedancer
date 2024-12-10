@@ -82,7 +82,7 @@ fd_eqvoc_delete( void * eqvoc ) {
   return eqvoc;
 }
 
-fd_eqvoc_proof_t * 
+fd_eqvoc_proof_t *
 fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, fd_gossip_duplicate_shred_t const * ds ) {
   fd_slot_pubkey_t key     = { ds->slot, ds->from };
   fd_eqvoc_proof_t * proof = fd_eqvoc_proof_map_ele_query( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool );
@@ -104,7 +104,7 @@ fd_eqvoc_fec_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred ) {
   fd_slot_fec_t    key   = { shred->slot, shred->fec_set_idx };
   fd_eqvoc_fec_t * fec = fd_eqvoc_fec_map_ele_query( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool );
   if( FD_UNLIKELY( !fec ) ) {
-  
+
     /* TODO eviction logic */
 
     fec                  = fd_eqvoc_fec_pool_ele_acquire( eqvoc->fec_pool );
@@ -170,7 +170,7 @@ fd_eqvoc_fec_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
   return NULL; /* No conflicts */
 }
 
-int
+static int
 shred_merkle_root( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred, fd_bmtree_node_t * root_out ) {
   fd_bmtree_commit_t * tree = fd_bmtree_commit_init( eqvoc->bmtree_mem,
                                                      FD_SHRED_MERKLE_NODE_SZ,

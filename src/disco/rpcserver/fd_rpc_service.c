@@ -565,7 +565,7 @@ struct product_rb_node {
 typedef struct product_rb_node product_rb_node_t;
 #define REDBLK_T product_rb_node_t
 #define REDBLK_NAME product_rb
-FD_FN_PURE long product_rb_compare(product_rb_node_t* left, product_rb_node_t* right) {
+FD_FN_PURE static long product_rb_compare(product_rb_node_t* left, product_rb_node_t* right) {
   for( uint i = 0; i < sizeof(fd_pubkey_t)/sizeof(ulong); ++i ) {
     ulong a = left->key.ul[i];
     ulong b = right->key.ul[i];
@@ -574,7 +574,6 @@ FD_FN_PURE long product_rb_compare(product_rb_node_t* left, product_rb_node_t* r
   return 0;
 }
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_NAME
 
 static int
 method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -1023,7 +1022,7 @@ struct leader_rb_node {
 typedef struct leader_rb_node leader_rb_node_t;
 #define REDBLK_T leader_rb_node_t
 #define REDBLK_NAME leader_rb
-FD_FN_PURE long leader_rb_compare(leader_rb_node_t* left, leader_rb_node_t* right) {
+FD_FN_PURE static long leader_rb_compare(leader_rb_node_t* left, leader_rb_node_t* right) {
   for( uint i = 0; i < sizeof(fd_pubkey_t)/sizeof(ulong); ++i ) {
     ulong a = left->key.ul[i];
     ulong b = right->key.ul[i];

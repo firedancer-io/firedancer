@@ -310,18 +310,6 @@ fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
   return udpsock;
 }
 
-// TODO: LML complete this thought?
-fd_quic_udpsock_t *
-create_udp_socket(fd_quic_udpsock_t * udpsock) {
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr("0.0.0.0", &udpsock->listen_ip ) ) ) {
-    goto error_1;
-  }
-  udpsock->listen_port = 0; // TODO: check this where is it set in flood?
-  error_1:
-  FD_LOG_NOTICE(( "invalid --listen-ip" ));
-  return NULL;
-}
-
 fd_quic_udpsock_t *
 fd_quic_udpsock_create( void *           _sock,
                         int *            pargc,

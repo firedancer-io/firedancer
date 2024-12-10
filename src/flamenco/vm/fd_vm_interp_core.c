@@ -135,7 +135,7 @@
   ulong opcode;
   ulong dst;
   ulong src;
-  short offset;
+  ulong offset; /* offset is 16-bit but always sign extended, so we handle cast once */
   uint  imm;
   ulong reg_dst;
   ulong reg_src;
@@ -312,7 +312,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x05) /* FD_SBPF_OP_JA */
-    pc += (ulong)(long)offset;
+    pc += offset;
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x07) /* FD_SBPF_OP_ADD64_IMM */
@@ -342,7 +342,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x15) /* FD_SBPF_OP_JEQ_IMM */
-    pc += fd_ulong_if( reg_dst==(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst==(ulong)(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x17) /* FD_SBPF_OP_SUB64_IMM */
@@ -353,10 +353,11 @@ interp_exec:
     reg[ dst ] = reg_dst - (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */ /* FIXME: MORE THINKING AROUND LDQ HANDLING HERE */
+  FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
     pc++;
     ic_correction++;
-    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; /* Note: untaken branches don't consume BTB */
+    /* No need to check pc because it's already checked during validation.
+       if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; // Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
   FD_VM_INTERP_INSTR_END;
 
@@ -369,7 +370,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x1d) /* FD_SBPF_OP_JEQ_REG */
-    pc += fd_ulong_if( reg_dst==reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst==reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1f) /* FD_SBPF_OP_SUB64_REG */
@@ -383,12 +384,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x25) /* FD_SBPF_OP_JGT_IMM */
-    pc += fd_ulong_if( reg_dst>(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst>(ulong)(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x27) { /* FD_SBPF_OP_STB */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_1( haddr, (uchar)imm );
@@ -397,7 +398,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x2c) { /* FD_SBPF_OP_LDXB */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */
     reg[ dst ] = fd_vm_mem_ld_1( haddr );
@@ -405,12 +406,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x2d) /* FD_SBPF_OP_JGT_REG */
-    pc += fd_ulong_if( reg_dst>reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst>reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2f) { /* FD_SBPF_OP_STXB */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     if( FD_UNLIKELY( !haddr ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
     fd_vm_mem_st_1( haddr, (uchar)reg_src );
@@ -438,7 +439,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x35) /* FD_SBPF_OP_JGE_IMM */
-    pc += fd_ulong_if( reg_dst>=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst>=(ulong)(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x36) /* FD_SBPF_OP_UHMUL64_IMM */
@@ -447,7 +448,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -457,7 +458,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x3c) { /* FD_SBPF_OP_LDXH */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -466,12 +467,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x3d) /* FD_SBPF_OP_JGE_REG */
-    pc += fd_ulong_if( reg_dst>=reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst>=reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x3f) { /* FD_SBPF_OP_STXH */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
@@ -504,7 +505,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x45) /* FD_SBPF_OP_JSET_IMM */
-    pc += fd_ulong_if( !!(reg_dst & (ulong)(long)(int)imm), (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( !!(reg_dst & (ulong)(long)(int)imm), offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x46) /* FD_SBPF_OP_UDIV32_IMM */
@@ -520,7 +521,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x4d) /* FD_SBPF_OP_JSET_REG */
-    pc += fd_ulong_if( !!(reg_dst & reg_src), (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( !!(reg_dst & reg_src), offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x4e) /* FD_SBPF_OP_UDIV32_REG */
@@ -539,7 +540,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x55) /* FD_SBPF_OP_JNE_IMM */
-    pc += fd_ulong_if( reg_dst!=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst!=(ulong)(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x56) /* FD_SBPF_OP_UDIV64_IMM */
@@ -555,7 +556,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x5d) /* FD_SBPF_OP_JNE_REG */
-    pc += fd_ulong_if( reg_dst!=reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst!=reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x5e) /* FD_SBPF_OP_UDIV64_REG */
@@ -579,7 +580,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x65) /* FD_SBPF_OP_JSGT_IMM */
-    pc += fd_ulong_if( (long)reg_dst>(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst>(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x66) /* FD_SBPF_OP_UREM32_IMM */
@@ -597,7 +598,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x6d) /* FD_SBPF_OP_JSGT_REG */
-    pc += fd_ulong_if( (long)reg_dst>(long)reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst>(long)reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6e) /* FD_SBPF_OP_UREM32_REG */
@@ -618,7 +619,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x75) /* FD_SBPF_OP_JSGE_IMM */
-    pc += fd_ulong_if( (long)reg_dst>=(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst>=(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x76) /* FD_SBPF_OP_UREM64_IMM */
@@ -636,7 +637,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x7d) /* FD_SBPF_OP_JSGE_REG */
-    pc += fd_ulong_if( (long)reg_dst>=(long)reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst>=(long)reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7e) /* FD_SBPF_OP_UREM64_REG */
@@ -693,13 +694,17 @@ interp_exec:
       } else {
         
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
-        if( FD_UNLIKELY( target_pc>=text_cnt ) ){
-          /* ...to match state of Agave VM when faulting */
+        if( FD_UNLIKELY( target_pc>text_cnt ) ){
+          /* ...to match state of Agave VM when faulting
+             Note: this check MUST be BEFORE fd_sbpf_calldests_test,
+             because it prevents overflowing calldests. */
           FD_VM_INTERP_STACK_PUSH;
           goto sigtextbr;
         }
 
-        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) goto sigcall;
+        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
+          goto sigcall;
+        }
 
         FD_VM_INTERP_STACK_PUSH;
         pc = target_pc;
@@ -777,7 +782,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x87) { /* FD_SBPF_OP_STW */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -790,7 +795,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x8c) { /* FD_SBPF_OP_LDXW */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -803,13 +808,17 @@ interp_exec:
     FD_VM_INTERP_STACK_PUSH;
 
     ulong vaddr = reg_src;
-    ulong region = vaddr >> 32;
-    ulong align  = vaddr & 7UL;
-    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
 
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
-    pc = target_pc;
-    pc--;
+    /* Notes: Agave checks region and target_pc before updating the pc.
+       To match their state, we do the same, even though we could simply
+       update the pc and let BRANCH_END fail.
+       Also, Agave doesn't check alignment. */
+
+    ulong region = vaddr >> 32;
+    /* ulong align  = vaddr & 7UL; */
+    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
+    if( FD_UNLIKELY( (region!=1UL) | (target_pc>=text_cnt) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    pc = target_pc - 1;
 
   } FD_VM_INTERP_BRANCH_END;
 
@@ -818,24 +827,17 @@ interp_exec:
     FD_VM_INTERP_STACK_PUSH;
 
     ulong vaddr = reg[ imm & 15U ];
+
+    /* Notes: Agave checks region and target_pc before updating the pc.
+       To match their state, we do the same, even though we could simply
+       update the pc and let BRANCH_END fail.
+       Also, Agave doesn't check alignment. */
+
     ulong region = vaddr >> 32;
-    ulong align  = vaddr & 7UL;
+    /* ulong align  = vaddr & 7UL; */
     ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
-
-    /* Note: BRANCH_END will implicitly handle a pc that fell outside
-       the text section (below via unsigned wraparoud or above) as
-       sigtext.
-
-       Agave performs a check prior to updating the pc, thus
-       we need a temporary variable prior to updating
-       the pc in order to match the VM state on error.
-
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L684-L691
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L443-L453 */
-
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
-    pc = target_pc;
-    pc--;
+    if( FD_UNLIKELY( (region!=1UL) | (target_pc>=text_cnt) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    pc = target_pc - 1;
 
   } FD_VM_INTERP_BRANCH_END;
 
@@ -845,7 +847,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x8f) { /* FD_SBPF_OP_STXW */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
@@ -881,7 +883,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x97) { /* FD_SBPF_OP_STQ */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -891,7 +893,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x9c) { /* FD_SBPF_OP_LDXQ */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + (ulong)(long)offset;
+    ulong vaddr           = reg_src + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -905,7 +907,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
     uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + (ulong)(long)offset;
+    ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
@@ -934,7 +936,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xa5) /* FD_SBPF_OP_JLT_IMM */
-    pc += fd_ulong_if( reg_dst<(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst<(ulong)(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xa7) /* FD_SBPF_OP_XOR64_IMM */
@@ -946,7 +948,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xad) /* FD_SBPF_OP_JLT_REG */
-    pc += fd_ulong_if( reg_dst<reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst<reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xaf) /* FD_SBPF_OP_XOR64_REG */
@@ -960,7 +962,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xb5) /* FD_SBPF_OP_JLE_IMM */
-    pc += fd_ulong_if( reg_dst<=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst<=(ulong)(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xb6) /* FD_SBPF_OP_SHMUL64_IMM */
@@ -980,7 +982,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xbd) /* FD_SBPF_OP_JLE_REG */
-    pc += fd_ulong_if( reg_dst<=reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( reg_dst<=reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xbe) /* FD_SBPF_OP_SHMUL64_REG */
@@ -998,7 +1000,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
-    pc += fd_ulong_if( (long)reg_dst<(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst<(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xc6) /* FD_SBPF_OP_SDIV32_IMM */
@@ -1015,7 +1017,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
-    pc += fd_ulong_if( (long)reg_dst<(long)reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst<(long)reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xce) /* FD_SBPF_OP_SDIV32_REG */
@@ -1040,7 +1042,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xd5) /* FD_SBPF_OP_JSLE_IMM */
-    pc += fd_ulong_if( (long)reg_dst<=(long)(int)imm, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst<=(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xd6) /* FD_SBPF_OP_SDIV64_IMM */
@@ -1058,7 +1060,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xdd) /* FD_SBPF_OP_JSLE_REG */
-    pc += fd_ulong_if( (long)reg_dst<=(long)reg_src, (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( (long)reg_dst<=(long)reg_src, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xde) /* FD_SBPF_OP_SDIV64_REG */
@@ -1097,9 +1099,6 @@ interp_exec:
     reg[ dst ] = (ulong)( (long)reg_dst % (long)reg_src );
   FD_VM_INTERP_INSTR_END;
 
-  /* FIXME: sigsplit is only partially implemented (needs the bit vector
-     of invalid jump targets in BRANCH_END) */
-
   /* FIXME: sigbus/sigrdonly are mapped to sigsegv for simplicity
      currently but could be enabled if desired. */
 
@@ -1133,7 +1132,6 @@ interp_exec:
 
 sigtext:     err = FD_VM_ERR_SIGTEXT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_SIGTEXT;  /* ic current */      /* cu current */  goto interp_halt;
-sigsplit:    err = FD_VM_ERR_SIGSPLIT; FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigcall:     err = FD_VM_ERR_SIGCALL;  /* ic current */      /* cu current */  goto interp_halt;
 sigstack:    err = FD_VM_ERR_SIGSTACK; /* ic current */      /* cu current */  goto interp_halt;
 sigill:      err = FD_VM_ERR_SIGILL;   FD_VM_INTERP_FAULT;                     goto interp_halt;

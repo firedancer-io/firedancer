@@ -4,12 +4,12 @@
 
 #include "fd_metrics_net.h"
 #include "fd_metrics_quic.h"
-#include "fd_metrics_bank.h"
-#include "fd_metrics_poh.h"
 #include "fd_metrics_verify.h"
 #include "fd_metrics_dedup.h"
 #include "fd_metrics_resolv.h"
 #include "fd_metrics_pack.h"
+#include "fd_metrics_bank.h"
+#include "fd_metrics_poh.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
 /* Start of LINK OUT metrics */

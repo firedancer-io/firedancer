@@ -76,3 +76,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l migrate-feature-program -s snap
 src/flamenco/runtime/tests/run_ledger_test.sh -l migrate-config-program -s snapshot-500-HCg5AHVPC6JAqZo4p6iMcDmo586ZjkxxPpxfAwCHqroy.tar.zst -p 50 -y 16 -m 5000000 -e 675 -c 2.1.0 -o 2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV
 src/flamenco/runtime/tests/run_ledger_test.sh -l per-stake-history-new-rate-activation-epoch -s snapshot-50-47DbuHpi6gXmZKQ1FUSAAfkgnuWrkfTAtx3Hk5Gqsu5W.tar.zst -p 50 -y 16 -m 5000000 -e 675 -c 2.1.0
 src/flamenco/runtime/tests/run_ledger_test.sh -l enable-get-epoch-stake-syscall -s snapshot-50-FfJQ3ePJx2s5BDymDoiLVRHDHj5doYNQBzyrqus8LocL.tar.zst -p 50 -y 16 -m 5000000 -e 686 -c 2.1.0 -o 7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257181032 -s snapshot-257181030-BiZi1ye6MeW8iq2xUBDrYYPSNuBVrXvzsHjPWvQ8ZytE.tar.zst -p 50 -y 16 -m 5000000 -e 257181035 -c 1.19.0
