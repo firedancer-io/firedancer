@@ -723,8 +723,9 @@ struct fd_blockstore_ser {
 };
 typedef struct fd_blockstore_ser fd_blockstore_ser_t;
 
-/* Archives a block and block map entry to fd. If fd is -1, no write is attempted.
-   Should always be followed by a fd_blockstore_checkpt_update. */
+/* Archives a block and block map entry to fd at offset write_off.
+   If fd is -1, no write is attempted.
+   Should be followed by a fd_blockstore_checkpt_update. */
 ulong
 fd_blockstore_block_checkpt( fd_blockstore_t * blockstore, 
                              fd_blockstore_ser_t * ser, 
