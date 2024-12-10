@@ -54,6 +54,9 @@
 #define FD_LOADER_V4_STATUS_ENUM_DELOYED   (1UL)
 #define FD_LOADER_V4_STATUS_ENUM_FINALIZED (2UL)
 
+/* This MUST hold true for safety and conformance. */
+FD_STATIC_ASSERT( sizeof(fd_loader_v4_state_t)==LOADER_V4_PROGRAM_DATA_OFFSET, loader_v4 );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_PURE uchar
