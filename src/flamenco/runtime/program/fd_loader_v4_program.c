@@ -268,7 +268,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L190 */
         ulong lamports_to_receive = fd_ulong_sat_sub( program->const_meta->info.lamports,
                                                       required_lamports );
-        err = fd_account_checked_add_lamports( instr_ctx, 2UL, recipient->const_meta->info.lamports );
+        err = fd_account_checked_add_lamports( instr_ctx, 2UL, lamports_to_receive );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
