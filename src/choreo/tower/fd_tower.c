@@ -15,7 +15,7 @@ lockout_expiration_slot( fd_tower_vote_t const * vote ) {
   return vote->slot + lockout;
 }
 
-void
+static void
 print( fd_tower_vote_t * tower_votes, ulong root ) {
   ulong max_slot = 0;
 

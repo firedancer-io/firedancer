@@ -164,7 +164,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 } FD_SCRATCH_SCOPE_END;
 }
 
-int
+static int
 check_rent_transition( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee ) {
   ulong min_balance   = fd_rent_exempt_minimum_balance( rent, account->const_meta->dlen );
   ulong pre_lamports  = account->const_meta->info.lamports;
@@ -464,16 +464,16 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
         }
       }
 
-      /* If it is not in the loaded program cache. Only accounts in the transaction 
-         account keys that are owned by one of the four loaders (bpf v1, v2, v3, v4) 
+      /* If it is not in the loaded program cache. Only accounts in the transaction
+         account keys that are owned by one of the four loaders (bpf v1, v2, v3, v4)
          are iterated over in Agave's replenish_program_cache() function to be loaded
-         into the program cache. If we reach this far in the code path, then this 
+         into the program cache. If we reach this far in the code path, then this
          account should be in the program cache iff the owners match one of the four loaders
          since `filter_executable_program_accounts()` filters out all other accounts here:
          https://github.com/anza-xyz/agave/blob/v2.1/svm/src/transaction_processor.rs#L530-L560
-         
-         Note that although the v4 loader is not yet activated, Agave still checks that the 
-         owner matches one of the four bpf loaders provided in the hyperlink below 
+
+         Note that although the v4 loader is not yet activated, Agave still checks that the
+         owner matches one of the four bpf loaders provided in the hyperlink below
          within `filter_executable_program_accounts()`:
          https://github.com/anza-xyz/agave/blob/v2.1/sdk/account/src/lib.rs#L800-L806 */
       if( FD_UNLIKELY( ( memcmp( program_account->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) )   &&
@@ -1279,7 +1279,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* Create a borrowed account for all writable accounts and the fee payer
        account which is almost always writable, but doesn't have to be.
-       
+
        TODO: The borrowed account semantics should better match Agave's. */
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
       void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
@@ -1785,7 +1785,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
         * File name format is "txn-<base58_enc_sig>.bin"
 */
 void
-dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad ) {
+fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad ) {
   FD_SCRATCH_SCOPE_BEGIN {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );

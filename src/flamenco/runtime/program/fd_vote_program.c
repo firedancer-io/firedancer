@@ -2292,7 +2292,8 @@ process_authorize_with_seed_instruction(
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L90
-uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
+static uint
+vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
   uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
@@ -2838,7 +2839,7 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   }
 }
 
-void
+static void
 upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
   FD_SCRATCH_SCOPE_BEGIN {
 

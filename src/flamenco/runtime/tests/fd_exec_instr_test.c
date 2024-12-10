@@ -191,7 +191,7 @@ _load_txn_account( fd_borrowed_account_t *           acc,
   return _load_account( acc, acc_mgr, funk_txn, &account_state_to_save );
 }
 
-int
+static int
 _restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
                         fd_exec_test_feature_set_t const * feature_set ) {
   fd_features_disable_all( &epoch_ctx->features );
@@ -1413,14 +1413,14 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         txn_result->instruction_error = (uint32_t) -task_info->txn_ctx->exec_err;
         txn_result->instruction_error_index = (uint32_t) task_info->txn_ctx->instr_err_idx;
 
-        /* 
-        TODO: precompile error codes are not conformant, so we're ignoring custom error codes for them for now. This should be revisited in the future. 
+        /*
+        TODO: precompile error codes are not conformant, so we're ignoring custom error codes for them for now. This should be revisited in the future.
         For now, only precompiles throw custom error codes, so we can ignore all custom error codes thrown in the sanitization phase. If this changes,
         this logic will have to be revisited.
 
         if( task_info->txn_ctx->exec_err == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
           txn_result->custom_error = txn_ctx->custom_err;
-        } 
+        }
         */
       }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -1700,7 +1700,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   uint input_regions_count = 0U;
   if( !!(input->vm_ctx.input_data_regions_count) ) {
     input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+    input_regions_count = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
     if ( !input_regions_count ) {
       goto error;
     }
@@ -1718,7 +1718,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
   uchar program_id_idx = ctx->instr->program_id;
-  uchar is_deprecated = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) && 
+  uchar is_deprecated = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
                         ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   fd_vm_init(
@@ -1773,7 +1773,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   // Propogate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Look up the syscall to execute
   char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;

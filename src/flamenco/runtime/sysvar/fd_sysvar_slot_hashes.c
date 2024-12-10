@@ -5,13 +5,15 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
 
+/* FIXME These constants should be header defines */
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L11 */
-const ulong slot_hashes_max_entries = 512;
+FD_FN_UNUSED static const ulong slot_hashes_max_entries = 512;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/slot_hashes.rs#L12 */
-const ulong slot_hashes_min_account_size = 20488;
+static const ulong slot_hashes_min_account_size = 20488;
 
-void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_hashes ) {
+static void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_hashes ) {
   ulong sz = fd_slot_hashes_size( slot_hashes );
   if (sz < slot_hashes_min_account_size)
     sz = slot_hashes_min_account_size;
