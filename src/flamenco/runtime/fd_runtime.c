@@ -1061,7 +1061,7 @@ fd_txn_prep_and_exec_task( void  *tpool,
   /* It is important to note that there is currently a 1-1 mapping between the
      tiles and tpool threads at the time of this comment. Eventually, this will
      change and the transaction context's spad will not be queried by tile
-     index as every tile will correspond to one CPU core. */    
+     index as every tile will correspond to one CPU core. */
   ulong tile_idx = fd_tile_idx();
   task_info->txn_ctx->spad = task_info->spads[ tile_idx ];
   if( FD_UNLIKELY( !task_info->txn_ctx->spad ) ) {
@@ -2336,7 +2336,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int 
+int
 fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                    fd_capture_ctx_t * capture_ctx,
                                    fd_block_info_t const * block_info,
@@ -3863,8 +3863,7 @@ fd_features_activate( fd_exec_slot_ctx_t * slot_ctx ) {
 
 void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
 {
-  FD_SCRATCH_SCOPE_BEGIN
-  {
+  FD_SCRATCH_SCOPE_BEGIN {
     fd_epoch_schedule_t schedule = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
 
     FD_LOG_INFO(("schedule->slots_per_epoch = %lu", schedule.slots_per_epoch));
@@ -3907,8 +3906,7 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
       fd_epoch_leaders_t * leaders = fd_epoch_leaders_join(fd_epoch_leaders_new(epoch_leaders_mem, epoch, slot0, slot_cnt, stake_weight_cnt, epoch_weights, 0UL));
       FD_TEST(leaders);
     }
-  }
-  FD_SCRATCH_SCOPE_END;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* Update the epoch bank stakes cache with the delegated stake values from the slot bank cache.
@@ -3921,123 +3919,90 @@ As delegations have to warm up, the contents of the cache will not change inter-
 the cache only at epoch boundaries.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L65 */
-void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
-FD_SCRATCH_SCOPE_BEGIN {
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_stakes_t * stakes = &epoch_bank->stakes;
+static
+void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx, fd_epoch_info_t *temp_info ) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    fd_stakes_t * stakes = &epoch_bank->stakes;
 
-  // TODO: is this size correct if the same stake account is in both the slot and epoch cache? Is this possible?
-  ulong stake_delegations_size = fd_delegation_pair_t_map_size(
-    stakes->stake_delegations_pool, stakes->stake_delegations_root );
-  stake_delegations_size += fd_stake_accounts_pair_t_map_size(
-    slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+    // TODO: is this size correct if the same stake account is in both the slot and epoch cache? Is this possible?
+    ulong stake_delegations_size = fd_delegation_pair_t_map_size(
+      stakes->stake_delegations_pool, stakes->stake_delegations_root );
+    stake_delegations_size += fd_stake_accounts_pair_t_map_size(
+      slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
 
-  // Create a new epoch stake delegations cache, which will hold the union of the slot and epoch caches.
-  fd_delegation_pair_t_mapnode_t * new_stake_root = NULL;
-  fd_delegation_pair_t_mapnode_t * new_stake_pool = fd_delegation_pair_t_map_alloc( fd_scratch_virtual(), stake_delegations_size );
+    // Create a new epoch stake delegations cache, which will hold the union of the slot and epoch caches.
+    fd_delegation_pair_t_mapnode_t * new_stake_root = NULL;
+    fd_delegation_pair_t_mapnode_t * new_stake_pool = fd_delegation_pair_t_map_alloc( fd_scratch_virtual(), stake_delegations_size );
 
-  // Add the stake delegations from the epoch bank to the new epoch stake delegations cache.
-  for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root );
-        n;
-        n = fd_delegation_pair_t_map_successor_const( stakes->stake_delegations_pool, n ) ) {
-      fd_pubkey_t const * stake_acc = &n->elem.account;
-      FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
-      if (fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec ) != FD_ACC_MGR_SUCCESS  ) {
-          continue;
-      }
-
-      fd_stake_state_v2_t stake_state;
-      if (fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, &stake_state) != 0) {
-          continue;
-      }
+    for ( ulong idx = 0; idx < temp_info->infos_len; idx++ ) {
+        // Fetch the delegation associated with this stake account
       fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_acquire( new_stake_pool );
-      fd_memcpy(&entry->elem.account, stake_acc, sizeof(fd_pubkey_t));
-      fd_memcpy(&entry->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t));
+      fd_memcpy(&entry->elem.account, &temp_info->infos[idx].account, sizeof(fd_pubkey_t));
+      fd_memcpy(&entry->elem.delegation, &temp_info->infos[idx].stake.delegation, sizeof(fd_delegation_t));
       fd_delegation_pair_t_map_insert( new_stake_pool, &new_stake_root, entry );
-  }
-
-  // Add the stake delegations from the slot bank to the new epoch stake delegations cache.
-  for( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const(
-    slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
-        n;
-        n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
-      fd_pubkey_t const * stake_acc = &n->elem.key;
-      FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
-      if (fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec ) != FD_ACC_MGR_SUCCESS ) {
-          continue;
-      }
-
-      fd_stake_state_v2_t stake_state;
-      if (fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, &stake_state) != 0) {
-          continue;
-      }
-      fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_acquire( new_stake_pool );
-      fd_memcpy(&entry->elem.account, stake_acc, sizeof(fd_pubkey_t));
-      fd_memcpy(&entry->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t));
-      fd_delegation_pair_t_map_insert( new_stake_pool, &new_stake_root, entry );
-  }
-
-  // Update the epoch bank vote_accounts with the latest values from the slot bank
-  // FIXME: resize the vote_accounts_pool if necessary
-  ulong total_epoch_stake = 0UL;
-  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
-    slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool,
-    slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
-        n;
-        n = fd_vote_accounts_pair_t_map_successor( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n ) ) {
-
-    // If the vote account is not in the epoch stakes cache, insert it
-    fd_vote_accounts_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.key, &n->elem.key, FD_PUBKEY_FOOTPRINT );
-    fd_vote_accounts_pair_t_mapnode_t * epoch_cache_node = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key );
-    if( epoch_cache_node == NULL ) {
-      epoch_cache_node = fd_vote_accounts_pair_t_map_acquire( stakes->vote_accounts.vote_accounts_pool );
-
-      fd_memcpy(&epoch_cache_node->elem.key, &n->elem.key, sizeof(fd_pubkey_t));
-      fd_memcpy(&epoch_cache_node->elem.stake, &n->elem.stake, sizeof(ulong));
-      fd_memcpy(&epoch_cache_node->elem.value, &n->elem.value, sizeof(fd_solana_account_t));
-
-      fd_vote_accounts_pair_t_map_insert( stakes->vote_accounts.vote_accounts_pool, &stakes->vote_accounts.vote_accounts_root, epoch_cache_node );
-    } else {
-      epoch_cache_node->elem.stake = n->elem.stake;
     }
-    total_epoch_stake += epoch_cache_node->elem.stake;
-  }
-  slot_ctx->epoch_ctx->total_epoch_stake = total_epoch_stake;
 
-  fd_bincode_destroy_ctx_t destroy_slot = {.valloc = slot_ctx->valloc};
-  fd_vote_accounts_destroy( &slot_ctx->slot_bank.vote_account_keys, &destroy_slot );
-  fd_stake_accounts_destroy(&slot_ctx->slot_bank.stake_account_keys, &destroy_slot );
+    // Update the epoch bank vote_accounts with the latest values from the slot bank
+    // FIXME: resize the vote_accounts_pool if necessary
+    ulong total_epoch_stake = 0UL;
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
+        slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool,
+          slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
+          n;
+          n = fd_vote_accounts_pair_t_map_successor( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n ) ) {
 
-  /* Release all nodes in tree.
-     FIXME sweep pool and ignore tree nodes might is probably faster
-           than recursive descent */
-  fd_delegation_pair_t_map_release_tree( stakes->stake_delegations_pool, stakes->stake_delegations_root );
-  stakes->stake_delegations_root = NULL;
+      // If the vote account is not in the epoch stakes cache, insert it
+      fd_vote_accounts_pair_t_mapnode_t key;
+      fd_memcpy( &key.elem.key, &n->elem.key, FD_PUBKEY_FOOTPRINT );
+      fd_vote_accounts_pair_t_mapnode_t * epoch_cache_node = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key );
+      if( epoch_cache_node == NULL ) {
+        epoch_cache_node = fd_vote_accounts_pair_t_map_acquire( stakes->vote_accounts.vote_accounts_pool );
 
-  for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( new_stake_pool, new_stake_root ); n; n = fd_delegation_pair_t_map_successor( new_stake_pool, n ) ) {
-    fd_delegation_pair_t_mapnode_t * e = fd_delegation_pair_t_map_acquire( stakes->stake_delegations_pool );
-    if( FD_UNLIKELY( !e ) ) {
-      FD_LOG_CRIT(( "Stake delegation map overflowed! (capacity=%lu)", fd_delegation_pair_t_map_max( stakes->stake_delegations_pool ) ));
+        fd_memcpy(&epoch_cache_node->elem.key, &n->elem.key, sizeof(fd_pubkey_t));
+        fd_memcpy(&epoch_cache_node->elem.stake, &n->elem.stake, sizeof(ulong));
+        fd_memcpy(&epoch_cache_node->elem.value, &n->elem.value, sizeof(fd_solana_account_t));
+
+        fd_vote_accounts_pair_t_map_insert( stakes->vote_accounts.vote_accounts_pool, &stakes->vote_accounts.vote_accounts_root, epoch_cache_node );
+      } else {
+        epoch_cache_node->elem.stake = n->elem.stake;
+      }
+      total_epoch_stake += epoch_cache_node->elem.stake;
     }
-    fd_memcpy( &e->elem.account, &n->elem.account, sizeof(fd_pubkey_t));
-    fd_memcpy( &e->elem.delegation, &n->elem.delegation, sizeof(fd_delegation_t));
-    fd_delegation_pair_t_map_insert( stakes->stake_delegations_pool, &stakes->stake_delegations_root, e );
-  }
+    slot_ctx->epoch_ctx->total_epoch_stake = total_epoch_stake;
 
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+    fd_bincode_destroy_ctx_t destroy_slot = {.valloc = slot_ctx->valloc};
+    fd_vote_accounts_destroy( &slot_ctx->slot_bank.vote_account_keys, &destroy_slot );
+    fd_stake_accounts_destroy(&slot_ctx->slot_bank.stake_account_keys, &destroy_slot );
 
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
-} FD_SCRATCH_SCOPE_END;
+    /* Release all nodes in tree.
+       FIXME sweep pool and ignore tree nodes might is probably faster
+       than recursive descent */
+    fd_delegation_pair_t_map_release_tree( stakes->stake_delegations_pool, stakes->stake_delegations_root );
+    stakes->stake_delegations_root = NULL;
+
+    for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( new_stake_pool, new_stake_root ); n; n = fd_delegation_pair_t_map_successor( new_stake_pool, n ) ) {
+      fd_delegation_pair_t_mapnode_t * e = fd_delegation_pair_t_map_acquire( stakes->stake_delegations_pool );
+      if( FD_UNLIKELY( !e ) ) {
+        FD_LOG_CRIT(( "Stake delegation map overflowed! (capacity=%lu)", fd_delegation_pair_t_map_max( stakes->stake_delegations_pool ) ));
+      }
+      fd_memcpy( &e->elem.account, &n->elem.account, sizeof(fd_pubkey_t));
+      fd_memcpy( &e->elem.delegation, &n->elem.delegation, sizeof(fd_delegation_t));
+      fd_delegation_pair_t_map_insert( stakes->stake_delegations_pool, &stakes->stake_delegations_root, e );
+    }
+
+    slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
+    slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+
+    slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
+    slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
 static
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_SCRATCH_SCOPE_BEGIN
-  {
+  FD_SCRATCH_SCOPE_BEGIN {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
 
     /* Copy epoch_bank->next_epoch_stakes into slot_ctx->slot_bank.epoch_stakes */
@@ -4070,15 +4035,13 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
         &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
         elem );
     }
-  }
-  FD_SCRATCH_SCOPE_END;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* Copy epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes. */
 static
 void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_SCRATCH_SCOPE_BEGIN
-  {
+  FD_SCRATCH_SCOPE_BEGIN {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
 
     /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes */
@@ -4098,15 +4061,14 @@ void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
       fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
       fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
     }
-  }
-  FD_SCRATCH_SCOPE_END;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* Mimics `bank.new_target_program_account()`. Assumes `out_rec` is a modifiable record.
 
    From the calling context, `out_rec` points to a native program record (e.g. Config, ALUT native programs).
    There should be enough space in `out_rec->data` to hold at least 36 bytes (the size of a BPF upgradeable
-   program account) when calling this function. The native program account's owner is set to the BPF loader 
+   program account) when calling this function. The native program account's owner is set to the BPF loader
    upgradeable program ID, and lamports are increased / deducted to contain the rent exempt minimum balance.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L79-L95 */
@@ -4178,7 +4140,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
   if( config_upgrade_authority_address!=NULL ) {
-    if( FD_UNLIKELY( state.inner.buffer.authority_address==NULL || 
+    if( FD_UNLIKELY( state.inner.buffer.authority_address==NULL ||
                      memcmp( config_upgrade_authority_address, state.inner.buffer.authority_address, sizeof(fd_pubkey_t) ) ) ) {
       return -1;
     }
@@ -4230,7 +4192,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
       - source_buffer_address: source_buffer_address
       - migration_target
         - Builtin: !stateless
-        - Stateless: stateless 
+        - Stateless: stateless
       - upgrade_authority_address: upgrade_authority_address
   https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L235-L318 */
 static void
@@ -4242,12 +4204,12 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   int err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L242-L243
-     
+
      The below logic is used to obtain a `TargetBuiltin` account. There are three fields of `TargetBuiltin` returned:
-      - target.program_address: builtin_program_id 
-      - target.program_account: 
+      - target.program_address: builtin_program_id
+      - target.program_account:
           - if stateless: an AccountSharedData::default() (i.e. system program id, 0 lamports, 0 data, non-executable, system program owner)
-          - if NOT stateless: the existing account (for us its called `target_program_account`) 
+          - if NOT stateless: the existing account (for us its called `target_program_account`)
       - target.program_data_address: `target_program_data_address` for us, derived below. */
 
   /* These checks will fail if the core program has already been migrated to BPF, since the account will exist + the program owner
@@ -4298,8 +4260,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244 
-     
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L244
+
      Obtains a `SourceBuffer` account. There are two fields returned:
       - source.buffer_address: source_buffer_address
       - source.buffer_account: the existing buffer account */
@@ -4352,15 +4314,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Failed to write new program state to %s", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
   }
-  
+
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->const_meta->dlen;
   FD_BORROWED_ACCOUNT_DECL( new_target_program_data_account );
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, 
-                           slot_ctx->funk_txn, 
-                           target_program_data_address, 
-                           1, 
-                           new_target_program_data_account_sz, 
+  err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
+                           slot_ctx->funk_txn,
+                           target_program_data_address,
+                           1,
+                           new_target_program_data_account_sz,
                            new_target_program_data_account );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
@@ -4375,9 +4337,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     goto fail;
   }
 
-  /* Deploy the new target Core BPF program. 
+  /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
-  err = fd_directly_invoke_loader_v3_deploy( slot_ctx, 
+  err = fd_directly_invoke_loader_v3_deploy( slot_ctx,
                                              new_target_program_data_account->const_data + PROGRAMDATA_METADATA_SIZE,
                                              new_target_program_data_account->const_meta->dlen - PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( err ) ) {
@@ -4396,15 +4358,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     slot_ctx->slot_bank.capitalization += lamports_to_fund - lamports_to_burn;
   }
 
-  /* Reclaim the source buffer account 
+  /* Reclaim the source buffer account
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L305 */
   source_buffer_account->meta->info.lamports = 0;
   source_buffer_account->meta->dlen = 0;
   fd_memset( source_buffer_account->meta->info.owner, 0, sizeof(fd_pubkey_t) );
-  
+
   /* Publish the in-preparation transaction into the parent. We should not have to create
      a BPF cache entry here because the program is technically "delayed visibility", so the program
-     should not be invokable until the next slot. The cache entry will be created at the end of the 
+     should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
   fd_funk_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
   slot_ctx->funk_txn = parent_txn;
@@ -4492,45 +4454,51 @@ void fd_process_new_epoch(
     new_rate_activation_epoch = NULL;
   }
 
-  /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch );
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  /* Update the stakes epoch value to the new epoch */
-  epoch_bank->stakes.epoch = epoch;
+    fd_epoch_info_t temp_info;
+    fd_epoch_info_new( &temp_info );
 
-  /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
-     This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
-     See the comment in fd_exec_slot_ctx_recover_. */
-  if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
+    /* Updates stake history sysvar accumulated values. */
+    fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch, &temp_info );
+
+    /* Update the stakes epoch value to the new epoch */
+    epoch_bank->stakes.epoch = epoch;
+
+    /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
+       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
+       See the comment in fd_exec_slot_ctx_recover_. */
+    if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
+      fd_update_epoch_stakes( slot_ctx );
+    }
+
+    /* Distribute rewards */
+    fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
+    if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+        FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+      fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch, &temp_info );
+    } else {
+      fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch, &temp_info );
+    }
+
+    /* Updates stakes at time T */
+    fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+
+    refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch, &temp_info );
+    fd_update_stake_delegations( slot_ctx, &temp_info );
+
+    /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
     fd_update_epoch_stakes( slot_ctx );
-  }
 
-  /* Distribute rewards */
-  fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
-         FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
-    fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
-  } else {
-    fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );
-  }
+    /* Replace stakes at T-1 (epoch_bank->next_epoch_stakes) by updated stakes at T (stakes->vote_accounts) */
+    fd_update_next_epoch_stakes( slot_ctx );
 
-  /* Updates stakes at time T */
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+    /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
+    fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
 
-  refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch );
-  fd_update_stake_delegations( slot_ctx );
-
-  /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
-  fd_update_epoch_stakes( slot_ctx );
-
-  /* Replace stakes at T-1 (epoch_bank->next_epoch_stakes) by updated stakes at T (stakes->vote_accounts) */
-  fd_update_next_epoch_stakes( slot_ctx );
-
-  /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
-
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
+    fd_calculate_epoch_accounts_hash_values( slot_ctx );
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
