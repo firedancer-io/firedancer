@@ -254,18 +254,14 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L70 */
 static int
 calculate_points(
-    fd_stake_state_v2_t *       stake_state,
+    fd_stake_t *       stake,
     fd_vote_state_versioned_t * vote_state_versioned,
     fd_stake_history_t const *  stake_history,
     ulong *                     new_rate_activation_epoch,
     uint128 *                   result
 ) {
-    if ( FD_UNLIKELY( !fd_stake_state_v2_is_stake( stake_state ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
-
     fd_calculated_stake_points_t stake_point_result;
-    calculate_stake_points_and_credits( stake_history, &stake_state->inner.stake.stake, vote_state_versioned, new_rate_activation_epoch, &stake_point_result );
+    calculate_stake_points_and_credits( stake_history, stake, vote_state_versioned, new_rate_activation_epoch, &stake_point_result );
     *result = stake_point_result.points;
 
     return FD_EXECUTOR_INSTR_SUCCESS;
@@ -337,14 +333,10 @@ calculate_reward_points_partitioned(
     fd_point_value_t *         result,
     fd_epoch_info_t           *temp_info
 ) {
-  (void) temp_info;
-
     /* There is a cache of vote account keys stored in the slot context */
     /* TODO: check this cache is correct */
 
     uint128 points = 0;
-    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-
     ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
 
     /* Calculate the points for each stake delegation */
@@ -355,44 +347,18 @@ calculate_reward_points_partitioned(
         new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
-         n;
-         n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n )
-    ) {
+    for ( ulong idx = 0; idx < temp_info->infos_len; idx++ ) {
         FD_SCRATCH_SCOPE_BEGIN {
             fd_valloc_t valloc = fd_scratch_virtual();
+            fd_stake_t * stake = &temp_info->infos[idx].stake;
 
-            /* Fetch the stake account */
-            FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
-            fd_pubkey_t const * stake_acc = &n->elem.account;
-            int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec);
-            if ( err != FD_ACC_MGR_SUCCESS && err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_ERR(( "failed to read stake account from funk" ));
-                continue;
-            }
-            if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
-                continue;
-            }
-            if ( stake_acc_rec->const_meta->info.lamports == 0 ) {
-                FD_LOG_DEBUG(( "stake acc with zero lamports %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
-                continue;
-            }
-
-            /* Check the minimum stake delegation */
-            fd_stake_state_v2_t stake_state[1] = {0};
-            err = fd_stake_get_state( stake_acc_rec, &valloc, stake_state );
-            if ( err != 0 ) {
-                FD_LOG_DEBUG(( "get stake state failed" ));
-                continue;
-            }
-            if ( FD_UNLIKELY( stake_state->inner.stake.stake.delegation.stake < minimum_stake_delegation ) ) {
+            if ( FD_UNLIKELY( stake->delegation.stake < minimum_stake_delegation ) ) {
                 continue;
             }
 
             /* Check that the vote account is present in our cache */
             fd_vote_accounts_pair_t_mapnode_t key;
-            fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
+            fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
             fd_memcpy( &key.elem.key, voter_acc, sizeof(fd_pubkey_t) );
             fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank(
                 slot_ctx->epoch_ctx );
@@ -405,8 +371,9 @@ calculate_reward_points_partitioned(
             }
 
             /* Check that the vote account is valid and has the correct owner */
+            // TODO: we need to cache this away...
             FD_BORROWED_ACCOUNT_DECL(voter_acc_rec);
-            err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, voter_acc, voter_acc_rec );
+            int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, voter_acc, voter_acc_rec );
             if ( FD_UNLIKELY( err ) ) {
                 FD_LOG_DEBUG(( "failed to read vote account from funk" ));
                 continue;
@@ -427,91 +394,7 @@ calculate_reward_points_partitioned(
             }
 
             uint128 account_points;
-            err = calculate_points( stake_state, vote_state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
-            if ( FD_UNLIKELY( err ) ) {
-                FD_LOG_DEBUG(( "failed to calculate points" ));
-                continue;
-            }
-
-            points += account_points;
-        } FD_SCRATCH_SCOPE_END;
-    }
-
-    /* TODO: factor this out */
-    /* Calculate points for each stake account in slot_bank.stake_account_keys.stake_accounts_pool */
-    for ( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
-          n;
-          n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
-
-        FD_SCRATCH_SCOPE_BEGIN {
-            fd_valloc_t valloc = fd_scratch_virtual();
-
-            /* Fetch the stake account */
-            FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
-            fd_pubkey_t const * stake_acc = &n->elem.key;
-            int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec);
-            if ( err != FD_ACC_MGR_SUCCESS && err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_ERR(( "failed to read stake account from funk" ));
-                continue;
-            }
-            if ( err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-                FD_LOG_DEBUG(( "stake account not found %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
-                continue;
-            }
-            if ( stake_acc_rec->const_meta->info.lamports == 0 ) {
-                FD_LOG_DEBUG(( "stake acc with zero lamports %s", FD_BASE58_ENC_32_ALLOCA( stake_acc->uc ) ));
-                continue;
-            }
-
-            /* Check the minimum stake delegation */
-            fd_stake_state_v2_t stake_state[1] = {0};
-            err = fd_stake_get_state( stake_acc_rec, &valloc, stake_state );
-            if ( err != 0 ) {
-                FD_LOG_DEBUG(( "get stake state failed" ));
-                continue;
-            }
-            if ( FD_UNLIKELY( stake_state->inner.stake.stake.delegation.stake < minimum_stake_delegation ) ) {
-                continue;
-            }
-
-            /* Check that the vote account is present in our cache */
-            fd_vote_accounts_pair_t_mapnode_t key;
-            fd_pubkey_t const * voter_acc = &stake_state->inner.stake.stake.delegation.voter_pubkey;
-            fd_memcpy( &key.elem.key, voter_acc, sizeof(fd_pubkey_t) );
-            fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank(
-                slot_ctx->epoch_ctx );
-            if ( FD_UNLIKELY( fd_vote_accounts_pair_t_map_find(
-                epoch_bank->stakes.vote_accounts.vote_accounts_pool,
-                epoch_bank->stakes.vote_accounts.vote_accounts_root,
-                &key ) == NULL ) ) {
-                FD_LOG_DEBUG(( "vote account missing from cache" ));
-                continue;
-            }
-
-            /* Check that the vote account is valid and has the correct owner */
-            FD_BORROWED_ACCOUNT_DECL(voter_acc_rec);
-            err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, voter_acc, voter_acc_rec );
-            if ( FD_UNLIKELY( err ) ) {
-                FD_LOG_DEBUG(( "failed to read vote account from funk" ));
-                continue;
-            }
-            if( FD_UNLIKELY( memcmp( &voter_acc_rec->const_meta->info.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
-                FD_LOG_DEBUG(( "vote account has wrong owner" ));
-                continue;
-            }
-            fd_bincode_decode_ctx_t decode = {
-                .data    = voter_acc_rec->const_data,
-                .dataend = voter_acc_rec->const_data + voter_acc_rec->const_meta->dlen,
-                .valloc  = valloc,
-            };
-            fd_vote_state_versioned_t vote_state[1] = {0};
-            if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) ) {
-                FD_LOG_DEBUG(( "vote_state_versioned_decode failed" ));
-                continue;
-            }
-
-            uint128 account_points;
-            err = calculate_points( stake_state, vote_state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
+            err = calculate_points( stake, vote_state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
             if ( FD_UNLIKELY( err ) ) {
                 FD_LOG_DEBUG(( "failed to calculate points" ));
                 continue;
