@@ -112,9 +112,9 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
 }
 
 void
-setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
-                           fd_vm_t *                 vm,
-                           fd_exec_instr_ctx_t *     instr_ctx ) {
+fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
+                              fd_vm_t *                 vm,
+                              fd_exec_instr_ctx_t *     instr_ctx ) {
   /* cur_region is used to figure out what acc region index the account
      corresponds to. */
   uint cur_region = 0UL;
@@ -180,7 +180,7 @@ do{
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+  uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
@@ -272,7 +272,7 @@ do{
 
   // Propagate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Validate the vm
   if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
@@ -380,10 +380,10 @@ do{
 
 
 uint
-setup_vm_input_regions( fd_vm_input_region_t *                   input,
-                        fd_exec_test_input_data_region_t const * test_input,
-                        ulong                                    test_input_count,
-                        fd_valloc_t                              valloc ) {
+fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
+                           fd_exec_test_input_data_region_t const * test_input,
+                           ulong                                    test_input_count,
+                           fd_valloc_t                              valloc ) {
   ulong offset = 0UL;
   uint input_idx = 0UL;
   for( ulong i=0; i<test_input_count; i++ ) {

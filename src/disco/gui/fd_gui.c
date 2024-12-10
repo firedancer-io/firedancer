@@ -1,13 +1,11 @@
 #include "fd_gui.h"
 #include "fd_gui_printf.h"
 
-#include "../fd_disco.h"
+#include "../metrics/fd_metrics.h"
 #include "../plugin/fd_plugin.h"
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"
-
-#include "../../app/fdctl/config.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
