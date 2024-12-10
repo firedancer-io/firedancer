@@ -571,6 +571,13 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
     FD_LOG_ERR(( "[%s] failed to seek to offset %lu", __func__, write_off ));
     return 0;
   }
+  ulong total_sz = sizeof(fd_block_map_t) + sizeof(fd_block_t) + ser->block->data_sz;
+  if ( (write_off >= 0xc30 && write_off <= 0xc30 + sizeof(fd_block_map_t)) || 
+        ( write_off < 0xc30 &&
+          write_off + total_sz > 0xc30)) {
+    FD_LOG_WARNING(("ALERT!"));
+    __asm__("int $3");
+  }
   ulong off = 0;
   ulong wsz; 
   int err = fd_io_write( fd, ser->block_map, sizeof(fd_block_map_t), sizeof(fd_block_map_t), &wsz );
@@ -582,8 +589,9 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
   err = fd_io_write( fd, ser->data, ser->block->data_sz, ser->block->data_sz, &wsz );
   check_read_write_err( err );
   off += wsz;
+  if ( FD_UNLIKELY( off != total_sz ) ) FD_LOG_ERR(("off %lu != total_sz %lu", off, total_sz));
 
-  FD_LOG_NOTICE(( "[%s] archived block %lu at %lu", __func__, slot, write_off ));
+  FD_LOG_NOTICE(( "[%s] archived block %lu at %lu: %lu bytes", __func__, slot, write_off, off ));
   return off;
 }
 
@@ -628,7 +636,7 @@ fd_blockstore_block_data_restore( fd_blockstore_t * blockstore FD_PARAM_UNUSED,
   ulong rsz; 
   int err = fd_io_read( fd, buf_out, data_sz, data_sz, &rsz );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "failed to read block data" ));
+    FD_LOG_WARNING(( "failed to read block data: %s", strerror( errno ) ));
     return FD_BLOCKSTORE_ERR_SLOT_MISSING;
   }
   return FD_BLOCKSTORE_OK;
@@ -640,7 +648,6 @@ fd_blockstore_checkpt_write_offset( fd_blockstore_t * blockstore, int fd, fd_blo
     FD_LOG_WARNING(( "[%s] fd is -1", __func__ ));
     return 0;
   }
-  //__asm__("int $3");
 
   if ( blockstore->fd_size_max - blockstore->off < sizeof(fd_block_map_t) + sizeof(fd_block_t) + ser->block->data_sz ) {
     FD_LOG_INFO(( "[%s] not enough space in archival file for block, jumping to 0", __func__ ));
@@ -658,11 +665,21 @@ fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, fd_block_map_t * blo
     if ( lrw_block_index && write_off <= lrw_block_index->off){
       // we are chancing overwriting the lrw block
       // we need to update the lrw block index to the next block
+
+      // Special case: if block was too large to overwrite the LRW at the end of the file
+      // we need to cycle back to the beginning of the file, and cancel the LRW blocks at the end
+      if ( write_off == 0){
+        while ( lrw_block_index->off != 0){
+          blockstore->lrw_slot = lrw_block_index->next;
+          fd_block_idx_remove( block_idx, lrw_block_index );
+          lrw_block_index = fd_block_idx_query(block_idx, blockstore->lrw_slot, NULL);
+        }
+      }
+
       ulong new_last_offset = write_off + wsz;
-      //__asm__("int $3");
       while( lrw_block_index 
              && lrw_block_index->off < new_last_offset // if this covers the lrw below it
-             && write_off <= lrw_block_index->off      // if the lru block has cycled back to top of file
+             && write_off <= lrw_block_index->off      // handles if the lru block has cycled back to top of file
              // it's not possible that write_off <= lrw_block_index->off + lrw_wsz, 
              // no matter how large lrw_wsz is.
            ){
@@ -1230,6 +1247,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
   }
 
   if ( FD_UNLIKELY( off < ULONG_MAX ) ) { /* optimize for non-archival queries */
+    FD_LOG_NOTICE(("Querying archive for slot %lu", slot));
     fd_block_t block_out;
     int err = fd_blockstore_block_meta_restore( blockstore, fd, idx_entry, block_map_entry_out, &block_out );
     if( FD_UNLIKELY( err ) ) {
@@ -1256,7 +1274,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     *block_data_sz_out     = block_out.data_sz;
     return FD_BLOCKSTORE_OK;
   }
-
+  FD_LOG_NOTICE(("Querying memory for slot %lu", slot));
   fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
   uchar * prev_data_out = NULL;
   ulong prev_sz = 0;

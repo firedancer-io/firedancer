@@ -733,7 +733,7 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
                              ulong slot );
 
 /* Performs any block index & lrw/mrw updates after archiving a block. Returns the new lrw. */
-ulong
+void
 fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, 
                               fd_block_map_t * block_map_entry, 
                               ulong slot, 
