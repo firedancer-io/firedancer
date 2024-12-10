@@ -4422,6 +4422,8 @@ void fd_process_new_epoch(
     fd_exec_slot_ctx_t *slot_ctx,
     ulong parent_epoch )
 {
+  FD_LOG_NOTICE(( "fd_process_new_epoch start" ));
+
   ulong slot;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot);
@@ -4478,6 +4480,7 @@ void fd_process_new_epoch(
     fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
     if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
         FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+      FD_LOG_NOTICE(( "fd_begin_partitioned_rewards" ));
       fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch, &temp_info );
     } else {
       fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch, &temp_info );
@@ -4486,6 +4489,8 @@ void fd_process_new_epoch(
     /* Updates stakes at time T */
     fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
     if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+
+    FD_LOG_NOTICE(( "refresh_vote_accounts" ));
 
     refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch, &temp_info );
     fd_update_stake_delegations( slot_ctx, &temp_info );
@@ -4501,6 +4506,8 @@ void fd_process_new_epoch(
 
     fd_calculate_epoch_accounts_hash_values( slot_ctx );
   } FD_SCRATCH_SCOPE_END;
+
+  FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
