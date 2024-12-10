@@ -306,12 +306,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
           .status = FD_LOADER_V4_STATUS_ENUM_RETRACTED,
           .authority_address_or_next_version = *authority_address,
         };
-        fd_bincode_encode_ctx_t ctx = {
-          .data    = program->data,
-          .dataend = program->data + LOADER_V4_PROGRAM_DATA_OFFSET,
-        };
-
-        err = fd_loader_v4_state_encode( &state, &ctx );
+        err = fd_loader_v4_set_state( instr_ctx, 0UL, &state );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
