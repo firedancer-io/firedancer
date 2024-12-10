@@ -516,6 +516,13 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
+  fd_funk_rec_key_t key;
+  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_TOMBSTONES;
+  fd_funk_rec_t * tombstones = fd_funk_rec_write_prepare( funk, txn, &key, 5120008, 1, NULL, NULL );
+  uchar * tombstone_rec  = fd_funk_val( tombstones, fd_funk_wksp( funk ) );
+  ulong * tombestone_cnt = (ulong *)tombstone_rec;
+  uchar * tombstone_data = tombstone_rec + sizeof(ulong);
+
   for( ulong i = 0; i < task_data.info_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
     /* Upgrade to writable record */
@@ -523,10 +530,14 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
+    /* TODO:FIXME: Figure out how to unroll this hack... */
+
     if( false ) {
-      fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec), 1);
+      fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, task_info->rec ), 1 );
     }
 
+    fd_memcpy( tombstone_data + *tombestone_cnt * sizeof(fd_pubkey_t), task_info->acc_pubkey, sizeof(fd_pubkey_t) );
+    *tombestone_cnt += 1UL;
   }
 
   // Sanity-check LT Hash
@@ -1223,6 +1234,8 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
   }
   return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, accounts_hash );
 }
+
+/* TODO: Combine with the above to get correct snapshot hash verification. */
 
 int
 fd_snapshot_service_hash( fd_hash_t       * accounts_hash,

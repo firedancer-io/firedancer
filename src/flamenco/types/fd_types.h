@@ -2614,7 +2614,6 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   uint cluster_version[3];
   fd_vote_accounts_t next_epoch_stakes;
   fd_epoch_schedule_t rent_epoch_schedule;
-  fd_hard_forks_t hard_forks;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
@@ -2639,7 +2638,6 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank_off {
   uint cluster_version_off;
   uint next_epoch_stakes_off;
   uint rent_epoch_schedule_off;
-  uint hard_forks_off;
 };
 typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
 #define FD_EPOCH_BANK_OFF_FOOTPRINT sizeof(fd_epoch_bank_off_t)
@@ -2674,6 +2672,7 @@ struct __attribute__((aligned(128UL))) fd_slot_bank {
   ulong tick_height;
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
+  fd_hard_forks_t hard_forks;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2706,6 +2705,7 @@ struct __attribute__((aligned(128UL))) fd_slot_bank_off {
   uint parent_signature_cnt_off;
   uint tick_height_off;
   uint use_preceeding_epoch_stakes_off;
+  uint hard_forks_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)

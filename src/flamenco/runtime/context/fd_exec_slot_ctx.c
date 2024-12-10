@@ -307,14 +307,12 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* The hard forks should be deep copied over.
      TODO:This should be in the epoch bank and not the slot bank. */
-  epoch_bank->hard_forks                = oldbank->hard_forks;
-  epoch_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
-  epoch_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_valloc, 
+  slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
+  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc, 
                                                             FD_SLOT_PAIR_ALIGN, 
                                                             oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
-  for( ulong i=0UL; i < oldbank->hard_forks.hard_forks_len; i++ ) {
-    epoch_bank->hard_forks.hard_forks[i] = oldbank->hard_forks.hard_forks[i];
-  }
+  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks, 
+          oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152

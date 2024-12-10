@@ -363,7 +363,9 @@ after_credit( fd_snapshot_tile_ctx_t * ctx         FD_PARAM_UNUSED,
   }
 
   if( is_incremental ) {
-    FD_LOG_ERR(( "Terminating out" ));
+    //FD_LOG_ERR(( "Terminating out" ));
+    FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
+    FD_LOG_ERR(("Successful exit" ));
   }
 
   FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
