@@ -30,13 +30,13 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
    TODO: Potentially replace with shared function in fd_vm_syscall_pda.c */
 
 int
-fd_pubkey_derive_pda( fd_exec_instr_ctx_t const * ctx,
-                      fd_pubkey_t const *         program_id, 
-                      ulong                       seeds_cnt, 
-                      uchar **                    seeds, 
-                      ulong *                     seed_szs,
-                      uchar *                     bump_seed, 
-                      fd_pubkey_t *               out );
+fd_pubkey_derive_pda( fd_pubkey_t const * program_id, 
+                      ulong               seeds_cnt, 
+                      uchar **            seeds, 
+                      ulong *             seed_szs,
+                      uchar *             bump_seed, 
+                      fd_pubkey_t *       out,
+                      uint *              custom_err );
 
 /* fd_pubkey_find_program_address mirrors the vm syscall function 
    fd_vm_syscall_sol_try_find_program_address and creates a valid
@@ -47,13 +47,13 @@ fd_pubkey_derive_pda( fd_exec_instr_ctx_t const * ctx,
    TODO: Potentially replace with shared function in fd_vm_syscall_pda.c */
 
 int
-fd_pubkey_find_program_address( fd_exec_instr_ctx_t const * ctx,
-                                fd_pubkey_t const *         program_id, 
-                                ulong                       seeds_cnt, 
-                                uchar **                    seeds,
-                                ulong *                     seed_szs,
-                                fd_pubkey_t *               out,
-                                uchar *                     out_bump_seed );
+fd_pubkey_find_program_address( fd_pubkey_t const * program_id, 
+                                ulong               seeds_cnt, 
+                                uchar **            seeds,
+                                ulong *             seed_szs,
+                                fd_pubkey_t *       out,
+                                uchar *             out_bump_seed,
+                                uint *              custom_err );
 
 
 FD_PROTOTYPES_END

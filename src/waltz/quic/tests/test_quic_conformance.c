@@ -37,6 +37,16 @@ test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
   FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
   FD_TEST( conn->reason == FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
+
+  /* Test shm log infra */
+  fd_frag_meta_t const * log_rec = fd_quic_log_rx_tail( sandbox->log_rx, 0UL );
+  FD_TEST( fd_quic_log_sig_event( log_rec->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  FD_TEST( log_rec->sz == sizeof(fd_quic_log_error_t) );
+  fd_quic_log_error_t const * error = fd_quic_log_rx_data_const( sandbox->log_rx, log_rec->chunk );
+  FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
+  FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
+  FD_LOG_DEBUG(( "Flow control error emitted by %s(%u)", error->src_file, error->src_line ));
+
 }
 
 /* RFC 9000 Section 4.6. Controlling Concurrency
@@ -64,6 +74,14 @@ test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
   FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
   FD_TEST( conn->reason == FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+
+  /* Test shm log infra */
+  fd_frag_meta_t const * log_rec = fd_quic_log_rx_tail( sandbox->log_rx, 0UL );
+  FD_TEST( fd_quic_log_sig_event( log_rec->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t const * error = fd_quic_log_rx_data_const( sandbox->log_rx, log_rec->chunk );
+  FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+  FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
+  FD_LOG_DEBUG(( "Stream limit error emitted by %s(%u)", error->src_file, error->src_line ));
 }
 
 /* Ensure that worst-case stream pool allocations are bounded.
@@ -213,6 +231,40 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
 }
 
+/* Ensure that outgoing ACKs and metrics are done correctly if incoming
+   packets skip packet numbers aggressively. */
+
+void
+test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
+                       fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t *    conn    = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_ack_gen_t * ack_gen = conn->ack_gen;
+  fd_quic_metrics_t * metrics = &conn->quic->metrics;
+  FD_TEST( ack_gen->tail==0 && ack_gen->head==0 );
+
+  /* Fill the ACK TX buffer with pending ACK frames */
+  ulong pktnum = 60UL;
+  for( ulong j=0UL; j<FD_QUIC_ACK_QUEUE_CNT; j++ ) {
+    fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum );
+    pktnum += 2UL;
+  }
+  FD_TEST( metrics->pkt_decrypt_fail_cnt==0 );
+  FD_TEST( ack_gen->head - ack_gen->tail == FD_QUIC_ACK_QUEUE_CNT );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NOOP   ] == 0                     );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW    ] == FD_QUIC_ACK_QUEUE_CNT );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_MERGED ] == 0                     );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_ENOSPC ] == 0                     );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_CANCEL ] == 0                     );
+
+  /* Overflow the ACK queue */
+  fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum );
+  pktnum += 2UL;
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_ENOSPC ] == 1 );
+
+}
+
 static __attribute__((noinline)) void
 test_quic_parse_path_challenge( void ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
@@ -232,8 +284,6 @@ test_quic_parse_path_challenge( void ) {
     FD_TEST( fd_quic_decode_path_response_frame( path_response, data, 10UL )==9UL );
   } while(0);
 }
-
-/* Test FIN arriving out of place */
 
 int
 main( int     argc,
@@ -277,8 +327,7 @@ main( int     argc,
       /* size  */ fd_quic_sandbox_footprint( &quic_limits, pkt_cnt, pkt_mtu ),
       /* tag   */ 1UL );
 
-  fd_quic_sandbox_t * sandbox = fd_quic_sandbox_join( fd_quic_sandbox_new(
-      sandbox_mem, &quic_limits, pkt_cnt, pkt_mtu ) );
+  fd_quic_sandbox_t * sandbox = fd_quic_sandbox_new( sandbox_mem, &quic_limits, pkt_cnt, pkt_mtu );
   FD_TEST( sandbox );
 
   /* Run tests */
@@ -287,11 +336,12 @@ main( int     argc,
   test_quic_stream_concurrency           ( sandbox, rng );
   test_quic_ping_frame                   ( sandbox, rng );
   test_quic_server_alpn_fail             ( sandbox, rng );
+  test_quic_pktnum_skip                  ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */
 
-  fd_wksp_free_laddr( fd_quic_sandbox_delete( fd_quic_sandbox_leave( sandbox ) ) );
+  fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );
   fd_wksp_delete_anonymous( wksp );
   fd_rng_delete( fd_rng_leave( rng ) );
 

@@ -5,6 +5,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_stream.h"
+#include "log/fd_quic_log_tx.h"
 #include "fd_quic_pkt_meta.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
@@ -74,6 +75,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Various internal state */
 
+  fd_quic_log_tx_t        log_tx[1];
   uint                    free_conn_list; /* free list of unused connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_tls_t           tls[1];
@@ -366,18 +368,6 @@ int
 fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
                       fd_quic_conn_t *      conn,
                       fd_quic_pkt_t const * pkt );
-
-/* fd_quic_conn_error sets the connection state to aborted.  This does
-   not destroy the connection object.  Rather, it will eventually cause
-   the connection to be freed during a later fd_quic_service call.
-   reason is an RFC 9000 QUIC error code.  error_line is an
-   implementation defined error code for internal use (usually the
-   source line of code in fd_quic.c) */
-
-void
-fd_quic_conn_error( fd_quic_conn_t * conn,
-                    uint             reason,
-                    uint             error_line );
 
 static inline fd_quic_conn_t *
 fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {

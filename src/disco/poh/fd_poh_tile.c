@@ -803,9 +803,9 @@ fd_poh_tile_process_packed_microblock( fd_poh_tile_ctx_t * ctx,
 
 void
 fd_poh_tile_during_housekeeping( fd_poh_tile_ctx_t * ctx ) {
-  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
-  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
-  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
+  FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
+  FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
 fd_poh_tile_ctx_t *
@@ -842,12 +842,12 @@ fd_poh_tile_new( void * scratch,
 
   ctx->microblocks_lower_bound = 0UL;
 
-  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
-                                                        FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ),
-                                                            FD_MHIST_SECONDS_MAX( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
-  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH_TILE, SLOT_DONE_DELAY_SECONDS  ),
-                                                     FD_MHIST_SECONDS_MAX( POH_TILE, SLOT_DONE_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH, BEGIN_LEADER_DELAY_SECONDS ),
+                                                        FD_MHIST_SECONDS_MAX( POH, BEGIN_LEADER_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ),
+                                                            FD_MHIST_SECONDS_MAX( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH, SLOT_DONE_DELAY_SECONDS  ),
+                                                     FD_MHIST_SECONDS_MAX( POH, SLOT_DONE_DELAY_SECONDS  ) ) );
 
   ctx->arg = arg;
   ctx->get_microblock_buffer_func = get_microblock_buffer_func;

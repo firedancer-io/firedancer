@@ -6,6 +6,7 @@
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../ballet/pack/fd_pack.h"
+#include "../../../../ballet/pack/fd_pack_pacing.h"
 
 #include <linux/unistd.h>
 
@@ -137,6 +138,10 @@ typedef struct {
   ulong slot_max_data;
   int   larger_shred_limits_per_block;
 
+  /* Cost limit (in cost units) for each block.  Typically
+     FD_PACK_MAX_COST_PER_BLOCK or LARDER_MAX_COST_PER_BLOCK. */
+  ulong slot_max_cost;
+
   /* If drain_banks is non-zero, then the pack tile must wait until all
      banks are idle before scheduling any more microblocks.  This is
      primarily helpful in irregular leader transitions, e.g. while being
@@ -159,6 +164,14 @@ typedef struct {
      after_frag in case the tile gets overrun. */
   long _slot_end_ns;
   long slot_end_ns;
+
+  /* pacer and ticks_per_ns are used for pacing CUs through the slot,
+     i.e. deciding when to schedule a microblock given the number of CUs
+     that have been consumed so far.  pacer is an opaque pacing object,
+     which is initialized when the pack tile is packing a slot.
+     ticks_per_ns is the cached value from tempo. */
+  fd_pack_pacing_t pacer[1];
+  double           ticks_per_ns;
 
   /* last_successful_insert stores the tickcount of the last
      successful transaction insert. */
@@ -190,6 +203,7 @@ typedef struct {
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
   int      use_consumed_cus;
   long     skip_cnt;
+  long     schedule_next; /* the tick value at which to schedule the next block for pacing purposes */
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -203,7 +217,9 @@ typedef struct {
 
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
+  fd_histf_t no_sched_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
+  fd_histf_t complete_duration[ 1 ];
 
   struct {
     uint metric_state;
@@ -271,7 +287,9 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
+  FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
+  FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
 
   fd_pack_metrics_write( ctx->pack );
 }
@@ -341,6 +359,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
+
+  if( FD_UNLIKELY( now<ctx->schedule_next ) ) return;
 
   ulong bank_cnt = ctx->bank_cnt;
 
@@ -464,20 +484,25 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
-    /* TODO: You can maybe make the case that this should happen as soon
+    /* You can maybe make the case that this should happen as soon
        as we detect the bank has become idle, but doing it now probably
        helps with account locality. */
-    fd_pack_microblock_complete( ctx->pack, (ulong)i );
+    long complete_duration = -fd_tickcount();
+    int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
+    complete_duration      += fd_tickcount();
+    if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
     schedule_duration      += fd_tickcount();
-    fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
+    fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
-      ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+      long  now2   = fd_tickcount();
+      ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed bank was idle */
+      ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
       ulong chunk  = ctx->out_chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
@@ -485,14 +510,15 @@ after_credit( fd_pack_ctx_t *     ctx,
       trailer->microblock_idx = ctx->slot_microblock_cnt;
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
+      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, tsorig, tspub );
       ctx->bank_expect[ i ] = stem->seqs[0]-1UL;
-      ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
+      ctx->bank_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt++;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
+      ctx->schedule_next    = fd_pack_pacing_next( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
     }
   }
 
@@ -553,6 +579,9 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
+  long now_ticks = fd_tickcount();
+  long now_ns    = fd_log_wallclock();
+
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
       ctx->drain_banks         = 1;
@@ -571,6 +600,14 @@ during_frag( fd_pack_ctx_t * ctx,
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
                                       - 48UL*(became_leader->ticks_per_slot+became_leader->total_skipped_ticks);
+    /* ticks_per_ns is probably relatively stable over 400ms, but not
+       over several hours, so we need to compute the slot duration in
+       milliseconds first and then convert to ticks.  This doesn't need
+       to be super accurate, but we don't want it to vary wildly. */
+    long end_ticks = now_ticks + (long)((double)fd_long_max( became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
+    /* We may still get overrun, but then we'll never use this and just
+       reinitialize it the next time when we actually become leader. */
+    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, ctx->slot_max_cost );
 
     FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, became_leader->slot_end_ns ));
 
@@ -696,6 +733,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
+    ctx->schedule_next = fd_pack_pacing_next( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
   case IN_KIND_BUNDLE: {
@@ -708,6 +746,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
     ctx->pending_rebate_cnt = 0UL;
+    ctx->schedule_next      = fd_pack_pacing_next( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
   case IN_KIND_RESOLV: {
@@ -747,6 +786,8 @@ unprivileged_init( fd_topo_t *      topo,
     .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
+
+  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-1UL ));
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, tile->pack.bank_tile_count, limits );
 
@@ -792,7 +833,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
+  ctx->slot_max_cost                 = limits->max_cost_per_block;
+  ctx->drain_banks                   = 0;
+  ctx->approx_wallclock_ns           = fd_log_wallclock();
   ctx->rng                           = rng;
+  ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_slot         = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
@@ -839,8 +884,12 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
   fd_histf_join( fd_histf_new( ctx->schedule_duration, FD_MHIST_SECONDS_MIN( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->no_sched_duration, FD_MHIST_SECONDS_MIN( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS  ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing, '\0', 16*sizeof(long) );

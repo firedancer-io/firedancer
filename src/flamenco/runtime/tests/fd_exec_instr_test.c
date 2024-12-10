@@ -191,7 +191,7 @@ _load_txn_account( fd_borrowed_account_t *           acc,
   return _load_account( acc, acc_mgr, funk_txn, &account_state_to_save );
 }
 
-int
+static int
 _restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
                         fd_exec_test_feature_set_t const * feature_set ) {
   fd_features_disable_all( &epoch_ctx->features );
@@ -280,11 +280,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
-  memset( txn_descriptor, 0, fd_txn_footprint( 1UL, 0UL ) );
-  fd_rawtxn_b_t txn_raw[1];
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
-  fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
+  fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   txn_ctx->funk_txn                = funk_txn;
   txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
@@ -312,15 +309,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     REPORT( NOTICE, "too many accounts" );
     return 0;
   }
-
-  /* Precompiles are allowed to read data from all instructions.
-     We need to at least set pointers to the current instruction.
-     Note: for simplicity we point the entire raw tx data to the
-     instruction data, this is probably something we can improve. */
-  txn_descriptor->instr_cnt = 1;
-  txn_ctx->_txn_raw->raw = info->data;
-  txn_descriptor->instr[0].data_off = 0;
-  txn_descriptor->instr[0].data_sz = info->data_sz;
 
   /* Load accounts into database */
 
@@ -1425,14 +1413,14 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         txn_result->instruction_error = (uint32_t) -task_info->txn_ctx->exec_err;
         txn_result->instruction_error_index = (uint32_t) task_info->txn_ctx->instr_err_idx;
 
-        /* 
-        TODO: precompile error codes are not conformant, so we're ignoring custom error codes for them for now. This should be revisited in the future. 
+        /*
+        TODO: precompile error codes are not conformant, so we're ignoring custom error codes for them for now. This should be revisited in the future.
         For now, only precompiles throw custom error codes, so we can ignore all custom error codes thrown in the sanitization phase. If this changes,
         this logic will have to be revisited.
 
         if( task_info->txn_ctx->exec_err == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
           txn_result->custom_error = txn_ctx->custom_err;
-        } 
+        }
         */
       }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -1712,7 +1700,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   uint input_regions_count = 0U;
   if( !!(input->vm_ctx.input_data_regions_count) ) {
     input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+    input_regions_count = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
     if ( !input_regions_count ) {
       goto error;
     }
@@ -1730,7 +1718,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
   uchar program_id_idx = ctx->instr->program_id;
-  uchar is_deprecated = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) && 
+  uchar is_deprecated = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
                         ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   fd_vm_init(
@@ -1755,11 +1743,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     NULL,
     is_deprecated,
     FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping ) );
-
-  // Setup the vm state for execution
-  if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
-    goto error;
-  }
 
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously
@@ -1790,7 +1773,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   // Propogate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Look up the syscall to execute
   char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;
@@ -1823,10 +1806,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
         access violations in Agave. The agave_access_violation_mask bitset sets
         the error codes that are expected to be access violations in Agave. */
     if( is_cpi &&
-      ( syscall_err == FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS ||
-        syscall_err == FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE ||
-        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
-        syscall_err == FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
+      ( syscall_err == FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||
+        syscall_err == FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE ||
+        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
+        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
 
       /* FD performs pre-flight checks that manifest as access violations in Agave */
       vm->instr_ctx->txn_ctx->exec_err      = FD_VM_ERR_EBPF_ACCESS_VIOLATION;

@@ -251,12 +251,12 @@ metrics_write( fd_net_ctx_t * ctx ) {
     tx_sz  += ctx->xsk_aio[ 1 ]->metrics.tx_sz;
   }
 
-  FD_MCNT_SET( NET_TILE, RECEIVED_PACKETS, rx_cnt );
-  FD_MCNT_SET( NET_TILE, RECEIVED_BYTES,   rx_sz  );
-  FD_MCNT_SET( NET_TILE, SENT_PACKETS,     tx_cnt );
-  FD_MCNT_SET( NET_TILE, SENT_BYTES,       tx_sz  );
+  FD_MCNT_SET( NET, RECEIVED_PACKETS, rx_cnt );
+  FD_MCNT_SET( NET, RECEIVED_BYTES,   rx_sz  );
+  FD_MCNT_SET( NET, SENT_PACKETS,     tx_cnt );
+  FD_MCNT_SET( NET, SENT_BYTES,       tx_sz  );
 
-  FD_MCNT_SET( NET_TILE, TX_DROPPED, ctx->metrics.tx_dropped_cnt );
+  FD_MCNT_SET( NET, TX_DROPPED, ctx->metrics.tx_dropped_cnt );
 }
 
 static void
@@ -295,8 +295,8 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
     FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
 
   if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v1) ) ) {
-    FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
-    FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_RING_FULL, stats.rx_ring_full );
+    FD_MCNT_SET( NET, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
+    FD_MCNT_SET( NET, XDP_RX_DROPPED_RING_FULL, stats.rx_ring_full );
 
     FD_TEST( !stats.rx_invalid_descs );
     FD_TEST( !stats.tx_invalid_descs );
@@ -305,7 +305,7 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
     // FD_TEST( !stats.rx_fill_ring_empty_descs );
     // FD_TEST( !stats.tx_ring_empty_descs );
   } else if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v0) ) ) {
-    FD_MCNT_SET( NET_TILE, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
+    FD_MCNT_SET( NET, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
 
     FD_TEST( !stats.rx_invalid_descs );
     FD_TEST( !stats.tx_invalid_descs );

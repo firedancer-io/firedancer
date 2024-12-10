@@ -16,7 +16,7 @@
 #include "fd_quic_trace.h"
 #include "../fddev.h"
 #include "../../../disco/quic/fd_quic_tile.h"
-#include "../../../tango/fseq/fd_fseq.h"
+#include "../../../waltz/quic/log/fd_quic_log_user.h"
 
 /* Define global variables */
 
@@ -25,12 +25,23 @@ fd_quic_ctx_t const * fd_quic_trace_ctx_remote;
 ulong                 fd_quic_trace_ctx_raddr;
 ulong **              fd_quic_trace_target_fseq;
 ulong volatile *      fd_quic_trace_link_metrics;
+void const *          fd_quic_trace_log_base;
+
+#define EVENT_STREAM 0
+#define EVENT_ERROR  1
 
 void
 quic_trace_cmd_args( int *    pargc,
                      char *** pargv,
                      args_t * args ) {
-  (void)pargc; (void)pargv; (void)args;
+  char const * event = fd_env_strip_cmdline_cstr( pargc, pargv, "--event", NULL, "stream" );
+  if( 0==strcmp( event, "stream" ) ) {
+    args->quic_trace.event = EVENT_STREAM;
+  } else if( 0==strcmp( event, "error" ) ) {
+    args->quic_trace.event = EVENT_ERROR;
+  } else {
+    FD_LOG_ERR(( "Unsupported QUIC event type \"%s\"", event ));
+  }
 }
 
 void
@@ -92,6 +103,16 @@ quic_trace_cmd_fn( args_t *         args,
     fd_quic_trace_target_fseq[ i ] = quic_tile->in_link_fseq[ i ];
   }
 
+  /* Locate log buffer */
+
+  void * log = (void *)( (ulong)quic + quic->layout.log_off );
+  fd_quic_log_rx_t log_rx[1];
+  FD_LOG_DEBUG(( "Joining quic_log" ));
+  if( FD_UNLIKELY( !fd_quic_log_rx_join( log_rx, log ) ) ) {
+    FD_LOG_ERR(( "fd_quic_log_rx_join failed" ));
+  }
+  fd_quic_trace_log_base = log_rx->base;
+
   /* Redirect metadata writes to dummy buffers.
      Without this hack, stem_run would attempt to write metadata updates
      into the target topology which is read-only. */
@@ -102,20 +123,21 @@ quic_trace_cmd_fn( args_t *         args,
   fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( quic_tile->in_cnt, quic_tile->out_cnt ) );
   fd_metrics_register( metrics );
 
-  /* ... redirect fseq updates */
-  for( ulong i=0UL; i<quic_tile->in_cnt; i++ ) {
-    if( !quic_tile->in_link_poll[ i ] ) continue;
-    void * fseq_mem = aligned_alloc( fd_fseq_align(), fd_fseq_footprint() );
-    if( !fseq_mem ) FD_LOG_ERR(( "out of memory" ));
-    quic_tile->in_link_fseq[ i ] = fd_fseq_join( fd_fseq_new( fseq_mem, ULONG_MAX ) );
-  }
-
   fd_quic_trace_link_metrics = fd_metrics_link_in( fd_metrics_base_tl, 0 );
 
   /* Join net->quic link consumer */
 
   FD_LOG_NOTICE(( "quic-trace starting ..." ));
-  fd_topo_run_tile_t * rx_tile = &fd_tile_quic_trace_rx;
-  rx_tile->privileged_init( topo, quic_tile );
-  rx_tile->run( topo, quic_tile );
+  switch( args->quic_trace.event ) {
+  case EVENT_STREAM:
+    fd_quic_trace_rx_tile( net_quic->mcache );
+    break;
+  case EVENT_ERROR:
+    fd_quic_trace_log_tile( log_rx->mcache );
+    break;
+  default:
+    __builtin_unreachable();
+  }
+
+  fd_quic_log_rx_leave( log_rx );
 }

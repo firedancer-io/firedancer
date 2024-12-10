@@ -933,7 +933,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
             Penalty treap                1.0 at <= 100 transactions, then sqrt(100/N)
 
        We'll also use M=8. */
-    float worst_score = INFINITY;
+    float worst_score = FLT_MAX;
     fd_pack_ord_txn_t * worst = NULL;
     for( ulong i=0UL; i<8UL; i++ ) {
       ulong sample_i = fd_rng_uint_roll( pack->rng, (uint)(pack->pack_depth+1UL) );
@@ -1078,6 +1078,10 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
   } else {
     ord->root = fd_int_if( is_vote, FD_ORD_TXN_ROOT_PENDING_VOTE, FD_ORD_TXN_ROOT_PENDING );
+
+    fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
+    smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est       );
+    smallest->bytes = fd_ulong_min( smallest->bytes, txne->txnp->payload_sz );
   }
 
   pack->pending_txn_cnt++;
@@ -1086,10 +1090,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
-
-  fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
-  smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est       );
-  smallest->bytes = fd_ulong_min( smallest->bytes, txne->txnp->payload_sz );
 
   if( FD_LIKELY( is_vote ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
@@ -1103,8 +1103,11 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
-  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
+  ulong pending_votes = treap_ele_cnt( pack->pending_votes );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,       pack->pending_txn_cnt                                                  );
+  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS,  pending_votes                                                          );
+  FD_MGAUGE_SET( PACK, CONFLICTING_TRANSACTIONS,     pack->pending_txn_cnt - treap_ele_cnt( pack->pending ) - pending_votes );
+  FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION, pack->pending_smallest->cus                                            );
 }
 
 typedef struct {
@@ -1420,13 +1423,16 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   return to_return;
 }
 
-void
+int
 fd_pack_microblock_complete( fd_pack_t * pack,
                              ulong       bank_tile ) {
   /* If the account is in use writably, and it's in use by this banking
      tile, then this banking tile must be the sole writer to it, so it's
      always okay to clear the writable bit. */
   ulong clear_mask = ~((1UL<<bank_tile) | FD_PACK_IN_USE_WRITABLE);
+
+  /* If nothing outstanding, bail quickly */
+  if( FD_UNLIKELY( !(pack->outstanding_microblock_mask & (1UL<<bank_tile)) ) ) return 0;
 
   FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
   FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
@@ -1503,6 +1509,9 @@ fd_pack_microblock_complete( fd_pack_t * pack,
         best->root = FD_ORD_TXN_ROOT_PENDING;
         treap_ele_insert( pack->pending,               best, pack->pool );
 
+        pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est             );
+        pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
+
         if( FD_UNLIKELY( !treap_ele_cnt( best_penalty->penalty_treap ) ) ) {
           treap_delete( treap_leave( best_penalty->penalty_treap ) );
           /* Removal invalidates any pointers we got from
@@ -1524,6 +1533,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   /* outstanding_microblock_mask never has the writable bit set, so we
      don't care about clearing it here either. */
   pack->outstanding_microblock_mask &= clear_mask;
+  return 1;
 }
 
 
@@ -1559,15 +1569,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong byte_limit = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
 
   sched_return_t status, status1;
-
-  /* Try to schedule non-vote transactions */
-  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       use_by_bank_txn, out+scheduled );
-
-  scheduled                   += status.txns_scheduled;            txn_limit  -= status.txns_scheduled;
-  pack->cumulative_block_cost += status.cus_scheduled;             cu_limit   -= status.cus_scheduled;
-  pack->data_bytes_consumed   += status.bytes_scheduled;           byte_limit -= status.bytes_scheduled;
-  use_by_bank_txn += status.txns_scheduled;
-
 
   /* Schedule vote transactions */
   status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
@@ -1610,7 +1611,8 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   return scheduled;
 }
 
-ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack ) { return pack->bank_tile_cnt;   }
+ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
+ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
 
 
 void

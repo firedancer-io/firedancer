@@ -62,27 +62,17 @@ fd_quic_align( void ) {
   return FD_QUIC_ALIGN;
 }
 
-/* fd_quic_layout_t describes the memory layout of an fd_quic_t */
-struct fd_quic_layout {
-  ulong conns_off;       /* offset of connection mem region  */
-  ulong conn_footprint;  /* sizeof a conn                    */
-  ulong conn_map_off;    /* offset of conn map mem region    */
-  int   lg_slot_cnt;     /* see conn_map_new                 */
-  ulong hs_pool_off;     /* offset of the handshake pool     */
-  ulong stream_pool_off; /* offset of the stream pool        */
-};
-typedef struct fd_quic_layout fd_quic_layout_t;
-
 /* fd_quic_footprint_ext returns footprint of QUIC memory region given
    limits. Also writes byte offsets to given layout struct. */
 static ulong
 fd_quic_footprint_ext( fd_quic_limits_t const * limits,
                        fd_quic_layout_t *       layout ) {
-
+  memset( layout, 0, sizeof(fd_quic_layout_t) );
   if( FD_UNLIKELY( !limits ) ) return 0UL;
 
   ulong  conn_cnt         = limits->conn_cnt;
   ulong  conn_id_cnt      = limits->conn_id_cnt;
+  ulong  log_depth        = limits->log_depth;
   ulong  handshake_cnt    = limits->handshake_cnt;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
@@ -94,6 +84,8 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
 
   if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT ))
     return 0UL;
+
+  layout->meta_sz = sizeof(fd_quic_layout_t);
 
   ulong offs  = 0;
 
@@ -141,6 +133,13 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
     layout->stream_pool_off = 0UL;
   }
 
+  /* allocate space for quic_log_buf */
+  offs = fd_ulong_align_up( offs, fd_quic_log_buf_align() );
+  layout->log_off = offs;
+  ulong log_footprint = fd_quic_log_buf_footprint( log_depth );
+  if( FD_UNLIKELY( !log_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_log_buf_footprint for depth %lu", log_depth )); return 0UL; }
+  offs += log_footprint;
+
   return offs;
 }
 
@@ -180,7 +179,8 @@ fd_quic_new( void * mem,
     return NULL;
   }
 
-  ulong footprint = fd_quic_footprint( limits );
+  fd_quic_layout_t layout;
+  ulong footprint = fd_quic_footprint_ext( limits, &layout );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "invalid footprint for config" ));
     return NULL;
@@ -191,8 +191,15 @@ fd_quic_new( void * mem,
   /* Clear fd_quic_t memory region */
   fd_memset( quic, 0, footprint );
 
-  /* Set limits */
-  memcpy( &quic->limits, limits, sizeof( fd_quic_limits_t ) );
+  /* Copy layout descriptors */
+  quic->limits = *limits;
+  quic->layout = layout;
+
+  /* Init log buffer (persists across init calls) */
+  void * shmlog = (void *)( (ulong)quic + quic->layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_buf_new( shmlog, limits->log_depth ) ) ) {
+    return NULL;
+  }
 
   FD_COMPILER_MFENCE();
   quic->magic = FD_QUIC_MAGIC;
@@ -366,15 +373,25 @@ fd_quic_init( fd_quic_t * quic ) {
     config->idle_timeout = FD_QUIC_DEFAULT_IDLE_TIMEOUT;
   }
 
-  /* Derive memory layout */
-
   fd_quic_layout_t layout = {0};
-  fd_quic_footprint_ext( limits, &layout );
+  if( FD_UNLIKELY( !fd_quic_footprint_ext( &quic->limits, &layout ) ) ) {
+    FD_LOG_CRIT(( "fd_quic_footprint_ext failed" ));
+  }
+  if( FD_UNLIKELY( 0!=memcmp( &layout, &quic->layout, sizeof(fd_quic_layout_t) ) ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "saved layout",   &quic->layout, sizeof(fd_quic_layout_t) ));
+    FD_LOG_HEXDUMP_WARNING(( "derived layout", &layout,       sizeof(fd_quic_layout_t) ));
+    FD_LOG_CRIT(( "fd_quic_layout changed. Memory corruption?" ));
+  }
 
   /* Reset state */
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
   memset( state, 0, sizeof(fd_quic_state_t) );
+
+  void * shmlog = (void *)( (ulong)quic + layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_tx_join( state->log_tx, shmlog ) ) ) {
+    FD_LOG_CRIT(( "fd_quic_log_tx_join failed, indicating memory corruption" ));
+  }
 
   /* State: initialize each connection, and add to free list */
 
@@ -717,19 +734,99 @@ fd_quic_svc_validate( fd_quic_t * quic ) {
   }
 }
 
-/* set a connection to aborted, and set a reason code */
-void
-fd_quic_conn_error( fd_quic_conn_t * conn,
-                    uint             reason,
-                    uint             error_line ) {
+/* Helpers for generating fd_quic_log entries */
+
+static fd_quic_log_hdr_t
+fd_quic_log_conn_hdr( fd_quic_conn_t const * conn ) {
+  fd_quic_log_hdr_t hdr = {
+    .conn_id = conn->our_conn_id,
+    .flags   = 0
+  };
+  return hdr;
+}
+
+static fd_quic_log_hdr_t
+fd_quic_log_full_hdr( fd_quic_conn_t const * conn,
+                      fd_quic_pkt_t const *  pkt ) {
+  fd_quic_log_hdr_t hdr = {
+    .conn_id   = conn->our_conn_id,
+    .pkt_num   = pkt->pkt_number,
+    .udp_sport = pkt->udp->net_sport,
+    .enc_level = (uchar)pkt->enc_level,
+    .flags     = 0
+  };
+  memcpy( hdr.ip4_saddr, pkt->ip4->saddr_c, 4 );
+  return hdr;
+}
+
+/* fd_quic_conn_error sets the connection state to aborted.  This does
+   not destroy the connection object.  Rather, it will eventually cause
+   the connection to be freed during a later fd_quic_service call.
+   reason is an RFC 9000 QUIC error code.  error_line is the source line
+   of code in fd_quic.c */
+
+static void
+fd_quic_conn_error1( fd_quic_conn_t * conn,
+                     uint             reason ) {
   if( FD_UNLIKELY( !conn || conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
 
   conn->state  = FD_QUIC_CONN_STATE_ABORT;
   conn->reason = reason;
-  conn->int_reason = error_line;
 
   /* set connection to be serviced ASAP */
   fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+}
+
+static void
+fd_quic_conn_error( fd_quic_conn_t * conn,
+                    uint             reason,
+                    uint             error_line ) {
+  fd_quic_conn_error1( conn, reason );
+
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+  ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
+  *frame = (fd_quic_log_error_t) {
+    .hdr      = fd_quic_log_conn_hdr( conn ),
+    .code     = { reason, 0UL },
+    .src_file = "fd_quic.c",
+    .src_line = error_line,
+  };
+  fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
+}
+
+struct fd_quic_frame_context {
+  fd_quic_t *      quic;
+  fd_quic_conn_t * conn;
+  fd_quic_pkt_t *  pkt;
+};
+
+typedef struct fd_quic_frame_context fd_quic_frame_context_t;
+
+static void
+fd_quic_frame_error( fd_quic_frame_context_t const * ctx,
+                     uint                            reason,
+                     uint                            error_line ) {
+  fd_quic_t *           quic  = ctx->quic;
+  fd_quic_conn_t *      conn  = ctx->conn;
+  fd_quic_pkt_t const * pkt   = ctx->pkt;
+  fd_quic_state_t *     state = fd_quic_get_state( quic );
+
+  fd_quic_conn_error1( conn, reason );
+
+  uint tls_reason = 0U;
+  if( conn->tls_hs ) tls_reason = conn->tls_hs->hs.base.reason;
+
+  ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
+  *frame = (fd_quic_log_error_t) {
+    .hdr      = fd_quic_log_full_hdr( conn, pkt ),
+    .code     = { reason, tls_reason },
+    .src_file = "fd_quic.c",
+    .src_line = error_line,
+  };
+  fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
 }
 
 /* returns the encoding level we should use for the next tx quic packet
@@ -844,14 +941,6 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   return ~0u;
 }
 
-struct fd_quic_frame_context {
-  fd_quic_t *      quic;
-  fd_quic_conn_t * conn;
-  fd_quic_pkt_t *  pkt;
-};
-
-typedef struct fd_quic_frame_context fd_quic_frame_context_t;
-
 /* Include frame code generator */
 
 #include "templ/fd_quic_frame.c"
@@ -874,7 +963,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
      first byte. */
   uint id = buf[0];
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
   quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
@@ -891,7 +980,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
     /* FIXME this should be unreachable, but gracefully handle this case as defense-in-depth */
     /* unknown frame types are PROTOCOL_VIOLATION errors */
     FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %u", id )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -955,6 +1044,12 @@ fd_quic_delete( fd_quic_t * quic ) {
 
   if( FD_UNLIKELY( quic->magic!=FD_QUIC_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  void * shmlog = (void *)( (ulong)quic + quic->layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_buf_delete( shmlog ) ) ) {
+    FD_LOG_WARNING(( "fd_quic_log_buf_delete failed" ));
     return NULL;
   }
 
@@ -2708,9 +2803,9 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
          otherwise, send INTERNAL_ERROR */
       uint alert = conn->tls_hs->alert;
       if( alert == 0u ) {
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
+        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
       } else {
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
+        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
       }
 
       /* don't process any more frames on this connection */
@@ -4288,7 +4383,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
   conn->reason               = 0;
   conn->app_reason           = 0;
-  conn->int_reason           = 0;
   conn->flags                = 0;
   conn->upd_pkt_number       = 0;
 
@@ -4931,7 +5025,7 @@ fd_quic_frame_handle_ack_frame(
 
   if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
     /* this is a protocol violation, so inform the peer */
-    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -4971,7 +5065,7 @@ fd_quic_frame_handle_ack_frame(
                      ( length > ( ~0x3UL ) ) ) ) {
       /* This is an unreasonably large value, so fail with protocol violation
          It's also likely impossible due to the encoding method */
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -4984,7 +5078,7 @@ fd_quic_frame_handle_ack_frame(
     /* verify the skip and length values are valid */
     if( FD_UNLIKELY( skip + length > cur_pkt_number ) ) {
       /* this is a protocol violation, so inform the peer */
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -5145,14 +5239,14 @@ fd_quic_frame_handle_stream_frame(
   if( FD_UNLIKELY( stream_type != ( conn->server ? FD_QUIC_STREAM_TYPE_UNI_CLIENT : FD_QUIC_STREAM_TYPE_UNI_SERVER ) ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Received forbidden stream type" )); )
     /* Technically should switch between STREAM_LIMIT_ERROR and STREAM_STATE_ERROR here */
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
   /* length check */
   if( FD_UNLIKELY( data_sz > p_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Stream header indicates %lu bytes length, but only have %lu", data_sz, p_sz )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5161,7 +5255,7 @@ fd_quic_frame_handle_stream_frame(
   /* stream_id outside allowed range - protocol error */
   if( FD_UNLIKELY( stream_id >= conn->srx->rx_sup_stream_id ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Stream ID violation detected" )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5169,7 +5263,7 @@ fd_quic_frame_handle_stream_frame(
      violates the advertised connection or stream data limits */
   if( FD_UNLIKELY( quic->config.initial_rx_max_stream_data < offset + data_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Stream data limit exceeded" )); )
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5490,7 +5584,7 @@ fd_quic_frame_handle_handshake_done_frame(
 
   /* servers must treat receipt of HANDSHAKE_DONE as a protocol violation */
   if( FD_UNLIKELY( conn->server ) ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 

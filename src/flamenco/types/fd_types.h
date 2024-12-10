@@ -103,8 +103,6 @@ typedef struct fd_hash_hash_age_pair_t_mapnode fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_hash_hash_age_pair_t_mapnode {
     fd_hash_hash_age_pair_t elem;
     ulong redblack_parent;
@@ -553,8 +551,6 @@ typedef struct fd_vote_accounts_pair_t_mapnode fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_vote_accounts_pair_t_mapnode {
     fd_vote_accounts_pair_t elem;
     ulong redblack_parent;
@@ -606,8 +602,6 @@ typedef struct fd_stake_accounts_pair_t_mapnode fd_stake_accounts_pair_t_mapnode
 #define REDBLK_NAME fd_stake_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_stake_accounts_pair_t_mapnode {
     fd_stake_accounts_pair_t elem;
     ulong redblack_parent;
@@ -660,8 +654,6 @@ typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_NAME fd_stake_weight_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_stake_weight_t_mapnode {
     fd_stake_weight_t elem;
     ulong redblack_parent;
@@ -772,8 +764,6 @@ typedef struct fd_delegation_pair_t_mapnode fd_delegation_pair_t_mapnode_t;
 #define REDBLK_NAME fd_delegation_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_delegation_pair_t_mapnode {
     fd_delegation_pair_t elem;
     ulong redblack_parent;
@@ -842,8 +832,6 @@ typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_NAME fd_stake_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_stake_pair_t_mapnode {
     fd_stake_pair_t elem;
     ulong redblack_parent;
@@ -2386,8 +2374,6 @@ typedef struct fd_clock_timestamp_vote_t_mapnode fd_clock_timestamp_vote_t_mapno
 #define REDBLK_NAME fd_clock_timestamp_vote_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_clock_timestamp_vote_t_mapnode {
     fd_clock_timestamp_vote_t elem;
     ulong redblack_parent;

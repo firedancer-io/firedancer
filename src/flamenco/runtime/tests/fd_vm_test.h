@@ -35,20 +35,20 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
    in the instruction and the input mem regions */
 
 void
-setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
-                           fd_vm_t *                 vm,
-                           fd_exec_instr_ctx_t *     instr_ctx );
+fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
+                              fd_vm_t *                 vm,
+                              fd_exec_instr_ctx_t *     instr_ctx );
 
-/* Populates a (caller-initialized) `fd_vm_input_region_t` array from an array of 
+/* Populates a (caller-initialized) `fd_vm_input_region_t` array from an array of
    `fd_exec_test_input_data_region`s. Caller must guarantee lifetime of the actual
-   region(s). 
-   
+   region(s).
+
    Empty regions are skipped, so we return the true size of the populated array. */
 uint
-setup_vm_input_regions( fd_vm_input_region_t *                   input,
-                       fd_exec_test_input_data_region_t const * test_input,
-                       ulong                                    test_input_count,
-                       fd_valloc_t                              valloc );
+fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
+                           fd_exec_test_input_data_region_t const * test_input,
+                           ulong                                    test_input_count,
+                           fd_valloc_t                              valloc );
 
 ulong
 load_from_vm_input_regions( fd_vm_input_region_t const *        input,

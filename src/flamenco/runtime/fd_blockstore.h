@@ -163,8 +163,8 @@ typedef struct fd_block_txn fd_block_txn_t;
    Other flags mainly provide useful metadata for read-only callers, eg.
    RPC. */
 
-#define FD_BLOCK_FLAG_SHREDDING 0 /* xxxxxxx1 still receiving shreds */
-#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received all shreds (DATA_COMPLETE) */
+#define FD_BLOCK_FLAG_RECEIVING 0 /* xxxxxxx1 still receiving shreds */
+#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received the block ie. all shreds (SLOT_COMPLETE) */
 #define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
 #define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
 #define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
@@ -705,5 +705,39 @@ void
 fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
 
 FD_PROTOTYPES_END
+
+/* fd_blockstore_ser is a serialization context for archiving a block to
+   disk. */
+
+struct fd_blockstore_ser {
+  fd_block_map_t * block_map;
+  fd_block_t     * block;
+  uchar          * data;
+};
+typedef struct fd_blockstore_ser fd_blockstore_ser_t;
+
+/* Archives a block and block map entry to fd. If fd is -1, no write is attempted */
+ulong
+fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED, 
+                             fd_blockstore_ser_t * ser, 
+                             int fd, 
+                             ulong slot );
+
+/* Restores a block and block map entry from fd at given offset. As this used by
+   rpcserver, it must return an error code instead of throwing an error on failure */
+int
+fd_blockstore_block_meta_restore( fd_blockstore_t * blockstore,
+                                  int fd,
+                                  fd_block_idx_t * block_idx_entry,
+                                  fd_block_map_t * block_map_entry_out,
+                                  fd_block_t * block_out );
+/* Reads block data from fd into a given buf */
+int 
+fd_blockstore_block_data_restore( fd_blockstore_t * blockstore,
+                                  int fd,
+                                  fd_block_idx_t * block_idx_entry,
+                                  uchar * buf_out,
+                                  ulong buf_max,
+                                  ulong data_sz );
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_h */

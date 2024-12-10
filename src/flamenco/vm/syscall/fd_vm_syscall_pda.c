@@ -13,7 +13,7 @@
    - an optional bump seed
    - out, the address in host address space where the PDA will be written to
 
-If the derived PDA was not a valid ed25519 point, then this function will return FD_VM_ERR_INVALID_PDA.
+If the derived PDA was not a valid ed25519 point, then this function will return FD_VM_SYSCALL_ERR_INVALID_PDA.
 
 The derivation can also fail because of an out-of-bounds memory access, or an invalid seed list.
  */
@@ -33,8 +33,8 @@ fd_vm_derive_pda( fd_vm_t *           vm,
      also can't rely on just the second check because we need execution to halt. 
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
   if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
-    return FD_VM_ERR_INVAL;
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+    return FD_VM_SYSCALL_ERR_BAD_SEEDS;
   }
 
   /* This check does NOT halt execution within `fd_vm_syscall_sol_try_find_program_address`. This means
@@ -42,7 +42,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
      this same check below will be hit 255 times and deduct that many CUs. Very strange... 
      https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L725-L727 */
   if( FD_UNLIKELY( seeds_cnt+( !!bump_seed )>FD_VM_PDA_SEEDS_MAX ) ) {
-    return FD_VM_ERR_INVALID_PDA;
+    return FD_VM_SYSCALL_ERR_INVALID_PDA;
   }
 
   fd_sha256_init( vm->sha );
@@ -77,7 +77,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   /* A PDA is valid if it is not a valid ed25519 curve point.
      In most cases the user will have derived the PDA off-chain, or the PDA is a known signer. */
   if( FD_UNLIKELY( fd_ed25519_point_validate( out->key ) ) ) {
-    return FD_VM_ERR_INVALID_PDA;
+    return FD_VM_SYSCALL_ERR_INVALID_PDA;
   }
 
   return FD_VM_SUCCESS;
@@ -102,8 +102,8 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
   /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr.
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
   if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
-    return FD_VM_ERR_INVAL;
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+    return FD_VM_SYSCALL_ERR_BAD_SEEDS;
 
   }
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
@@ -111,8 +111,8 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
     /* Another preflight check
        https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736 */
     if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_BAD_SEEDS );
-      return FD_VM_ERR_INVAL;
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+      return FD_VM_SYSCALL_ERR_BAD_SEEDS;
     }
     void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, untranslated_seeds[i].addr, FD_VM_ALIGN_RUST_U8, seed_sz );
     out_seed_haddrs[ i ] = seed_haddr;
@@ -189,7 +189,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
     /* Place 1 in r0 and successfully exit if we failed to derive a PDA
       https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
-    if ( FD_LIKELY( err == FD_VM_ERR_INVALID_PDA ) ) {
+    if ( FD_LIKELY( err == FD_VM_SYSCALL_ERR_INVALID_PDA ) ) {
       *_ret = 1UL;
       return FD_VM_SUCCESS;
     }
@@ -281,7 +281,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
 
       *_ret = 0UL;
       return FD_VM_SUCCESS;
-    } else if( FD_UNLIKELY( err!=FD_VM_ERR_INVALID_PDA ) ) {
+    } else if( FD_UNLIKELY( err!=FD_VM_SYSCALL_ERR_INVALID_PDA ) ) {
       return err;
     }
 

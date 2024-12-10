@@ -13,7 +13,6 @@ use solana_streamer::streamer::StakedNodes;
 use std::ffi::{c_char, c_void, CString};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
-use std::ptr::null;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -34,7 +33,7 @@ use crate::bindings::{
     fd_quic_set_aio_net_tx, fd_quic_t, fd_rng_t, fd_udpsock_align, fd_udpsock_footprint,
     fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new, fd_udpsock_service, fd_udpsock_set_rx,
     fd_udpsock_t, fd_wksp_new_anon, fd_wksp_t, FD_QUIC_CONN_STATE_ACTIVE, FD_QUIC_CONN_STATE_DEAD,
-    FD_QUIC_ROLE_CLIENT, FD_QUIC_ROLE_SERVER,
+    FD_QUIC_ROLE_CLIENT, FD_QUIC_ROLE_SERVER
 };
 use libc::{fflush, fopen};
 
@@ -185,6 +184,7 @@ unsafe fn agave_to_fdquic_bench() {
         inflight_pkt_cnt: 1024,
         tx_buf_sz: 0,
         stream_pool_cnt: 8,
+        log_depth: 128,
     };
     let quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
@@ -254,15 +254,31 @@ unsafe fn agave_to_fdquic_bench() {
         std::thread::spawn(move || {
             let quic4: *mut fd_quic_t = quic2 as *mut fd_quic_t;
             let metrics = &(*quic4).metrics.__bindgen_anon_1;
-            let mut last_cnt = 0u64;
+            let mut last_net_rx_pkt_cnt = 0u64;
+            let mut last_net_rx_byte_cnt = 0u64;
+            let mut last_stream_rx_byte_cnt = 0u64;
             loop {
+                let net_rx_pkt_d = metrics.net_rx_pkt_cnt - last_net_rx_pkt_cnt;
+                let net_rx_byte_d = metrics.net_rx_byte_cnt - last_net_rx_byte_cnt;
+                let stream_rx_byte_d = metrics.stream_rx_byte_cnt - last_stream_rx_byte_cnt;
+                let net_rx_gbps = ((8 * net_rx_byte_d) as f64) / 1e9f64;
+                let net_rx_mpps = (net_rx_pkt_d as f64) / 1e6f64;
+                let stream_rx_gbps = ((8 * stream_rx_byte_d) as f64) / 1e9f64;
+                last_net_rx_pkt_cnt = metrics.net_rx_pkt_cnt;
+                last_net_rx_byte_cnt = metrics.net_rx_byte_cnt;
+                last_stream_rx_byte_cnt = metrics.stream_rx_byte_cnt;
                 std::thread::sleep(Duration::from_secs(1));
-                println!("{}", metrics.net_rx_pkt_cnt - last_cnt);
-                last_cnt = metrics.net_rx_pkt_cnt;
+                println!(
+                    "data={:.3} Gbps  net_rx=({:.3} Gbps {:.3} Mpps)",
+                    net_rx_gbps,
+                    net_rx_mpps,
+                    stream_rx_gbps
+                );
             }
         });
 
         loop {
+            (*quic3).cb.stream_rx = None;
             fd_udpsock_service(udpsock);
             fd_quic_service(quic3);
         }
@@ -349,7 +365,7 @@ unsafe fn fdquic_to_agave() {
         "Connecting from 127.0.0.1:{} to 127.0.0.1:{}",
         client_port, listen_port
     );
-    let conn = fd_quic_connect(quic, 0x0100007f, listen_port, null());
+    let conn = fd_quic_connect(quic, 0x0100007f, listen_port);
     assert!(!conn.is_null());
     let conn_start = Instant::now();
     loop {

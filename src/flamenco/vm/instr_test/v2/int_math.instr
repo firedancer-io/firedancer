@@ -33,12 +33,12 @@ $ op=07 dst=4 src=8 off=5a5a r4=       7ffffffff imm=ffffffff : ok  r4=       7f
 $ op=07 dst=5 src=7 off=5a5a r5=        80000000 imm=80000000 : ok  r5=               0  # zero
 $ op=07 dst=6 src=6 off=5a5a r6=               0 imm=80000000 : ok  r6=ffffffff80000000  # subtract, underflow
 $ op=07 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=               0  # zero
-$ op=07 dst=b src=0 off=0000 r11=             40 imm=       3 : ok  vfy                  # unaligned dynamic stack frame - SIMD-0166
-$ op=07 dst=b src=0 off=0000 r11=             40 imm=       0 : ok  r11=             40  # dynamic stack frame - SIMD-0166
-$ op=07 dst=b src=0 off=0000 r11=             40 imm=      40 : ok  r11=             80  # dynamic stack frame - SIMD-0166
-$ op=07 dst=b src=0 off=0000 r11=             40 imm=ffffffc0 : ok  r11=              0  # dynamic stack frame - SIMD-0166
+$ op=07 dst=a src=0 off=0000 r10=             40 imm=       3 : ok  vfy                  # unaligned dynamic stack frame - SIMD-0166
+$ op=07 dst=a src=0 off=0000 r10=             40 imm=       0 : ok  r10=             40  # dynamic stack frame - SIMD-0166
+$ op=07 dst=a src=0 off=0000 r10=             40 imm=      40 : ok  r10=             80  # dynamic stack frame - SIMD-0166
+$ op=07 dst=a src=0 off=0000 r10=             40 imm=ffffffc0 : ok  r10=              0  # dynamic stack frame - SIMD-0166
 $ op=07 dst=9 src=b                                           : vfy                      # invalid src
-$ op=07 dst=a src=1                                           : vfy                      # invalid dst
+$ op=07 dst=b src=1                                           : vfy                      # invalid dst
 
 # add64 reg, reg
 $ op=0f dst=0 src=0 off=a5a5 r0= 101010101010101                      : ok  r0= 202020202020202  # src==dst

@@ -16,10 +16,6 @@ typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 
 FD_PROTOTYPES_BEGIN
 
-int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_capture_ctx_t * capture_ctx,
-                         fd_hash_t * hash,
-                         ulong signature_cnt );
 int
 fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_capture_ctx_t *   capture_ctx,

@@ -416,12 +416,12 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
+      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
     }
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
       // SyscallError::MaxInstructionAccountsExceeded
-      return FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
+      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
@@ -429,7 +429,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
       // SyscallError::InstructionTooLarge
-      return FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE;
+      return FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE;
     }
   }
 

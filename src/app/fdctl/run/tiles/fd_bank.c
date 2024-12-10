@@ -60,12 +60,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANK_TILE, SLOT_ACQUIRE,  ctx->metrics.slot_acquire );
+  FD_MCNT_ENUM_COPY( BANK, SLOT_ACQUIRE,  ctx->metrics.slot_acquire );
 
-  FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
-  FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_LOAD,  ctx->metrics.txn_load );
-  FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_EXECUTING,  ctx->metrics.txn_executing );
-  FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_EXECUTED,  ctx->metrics.txn_executed );
+  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
+  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD,  ctx->metrics.txn_load );
+  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_EXECUTING,  ctx->metrics.txn_executing );
+  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_EXECUTED,  ctx->metrics.txn_executed );
 
 }
 
@@ -168,7 +168,7 @@ after_frag( fd_bank_ctx_t *     ctx,
 
     int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
     if( FD_UNLIKELY( precompile_result ) ) {
-      FD_MCNT_INC( BANK_TILE, PRECOMPILE_VERIFY_FAILURE, 1 );
+      FD_MCNT_INC( BANK, PRECOMPILE_VERIFY_FAILURE, 1 );
       continue;
     }
 
@@ -208,12 +208,22 @@ after_frag( fd_bank_ctx_t *     ctx,
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
+    /* Stash the result in the flags value so that pack can inspect it.
+       We actually have enough bits to store all the results, but just
+       one is fine.  We or in at most one that's non-zero, since the
+       rest will trigger a break. */
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)load_results[ sanitized_idx ]<<24);
+
     sanitized_idx++;
     ctx->metrics.txn_load[ load_results[ sanitized_idx-1 ] ]++;
     if( FD_UNLIKELY( load_results[ sanitized_idx-1 ] ) ) continue;
 
+    txn->flags |= (uint)executing_results[ sanitized_idx-1 ]<<24;
+
     ctx->metrics.txn_executing[ executing_results[ sanitized_idx-1 ] ]++;
     if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
+
+    txn->flags |= (uint)executed_results[ sanitized_idx-1 ]<<24;
 
     ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
     txn->flags                      |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -229,7 +239,7 @@ after_frag( fd_bank_ctx_t *     ctx,
          we'll just permit the risk of slightly overpacking blocks by
          ignoring these transactions when it comes to rebating. */
       FD_LOG_INFO(( "Transaction executed %u CUs but only requested %u CUs", executed_cus, requested_cus ));
-      FD_MCNT_INC( BANK_TILE, COST_MODEL_UNDERCOUNT, 1UL );
+      FD_MCNT_INC( BANK, COST_MODEL_UNDERCOUNT, 1UL );
       txn->bank_cu.rebated_cus = 0U;
       continue;
     }

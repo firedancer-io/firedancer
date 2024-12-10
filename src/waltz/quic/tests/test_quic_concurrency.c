@@ -10,7 +10,7 @@
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
-#include "../../../tango/fd_tango.h"
+#include "../../../tango/tempo/fd_tempo.h"
 
 static ulong
 quic_now( void * ctx ) {
@@ -70,7 +70,7 @@ main( int     argc,
       fd_quic_sandbox_footprint( &quic_limits, pkt_max, mtu ),
       wksp_tag
   );
-  fd_quic_sandbox_t * const sandbox = fd_quic_sandbox_join( fd_quic_sandbox_new( sandbox_mem, &quic_limits, pkt_max, mtu ) );
+  fd_quic_sandbox_t * const sandbox = fd_quic_sandbox_new( sandbox_mem, &quic_limits, pkt_max, mtu );
   FD_TEST( sandbox );
   FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER ) );
   fd_quic_t * const quic = sandbox->quic;
@@ -164,7 +164,7 @@ main( int     argc,
   fd_quic_svc_validate( quic );
 
   fd_wksp_free_laddr( conn_list );
-  fd_wksp_free_laddr( fd_quic_sandbox_delete( fd_quic_sandbox_leave( sandbox ) ) );
+  fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -1,5 +1,6 @@
 /* Repair tile runs the repair protocol for a Firedancer node. */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #define _GNU_SOURCE
@@ -192,6 +193,11 @@ privileged_init( fd_topo_t *      topo,
   args->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
   FD_TEST( args->blockstore!=NULL );
   ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDONLY );
+  if ( FD_UNLIKELY(ctx->blockstore_fd == -1) ){
+    FD_LOG_WARNING(("%s: %s", tile->replay.blockstore_file, strerror( errno )));
+  }
+
+  args->blockstore_fd = ctx->blockstore_fd;
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
   if( FD_UNLIKELY( !alloc_shalloc ) ) {

@@ -66,8 +66,6 @@ struct fd_ledger_args {
   int                   funk_only;               /* determine if only funk should be ingested */
   char const *          shredcap;                /* path to replay using shredcap instead of rocksdb */
   int                   abort_on_mismatch;       /* determine if execution should abort on mismatch*/
-  int                   on_demand_block_ingest;  /* determine if block range should be ingested during execution or beforehand */
-  ulong                 on_demand_block_history; /* how many blocks should the blockstore hold at once */
   ulong                 pages_pruned;            /* ledger pruning: how many pages should the pruned wksp have */
   ulong                 index_max_pruned;        /* ledger pruning: how large should the pruned funk index be */
   fd_funk_t *           pruned_funk;             /* ledger pruning: funk used by the pruned wksp */
@@ -294,24 +292,23 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   fd_rocksdb_root_iter_t iter             = {0};
   fd_slot_meta_t         slot_meta        = {0};
   ulong                  curr_rocksdb_idx = 0UL;
-  if( ledger_args->on_demand_block_ingest ) {
-    char * err = fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
-    if( FD_UNLIKELY( err!=NULL ) ) {
-      FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", ledger_args->rocksdb_list[ 0UL ], err ));
-    }
-    fd_rocksdb_root_iter_new( &iter );
 
-    int block_found = -1;
-    while ( block_found!=0 && start_slot<=ledger_args->end_slot ) {
-      block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, ledger_args->slot_ctx->valloc );
-      if ( block_found!=0 ) {
-        start_slot++;
-      }
-    }
+  char * err = fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
+  if( FD_UNLIKELY( err!=NULL ) ) {
+    FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", ledger_args->rocksdb_list[ 0UL ], err ));
+  }
+  fd_rocksdb_root_iter_new( &iter );
 
-    if( FD_UNLIKELY( block_found!=0 ) ) {
-      FD_LOG_ERR(( "unable to seek to any slot" ));
+  int block_found = -1;
+  while ( block_found!=0 && start_slot<=ledger_args->end_slot ) {
+    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, ledger_args->slot_ctx->valloc );
+    if ( block_found!=0 ) {
+      start_slot++;
     }
+  }
+
+  if( FD_UNLIKELY( block_found!=0 ) ) {
+    FD_LOG_ERR(( "unable to seek to any slot" ));
   }
 
   if( ledger_args->capture_ctx && ledger_args->capture_ctx->pruned_funk != NULL ) {
@@ -331,6 +328,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   ledger_args->is_snapshotting = 0;
 
+  ulong block_slot = start_slot;
   for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
     ledger_args->slot_ctx->slot_bank.slot      = slot;
@@ -343,15 +341,34 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       fd_funk_end_write( ledger_args->capture_ctx->pruned_funk );
     }
 
-    if( ledger_args->on_demand_block_ingest ) {
-      if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
-        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
-                                                      ledger_args->copy_txn_status, slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
-        }
+    /* If we have reached a new block, load one in from rocksdb to the blockstore */
+    if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
+      int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
+                                                    ledger_args->copy_txn_status, slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
       }
-      fd_blockstore_slot_remove( blockstore, slot - ledger_args->on_demand_block_history );
+      
+      fd_blockstore_start_write( blockstore );
+
+      /* Remove the previous block from the blockstore */
+      if ( FD_LIKELY( block_slot < slot ) ) {
+        /* Mark the block as successfully processed */
+        fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &block_slot, NULL );
+        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
+
+        /* Remove the old block from the blockstore */
+        fd_blockstore_slot_remove( blockstore, block_slot );
+      }
+
+      /* Mark the new block as replaying */
+      fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+      block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+
+      fd_blockstore_end_write( blockstore );
+
+      block_slot = slot;
     }
 
     fd_blockstore_start_read( blockstore );
@@ -485,7 +502,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     prev_slot = slot;
 
-    if( ledger_args->on_demand_block_ingest && slot<ledger_args->end_slot ) {
+    if( slot<ledger_args->end_slot ) {
       /* TODO: This currently doesn't support switching over on slots that occur
          on a fork */
       /* If need to go to next rocksdb, switch over */
@@ -526,10 +543,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_tpool_fini( ledger_args->tpool );
   }
 
-  if( ledger_args->on_demand_block_ingest ) {
-    fd_rocksdb_root_iter_destroy( &iter );
-    fd_rocksdb_destroy( &rocks_db );
-  }
+  fd_rocksdb_root_iter_destroy( &iter );
+  fd_rocksdb_destroy( &rocks_db );
 
   replay_time += fd_log_wallclock();
   double replay_time_s = (double)replay_time * 1e-9;
@@ -634,11 +649,12 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   args->last_snapshot_slot           = 0UL;
 
   /* Finish other runtime setup steps */
-  fd_funk_start_write( funk );
   fd_features_restore( args->slot_ctx );
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
+
+  fd_funk_start_write( funk );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool );
   fd_funk_end_write( funk );
 
   /* Allocate memory for the account scratch space. In live execution, each of
@@ -1080,7 +1096,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL );
+    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool );
   }
 
   if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
@@ -1227,7 +1243,7 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
-      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL );
+      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool );
     }
   } else {
     FD_LOG_NOTICE(( "found funk with %lu records", rec_cnt ));
@@ -1236,10 +1252,6 @@ replay( fd_ledger_args_t * args ) {
   fd_ledger_main_setup( args );
 
   fd_blockstore_init( args->blockstore, -1, &args->slot_ctx->slot_bank );
-
-  if( !args->on_demand_block_ingest ) {
-    ingest_rocksdb( args->alloc, args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot, args->blockstore, 0, args->trash_hash );
-  }
 
   FD_LOG_WARNING(( "setup done" ));
 
@@ -1568,8 +1580,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
   char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
-  int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
-  ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
   int          dump_txn_to_pb          = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-txn-to-pb",          NULL, 0         );
   ulong        dump_proto_start_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-proto-start-slot",   NULL, 0         );
@@ -1671,8 +1681,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->checkpt_mismatch        = checkpt_mismatch;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
-  args->on_demand_block_ingest  = on_demand_block_ingest;
-  args->on_demand_block_history = on_demand_block_history;
   args->dump_insn_to_pb         = dump_insn_to_pb;
   args->dump_txn_to_pb          = dump_txn_to_pb;
   args->dump_proto_start_slot   = dump_proto_start_slot;

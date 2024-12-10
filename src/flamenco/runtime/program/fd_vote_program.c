@@ -1933,8 +1933,8 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
 }
 
 // ??
-static ulong
-query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
+ulong
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
   fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
   key.elem.key                                  = *pubkey;
   fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find(
@@ -1965,7 +1965,7 @@ process_vote_state_update( ulong                         vote_acct_idx,
           lockout->slot,
           &vote_state_update->hash,
           0,
-          query_pubkey_stake( vote_account->pubkey,
+          fd_query_pubkey_stake( vote_account->pubkey,
             &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
 
       if( FD_LIKELY( vote_state_update->has_root ) ) {
@@ -2292,7 +2292,8 @@ process_authorize_with_seed_instruction(
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L90
-uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
+static uint
+vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
   uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
@@ -2838,7 +2839,7 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   }
 }
 
-void
+static void
 upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
