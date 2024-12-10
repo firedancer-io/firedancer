@@ -1,29 +1,27 @@
 #include "fd_loader_v4_program.h"
 
-/* `loader_v4::get_state()`
-   https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L28-L40 */
-int
-fd_loader_v4_get_state( fd_borrowed_account_t const * program,
-                        fd_loader_v4_state_t *        state ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L30-L34 */
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = program->const_data,
-    .dataend = program->const_data + program->const_meta->dlen,
-    .valloc  = fd_scratch_virtual(),
-  };
-
-  if( FD_UNLIKELY( fd_loader_v4_state_decode( state, &decode_ctx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
-  }
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
+/* Helper functions that would normally be provided by fd_types. */
+FD_FN_PURE uchar
+fd_loader_v4_status_is_deployed( fd_loader_v4_state_t const * state ) {
+  return state->status==FD_LOADER_V4_STATUS_ENUM_DELOYED;
 }
 
-/* Convenience method to set the state of a writable program account. */
+FD_FN_PURE uchar
+fd_loader_v4_status_is_retracted( fd_loader_v4_state_t const * state ) {
+  return state->status==FD_LOADER_V4_STATUS_ENUM_RETRACTED;
+}
+
+FD_FN_PURE uchar
+fd_loader_v4_status_is_finalized( fd_loader_v4_state_t const * state ) {
+  return state->status==FD_LOADER_V4_STATUS_ENUM_FINALIZED;
+}
+
+/* Convenience method to set the state of a writable program account. Similar to `get_state()`,
+   `set_state()` will do a simple transmute operation, which is quicker. */
 static int
-loader_v4_set_state( fd_exec_instr_ctx_t *  instr_ctx,
-                     ulong                  instr_acc_idx,
-                     fd_loader_v4_state_t * state ) {
+fd_loader_v4_set_state( fd_exec_instr_ctx_t *  instr_ctx,
+                        ulong                  instr_acc_idx,
+                        fd_loader_v4_state_t * state ) {
   int err;
 
   uchar * data = NULL;
@@ -34,19 +32,29 @@ loader_v4_set_state( fd_exec_instr_ctx_t *  instr_ctx,
     return err;
   }
 
-  if( FD_UNLIKELY( LOADER_V4_PROGRAM_DATA_OFFSET>dlen ) ) {
+  if( FD_UNLIKELY( dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = data,
-    .dataend = data + LOADER_V4_PROGRAM_DATA_OFFSET,
-  };
+  fd_loader_v4_state_t * out_state = (fd_loader_v4_state_t *)data;
+  *out_state = *state;
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
 
-  if( FD_UNLIKELY( fd_loader_v4_state_encode( state, &ctx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+/* `loader_v4::get_state()` performs a `transmute` operation which bypasses any decoding and directly
+    reinterprets the data as a loader v4 state. The key difference between the transmute and standard
+    decoding logic is that `get_state()` won't fail if `state.status` is not a valid discriminant, i.e.
+    `state.status` can be any value within a ulong range that's not {Deployed, Retracted, Finalized}.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L28-L40 */
+int
+fd_loader_v4_get_state( fd_borrowed_account_t const * program,
+                        fd_loader_v4_state_t *        state ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L32 */
+  if( FD_UNLIKELY( program->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
-
+  *state = *( (fd_loader_v4_state_t *) program->const_data );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -90,7 +98,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L79-L82 */
-  if( FD_UNLIKELY( fd_loader_v4_status_is_finalized( &state->status ) ) ) {
+  if( FD_UNLIKELY( fd_loader_v4_status_is_finalized( state ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program is finalized" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
@@ -129,7 +137,7 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L104-L107 */
-    if( FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &state.status ) ) ) {
+    if( FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &state ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not retracted" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
@@ -215,7 +223,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L160-L163 */
-      if(  FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &state.status ) ) ) {
+      if(  FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &state ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not retracted" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
@@ -288,9 +296,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
            https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L201-L204 */
         fd_loader_v4_state_t state = {
           .slot = 0UL,
-          .status = {
-            .discriminant = fd_loader_v4_status_enum_retracted,
-          },
+          .status = FD_LOADER_V4_STATUS_ENUM_RETRACTED,
           .authority_address_or_next_version = *authority_address,
         };
         fd_bincode_encode_ctx_t ctx = {
@@ -368,7 +374,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L241-L244 */
-    if(  FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &program_state.status ) ) ) {
+    if(  FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &program_state ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Destination program is not retracted" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
@@ -393,7 +399,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L252-L255 */
-      if( FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &source_state.status ) ) ) {
+      if( FD_UNLIKELY( !fd_loader_v4_status_is_retracted( &source_state ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Source program is not retracted" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
@@ -466,8 +472,8 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L304-L306 */
     program_state.slot                = clock->slot;
-    program_state.status.discriminant = fd_loader_v4_status_enum_deployed;
-    err = loader_v4_set_state( instr_ctx, 0UL, &program_state );
+    program_state.status              = FD_LOADER_V4_STATUS_ENUM_DELOYED;
+    err = fd_loader_v4_set_state( instr_ctx, 0UL, &program_state );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -518,14 +524,14 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L352-L355 */
-    if( FD_UNLIKELY( !fd_loader_v4_status_is_deployed( &state.status ) ) ) {
+    if( FD_UNLIKELY( !fd_loader_v4_status_is_deployed( &state ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L356 */
-    state.status.discriminant = fd_loader_v4_status_enum_retracted;
-    err = loader_v4_set_state( instr_ctx, 0UL, &state );
+    state.status = FD_LOADER_V4_STATUS_ENUM_RETRACTED;
+    err = fd_loader_v4_set_state( instr_ctx, 0UL, &state );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -577,7 +583,7 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L398-L399 */
     state.authority_address_or_next_version = *new_authority_address;
-    err = loader_v4_set_state( instr_ctx, 0UL, &state );
+    err = fd_loader_v4_set_state( instr_ctx, 0UL, &state );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -620,7 +626,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L419-L422 */
-    if( FD_UNLIKELY( !fd_loader_v4_status_is_deployed( &state.status ) ) ) {
+    if( FD_UNLIKELY( !fd_loader_v4_status_is_deployed( &state ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program must be deployed to be finalized" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
@@ -648,7 +654,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L435-L438 */
-    if( FD_UNLIKELY( fd_loader_v4_status_is_finalized( &state_of_next_version.status ) ) ) {
+    if( FD_UNLIKELY( fd_loader_v4_status_is_finalized( &state_of_next_version ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Next version is finalized" );
       return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
     }
@@ -658,8 +664,8 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L442-L444 */
     state.authority_address_or_next_version = *address_of_next_version;
-    state.status.discriminant               = fd_loader_v4_status_enum_finalized;
-    err = loader_v4_set_state( instr_ctx, 0UL, &state );
+    state.status                            = FD_LOADER_V4_STATUS_ENUM_FINALIZED;
+    err = fd_loader_v4_set_state( instr_ctx, 0UL, &state );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -764,7 +770,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L491-L494 */
-      if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state.status ) ) ) {
+      if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is retracted" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }

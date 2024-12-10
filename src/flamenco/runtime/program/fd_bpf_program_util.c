@@ -70,7 +70,7 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_borrowed_account_t * pro
   }
 
   /* The program must be deployed or finalized. */
-  if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state.status ) ) ) {
+  if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state ) ) ) {
     return -1;
   }
   

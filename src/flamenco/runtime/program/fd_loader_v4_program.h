@@ -42,7 +42,28 @@
 /* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L46-L49 */
 #define LOADER_V4_PROGRAM_DATA_OFFSET (48UL)
 
+/* Serization / deserialization done for the loader v4 state is done using a `std::mem::transmute()` instead of using
+   the standard bincode deserialization. The key difference of doing this is that state deserialization does not fail
+   if the `status` enum within the state is invalid (Retracted, Deployed, Finalized). To stay conformant with their semantics,
+   we represent `status` as a ulong (intentionally instead of a uint because Agave uses `repr(u64)`) and use direct pointer
+   reinterpretation to decode and encode data between the program account and the state object. It also keeps the type size
+   consistent with Agave's for safe transmute operations.
+
+   https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/sdk/program/src/loader_v4.rs#L16-L26 */
+#define FD_LOADER_V4_STATUS_ENUM_RETRACTED (0UL)
+#define FD_LOADER_V4_STATUS_ENUM_DELOYED   (1UL)
+#define FD_LOADER_V4_STATUS_ENUM_FINALIZED (2UL)
+
 FD_PROTOTYPES_BEGIN
+
+FD_FN_PURE uchar
+fd_loader_v4_status_is_deployed( fd_loader_v4_state_t const * state );
+
+FD_FN_PURE uchar
+fd_loader_v4_status_is_retracted( fd_loader_v4_state_t const * state );
+
+FD_FN_PURE uchar
+fd_loader_v4_status_is_finalized( fd_loader_v4_state_t const * state );
 
 int
 fd_loader_v4_get_state( fd_borrowed_account_t const * program,

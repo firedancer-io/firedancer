@@ -3499,26 +3499,12 @@ typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_t)
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN (8UL)
 
-union fd_loader_v4_status_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
-};
-typedef union fd_loader_v4_status_inner fd_loader_v4_status_inner_t;
-
-/* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L20-L27 */
-struct fd_loader_v4_status {
-  ulong discriminant;
-  fd_loader_v4_status_inner_t inner;
-};
-typedef struct fd_loader_v4_status fd_loader_v4_status_t;
-#define FD_LOADER_V4_STATUS_FOOTPRINT sizeof(fd_loader_v4_status_t)
-#define FD_LOADER_V4_STATUS_ALIGN (8UL)
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (48 bytes) */
 struct __attribute__((aligned(8UL))) fd_loader_v4_state {
   ulong slot;
   fd_pubkey_t authority_address_or_next_version;
-  fd_loader_v4_status_t status;
+  ulong status;
 };
 typedef struct fd_loader_v4_state fd_loader_v4_state_t;
 #define FD_LOADER_V4_STATE_FOOTPRINT sizeof(fd_loader_v4_state_t)
@@ -7136,26 +7122,6 @@ fd_bpf_upgradeable_loader_state_enum_uninitialized = 0,
 fd_bpf_upgradeable_loader_state_enum_buffer = 1,
 fd_bpf_upgradeable_loader_state_enum_program = 2,
 fd_bpf_upgradeable_loader_state_enum_program_data = 3,
-}; 
-void fd_loader_v4_status_new_disc( fd_loader_v4_status_t * self, ulong discriminant );
-void fd_loader_v4_status_new( fd_loader_v4_status_t * self );
-int fd_loader_v4_status_decode( fd_loader_v4_status_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_status_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_loader_v4_status_decode_unsafe( fd_loader_v4_status_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_status_encode( fd_loader_v4_status_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_loader_v4_status_destroy( fd_loader_v4_status_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_loader_v4_status_walk( void * w, fd_loader_v4_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_loader_v4_status_size( fd_loader_v4_status_t const * self );
-ulong fd_loader_v4_status_footprint( void );
-ulong fd_loader_v4_status_align( void );
-
-FD_FN_PURE uchar fd_loader_v4_status_is_retracted( fd_loader_v4_status_t const * self );
-FD_FN_PURE uchar fd_loader_v4_status_is_deployed( fd_loader_v4_status_t const * self );
-FD_FN_PURE uchar fd_loader_v4_status_is_finalized( fd_loader_v4_status_t const * self );
-enum {
-fd_loader_v4_status_enum_retracted = 0,
-fd_loader_v4_status_enum_deployed = 1,
-fd_loader_v4_status_enum_finalized = 2,
 }; 
 void fd_loader_v4_state_new( fd_loader_v4_state_t * self );
 int fd_loader_v4_state_decode( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx );
