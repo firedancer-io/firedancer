@@ -1049,6 +1049,7 @@ class TreapMember:
         self.min = int(json["min"])
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
+        self.treap_optimize = (json["optimize"] if "optimize" in json else None)
         self.rev = json.get("rev", False)
         self.upsert = json.get("upsert", False)
         self.min_name = f"{self.name.upper()}_MIN"
@@ -1094,6 +1095,8 @@ class TreapMember:
         print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
         print(f"#define TREAP_CMP(q,e) {treap_cmp}", file=header)
         print(f"#define TREAP_LT(e0,e1) {treap_lt}", file=header)
+        if self.treap_optimize is not None:
+            print(f"#define TREAP_OPTIMIZE_ITERATION 1", file=header)
         if self.treap_prio is not None:
             print(f"#define TREAP_PRIO {self.treap_prio}", file=header)
         print("#include \"../../util/tmpl/fd_treap.c\"", file=header)

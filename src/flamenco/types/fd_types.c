@@ -2303,6 +2303,8 @@ enum {
   fd_stake_history_entry_left_TAG = (5 << 6) | FD_ARCHIVE_META_ULONG,
   fd_stake_history_entry_right_TAG = (6 << 6) | FD_ARCHIVE_META_ULONG,
   fd_stake_history_entry_prio_TAG = (7 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_stake_history_entry_prev_TAG = (8 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_stake_history_entry_next_TAG = (9 << 6) | FD_ARCHIVE_META_ULONG,
 };
 int fd_stake_history_entry_decode_archival( fd_stake_history_entry_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
@@ -2423,6 +2425,8 @@ int fd_stake_history_entry_decode_offsets( fd_stake_history_entry_off_t * self, 
   self->left_off = (uint)( (ulong)ctx->data - (ulong)data );
   self->right_off = (uint)( (ulong)ctx->data - (ulong)data );
   self->prio_off = (uint)( (ulong)ctx->data - (ulong)data );
+  self->prev_off = (uint)( (ulong)ctx->data - (ulong)data );
+  self->next_off = (uint)( (ulong)ctx->data - (ulong)data );
   return FD_BINCODE_SUCCESS;
 }
 void fd_stake_history_entry_new(fd_stake_history_entry_t * self) {

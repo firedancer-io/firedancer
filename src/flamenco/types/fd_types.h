@@ -284,7 +284,7 @@ typedef struct fd_rent_collector_off fd_rent_collector_off_t;
 #define FD_RENT_COLLECTOR_OFF_FOOTPRINT sizeof(fd_rent_collector_off_t)
 #define FD_RENT_COLLECTOR_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (64 bytes) */
+/* Encoded Size: Fixed (80 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_history_entry {
   ulong epoch;
   ulong effective;
@@ -294,6 +294,8 @@ struct __attribute__((aligned(8UL))) fd_stake_history_entry {
   ulong left;
   ulong right;
   ulong prio;
+  ulong prev;
+  ulong next;
 };
 typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_FOOTPRINT sizeof(fd_stake_history_entry_t)
@@ -308,6 +310,8 @@ struct __attribute__((aligned(8UL))) fd_stake_history_entry_off {
   uint left_off;
   uint right_off;
   uint prio_off;
+  uint prev_off;
+  uint next_off;
 };
 typedef struct fd_stake_history_entry_off fd_stake_history_entry_off_t;
 #define FD_STAKE_HISTORY_ENTRY_OFF_FOOTPRINT sizeof(fd_stake_history_entry_off_t)
@@ -332,6 +336,7 @@ fd_stake_history_pool_alloc( fd_valloc_t valloc, ulong num ) {
 #define TREAP_QUERY_T ulong
 #define TREAP_CMP(q,e) ((q == (e)->epoch) ? 0 : ((q < (e)->epoch) ? -1 : 1 ) )
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
+#define TREAP_OPTIMIZE_ITERATION 1
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_stake_history_treap_t *
 fd_stake_history_treap_alloc( fd_valloc_t valloc, ulong num ) {
