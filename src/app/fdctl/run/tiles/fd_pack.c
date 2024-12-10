@@ -203,7 +203,6 @@ typedef struct {
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
   int      use_consumed_cus;
   long     skip_cnt;
-  long     schedule_next; /* the tick value at which to schedule the next block for pacing purposes */
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -360,7 +359,8 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   long now = fd_tickcount();
 
-  if( FD_UNLIKELY( now<ctx->schedule_next ) ) return;
+  int pacing_bank_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
+  if( FD_UNLIKELY( !pacing_bank_cnt ) ) return;
 
   ulong bank_cnt = ctx->bank_cnt;
 
@@ -478,8 +478,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   *charge_busy = 1;
 
   /* Try to schedule the next microblock.  Do we have any idle bank
-     tiles? */
-  if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
+     tiles in the first `pacing_bank_cnt`? */
+  if( FD_LIKELY( ctx->bank_idle_bitset & fd_ulong_mask_lsb( pacing_bank_cnt ) ) ) { /* Optimize for schedule */
     any_ready = 1;
 
     int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
@@ -518,7 +518,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
-      ctx->schedule_next    = fd_pack_pacing_next( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
+      fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
     }
   }
 
@@ -607,7 +607,7 @@ during_frag( fd_pack_ctx_t * ctx,
     long end_ticks = now_ticks + (long)((double)fd_long_max( became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
     /* We may still get overrun, but then we'll never use this and just
        reinitialize it the next time when we actually become leader. */
-    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, ctx->slot_max_cost );
+    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->slot_max_cost );
 
     FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, became_leader->slot_end_ns ));
 
@@ -733,7 +733,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
-    ctx->schedule_next = fd_pack_pacing_next( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
   case IN_KIND_BUNDLE: {
@@ -746,7 +746,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
     ctx->pending_rebate_cnt = 0UL;
-    ctx->schedule_next      = fd_pack_pacing_next( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
   case IN_KIND_RESOLV: {
