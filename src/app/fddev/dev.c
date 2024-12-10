@@ -144,12 +144,12 @@ agave_main1( void * args ) {
    debugging convenience. */
 
 static void
-run_firedancer_threaded( config_t * config ) {
+run_firedancer_threaded( config_t * config , int init_workspaces) {
   install_parent_signals();
 
   fd_topo_print_log( 0, &config->topo );
 
-  run_firedancer_init( config, 1 );
+  run_firedancer_init( config, init_workspaces );
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     fd_log_private_shared_lock[ 1 ] = 1;
@@ -215,13 +215,13 @@ dev_cmd_fn( args_t *         args,
 
   if( FD_LIKELY( !args->dev.monitor ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
-    else                                             run_firedancer_threaded( config );
+    else                                             run_firedancer_threaded( config , !args->dev.no_init_workspaces);
   } else {
     install_parent_signals();
 
     int pipefd[2];
     if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
+    initialize_workspaces(config);
     firedancer_pid = fork();
     if( !firedancer_pid ) {
       if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -230,8 +230,8 @@ dev_cmd_fn( args_t *         args,
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
         FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 1 );
-      else                                             run_firedancer_threaded( config );
+      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 0 );
+      else                                             run_firedancer_threaded( config , 0);
     } else {
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
