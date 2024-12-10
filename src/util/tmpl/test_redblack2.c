@@ -34,15 +34,16 @@ typedef struct rbnode_struct rbnode;
 #define REDBLK_RIGHT u.rb.right
 #define REDBLK_COLOR u.rb.color
 #define REDBLK_NEXTFREE u.nf
+
+long rb_compare(rbnode* left, rbnode* right) {
+  return (long)(left->key - right->key);
+}
+
 #include "fd_redblack.c"
 
 typedef rbnode rbtree;
 
 static rbnode* pool = NULL;
-
-long rb_compare(rbnode* left, rbnode* right) {
-  return (long)(left->key - right->key);
-}
 
 static rbtree *tree_create( void );
 static void tree_destroy(rbtree *rbt);
