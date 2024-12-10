@@ -544,6 +544,7 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
        iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ), ++i ) {
     fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
     fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
+    memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
     memcpy( msg->pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
     msg->wallclock = ele->contact_info.wallclock;
     msg->shred_version = ele->contact_info.shred_version;

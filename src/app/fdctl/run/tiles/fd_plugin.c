@@ -96,9 +96,9 @@ after_frag( fd_plugin_ctx_t *   ctx,
       sig = FD_PLUGIN_MSG_LEADER_SCHEDULE;
       break;
     }
-    /* poh_plugin */
+    /* poh_plugin or votes_plugin */
     case 3UL: {
-      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END );
+      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END || FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE );
       break;
     }
     /* startp_plugi */

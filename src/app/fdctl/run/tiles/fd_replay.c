@@ -1516,7 +1516,24 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out_mem, ctx->votes_plugin_out_chunk );
 
+  fd_vote_accounts_t * accts = &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  fd_vote_accounts_pair_t_mapnode_t * root = accts->vote_accounts_root;
+  fd_vote_accounts_pair_t_mapnode_t * pool = accts->vote_accounts_pool;
+
   ulong i = 0;
+  for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( pool, root );
+       n && i < FD_CLUSTER_NODE_CNT;
+       n = fd_vote_accounts_pair_t_map_successor_const( pool, n ), ++i ) {
+    if( n->elem.stake == 0 ) continue;
+    fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
+    memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
+    memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
+    memcpy( msg->node_pubkey, n->elem.value.node_pubkey.uc, sizeof(fd_pubkey_t) );
+    msg->activated_stake = n->elem.stake;
+    msg->last_vote = n->elem.value.last_timestamp_slot;
+    msg->is_active = (uchar)1;
+    msg->is_epoch_vote_account = (uchar)1;
+  }
 
   *(ulong *)dst = i;
   ulong data_sz = i*FD_GOSSIP_LINK_MSG_SIZE;
@@ -1617,7 +1634,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
   }
 
-  long now = (long)fd_frag_meta_ts_comp( fd_tickcount() );
+  long now = fd_log_wallclock();
   if( ctx->votes_plugin_out_mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
     ctx->last_plugin_push_time = now;
     publish_votes_to_plugin( ctx, stem );
