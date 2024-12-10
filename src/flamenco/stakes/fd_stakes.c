@@ -248,7 +248,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   temp_info->infos_len = stake_delegations_size;
   temp_info->infos = (fd_epoch_info_pair_t *)fd_scratch_alloc( FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegations_size );
   fd_memset( temp_info->infos, 0, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegations_size );
-  int delegation_idx = 0;
+  ulong delegation_idx = 0;
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -269,6 +269,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     fd_stake_state_v2_t stake_state;
     rc = fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state );
     if ( FD_UNLIKELY( rc != 0) ) {
+      continue;
+    }
+
+    if ( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
       continue;
     }
 
@@ -309,6 +313,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
       continue;
     }
 
+    if ( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+      continue;
+    }
+
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
     fd_memcpy(&temp_info->infos[delegation_idx  ].stake.delegation, &stake_state.inner.stake.stake, sizeof(fd_stake_t));
     fd_memcpy(&temp_info->infos[delegation_idx++].account, &n->elem.key, sizeof(fd_pubkey_t));
@@ -330,6 +338,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
       fd_stake_weight_t_map_insert( pool, &root, entry );
     }
   }
+
+  temp_info->infos_len = delegation_idx;
 
   fd_stake_history_entry_t new_elem = {
     .epoch = stakes->epoch,
