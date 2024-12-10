@@ -38,6 +38,7 @@
 /* TODO this can be removed if we explicitly manage a memory pool for
    the fd_block_map_t entries */
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX (32UL) /* the maximum # of children a slot can have */
+#define FD_ARCHIVE_MIN_SIZE          (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -418,7 +419,7 @@ fd_blockstore_delete( void * shblockstore );
    file.  */
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, fd_slot_bank_t const * slot_bank );
+fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank );
 
 /* fd_blockstore_fini finalizes a blockstore. */
 

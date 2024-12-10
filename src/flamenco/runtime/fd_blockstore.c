@@ -61,7 +61,6 @@ fd_blockstore_new( void * shmem,
   blockstore->off  = 0;
   blockstore->lrw_slot = FD_SLOT_NULL;
   blockstore->mrw_slot = FD_SLOT_NULL;
-  blockstore->fd_size_max = 0x6000; //ULONG_MAX; //0x3300;
 
   blockstore->lps = FD_SLOT_NULL;
   blockstore->hcs = FD_SLOT_NULL;
@@ -222,6 +221,7 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
   while ( FD_LIKELY( off < end ) ) {
     err = fd_io_read( fd, &block_map_out, sizeof(block_map_out), sizeof(block_map_out), &rsz );
     check_read_write_err( err );
+    // TODO: likely need to modify this
 
 
     if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ) ) {
@@ -251,7 +251,12 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
 }
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, fd_slot_bank_t const * slot_bank ) {
+fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank ) {
+  if ( fd_size_max < FD_ARCHIVE_MIN_SIZE ) {
+    FD_LOG_ERR(( "archive file size too small" ));
+    return NULL;
+  }
+
   build_idx( blockstore, fd );
   lseek( fd, 0, SEEK_END );
 
@@ -680,6 +685,11 @@ fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, fd_block_map_t * blo
 
   /* Successfully archived block, so update index and offset. */
 
+  if ( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx )){
+    /* enough space in file, but not enough space in block_idx */
+    blockstore->lrw_slot = lrw_block_index->next;
+    fd_block_idx_remove( block_idx, lrw_block_index );
+  }
   fd_block_idx_t * idx_entry = fd_block_idx_insert( fd_blockstore_block_idx( blockstore ), slot );
   idx_entry->off             = write_off;
   blockstore->off            = write_off + wsz;
@@ -693,7 +703,7 @@ fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, fd_block_map_t * blo
     if( FD_LIKELY( mrw_block_index ) ) {
       mrw_block_index->next = slot;
     } else {
-      FD_LOG_ERR(( "[%s] invariant violation. missing block index for slot %lu", __func__, blockstore->mrw_slot ));
+      FD_LOG_WARNING(( "[%s] invariant violation. missing block index for slot %lu, or idx_max is too small", __func__, blockstore->mrw_slot ));
     }
   }
   blockstore->mrw_slot = slot;
@@ -1256,7 +1266,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     *block_data_sz_out     = block_out.data_sz;
     return FD_BLOCKSTORE_OK;
   }
-
+  
   fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
   uchar * prev_data_out = NULL;
   ulong prev_sz = 0;

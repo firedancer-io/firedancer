@@ -2,12 +2,12 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 
-#define GENERATE_BLOCK_DATA( slot, data_sz )                                           \
+#define GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz )              \
   uchar data[data_sz];                                                                 \
-  strcpy((char*)data, "block");                                                  \
-  for( ulong i = 5; i < data_sz; i++ ) {                                               \
+  for( ulong i = 0; i < data_sz; i++ ) {                                               \
     data[i] = (uchar) rand();                                                          \
   }                                                                                    \
   fd_block_t block = { .data_gaddr = 0, .data_sz = data_sz, .rewards = {0}};           \
@@ -41,26 +41,17 @@ query_block(fd_blockstore_t * blockstore, int fd, ulong slotn){
   return success;
 }
 
-void 
-check_circular_buff_invariant( fd_blockstore_t * blockstore ){
-  fd_block_idx_t * block_idx = fd_blockstore_block_idx(blockstore);
-  fd_block_idx_t * lrw_block_index = fd_block_idx_query(block_idx, blockstore->lrw_slot, NULL);
-  fd_block_idx_t * mrw_block_index = fd_block_idx_query(block_idx, blockstore->mrw_slot, NULL);
-  if( !(mrw_block_index->off < lrw_block_index->off ||  lrw_block_index->off == 0) ){
-    FD_LOG_ERR(( "[%s] invariant violation. mrw_slot: %lu, lrw_slot: %lu", __func__, blockstore->mrw_slot, blockstore->lrw_slot ));
-  }
-}
-
 void
-test_archive_many_block( fd_wksp_t * wksp, int fd ) {
+test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong idx_max ) {
   /**
     Tests archiving blocks that will exceed the blockstore's capacity
     and will require the file to be overwritten.
    */
+  // ensure fd is cleared
+  FD_TEST( ftruncate(fd, 0) == 0 );
   FD_LOG_NOTICE(("fd is %d", fd));
   ulong shred_max = 128;
   ulong block_max = 128;
-  ulong idx_max = 128;
   ulong txn_max = 128;
 
   void * mem = fd_wksp_alloc_laddr( wksp, 
@@ -90,40 +81,40 @@ test_archive_many_block( fd_wksp_t * wksp, int fd ) {
   slot_bank.block_hash_queue.last_hash = &fake;
   slot_bank.block_hash_queue.last_hash_index = 0;
 
-  fd_blockstore_init(blockstore, fd, &slot_bank);
+  fd_blockstore_init(blockstore, fd, FD_ARCHIVE_MIN_SIZE,&slot_bank);
 
   ulong start_slot = 2;
-  for( ulong slot = start_slot; slot < idx_max + 10; slot++) {
+  for( ulong slot = start_slot; slot < idx_max + 10; slot++ ){
     ulong data_sz = (ulong) (1 << (rand() % 12));
     ulong prev_lrw_slot = blockstore->lrw_slot;
 
-    GENERATE_BLOCK_DATA( slot, data_sz );
+    GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz );
+    FD_LOG_NOTICE( ( "slot %lu, data_sz %lu", slot, data_sz ) );
 
-    // fd_blockstore_publish has a couple of other things happening that are not accounted for here
+    /* Checkpoint the generated data */
     ulong write_off = fd_blockstore_checkpt_write_offset( blockstore, fd, &ser );
     ulong wsz = fd_blockstore_block_checkpt( blockstore, &ser, fd, write_off, slot );
     fd_blockstore_checkpt_update(blockstore, &block_map_entry, slot, wsz, write_off);
 
+    /* Read back the data from archive */
     fd_block_idx_t * block_idx_entry = fd_block_idx_query( fd_blockstore_block_idx(blockstore), slot, NULL );
-
-    fd_block_map_t block_map_entry_out = {0};
-    fd_block_t block_out = {0};
+    fd_block_map_t block_map_entry_out;
+    fd_block_t block_out;
     fd_blockstore_block_meta_restore(blockstore, fd, block_idx_entry, &block_map_entry_out, &block_out);
-
     uchar buf_out[block_out.data_sz]; 
     fd_blockstore_block_data_restore(blockstore, fd, block_idx_entry, buf_out, block_out.data_sz, block_out.data_sz);
 
-    check_circular_buff_invariant(blockstore);
-    FD_TEST( memcmp(buf_out, data, block_out.data_sz) == 0);
+    /* Check data read back matches data written */  
+    FD_TEST( memcmp(buf_out, data, block_out.data_sz) == 0 );
     FD_TEST( blocks_equal(&block, &block_out) );
     FD_TEST( block_map_entry_out.slot == slot );
 
+    /* Check that blocks are evicted or stay in file as expected */
     if( blockstore->lrw_slot != prev_lrw_slot && slot != start_slot) {
       FD_TEST(!query_block(blockstore, fd, prev_lrw_slot)); // no longer in archive
     }
     FD_TEST(query_block(blockstore, fd, blockstore->lrw_slot)); // should be in archive
     FD_TEST(query_block(blockstore, fd, blockstore->mrw_slot)); // should be in archive
-    
   }
 
   fd_wksp_free_laddr(mem);
@@ -150,7 +141,11 @@ main( int argc, char ** argv ) {
   const char * file = fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-file", NULL, NULL);
   int fd = open(file, O_RDWR | O_CREAT, 0666);
   FD_TEST( fd > 0 );
-  test_archive_many_block(wksp, fd);
+
+  test_archive_many_blocks(wksp, fd, 4);
+  test_archive_many_blocks(wksp, fd, 128);
+  test_archive_many_blocks(wksp, fd, 256);
+  test_archive_many_blocks(wksp, fd, 1 << 12);
 
   fd_halt();
   return 0;
