@@ -150,7 +150,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Advance nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -318,7 +318,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, 0 ) ) ) {
     /* Max msg_sz: 51 - 2 + 45 = 94 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Withdraw nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ 0 ] ) );
+      "Withdraw nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ 0 ] ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -532,7 +532,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Initialize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -697,7 +697,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Authorize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
