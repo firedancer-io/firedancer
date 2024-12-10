@@ -54,15 +54,33 @@ typedef struct fd_exec_test_acct_state {
 /* EpochContext includes context scoped to an epoch.
  On "real" ledgers, it is created during the epoch boundary. */
 typedef struct fd_exec_test_epoch_context {
+    /* Active feature set */
     bool has_features;
     fd_exec_test_feature_set_t features;
+    /* Hashes per tick */
+    uint64_t hashes_per_tick;
+    /* Ticks per slot */
+    uint64_t ticks_per_slot;
+    /* Nanoseconds per slot; represented as a uint128 using two uint64s */
+    uint64_t ns_per_slot_lo;
+    uint64_t ns_per_slot_hi;
+    /* Genesis creation time */
+    uint64_t genesis_creation_time;
+    /* Slots per year */
+    double slots_per_year;
 } fd_exec_test_epoch_context_t;
 
 /* SlotContext includes context scoped to a block.
  On "real" ledgers, it is created during the slot boundary. */
 typedef struct fd_exec_test_slot_context {
-    /* Slot number */
+    /* Current slot number */
     uint64_t slot;
+    /* The last executed slot */
+    uint64_t prev_slot;
+    /* Last slot lamports per signature */
+    uint64_t prev_lps;
+    /* Parent's signature count */
+    uint64_t parent_signature_cnt;
 } fd_exec_test_slot_context_t;
 
 
@@ -74,13 +92,13 @@ extern "C" {
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT   {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, 0, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -95,7 +113,16 @@ extern "C" {
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
 #define FD_EXEC_TEST_ACCT_STATE_SEED_ADDR_TAG    7
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FEATURES_TAG  1
+#define FD_EXEC_TEST_EPOCH_CONTEXT_HASHES_PER_TICK_TAG 2
+#define FD_EXEC_TEST_EPOCH_CONTEXT_TICKS_PER_SLOT_TAG 3
+#define FD_EXEC_TEST_EPOCH_CONTEXT_NS_PER_SLOT_LO_TAG 4
+#define FD_EXEC_TEST_EPOCH_CONTEXT_NS_PER_SLOT_HI_TAG 5
+#define FD_EXEC_TEST_EPOCH_CONTEXT_GENESIS_CREATION_TIME_TAG 6
+#define FD_EXEC_TEST_EPOCH_CONTEXT_SLOTS_PER_YEAR_TAG 7
 #define FD_EXEC_TEST_SLOT_CONTEXT_SLOT_TAG       1
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  2
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   3
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_SIGNATURE_CNT_TAG 4
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDLIST(X, a) \
@@ -123,13 +150,22 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7)
 #define fd_exec_test_acct_state_t_seed_addr_MSGTYPE fd_exec_test_seed_address_t
 
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1)
+X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1) \
+X(a, STATIC,   SINGULAR, UINT64,   hashes_per_tick,   2) \
+X(a, STATIC,   SINGULAR, UINT64,   ticks_per_slot,    3) \
+X(a, STATIC,   SINGULAR, UINT64,   ns_per_slot_lo,    4) \
+X(a, STATIC,   SINGULAR, UINT64,   ns_per_slot_hi,    5) \
+X(a, STATIC,   SINGULAR, UINT64,   genesis_creation_time,   6) \
+X(a, STATIC,   SINGULAR, DOUBLE,   slots_per_year,    7)
 #define FD_EXEC_TEST_EPOCH_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_EPOCH_CONTEXT_DEFAULT NULL
 #define fd_exec_test_epoch_context_t_features_MSGTYPE fd_exec_test_feature_set_t
 
 #define FD_EXEC_TEST_SLOT_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED64,  slot,              1)
+X(a, STATIC,   SINGULAR, FIXED64,  slot,              1) \
+X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         2) \
+X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          3) \
+X(a, STATIC,   SINGULAR, UINT64,   parent_signature_cnt,   4)
 #define FD_EXEC_TEST_SLOT_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_SLOT_CONTEXT_DEFAULT NULL
 
@@ -151,7 +187,7 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 /* fd_exec_test_SeedAddress_size depends on runtime parameters */
 /* fd_exec_test_AcctState_size depends on runtime parameters */
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           9
+#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           40
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */

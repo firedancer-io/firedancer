@@ -175,6 +175,9 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_spad_t * * spads, 
                                         ulong spads_cnt );
 
+int
+fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx );
+
 void
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
                            fd_txn_t const * txn_descriptor,
