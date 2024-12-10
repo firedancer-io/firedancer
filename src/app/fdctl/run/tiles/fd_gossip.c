@@ -536,15 +536,14 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 static void
 publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
-  static const ulong FIREDANCER_CLUSTER_NODE_CNT = 200*201 - 1;
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->gossip_plugin_out_mem, ctx->gossip_plugin_out_chunk );
 
   ulong i = 0;
   for( fd_contact_info_table_iter_t iter = fd_contact_info_table_iter_init( ctx->contact_info_table );
-       !fd_contact_info_table_iter_done( ctx->contact_info_table, iter ) && i < FIREDANCER_CLUSTER_NODE_CNT;
+       !fd_contact_info_table_iter_done( ctx->contact_info_table, iter ) && i < FD_CLUSTER_NODE_CNT;
        iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ), ++i ) {
     fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
-    fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*sizeof(fd_gossip_update_msg_t));
+    fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
     memcpy( msg->pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
     msg->wallclock = ele->contact_info.wallclock;
     msg->shred_version = ele->contact_info.shred_version;
@@ -582,7 +581,7 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
   }
 
   *(ulong *)dst = i;
-  ulong data_sz = i*sizeof(fd_gossip_update_msg_t);
+  ulong data_sz = i*FD_GOSSIP_LINK_MSG_SIZE;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, PLUGIN_OUT_IDX, FD_PLUGIN_MSG_GOSSIP_UPDATE, ctx->gossip_plugin_out_chunk, data_sz, 0UL, 0UL, tspub );
