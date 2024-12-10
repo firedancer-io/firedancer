@@ -145,16 +145,23 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L108 */
     ulong end_offset = fd_ulong_sat_add( offset, bytes_len );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L109-L119 */
-    if( FD_UNLIKELY( fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, end_offset )>program->const_meta->dlen ) ) {
+    /* Break up the chained operations into separate lines...
+       https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L109-L110 */
+    uchar * data = NULL;
+    ulong dlen = 0UL;
+    err = fd_account_get_data_mut( instr_ctx, 0UL, &data, &dlen );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L111-L114 */
+    if( FD_UNLIKELY( fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, end_offset )>dlen ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Write out of bounds" );
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
-    /* Note that fd_executor already makes writable accounts modifiable by populating the meta. Since we already
-       checked that the program account is writable, the `program->data` access is safe. */
     if( FD_LIKELY( bytes_len>0 ) ) {
-      fd_memcpy( program->data+LOADER_V4_PROGRAM_DATA_OFFSET+offset, bytes, bytes_len );
+      fd_memcpy( data+LOADER_V4_PROGRAM_DATA_OFFSET+offset, bytes, bytes_len );
     }
 
     return FD_EXECUTOR_INSTR_SUCCESS;
