@@ -946,8 +946,16 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
+  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, parent_slot );
+  if( FD_UNLIKELY( !parent_block_map_entry ) ) {
+    FD_LOG_WARNING(( "[%s] unable to find slot %lu's parent block_map_entry", __func__, curr_slot ));
+    return;
+  }
+
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
+
   /* do a replay */
+
   ulong        txn_cnt    = ctx->txn_cnt;
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
 
@@ -959,8 +967,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       already be in the frontier and currently executing (ie.
       fork->frozen = 0). */
 
-  fd_fork_t * parent_fork = fd_fork_frontier_ele_query(
-        ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
+  fd_fork_t * parent_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
   if( FD_UNLIKELY ( parent_fork && parent_fork->lock ) ) {
     FD_LOG_ERR(
         ( "parent slot is frozen in frontier. cannot execute. slot: %lu, parent_slot: %lu",
@@ -968,8 +975,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           ctx->parent_slot ) );
   }
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query(
-        ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
 
   if( fork == NULL ) {
     fork = prepare_new_block_execution( ctx, stem, curr_slot, flags );
