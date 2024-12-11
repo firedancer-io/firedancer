@@ -286,6 +286,11 @@ verify_vote_txn( fd_gossip_vote_t const * vote ) {
     return -1;
   }
 
+  /* Check that txn only contains one instruction */
+  if( parsed_txn->instr_cnt > 1 ) {
+    return -1;
+  }
+
   fd_vote_instruction_t vote_instr = { 0 };
   fd_bincode_decode_ctx_t decode = {
                                     .data    = instr_data,
