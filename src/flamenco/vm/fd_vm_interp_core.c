@@ -1130,17 +1130,17 @@ interp_exec:
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
   cu -= fd_ulong_min( ic_correction, cu )
 
-sigtext:     err = FD_VM_ERR_SIGTEXT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigtextbr:   err = FD_VM_ERR_SIGTEXT;  /* ic current */      /* cu current */  goto interp_halt;
-sigcall:     err = FD_VM_ERR_SIGCALL;  /* ic current */      /* cu current */  goto interp_halt;
-sigstack:    err = FD_VM_ERR_SIGSTACK; /* ic current */      /* cu current */  goto interp_halt;
-sigill:      err = FD_VM_ERR_SIGILL;   FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigsegv:     err = FD_VM_ERR_SIGSEGV;  FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigcost:     err = FD_VM_ERR_SIGCOST;  /* ic current */      cu = 0UL;         goto interp_halt;
-sigsyscall:  /* err current */         /* ic current */      /* cu current */  goto interp_halt;
-sigfpe:      err = FD_VM_ERR_SIGFPE;   FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigfpeof:    err = FD_VM_ERR_SIGFPE_OF;FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigexit:     /* err current */         /* ic current */      /* cu current */  goto interp_halt;
+sigtext:     err = FD_VM_ERR_SIGTEXT;     FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigtextbr:   err = FD_VM_ERR_SIGTEXT;     /* ic current */      /* cu current */  goto interp_halt;
+sigcall:     err = FD_VM_ERR_SIGCALL;     /* ic current */      /* cu current */  goto interp_halt;
+sigstack:    err = FD_VM_ERR_SIGSTACK;    /* ic current */      /* cu current */  goto interp_halt;
+sigill:      err = FD_VM_ERR_SIGILL;      FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigsegv:     err = FD_VM_ERR_SIGSEGV;     FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigcost:     err = FD_VM_ERR_SIGCOST;     /* ic current */      cu = 0UL;         goto interp_halt;
+sigsyscall:  err = FD_VM_ERR_SIGSYSCALL;  /* ic current */      /* cu current */  goto interp_halt;
+sigfpe:      err = FD_VM_ERR_SIGFPE;      FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigfpeof:    err = FD_VM_ERR_SIGFPE_OF;   FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigexit:     /* err current */            /* ic current */      /* cu current */  goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 

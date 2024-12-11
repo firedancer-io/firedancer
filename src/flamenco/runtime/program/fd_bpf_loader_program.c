@@ -559,7 +559,14 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
-  instr_ctx->txn_ctx->compute_meter = vm->cu;
+  
+  /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
+  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, consume_requested_cu_on_vm_err )
+      && exec_err != FD_VM_ERR_SIGSYSCALL ) {
+    instr_ctx->txn_ctx->compute_meter = 0UL;
+  } else {
+    instr_ctx->txn_ctx->compute_meter = vm->cu;
+  }
 
   if( FD_UNLIKELY( vm->trace ) ) {
     int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
