@@ -1800,6 +1800,14 @@
       ]
     },
     {
+      "name": "gossip_prune_sign_data_with_prefix",
+      "type": "struct",
+      "fields": [
+        { "name": "prefix", "type": "string" },
+        { "name": "data", "type": "gossip_prune_sign_data" }
+      ]
+    },
+    {
       "name": "gossip_socket_addr_old",
       "type": "struct",
       "fields": [
