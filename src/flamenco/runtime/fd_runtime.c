@@ -2808,7 +2808,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_WARNING(("REGISTERING ROOT %lu", txn->xid.ul[0] ));
         fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       } else if( slot_ctx->status_cache ) {
-        FD_LOG_WARNING(("CONSTIPATING ROOT %lu", txn->xid.ul[0] ));
         fd_txncache_register_constipated_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       }
 
@@ -2819,7 +2818,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         fd_funk_txn_t *p = fd_funk_txn_parent( txn, txnmap );
         if( p != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
-          FD_LOG_WARNING(("CONSTIPATED PUBLISH"));
+          FD_LOG_WARNING(("CONSTIPATED PUBLISH %lu into %lu", slot_ctx->root_slot, p->xid.ul[0]));
+
           if( fd_funk_txn_publish_into_parent(funk, txn, 1) == FD_FUNK_SUCCESS ) {
             publish_err = 1;
           }
@@ -2835,8 +2835,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
           slot_ctx->epoch_ctx->constipate_root = 1;
           fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
         }
+        FD_LOG_WARNING(("PUBLISH for slot %lu ", txn->xid.ul[0]));
         publish_err = fd_funk_txn_publish(funk, txn, 1);
-        FD_LOG_WARNING(("PUBLISH for slot %lu", txn->xid.ul[0]));;
       }
       if (publish_err == 0) {
         FD_LOG_ERR(("publish err"));

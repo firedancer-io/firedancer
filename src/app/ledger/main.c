@@ -394,8 +394,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 
-      uchar * mem = fd_valloc_malloc( fd_scratch_virtual(), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
-
       ledger_args->is_snapshotting = 1;
 
       ledger_args->last_snapshot_slot = ledger_args->slot_ctx->root_slot;
@@ -405,7 +403,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .out_dir        = ledger_args->snapshot_dir,
         .is_incremental = 0,
         .valloc         = ledger_args->slot_ctx->valloc,
-        .acc_mgr        = fd_acc_mgr_new( mem, ledger_args->slot_ctx->acc_mgr->funk ),
+        .funk           = ledger_args->slot_ctx->acc_mgr->funk,
         .status_cache   = ledger_args->slot_ctx->status_cache,
         .tpool          = ledger_args->snapshot_tpool
       };
