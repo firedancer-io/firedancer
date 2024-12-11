@@ -3742,6 +3742,24 @@ typedef struct fd_gossip_prune_sign_data_off fd_gossip_prune_sign_data_off_t;
 #define FD_GOSSIP_PRUNE_SIGN_DATA_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data_with_prefix {
+  ulong prefix_len;
+  uchar* prefix;
+  fd_gossip_prune_sign_data_t data;
+};
+typedef struct fd_gossip_prune_sign_data_with_prefix fd_gossip_prune_sign_data_with_prefix_t;
+#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_FOOTPRINT sizeof(fd_gossip_prune_sign_data_with_prefix_t)
+#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data_with_prefix_off {
+  uint prefix_off;
+  uint data_off;
+};
+typedef struct fd_gossip_prune_sign_data_with_prefix_off fd_gossip_prune_sign_data_with_prefix_off_t;
+#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_OFF_FOOTPRINT sizeof(fd_gossip_prune_sign_data_with_prefix_off_t)
+#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_old {
   fd_gossip_ip_addr_t addr;
   ushort port;
@@ -7292,6 +7310,18 @@ void fd_gossip_prune_sign_data_walk( void * w, fd_gossip_prune_sign_data_t const
 ulong fd_gossip_prune_sign_data_size( fd_gossip_prune_sign_data_t const * self );
 ulong fd_gossip_prune_sign_data_footprint( void );
 ulong fd_gossip_prune_sign_data_align( void );
+
+void fd_gossip_prune_sign_data_with_prefix_new( fd_gossip_prune_sign_data_with_prefix_t * self );
+int fd_gossip_prune_sign_data_with_prefix_decode( fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_prune_sign_data_with_prefix_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_prune_sign_data_with_prefix_decode_unsafe( fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_prune_sign_data_with_prefix_decode_offsets( fd_gossip_prune_sign_data_with_prefix_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_prune_sign_data_with_prefix_encode( fd_gossip_prune_sign_data_with_prefix_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_prune_sign_data_with_prefix_destroy( fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_prune_sign_data_with_prefix_walk( void * w, fd_gossip_prune_sign_data_with_prefix_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_prune_sign_data_with_prefix_size( fd_gossip_prune_sign_data_with_prefix_t const * self );
+ulong fd_gossip_prune_sign_data_with_prefix_footprint( void );
+ulong fd_gossip_prune_sign_data_with_prefix_align( void );
 
 void fd_gossip_socket_addr_old_new( fd_gossip_socket_addr_old_t * self );
 int fd_gossip_socket_addr_old_decode( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx );

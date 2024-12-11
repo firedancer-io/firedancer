@@ -23692,6 +23692,102 @@ ulong fd_gossip_prune_sign_data_size( fd_gossip_prune_sign_data_t const * self )
   return size;
 }
 
+int fd_gossip_prune_sign_data_with_prefix_decode( fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_prune_sign_data_with_prefix_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_prune_sign_data_with_prefix_new( self );
+  }
+  fd_gossip_prune_sign_data_with_prefix_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_prune_sign_data_with_prefix_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  ulong prefix_len;
+  err = fd_bincode_uint64_decode( &prefix_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( prefix_len ) {
+    err = fd_bincode_bytes_decode_preflight( prefix_len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    err = !fd_utf8_verify( (char const *) ctx->data - prefix_len, prefix_len );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  err = fd_gossip_prune_sign_data_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_prune_sign_data_with_prefix_decode_unsafe( fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->prefix_len, ctx );
+  if( self->prefix_len ) {
+    self->prefix = fd_valloc_malloc( ctx->valloc, 8UL, self->prefix_len );
+    fd_bincode_bytes_decode_unsafe( self->prefix, self->prefix_len, ctx );
+  } else
+    self->prefix = NULL;
+  fd_gossip_prune_sign_data_decode_unsafe( &self->data, ctx );
+}
+int fd_gossip_prune_sign_data_with_prefix_encode( fd_gossip_prune_sign_data_with_prefix_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->prefix_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->prefix_len ) {
+    err = fd_bincode_bytes_encode( self->prefix, self->prefix_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_gossip_prune_sign_data_encode( &self->data, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_prune_sign_data_with_prefix_decode_offsets( fd_gossip_prune_sign_data_with_prefix_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->prefix_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong prefix_len;
+  err = fd_bincode_uint64_decode( &prefix_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( prefix_len ) {
+    err = fd_bincode_bytes_decode_preflight( prefix_len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    err = !fd_utf8_verify( (char const *) ctx->data - prefix_len, prefix_len );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  self->data_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_prune_sign_data_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_prune_sign_data_with_prefix_new(fd_gossip_prune_sign_data_with_prefix_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_prune_sign_data_with_prefix_t) );
+  fd_gossip_prune_sign_data_new( &self->data );
+}
+void fd_gossip_prune_sign_data_with_prefix_destroy( fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  if( self->prefix ) {
+    fd_valloc_free( ctx->valloc, self->prefix );
+    self->prefix = NULL;
+  }
+  fd_gossip_prune_sign_data_destroy( &self->data, ctx );
+}
+
+ulong fd_gossip_prune_sign_data_with_prefix_footprint( void ){ return FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_FOOTPRINT; }
+ulong fd_gossip_prune_sign_data_with_prefix_align( void ){ return FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_ALIGN; }
+
+void fd_gossip_prune_sign_data_with_prefix_walk( void * w, fd_gossip_prune_sign_data_with_prefix_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_sign_data_with_prefix", level++ );
+  fun(w, self->prefix, "prefix", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fd_gossip_prune_sign_data_walk( w, &self->data, fun, "data", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_prune_sign_data_with_prefix", level-- );
+}
+ulong fd_gossip_prune_sign_data_with_prefix_size( fd_gossip_prune_sign_data_with_prefix_t const * self ) {
+  ulong size = 0;
+  do {
+    size += sizeof(ulong);
+    size += self->prefix_len;
+  } while(0);
+  size += fd_gossip_prune_sign_data_size( &self->data );
+  return size;
+}
+
 int fd_gossip_socket_addr_old_decode( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
   int err = fd_gossip_socket_addr_old_decode_preflight( ctx );

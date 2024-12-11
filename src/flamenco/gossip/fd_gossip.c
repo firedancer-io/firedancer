@@ -51,6 +51,9 @@
 #define FD_PING_PRE_IMAGE_SZ (48UL)
 /* Number of recognized CRDS enum members */
 #define FD_KNOWN_CRDS_ENUM_MAX (14UL)
+/* Prune data prefix
+   https://github.com/anza-xyz/agave/blob/0c264859b127940f13673b5fea300131a70b1a8d/agave/gossip/src/protocol.rs#L39 */
+#define FD_GOSSIP_PRUNE_DATA_PREFIX "\xffSOLANA_PRUNE_DATA"
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
@@ -1362,6 +1365,60 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_gossip_lock( glob );
 }
 
+static int
+verify_signable_data_with_prefix( fd_gossip_prune_msg_t * msg ) {
+  fd_gossip_prune_sign_data_with_prefix_t signdata[1] = {0};
+  signdata->prefix           = (uchar *)&FD_GOSSIP_PRUNE_DATA_PREFIX;
+  signdata->prefix_len       = 18UL;
+  signdata->data.pubkey      = msg->data.pubkey;
+  signdata->data.prunes_len  = msg->data.prunes_len;
+  signdata->data.prunes      = msg->data.prunes;
+  signdata->data.destination = msg->data.destination;
+  signdata->data.wallclock   = msg->data.wallclock;
+
+  uchar buf[PACKET_DATA_SIZE];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data    = buf;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
+  if ( fd_gossip_prune_sign_data_with_prefix_encode( signdata, &ctx ) ) {
+    FD_LOG_WARNING(("fd_gossip_prune_sign_data_encode failed"));
+    return 1;
+  }
+
+  fd_sha512_t sha[1];
+  return fd_ed25519_verify( /* msg */ buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                         /* sig */ msg->data.signature.uc,
+                         /* public_key */ msg->data.pubkey.uc,
+                         sha );
+}
+
+static int
+verify_signable_data( fd_gossip_prune_msg_t * msg ) {
+  fd_gossip_prune_sign_data_t signdata;
+  signdata.pubkey      = msg->data.pubkey;
+  signdata.prunes_len  = msg->data.prunes_len;
+  signdata.prunes      = msg->data.prunes;
+  signdata.destination = msg->data.destination;
+  signdata.wallclock   = msg->data.wallclock;
+
+  uchar buf[PACKET_DATA_SIZE];
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data    = buf;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
+  if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
+    FD_LOG_WARNING(("fd_gossip_prune_sign_data_encode failed"));
+    return 1;
+  }
+
+  fd_sha512_t sha[1];
+  return fd_ed25519_verify( /* msg */ buf,
+                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
+                         /* sig */ msg->data.signature.uc,
+                         /* public_key */ msg->data.pubkey.uc,
+                         sha );
+}
+
 /* Handle a prune request from somebody else */
 static void
 fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_prune_msg_t * msg) {
@@ -1371,33 +1428,10 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   if (memcmp(msg->data.destination.uc, glob->public_key->uc, 32U) != 0)
     return;
 
-  /* Verify the signature. This is hacky for prune messages */
-  fd_gossip_prune_sign_data_t signdata;
-  signdata.pubkey = msg->data.pubkey;
-  signdata.prunes_len = msg->data.prunes_len;
-  signdata.prunes = msg->data.prunes;
-  signdata.destination = msg->data.destination;
-  signdata.wallclock = msg->data.wallclock;
-
-  /* Verify the signature. You would think that solana would use
-     msg->pubkey.uc for this, but that pubkey is actually ignored. The
-     inclusion of two pubkeys in this message is confusing and
-     problematic. */
-  uchar buf[PACKET_DATA_SIZE];
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = buf;
-  ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
-    FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
-    return;
-  }
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                         /* sig */ msg->data.signature.uc,
-                         /* public_key */ msg->data.pubkey.uc,
-                         sha )) {
-    FD_LOG_WARNING(("received prune_msg with invalid signature"));
+  /* Try to verify the signed data either with the prefix and not the prefix */
+  if ( ! (  verify_signable_data( msg ) == FD_ED25519_SUCCESS ||
+            verify_signable_data_with_prefix( msg ) == FD_ED25519_SUCCESS ) ) {
+    FD_LOG_WARNING(( "received prune message with invalid signature" ));
     return;
   }
 
