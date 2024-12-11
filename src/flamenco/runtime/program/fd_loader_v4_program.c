@@ -337,7 +337,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   int err;
 
   /* These variables should exist outside of borrowed account scopes. */
-  uchar                         source_program_present = !!( instr_ctx->instr->acct_cnt>1 );
+  uchar                         source_program_present = !!( instr_ctx->instr->acct_cnt>2 );
   fd_loader_v4_state_t          program_state          = {0};
   fd_sol_sysvar_clock_t const * clock                  = fd_sysvar_cache_clock( instr_ctx->slot_ctx->sysvar_cache );
 
