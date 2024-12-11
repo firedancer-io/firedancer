@@ -67,7 +67,7 @@ test_eqvoc_proof_verify( fd_eqvoc_t * eqvoc ) {
 }
 
 void
-test_eqvoc_proof_from_chunks( fd_eqvoc_t * eqvoc,
+test_eqvoc_proof_from_chunks( FD_PARAM_UNUSED fd_eqvoc_t * eqvoc,
                               fd_alloc_t * alloc,
                               ulong        shred1_sz,
                               ulong        shred2_sz,
@@ -110,7 +110,6 @@ test_eqvoc_proof_from_chunks( fd_eqvoc_t * eqvoc,
   }
 
   fd_eqvoc_proof_t * proof = fd_alloc_malloc( alloc, alignof(fd_eqvoc_proof_t), sizeof(fd_eqvoc_proof_t) );
-  fd_eqvoc_proof_init( proof, &producer, chunks[0].wallclock, chunks[0].num_chunks, chunks[0].chunk_len, eqvoc->bmtree_mem );
   fd_memset( proof->set, 0, sizeof(proof->set) );
   proof->producer = producer;
   fd_eqvoc_proof_from_chunks( chunks, proof );
@@ -254,7 +253,6 @@ main( int argc, char ** argv ) {
   eqvoc->me            = (fd_pubkey_t){ .uc = { 0 } };
   eqvoc->fec_max       = fec_max;
   eqvoc->proof_max     = proof_max;
-  eqvoc->shred_version = 42;
   eqvoc->leaders       = &leaders;
 
   void *       alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );

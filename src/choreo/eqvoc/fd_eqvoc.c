@@ -15,22 +15,23 @@ fd_eqvoc_new( void * shmem, ulong fec_max, ulong proof_max, ulong seed ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),         sizeof(fd_eqvoc_t) );
-  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),   fd_eqvoc_fec_pool_footprint( fec_max ) );
-  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),    fd_eqvoc_fec_map_footprint( fec_max ) );
-  void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(), fd_eqvoc_proof_pool_footprint( proof_max ) );
-  void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),  fd_eqvoc_proof_map_footprint( proof_max ) );
-  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),           fd_sha512_footprint() );
-  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(),    fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
+  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),          sizeof(fd_eqvoc_t) );
+  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),    fd_eqvoc_fec_pool_footprint( fec_max ) );
+  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),     fd_eqvoc_fec_map_footprint( fec_max ) );
+  void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(),  fd_eqvoc_proof_pool_footprint( proof_max ) );
+  void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),   fd_eqvoc_proof_map_footprint( proof_max ) );
+  void * proof_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_dlist_align(), fd_eqvoc_proof_dlist_footprint() );
+  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),            fd_sha512_footprint() );
+  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(),     fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_eqvoc_align() );
 
   eqvoc->fec_max       = fec_max;
   eqvoc->proof_max     = proof_max;
-  eqvoc->shred_version = 0;
   fd_eqvoc_fec_pool_new( fec_pool, fec_max );
   fd_eqvoc_fec_map_new( fec_map, fec_max, seed );
   fd_eqvoc_proof_pool_new( proof_pool, proof_max );
   fd_eqvoc_proof_map_new( proof_map, proof_max, seed );
+  fd_eqvoc_proof_dlist_new( proof_dlist );
   fd_sha512_new( sha512 );
   (void)bmtree_mem; /* does not require new */
 
@@ -51,21 +52,23 @@ fd_eqvoc_join( void * sheqvoc ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, sheqvoc );
-  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),        sizeof(fd_eqvoc_t) );
-  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),  fd_eqvoc_fec_pool_footprint( eqvoc->fec_max ) );
-  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),   fd_eqvoc_fec_map_footprint( eqvoc->fec_max ) );
-  void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(), fd_eqvoc_proof_pool_footprint( eqvoc->proof_max ) );
-  void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),  fd_eqvoc_proof_map_footprint( eqvoc->proof_max ) );
-  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),           fd_sha512_footprint() );
-  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(),    fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
+  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),          sizeof(fd_eqvoc_t) );
+  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),    fd_eqvoc_fec_pool_footprint( eqvoc->fec_max ) );
+  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),     fd_eqvoc_fec_map_footprint( eqvoc->fec_max ) );
+  void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(),  fd_eqvoc_proof_pool_footprint( eqvoc->proof_max ) );
+  void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),   fd_eqvoc_proof_map_footprint( eqvoc->proof_max ) );
+  void * proof_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_dlist_align(), fd_eqvoc_proof_dlist_footprint() );
+  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),            fd_sha512_footprint() );
+  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(),     fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_eqvoc_align() );
 
-  eqvoc->fec_pool   = fd_eqvoc_fec_pool_join( fec_pool );
-  eqvoc->fec_map    = fd_eqvoc_fec_map_join( fec_map );
-  eqvoc->proof_pool = fd_eqvoc_proof_pool_join( proof_pool );
-  eqvoc->proof_map  = fd_eqvoc_proof_map_join( proof_map );
-  eqvoc->sha512     = fd_sha512_join( sha512 );
-  eqvoc->bmtree_mem = bmtree_mem; /* does not require join */
+  eqvoc->fec_pool    = fd_eqvoc_fec_pool_join( fec_pool );
+  eqvoc->fec_map     = fd_eqvoc_fec_map_join( fec_map );
+  eqvoc->proof_pool  = fd_eqvoc_proof_pool_join( proof_pool );
+  eqvoc->proof_map   = fd_eqvoc_proof_map_join( proof_map );
+  eqvoc->proof_dlist = fd_eqvoc_proof_dlist_join( proof_dlist );
+  eqvoc->sha512      = fd_sha512_join( sha512 );
+  eqvoc->bmtree_mem  = bmtree_mem; /* does not require join */
 
   return (fd_eqvoc_t *)sheqvoc;
 }
@@ -97,11 +100,6 @@ fd_eqvoc_delete( void * eqvoc ) {
   return eqvoc;
 }
 
-void
-fd_eqvoc_init( fd_eqvoc_t * eqvoc, ulong shred_version ) {
-  eqvoc->shred_version = shred_version;
-}
-
 fd_eqvoc_fec_t *
 fd_eqvoc_fec_insert( fd_eqvoc_t * eqvoc, ulong slot, uint fec_set_idx ) {
   fd_slot_fec_t key = { slot, fec_set_idx };
@@ -112,15 +110,30 @@ fd_eqvoc_fec_insert( fd_eqvoc_t * eqvoc, ulong slot, uint fec_set_idx ) {
 
   /* FIXME eviction */
 
-  if( FD_UNLIKELY( !fd_eqvoc_fec_pool_free( eqvoc->fec_pool ) ) ) FD_LOG_ERR(( "[%s] map full.", __func__ ));
+  if( FD_UNLIKELY( !fd_eqvoc_fec_pool_free( eqvoc->fec_pool ) ) ) {
+    fd_eqvoc_fec_t * fec = fd_eqvoc_fec_dlist_ele_pop_head( eqvoc->fec_dlist, eqvoc->fec_pool );
+    fd_eqvoc_fec_t * ele = fd_eqvoc_fec_map_ele_remove( eqvoc->fec_map, &fec->key, NULL, eqvoc->fec_pool );
+    #if FD_EQVOC_USE_HANDHOLDING
+    FD_TEST( fec == ele );
+    #endif
+    fd_eqvoc_fec_pool_ele_release( eqvoc->fec_pool, fec );
+  }
 
   fd_eqvoc_fec_t * fec = fd_eqvoc_fec_pool_ele_acquire( eqvoc->fec_pool );
+
   fec->key.slot        = slot;
   fec->key.fec_set_idx = fec_set_idx;
-  fec->code_cnt        = 0;
-  fec->data_cnt        = 0;
-  fec->last_idx        = FD_SHRED_IDX_NULL;
+  fec->prev            = fd_eqvoc_proof_pool_idx_null( eqvoc->proof_pool );
+  fec->next            = fd_eqvoc_proof_pool_idx_null( eqvoc->proof_pool );
+  fec->hash            = fd_eqvoc_proof_pool_idx_null( eqvoc->proof_pool );
+
+  fec->code_cnt = 0;
+  fec->data_cnt = 0;
+  fec->last_idx = FD_SHRED_IDX_NULL;
+
+  fd_eqvoc_fec_dlist_ele_push_tail( eqvoc->fec_dlist, fec, eqvoc->fec_pool );
   fd_eqvoc_fec_map_ele_insert( eqvoc->fec_map, fec, eqvoc->fec_pool);
+
   return fec;
 }
 
@@ -208,24 +221,46 @@ fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from 
   if( FD_UNLIKELY( fd_eqvoc_proof_map_ele_query( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool ) ) ) FD_LOG_ERR(( "[%s] key (%lu, %s) already in map.", __func__, slot, FD_BASE58_ENC_32_ALLOCA( from->uc ) ));
   #endif
 
-  /* FIXME eviction */
+  if( FD_UNLIKELY( !fd_eqvoc_proof_pool_free( eqvoc->proof_pool ) ) ) {
+    fd_eqvoc_proof_t * proof = fd_eqvoc_proof_dlist_ele_pop_head( eqvoc->proof_dlist, eqvoc->proof_pool );
+    fd_eqvoc_proof_t * ele   = fd_eqvoc_proof_map_ele_remove( eqvoc->proof_map, &proof->key, NULL, eqvoc->proof_pool );
+    #if FD_EQVOC_USE_HANDHOLDING
+    FD_TEST( proof == ele );
+    #endif
+    fd_eqvoc_proof_pool_ele_release( eqvoc->proof_pool, proof );
+  }
 
   fd_eqvoc_proof_t * proof = fd_eqvoc_proof_pool_ele_acquire( eqvoc->proof_pool );
-  memset( proof, 0, sizeof(fd_eqvoc_proof_t) );
+
   proof->key.slot = slot;
   proof->key.hash = *from;
+  proof->prev     = fd_eqvoc_proof_pool_idx_null( eqvoc->proof_pool );
+  proof->next     = fd_eqvoc_proof_pool_idx_null( eqvoc->proof_pool );
+  proof->hash     = fd_eqvoc_proof_pool_idx_null( eqvoc->proof_pool );
+
+  proof->producer   = *fd_epoch_leaders_get( eqvoc->leaders, slot );
+  proof->bmtree_mem = eqvoc->bmtree_mem;
+  proof->wallclock  = 0;
+  proof->chunk_cnt  = 0;
+  proof->chunk_sz   = 0;
+  fd_eqvoc_proof_set_null( proof->set );
+
+  fd_eqvoc_proof_dlist_ele_push_tail( eqvoc->proof_dlist, proof, eqvoc->proof_pool );
   fd_eqvoc_proof_map_ele_insert( eqvoc->proof_map, proof, eqvoc->proof_pool );
+
   return proof;
 }
 
 void
 fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t const * chunk ) {
   if( FD_UNLIKELY( chunk->wallclock > proof->wallclock ) ) {
-    FD_LOG_WARNING(( "[%s] received newer chunk (slot: %lu from: %s). overwriting.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    if( FD_UNLIKELY( proof->wallclock != 0 ) ) FD_LOG_WARNING(( "[%s] received newer chunk (slot: %lu from: %s). overwriting.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
     proof->wallclock = chunk->wallclock;
     proof->chunk_cnt = chunk->num_chunks;
-    memset( proof->set, 0, 4 * sizeof(ulong) );
-    // fd_eqvoc_proof_set_null( proof->set );
+    if( FD_LIKELY( chunk->chunk_index != chunk->num_chunks - 1 ) ) {
+      proof->chunk_sz = chunk->chunk_len;
+    }
+    fd_eqvoc_proof_set_null( proof->set );
   }
 
   if ( FD_UNLIKELY( chunk->wallclock < proof->wallclock ) ) {
@@ -237,7 +272,6 @@ fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred
     FD_LOG_WARNING(( "[%s] received incompatible chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
     return;
   }
-    
 
   if( FD_UNLIKELY( fd_eqvoc_proof_set_test( proof->set, chunk->chunk_index ) ) ) {
     FD_LOG_WARNING(( "[%s] already received chunk %u. slot: %lu from: %s. ignoring.", __func__, chunk->chunk_index, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
@@ -248,20 +282,6 @@ fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred
   fd_eqvoc_proof_set_insert( proof->set, chunk->chunk_index );
 }
 
-/* fd_eqvoc_proof_init initializes a new proof entry. */
-
-void
-fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, ulong wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem ) {
-  proof->producer   = *producer;
-  proof->bmtree_mem = bmtree_mem;
-  proof->wallclock  = wallclock;
-  proof->chunk_cnt  = chunk_cnt;
-  proof->chunk_sz   = chunk_sz;
-  memset( proof->set, 0, 4 * sizeof(ulong) );
-  memset( proof->shreds, 0, 2472 );
-}
-
-
 void
 fd_eqvoc_proof_remove( fd_eqvoc_t * eqvoc, fd_slot_pubkey_t const * key ) {
   fd_eqvoc_proof_t * proof = fd_eqvoc_proof_map_ele_remove( eqvoc->proof_map, key, NULL, eqvoc->proof_pool );
@@ -269,11 +289,15 @@ fd_eqvoc_proof_remove( fd_eqvoc_t * eqvoc, fd_slot_pubkey_t const * key ) {
     FD_LOG_WARNING(( "[%s] key (%lu, %s) not in map.", __func__, key->slot, FD_BASE58_ENC_32_ALLOCA( key->hash.uc ) ));
     return;
   }
+  fd_eqvoc_proof_dlist_ele_remove( eqvoc->proof_dlist, proof, eqvoc->proof_pool );
   fd_eqvoc_proof_pool_ele_release( eqvoc->proof_pool, proof );
 }
 
 int
 fd_eqvoc_proof_verify( fd_eqvoc_proof_t const * proof ) {
+  #if FD_EQVOC_USE_HANDHOLDING
+  FD_TEST( fd_eqvoc_proof_complete( proof ) );
+  #endif
   return fd_eqvoc_shreds_verify( fd_eqvoc_proof_shred1_const( proof ), fd_eqvoc_proof_shred2_const( proof ), &proof->producer, proof->bmtree_mem );
 }
 

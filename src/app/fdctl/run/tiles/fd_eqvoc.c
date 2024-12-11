@@ -202,12 +202,11 @@ after_frag( fd_eqvoc_tile_ctx_t * ctx,
     }
 
     return;
+  } else if ( FD_UNLIKELY( in_idx == ctx->shred_net_in_idx ) ) {
+    FD_LOG_NOTICE(( "got shred %lu %u", ctx->shred.slot, ctx->shred.idx ));
+  } else {
+    FD_LOG_WARNING(( "unexpected in_idx %lu", in_idx ));
   }
-  // } else if ( FD_UNLIKELY( in_idx == ctx->shred_net_in_idx ) ) {
-  //   FD_LOG_NOTICE(( "got shred %lu %u", ctx->shred.slot, ctx->shred.idx ));
-  // } else {
-  //   FD_LOG_WARNING(( "unexpected in_idx %lu", in_idx ));
-  // }
 
 }
 
