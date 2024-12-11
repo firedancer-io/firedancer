@@ -270,6 +270,15 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
     return EINVAL;
   }
 
+  if( manifest->bank_incremental_snapshot_persistence ) {
+    FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
+                    FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash),
+                    FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->incremental_hash) ));
+
+  } else {
+    FD_LOG_NOTICE(( "Full snapshot acc_hash=%s", FD_BASE58_ENC_32_ALLOCA(&manifest->accounts_db.bank_hash_info.accounts_hash) ));
+  }
+
   /* Move over accounts DB fields */
 
   fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;

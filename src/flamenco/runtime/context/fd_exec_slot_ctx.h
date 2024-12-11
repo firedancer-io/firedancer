@@ -67,9 +67,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   /* TODO remove this stuff */
   ulong                       signature_cnt;
   fd_hash_t                   account_delta_hash;
-  fd_hash_t                   prev_banks_hash;
   ulong                       prev_lamports_per_signature;
-  ulong                       parent_signature_cnt;
   ulong                       parent_transaction_count;
 
   fd_sysvar_cache_t *         sysvar_cache;
@@ -78,9 +76,16 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_txncache_t *             status_cache;
   fd_slot_history_t           slot_history[1];
 
+  ulong                       tick_count;
+
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                      recording, e.g. txn logs.  Analogue
                                                      of Agave's ExecutionRecordingConfig. */
+
+  ulong                       root_slot;
+  ulong                       snapshot_freq;
+  ulong                       incremental_freq;
+  ulong                       last_snapshot_slot;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

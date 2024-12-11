@@ -20,14 +20,16 @@ init_all( ulong max_rooted_slots,
           ulong max_transactions_per_slot ) {
   ulong footprint = fd_txncache_footprint( max_rooted_slots,
                                            max_live_slots,
-                                           max_transactions_per_slot );
+                                           max_transactions_per_slot,
+                                           0UL );
   FD_TEST( footprint );
 
   if( FD_UNLIKELY( footprint>txncache_scratch_sz ) ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, txncache_scratch_sz ));
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( txncache_scratch,
                                                           max_rooted_slots,
                                                           max_live_slots,
-                                                          max_transactions_per_slot ) );
+                                                          max_transactions_per_slot,
+                                                          0UL ) );
   FD_TEST( tc );
   return tc;
 }
@@ -134,27 +136,31 @@ void
 test_new_join_leave_delete( void ) {
   FD_LOG_NOTICE(( "TEST NEW JOIN LEAVE DELETE" ));
 
-  FD_TEST( fd_txncache_new( NULL, 1UL, 1UL, 1UL )==NULL );             /* null shmem         */
-  FD_TEST( fd_txncache_new( (void *)0x1UL, 1UL, 1UL, 1UL )==NULL );    /* misaligned shmem   */
-  FD_TEST( fd_txncache_new( txncache_scratch, 0UL, 1UL, 1UL )==NULL ); /* 0 max_rooted_slots */
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 1UL, 1UL )==NULL ); /* 0 max_live_slots<max_rooted_slots */
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 0UL )==NULL ); /* 0 max_txn_per_slot */
+  FD_TEST( fd_txncache_new( NULL, 1UL, 1UL, 1UL, 0UL )==NULL );             /* null shmem         */
+  FD_TEST( fd_txncache_new( (void *)0x1UL, 1UL, 1UL, 1UL, 0UL )==NULL );    /* misaligned shmem   */
+  FD_TEST( fd_txncache_new( txncache_scratch, 0UL, 1UL, 1UL, 0UL )==NULL ); /* 0 max_rooted_slots */
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 1UL, 1UL, 0UL )==NULL ); /* 0 max_live_slots<max_rooted_slots */
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 0UL, 0UL )==NULL ); /* 0 max_txn_per_slot */
 
-  FD_TEST( fd_txncache_new( txncache_scratch, 1UL, 1UL, 1UL ) );
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL ) );
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, 1UL, 1UL, 1UL, 0UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL, 0UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL, 0UL ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               TXNCACHE_LIVE_SLOTS,
-                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
+                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
+                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               512UL,
-                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
+                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
+                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               TXNCACHE_LIVE_SLOTS,
-                                              1UL ) );
+                                              1UL,
+                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   void * obj = fd_txncache_new( txncache_scratch, 1UL,
                                                   TXNCACHE_LIVE_SLOTS,
-                                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
+                                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
+                                                  FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   FD_TEST( obj );
 
   FD_LOG_NOTICE(( "TEST JOIN" ));
@@ -275,7 +281,8 @@ test_register_root_slot( void ) {
   FD_TEST( fd_txncache_new( tc,
                             FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                             TXNCACHE_LIVE_SLOTS,
-                            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
+                            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
+                            FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
 
   ulong slots[ 300 ];
   fd_txncache_root_slots( tc, slots );
@@ -324,7 +331,8 @@ test_register_root_slot( void ) {
   FD_TEST( fd_txncache_new( tc,
                             FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                             TXNCACHE_LIVE_SLOTS,
-                            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
+                            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
+                            FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   for( ulong i=0UL; i<300UL; i++ ) fd_txncache_register_root_slot( tc, 600UL-2UL*i );
   fd_txncache_root_slots( tc, slots );
   for( ulong i=0UL; i<300UL; i++ ) FD_TEST( slots[ i ]==2UL+2UL*i );
@@ -629,7 +637,8 @@ main( int     argc,
 
   ulong max_footprint = fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                TXNCACHE_LIVE_SLOTS,
-                                               FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
+                                               FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
+                                               FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   txncache_scratch = fd_shmem_acquire( 4096UL, 1UL+(max_footprint/4096UL), 0UL );
   txncache_scratch_sz = 4096UL * (1UL+(max_footprint/4096UL));
   FD_TEST( txncache_scratch );

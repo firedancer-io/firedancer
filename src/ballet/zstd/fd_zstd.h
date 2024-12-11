@@ -56,6 +56,8 @@
 
 #define FD_ZSTD_MAX_HDR_SZ (18UL)
 
+#define FD_ZSTD_CSTREAM_ALIGN (64UL)
+
 /* Decompress API *****************************************************/
 
 /* fd_zstd_dstream_t provides streaming decompression for Zstandard
@@ -151,6 +153,8 @@ fd_zstd_dstream_read( fd_zstd_dstream_t *     dstream,
                       uchar ** restrict       out_p,
                       uchar *                 out_end,
                       ulong *                 opt_errcode );
+
+/* TODO: Migrate compression logic from fd_snapshot_create. to fd_zstd.h */
 
 FD_PROTOTYPES_END
 

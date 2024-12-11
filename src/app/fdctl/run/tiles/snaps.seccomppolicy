@@ -1,0 +1,75 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+# tmp_fd: This is used to write out a tar archive file
+# full_snapshot_fd: This is used to create a final snapshot by compressing
+               the contents of tmp_fd
+unsigned int logfile_fd, unsigned int tmp_fd, unsigned int tmp_inc_fd, unsigned int full_snapshot_fd, unsigned int incremental_snapshot_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd)
+           (eq (arg 0) tmp_fd)
+           (eq (arg 0) tmp_inc_fd)
+           (eq (arg 0) full_snapshot_fd)
+           (eq (arg 0) incremental_snapshot_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# snapshot:
+#
+# The only file descriptors that should have their permission changed are
+# the two snapshot related files. The temporary file should always have its
+# permissions set such that it can be read and written to by the owner, but
+# it can't be accessed by anyone else. The snapshot file should be set to 
+# read/write by the owner at all times. When it is being written to, others
+# should not have access to the file. Otherwise, anyone should be able to
+# read the snapshot file.
+# fchmod: (or (and (eq (arg 0) tmp_fd)
+#                  (eq (arg 1) "S_IRUSR|S_IWUSR")) 
+#             (and (eq (arg 0) full_snapshot_fd)
+#                  (or (eq (arg 1) "S_IRUSR|S_IWUSR")
+#                      (eq (arg 1) "S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH")))
+#             (and (eq (arg 0) incremental_snapshot_fd)
+#                  (or (eq (arg 1) "S_IRUSR|S_IWUSR")
+#                      (eq (arg 1) "S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH"))))
+
+fchmod: (eq (arg 1) "S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH")
+
+# snapshot:
+#
+# We want to truncate the tmp file and the snapshot file everytime we try to
+# create a new snapshot. If we do truncate it, we only want to be able to 
+# truncate to a length of zero.
+ftruncate: (and (or (eq (arg 0) tmp_fd)
+                    (eq (arg 0) tmp_inc_fd)
+                    (eq (arg 0) full_snapshot_fd)
+                    (eq (arg 0) incremental_snapshot_fd)) 
+                (eq (arg 1) 0))
+
+# snapshot:
+#
+# The tar writer that the snapshot creation logic uses requires seek access 
+# in the two snapshot related files.
+lseek: (or (eq (arg 0) tmp_fd) 
+           (eq (arg 0) tmp_inc_fd)
+           (eq (arg 0) full_snapshot_fd)
+           (eq (arg 0) incremental_snapshot_fd))
+
+# snapshot
+#
+# The tar writer that the snapshot creation logic uses requires reads of the 
+# existing tar archive file.
+read: (or (eq (arg 0) tmp_fd)
+          (eq (arg 0) tmp_inc_fd))
+
+# snapshot
+readlink: 

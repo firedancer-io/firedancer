@@ -28,6 +28,7 @@
 #include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
+#include "../../flamenco/snapshot/fd_snapshot_create.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
@@ -88,30 +89,119 @@ struct fd_ledger_args {
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
-  uint                  cluster_version[3];         /* What version of solana is the genesis block? */
+  uint                  cluster_version[3];      /* What version of solana is the genesis block? */
   char const *          one_off_features[32];    /* List of one off feature pubkeys to enable for execution agnostic of cluster version */
   uint                  one_off_features_cnt;    /* Number of one off features */
+  ulong                 snapshot_freq;           /* How often a snapshot should be produced */
+  ulong                 incremental_freq;        /* How often an incremental snapshot should be produced */
+  char const *          snapshot_dir;            /* Directory to create a snapshot in */
+  ulong                 snapshot_tcnt;           /* Number of threads to use for snapshot creation */
 
-  /* These values are setup before replay */
+  /* These values are setup and maintained before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
   fd_acc_mgr_t          acc_mgr[ 1UL ];          /* funk wrapper*/
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
   uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  uchar                 tpool_mem_two[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  uchar                 tpool_mem_three[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+
   fd_spad_t *           spads[ 128UL ];          /* scratchpad allocators that are eventually assigned to each txn_ctx */
   ulong                 spad_cnt;                /* number of scratchpads, bounded by number of threads */
+  fd_tpool_t *          snapshot_tpool;          /* thread pool for snapshot creation */
+  fd_tpool_t *          snapshot_bg_tpool;       /* thread pool for snapshot creation */
+  ulong                 last_snapshot_slot;      /* last snapshot slot */
+  fd_hash_t             last_snapshot_hash;      /* last snapshot hash */
+  ulong                 last_snapshot_capitalization;/* last snapshot account hash */
+  int                   is_snapshotting;         /* determine if a snapshot is being created */
 
   char const *      lthash;
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
+/* Snapshot *******************************************************************/
+
+static void
+fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
+                         ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                         void *args FD_PARAM_UNUSED,
+                         void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                         ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                         ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
+                         ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
+
+  fd_snapshot_ctx_t * snapshot_ctx = (fd_snapshot_ctx_t *)t0;
+  fd_ledger_args_t *  ledger_args  = (fd_ledger_args_t *)t1;
+
+  char tmp_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
+  int err = snprintf( tmp_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", 
+                      snapshot_ctx->out_dir, 
+                      snapshot_ctx->is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE : FD_SNAPSHOT_TMP_ARCHIVE );
+  if( FD_UNLIKELY( err<0 ) ) {
+    FD_LOG_WARNING(( "Failed to format directory string" ));
+    return;
+  }
+
+  char zstd_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
+  err = snprintf( zstd_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s",
+                  snapshot_ctx->out_dir, 
+                  snapshot_ctx->is_incremental ? FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD : FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
+  if( FD_UNLIKELY( err<0 ) ) {
+    FD_LOG_WARNING(( "Failed to format directory string" ));
+    return;
+  }
+
+  /* Create and open the relevant files for snapshots. */
+
+  snapshot_ctx->tmp_fd = open( tmp_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( snapshot_ctx->tmp_fd==-1 ) ) {
+    FD_LOG_WARNING(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  snapshot_ctx->snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( snapshot_ctx->snapshot_fd==-1 ) ) {
+    FD_LOG_WARNING(( "Failed to open the snapshot file (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  FD_LOG_WARNING(( "Starting snapshot creation at slot=%lu", snapshot_ctx->slot ));
+
+  err = fd_snapshot_create_new_snapshot( snapshot_ctx, 
+                                         &ledger_args->last_snapshot_hash, 
+                                         &ledger_args->last_snapshot_capitalization );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to create snapshot" ));
+  }
+  FD_LOG_NOTICE(( "Successfully produced a snapshot at directory=%s", ledger_args->snapshot_dir ));
+
+  ledger_args->slot_ctx->epoch_ctx->constipate_root = 0;
+  ledger_args->is_snapshotting                      = 0;
+
+  err = close( snapshot_ctx->tmp_fd );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to close tmp_fd" ));
+  }
+  err = close( snapshot_ctx->snapshot_fd );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to close snapshot_fd" ));
+  }
+
+}
+
 /* Runtime Replay *************************************************************/
 static int
 init_tpool( fd_ledger_args_t * ledger_args ) {
-  ulong tcnt = fd_tile_cnt();
+
+  ulong snapshot_tcnt = ledger_args->snapshot_tcnt;
+
+  ulong tcnt = fd_tile_cnt() - snapshot_tcnt;
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
+
+
+  ulong start_idx = 1UL;
   if( tcnt>=1UL ) {
     tpool = fd_tpool_init( ledger_args->tpool_mem, tcnt );
     if( tpool == NULL ) {
@@ -123,15 +213,59 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
     for( ulong i=1UL; i<tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i-1UL), scratch_sz ) == NULL ) {
+      if( fd_tpool_worker_push( tpool, start_idx++, tpool_scr_mem + scratch_sz*(i-1UL), scratch_sz ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
       else {
-        FD_LOG_NOTICE(( "launched worker" ));
+        FD_LOG_NOTICE(( "launched worker %lu", start_idx - 1UL ));
       }
     }
   }
+
   ledger_args->tpool = tpool;
+
+  /* Setup a background thread for the snapshot service as well as a tpool used
+     for snapshot hashing. */
+
+  if( !snapshot_tcnt ) {
+    return 0;
+  }
+
+  else if( snapshot_tcnt==1UL ) {
+    FD_LOG_ERR(( "This is an invalid value for the number of threads to use for snapshot creation" ));
+  }
+
+  fd_tpool_t * snapshot_bg_tpool = fd_tpool_init( ledger_args->tpool_mem_two, snapshot_tcnt );
+  ulong        scratch_sz        = fd_scratch_smem_footprint( 256UL<<20UL );
+  tpool_scr_mem                  = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
+  if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_bg_tpool, start_idx++, tpool_scr_mem, scratch_sz ) ) ) {
+      FD_LOG_ERR(( "failed to launch worker" ));
+  } else {
+    FD_LOG_NOTICE(( "launched snapshot worker %lu", start_idx - 1UL ));
+  }
+
+  ledger_args->snapshot_bg_tpool = snapshot_bg_tpool;
+
+
+  if( snapshot_tcnt==2UL ) {
+    return 0;
+  }
+
+  /* If a snapshot is being created, setup its own tpool. */
+
+  fd_tpool_t * snapshot_tpool = fd_tpool_init( ledger_args->tpool_mem_three, snapshot_tcnt - 1UL );
+  scratch_sz                  = fd_scratch_smem_footprint( 256UL<<20UL );
+  tpool_scr_mem               = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
+  for( ulong i=1UL; i<snapshot_tcnt - 1UL; ++i ) {
+    if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_tpool, start_idx++, tpool_scr_mem  + scratch_sz*(i-1UL), scratch_sz ) ) ) {
+      FD_LOG_ERR(( "failed to launch worker" ));
+    } else {
+      FD_LOG_NOTICE(( "launched worker 3 %lu", start_idx - 1UL ));
+    }
+  }
+
+  ledger_args->snapshot_tpool = snapshot_tpool;
+
   return 0;
 }
 
@@ -150,6 +284,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   ulong prev_slot  = ledger_args->slot_ctx->slot_bank.slot;
   ulong start_slot = ledger_args->slot_ctx->slot_bank.slot + 1;
+
+  ledger_args->slot_ctx->root_slot = prev_slot;
 
   /* On demand rocksdb ingest */
   fd_rocksdb_t           rocks_db         = {0};
@@ -189,6 +325,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   /* Setup trash_hash */
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
+
+  ledger_args->is_snapshotting = 0;
 
   ulong block_slot = start_slot;
   for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
@@ -237,6 +375,12 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
+      /* TODO: This is currently a hack because ticks are not correctly
+         computed or handled in the runtime. It is neceesary to update ticks
+         for skipped slots for snapshot creation. */
+      ledger_args->slot_ctx->slot_bank.tick_height     += 64UL;
+      ledger_args->slot_ctx->slot_bank.max_tick_height += 64UL;
+
       fd_blockstore_end_read( blockstore );
       continue;
     }
@@ -245,6 +389,53 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     ulong   sz  = blk->data_sz;
     fd_blockstore_end_read( blockstore );
 
+    /* TODO:FIXME: skipped slots handling */
+
+
+    if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
+
+      ledger_args->is_snapshotting = 1;
+
+      ledger_args->last_snapshot_slot = ledger_args->slot_ctx->root_slot;
+
+      fd_snapshot_ctx_t snapshot_ctx = {
+        .slot           = ledger_args->slot_ctx->root_slot,
+        .out_dir        = ledger_args->snapshot_dir,
+        .is_incremental = 0,
+        .valloc         = ledger_args->slot_ctx->valloc,
+        .funk           = ledger_args->slot_ctx->acc_mgr->funk,
+        .status_cache   = ledger_args->slot_ctx->status_cache,
+        .tpool          = ledger_args->snapshot_tpool
+      };
+
+      fd_tpool_exec( ledger_args->snapshot_bg_tpool, 1UL, fd_create_snapshot_task, NULL, 
+                     (ulong)&snapshot_ctx, (ulong)ledger_args, 0UL, NULL, 
+                     0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+
+    } else if( ledger_args->slot_ctx->root_slot%ledger_args->incremental_freq==0UL && !ledger_args->is_snapshotting && ledger_args->last_snapshot_slot ) {
+
+      ledger_args->is_snapshotting = 1;
+
+      fd_snapshot_ctx_t snapshot_ctx = {
+        .slot                     = ledger_args->slot_ctx->root_slot,
+        .out_dir                  = ledger_args->snapshot_dir,
+        .is_incremental           = 1,
+        .valloc                   = ledger_args->slot_ctx->valloc,
+        .funk                     = ledger_args->slot_ctx->acc_mgr->funk,
+        .status_cache             = ledger_args->slot_ctx->status_cache,
+        .last_snap_slot           = ledger_args->last_snapshot_slot,
+        .tpool                    = ledger_args->snapshot_tpool,
+        .last_snap_acc_hash       = &ledger_args->last_snapshot_hash,
+        .last_snap_capitalization = ledger_args->last_snapshot_capitalization
+      };
+
+      FD_LOG_WARNING(("STARTING INCREMENTAL SNPASHOTTTING"));
+
+      fd_tpool_exec( ledger_args->snapshot_bg_tpool, 1UL, fd_create_snapshot_task, NULL, 
+                     (ulong)&snapshot_ctx, (ulong)ledger_args, 0UL, NULL, 
+                     0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    }
+  
     ulong blk_txn_cnt = 0;
     FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
                                           ledger_args->capture_ctx,
@@ -449,6 +640,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   }
 
   fd_runtime_recover_banks( args->slot_ctx, 0, args->genesis==NULL );
+
+  args->slot_ctx->snapshot_freq      = args->snapshot_freq;
+  args->slot_ctx->incremental_freq   = args->incremental_freq;
+  args->slot_ctx->last_snapshot_slot = 0UL;
+  args->last_snapshot_slot           = 0UL;
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx );
@@ -869,9 +1065,19 @@ ingest( fd_ledger_args_t * args ) {
   slot_ctx->blockstore = args->blockstore;
 
   if( args->status_cache_wksp ) {
-    void * status_cache_mem = fd_wksp_alloc_laddr( args->status_cache_wksp, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
+    void * status_cache_mem = fd_wksp_alloc_laddr( args->status_cache_wksp, 
+                                                   fd_txncache_align(), 
+                                                   fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, 
+                                                                              FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                                                              MAX_CACHE_TXNS_PER_SLOT,
+                                                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ), 
+                                                   FD_TXNCACHE_MAGIC );
     FD_TEST( status_cache_mem );
-    slot_ctx->status_cache  = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+    slot_ctx->status_cache  = fd_txncache_join( fd_txncache_new( status_cache_mem, 
+                                                                 FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, 
+                                                                 MAX_CACHE_TXNS_PER_SLOT,
+                                                                 FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
     FD_TEST( slot_ctx->status_cache );
   }
 
@@ -1004,14 +1210,25 @@ replay( fd_ledger_args_t * args ) {
   args->slot_ctx->valloc = valloc;
   args->slot_ctx->acc_mgr = fd_acc_mgr_new( args->acc_mgr, funk );
   args->slot_ctx->blockstore = args->blockstore;
-  void * status_cache_mem = fd_wksp_alloc_laddr( args->wksp, FD_TXNCACHE_ALIGN, fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
-  args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+  void * status_cache_mem = fd_wksp_alloc_laddr( args->wksp, 
+                                                 FD_TXNCACHE_ALIGN, 
+                                                 fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                                                        FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, 
+                                                                        MAX_CACHE_TXNS_PER_SLOT, 
+                                                                        FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS), 
+                                                                        FD_TXNCACHE_MAGIC );
+  args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, 
+                                                                    FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                                                    FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, 
+                                                                    MAX_CACHE_TXNS_PER_SLOT, 
+                                                                    FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   FD_TEST( args->slot_ctx->status_cache );
 
   init_tpool( args );
 
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
+
   ulong rec_cnt = fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) );
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
@@ -1373,6 +1590,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
   char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
   char const * lthash                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",                  NULL, "false"   );
+  ulong        snapshot_freq           = fd_env_strip_cmdline_ulong( &argc, &argv, "--snapshot-freq",           NULL, ULONG_MAX );
+  ulong        incremental_freq        = fd_env_strip_cmdline_ulong( &argc, &argv, "--incremental-freq",        NULL, ULONG_MAX );
+  char const * snapshot_dir            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshot-dir",            NULL, NULL      );
+  ulong        snapshot_tcnt           = fd_env_strip_cmdline_ulong( &argc, &argv, "--snapshot-tcnt",           NULL, 2UL       );
 
   // TODO: Add argument validation. Make sure that we aren't including any arguments that aren't parsed for
 
@@ -1467,6 +1688,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->rocksdb_list_cnt        = 0UL;
   args->checkpt_status_cache    = checkpt_status_cache;
   args->one_off_features_cnt    = 0UL;
+  args->snapshot_freq           = snapshot_freq;
+  args->incremental_freq        = incremental_freq;
+  args->snapshot_dir            = snapshot_dir;
+  args->snapshot_tcnt           = snapshot_tcnt;
   parse_one_off_features( args, one_off_features );
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
