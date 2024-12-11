@@ -1,21 +1,21 @@
 /* Generate prototypes, inlines and/or implementations for concurrent
-   persistent element pools.  A pool can hold a practically unbounded
-   number of elements.  Acquiring an element from and releasing an
-   element to a pool are typically fast O(1) time.  Requires small O(1)
-   space per element.
+   persistent shared element pools.  A pool can hold a practically
+   unbounded number of elements.  Acquiring an element from and
+   releasing an element to a pool are typically fast O(1) time.
+   Requires small O(1) space per element.
 
    The current implementation is based on a lockfree stack.  Acquire and
    release are done via atomic compare-and-swap of the stack top.  As
    such, concurrent usage requires FD_HAS_ATOMIC support (this can still
-   be used on platforms without FD_HAS_ATOMIC support but it will not be
-   safe for concurrent usage).  Stack top versioning is used to handle
-   ABA.  Versioning has been been tweaked to support locking global pool
-   operations like initialization (and thus, this can also be used
-   without changes as a more conventional spin lock based concurrent
-   stack).  Unsurprisingly, the current implementation is equally usable
-   as a concurrent element stack (though the implementation may be
-   changed in the future to better support ultra high contention ultra
-   high concurrency ala fd_alloc).
+   be used on platforms without FD_HAS_ATOMIC but it will not be safe
+   for concurrent usage).  Stack top versioning is used to handle ABA.
+   Versioning has been been tweaked to support locked pool operations
+   like initialization (and thus this can also be used without changes
+   as a more conventional spin lock based concurrent stack).
+   Unsurprisingly, the current implementation is equally usable as a
+   concurrent element stack (though the implementation may be changed in
+   the future to better support ultra high contention ultra high
+   concurrency ala fd_alloc).
 
    The current implementation is optimized for pools with a moderate
    number of reasonably localized users (e.g. a handful of cores and
@@ -75,24 +75,24 @@
      // alignment and footprint into a mypool.  shmem points in the the
      // caller's address space of the memory region to format.  Returns
      // shmem on success (mypool has ownership of the memory region) and
-     // NULL on failure (logs details).  Caller is not joined on return.
-     // The mypool will be empty and unlocked.
+     // NULL on failure (no changes, logs details).  Caller is not
+     // joined on return.  The mypool will be empty and unlocked.
      //
      // mypool_join joins a mypool.  ljoin points to a mypool_t
-     // compatible memory region in the caller's address space to hold
-     // info about the local join, shpool points in the caller's address
-     // space to the memory region containing the mypool, shele points
-     // in the caller's address space to mypool's element store, and
-     // ele_max is the element store's capacity.  Returns a handle to
-     // the caller's local join on success (join has ownership of the
-     // ljoin region) and NULL on failure (logs details).
+     // compatible memory region in the caller's address space used to
+     // hold info about the local join, shpool points in the caller's
+     // address space to the memory region containing the mypool, shele
+     // points in the caller's address space to mypool's element store,
+     // and ele_max is the element store's capacity.  Returns a handle
+     // to the caller's local join on success (join has ownership of the
+     // ljoin region) and NULL on failure (no changes, logs details).
      //
      // mypool_leave leaves a mypool.  join points to a current local
      // join.  Returns the memory used for the local join (caller has
      // ownership on return and caller is no longer joined) on success
-     // and NULL on failure (logs details).  Use the join accessors
-     // before leaving to get shpool, shele and ele_max used by the join
-     // if needed.
+     // and NULL on failure (no changes, logs details).  Use the join
+     // accessors before leaving to get shpool, shele and ele_max used
+     // by the join if needed.
      //
      // mypool_delete unformats a memory region used as a mypool.
      // Assumes shpool points in the caller's address space to the
@@ -111,7 +111,8 @@
 
      // mypool_{shpool,shele,ele_max} return join details.  Assumes join
      // is a current local join.  mypool_{shpool_const,shele_const} are
-     // const correct versions.
+     // const correct versions.  The lifetime of the returned pointers
+     // is the lifetime of the join.
 
      void const * mypool_shpool_const( mypool_t const * join );
      void const * mypool_shele_const ( mypool_t const * join );
@@ -198,7 +199,7 @@
      // FD_POOL_ERR_CORRUPT: memory corruption was detected during the
      // call.
 
-     myele_t * mypool_release( mypool_t * join, myele_t * ele, int blocking );
+     int mypool_release( mypool_t * join, myele_t * ele, int blocking );
      
      // mypool_is_locked returns whether or not a mypool is locked.
      // Assumes join is a current local join.
@@ -250,11 +251,11 @@
 
      char const * mypool_strerror( int err );
 
-   You can do this as often as you like in a compilation unit to get
-   different types of concurrent pools.  Options exist for making header
-   prototypes only and/or implementations if doing a library with
-   multiple compilation units.  Additional options exist to use index
-   compression, configuring versioning, etc. */
+   Do this as often as desired in a compilation unit to get different
+   types of concurrent pools.  Options exist for generating library
+   header prototypes and/or library implementations for concurrent pools
+   usable across multiple compilation units.  Additional options exist
+   to use index compression, configuring versioning, etc. */
 
 /* POOL_NAME gives the API prefix to use for pool */
 
@@ -452,7 +453,7 @@ POOL_(peek_const)( POOL_(t) const * join ) {
   POOL_ELE_T     const * ele     = join->ele;
   ulong                  ele_max = join->ele_max;
   FD_COMPILER_MFENCE();
-  ulong ver_top = FD_VOLATILE_CONST( pool->ver_top );
+  ulong ver_top = pool->ver_top;
   FD_COMPILER_MFENCE();
   ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
   return (ele_idx<ele_max) ? ele + ele_idx : NULL;
@@ -464,7 +465,7 @@ static inline int
 POOL_(is_locked)( POOL_(t) const * join ) {
   POOL_(shmem_t) const * pool = join->pool;
   FD_COMPILER_MFENCE();
-  ulong ver_top = FD_VOLATILE_CONST( pool->ver_top );
+  ulong ver_top = pool->ver_top;
   FD_COMPILER_MFENCE();
   return (int)(POOL_(private_vidx_ver)( ver_top ) & 1UL);
 }
@@ -473,7 +474,7 @@ static inline void
 POOL_(unlock)( POOL_(t) * join ) {
   POOL_(shmem_t) * pool = join->pool;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( pool->ver_top ) = FD_VOLATILE_CONST( pool->ver_top ) + (1UL<<POOL_IDX_WIDTH);
+  pool->ver_top += 1UL<<POOL_IDX_WIDTH;
   FD_COMPILER_MFENCE();
 }
 
@@ -516,10 +517,10 @@ POOL_(new)( void * shmem ) {
     return NULL;
   }
 
-  FD_VOLATILE( pool->ver_top ) = POOL_(private_vidx)( 0UL, POOL_(idx_null)() );
+  pool->ver_top = POOL_(private_vidx)( 0UL, POOL_(idx_null)() );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( pool->magic ) = POOL_MAGIC;
+  pool->magic = POOL_MAGIC;
   FD_COMPILER_MFENCE();
 
   return (void *)pool;
@@ -612,7 +613,7 @@ POOL_(delete)( void * shpool ) {
   }
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( pool->magic ) = 0UL;
+  pool->magic = 0UL;
   FD_COMPILER_MFENCE();
 
   return (void *)pool;
@@ -708,7 +709,7 @@ POOL_(release)( POOL_(t) *   join,
         break;
       }
 
-      FD_VOLATILE( ele->POOL_NEXT ) = POOL_(private_cidx)( ele_nxt );
+      ele->POOL_NEXT = POOL_(private_cidx)( ele_nxt );
 
       ulong new_ver_top = POOL_(private_vidx)( ver+2UL, ele_idx );
 
