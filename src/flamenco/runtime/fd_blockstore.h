@@ -724,6 +724,17 @@ struct fd_blockstore_ser {
 };
 typedef struct fd_blockstore_ser fd_blockstore_ser_t;
 
+/* fd_blockstore_ser is a serialization context for archiving a block to
+   disk. */
+
+struct fd_blockstore_archive_metadata {
+  ulong sequence_num;
+  ulong lrw_off;
+  ulong mrw_end;
+};
+typedef struct fd_blockstore_archive_metadata fd_blockstore_archive_metadata_t;
+#define FD_BLOCKSTORE_ARCHIVE_START sizeof(fd_blockstore_archive_metadata_t)
+
 /* Archives a block and block map entry to fd at offset write_off.
    If fd is -1, no write is attempted.
    Should be followed by a fd_blockstore_checkpt_update. */
@@ -737,16 +748,16 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
 /* Performs any block index & lrw/mrw updates after archiving a block. Returns the new lrw. */
 void
 fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, 
-                              fd_block_map_t * block_map_entry, 
+                              fd_blockstore_ser_t * ser, 
                               ulong slot, 
                               ulong wsz, 
                               ulong write_off );
 
 /* Computes the correct offset to write the next block into. */
-ulong
+/*ulong
 fd_blockstore_checkpt_write_offset( fd_blockstore_t * blockstore, 
                                     int fd, 
-                                    fd_blockstore_ser_t * ser );
+                                    fd_blockstore_ser_t * ser );*/
 
 
 /* Restores a block and block map entry from fd at given offset. As this used by
@@ -754,14 +765,14 @@ fd_blockstore_checkpt_write_offset( fd_blockstore_t * blockstore,
 int
 fd_blockstore_block_meta_restore( fd_blockstore_t * blockstore,
                                   int fd,
-                                  fd_block_idx_t * block_idx_entry,
+                                  ulong * read_off,
                                   fd_block_map_t * block_map_entry_out,
                                   fd_block_t * block_out );
 /* Reads block data from fd into a given buf */
 int 
 fd_blockstore_block_data_restore( fd_blockstore_t * blockstore,
                                   int fd,
-                                  fd_block_idx_t * block_idx_entry,
+                                  ulong * data_off,
                                   uchar * buf_out,
                                   ulong buf_max,
                                   ulong data_sz );
