@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_bplus.c fd_deque.c fd_deque_dynamic.c fd_dlist.c fd_heap.c fd_map.c fd_map_chain.c fd_map_dynamic.c fd_map_giant.c fd_pool.c fd_pool_para.c fd_prq.c fd_queue.c fd_queue_dynamic.c fd_redblack.c fd_set.c fd_set_dynamic.c fd_smallset.c fd_sort.c fd_stack.c fd_treap.c fd_vec.c fd_voff.c)
+$(call add-hdrs,fd_bplus.c fd_deque.c fd_deque_dynamic.c fd_dlist.c fd_heap.c fd_map.c fd_map_chain.c fd_map_dynamic.c fd_map_giant.c fd_map_para.c fd_pool.c fd_pool_para.c fd_prq.c fd_queue.c fd_queue_dynamic.c fd_redblack.c fd_set.c fd_set_dynamic.c fd_smallset.c fd_sort.c fd_stack.c fd_treap.c fd_vec.c fd_voff.c)
 $(call make-unit-test,test_bplus,test_bplus,fd_util)
 $(call make-unit-test,test_deque,test_deque,fd_util)
 $(call make-unit-test,test_deque_dynamic,test_deque_dynamic,fd_util)
@@ -14,6 +14,7 @@ ifdef FD_HAS_HOSTED # FIXME: HMMM ....
 $(call make-unit-test,test_map_giant_concur,test_map_giant_concur,fd_util)
 endif
 $(call make-unit-test,test_map_perfect,test_map_perfect,fd_util)
+$(call make-unit-test,test_map_para,test_map_para,fd_util)
 $(call make-unit-test,test_pool,test_pool,fd_util)
 $(call make-unit-test,test_pool_para,test_pool_para,fd_util)
 $(call make-unit-test,test_prq,test_prq,fd_util)
@@ -40,6 +41,8 @@ $(call run-unit-test,test_map_chain_multi,)
 $(call run-unit-test,test_map_dynamic,)
 $(call run-unit-test,test_map_giant,)
 $(call run-unit-test,test_map_giant_mem,)
+$(call run-unit-test,test_map_para,)
+# FIXME: MAP_PERFECT?
 $(call run-unit-test,test_pool,)
 $(call run-unit-test,test_pool_para,)
 $(call run-unit-test,test_prq,)
