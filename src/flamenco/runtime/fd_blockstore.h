@@ -38,6 +38,7 @@
 /* TODO this can be removed if we explicitly manage a memory pool for
    the fd_block_map_t entries */
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX (32UL) /* the maximum # of children a slot can have */
+#define FD_ARCHIVE_MIN_SIZE          (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -259,6 +260,7 @@ typedef struct fd_block_map fd_block_map_t;
 
 struct fd_block_idx {
   ulong     slot;
+  ulong     next;
   uint      hash;
   ulong     off;
   fd_hash_t block_hash;
@@ -271,6 +273,8 @@ typedef struct fd_block_idx fd_block_idx_t;
 #define MAP_KEY           slot
 #define MAP_KEY_HASH(key) ((uint)(key)) /* finalized slots are guaranteed to be unique so perfect hashing */
 #include "../../util/tmpl/fd_map_dynamic.c"
+// consider "../../util/tmpl/fd_map_chain.c" 
+
 
 struct fd_txn_key {
   ulong v[FD_ED25519_SIG_SZ / sizeof( ulong )];
@@ -316,7 +320,11 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore {
 
   /* Persistence */
 
-  ulong off; /* current offset in the archival file */
+  ulong fd_size_max; /* maximum size of the archival file */
+  ulong off; /* current offset in the archival file after most recent write */
+  ulong lrw_slot; /* least recently written slot. maintains the file circular buffer */
+  ulong mrw_slot; /* most recently written slot. maintains the file circular buffer */
+  // TODO: can mrw_slot be := hcs? 
 
   /* Slot metadata */
 
@@ -411,7 +419,7 @@ fd_blockstore_delete( void * shblockstore );
    file.  */
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, fd_slot_bank_t const * slot_bank );
+fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank );
 
 /* fd_blockstore_fini finalizes a blockstore. */
 
@@ -716,26 +724,55 @@ struct fd_blockstore_ser {
 };
 typedef struct fd_blockstore_ser fd_blockstore_ser_t;
 
-/* Archives a block and block map entry to fd. If fd is -1, no write is attempted */
+/* fd_blockstore_ser is a serialization context for archiving a block to
+   disk. */
+
+struct fd_blockstore_archive_metadata {
+  ulong sequence_num;
+  ulong lrw_off;
+  ulong mrw_end;
+};
+typedef struct fd_blockstore_archive_metadata fd_blockstore_archive_metadata_t;
+#define FD_BLOCKSTORE_ARCHIVE_START sizeof(fd_blockstore_archive_metadata_t)
+
+/* Archives a block and block map entry to fd at offset write_off.
+   If fd is -1, no write is attempted.
+   Should be followed by a fd_blockstore_checkpt_update. */
 ulong
-fd_blockstore_block_checkpt( fd_blockstore_t * blockstore FD_PARAM_UNUSED, 
+fd_blockstore_block_checkpt( fd_blockstore_t * blockstore, 
                              fd_blockstore_ser_t * ser, 
                              int fd, 
+                             ulong write_off,
                              ulong slot );
+
+/* Performs any block index & lrw/mrw updates after archiving a block. Returns the new lrw. */
+void
+fd_blockstore_checkpt_update( fd_blockstore_t * blockstore, 
+                              fd_blockstore_ser_t * ser, 
+                              ulong slot, 
+                              ulong wsz, 
+                              ulong write_off );
+
+/* Computes the correct offset to write the next block into. */
+/*ulong
+fd_blockstore_checkpt_write_offset( fd_blockstore_t * blockstore, 
+                                    int fd, 
+                                    fd_blockstore_ser_t * ser );*/
+
 
 /* Restores a block and block map entry from fd at given offset. As this used by
    rpcserver, it must return an error code instead of throwing an error on failure */
 int
 fd_blockstore_block_meta_restore( fd_blockstore_t * blockstore,
                                   int fd,
-                                  fd_block_idx_t * block_idx_entry,
+                                  ulong * read_off,
                                   fd_block_map_t * block_map_entry_out,
                                   fd_block_t * block_out );
 /* Reads block data from fd into a given buf */
 int 
 fd_blockstore_block_data_restore( fd_blockstore_t * blockstore,
                                   int fd,
-                                  fd_block_idx_t * block_idx_entry,
+                                  ulong * data_off,
                                   uchar * buf_out,
                                   ulong buf_max,
                                   ulong data_sz );
