@@ -25,7 +25,7 @@ before_frag( void * _ctx FD_FN_UNUSED,
   ulong * tgt_fseq = fd_quic_trace_target_fseq[ in_idx ];
   for(;;) {
     ulong tgt_seq = fd_fseq_query( tgt_fseq );
-    if( FD_LIKELY( tgt_seq>=seq ) ) break;
+    if( FD_LIKELY( fd_seq_ge( tgt_seq, seq ) ) ) break;
     FD_SPIN_PAUSE();
   }
 
