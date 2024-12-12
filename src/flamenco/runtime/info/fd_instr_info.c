@@ -13,10 +13,6 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
   fd_rawtxn_b_t const * txn_raw = txn_ctx->_txn_raw;
   const fd_pubkey_t *   accounts = txn_ctx->accounts;
 
-  /* TODO: Lamport check may be redundant */
-  ulong starting_lamports_h = 0;
-  ulong starting_lamports_l = 0;
-
   instr->program_id        = txn_instr->program_id;
   instr->program_id_pubkey = accounts[txn_instr->program_id];
   instr->acct_cnt          = txn_instr->acct_cnt;
@@ -38,11 +34,6 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
     instr->is_duplicate[i] = acc_idx_seen[acc_idx];
     if( FD_LIKELY( !acc_idx_seen[acc_idx] ) ) {
       /* This is the first time seeing this account */
-      if( instr->borrowed_accounts[i] != NULL && instr->borrowed_accounts[i]->const_meta != NULL ) {
-        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, 
-                      starting_lamports_h, starting_lamports_l,
-                      instr->borrowed_accounts[i]->const_meta->info.lamports );
-      }
       acc_idx_seen[acc_idx] = 1;
     }
 
@@ -56,10 +47,6 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
     }
   }
-
-  instr->starting_lamports_h = starting_lamports_h;
-  instr->starting_lamports_l = starting_lamports_l;
-
 }
 
 int

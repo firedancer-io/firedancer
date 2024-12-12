@@ -323,4 +323,3 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
 
   return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
 }
-
