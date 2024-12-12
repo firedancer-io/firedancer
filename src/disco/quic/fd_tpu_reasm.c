@@ -20,11 +20,11 @@ fd_tpu_reasm_footprint( ulong depth,
   ulong slot_cnt  = depth+burst;
   ulong chain_cnt = fd_tpu_reasm_map_chain_cnt_est( slot_cnt );
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-      FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                  ), /* hdr       */
+      fd_tpu_reasm_align(),         sizeof(fd_tpu_reasm_t)                  ), /* hdr       */
       alignof(uint),                depth   *sizeof(uint)                   ), /* pub_slots */
       alignof(fd_tpu_reasm_slot_t), slot_cnt*sizeof(fd_tpu_reasm_slot_t)    ), /* slots     */
       fd_tpu_reasm_map_align(),     fd_tpu_reasm_map_footprint( chain_cnt ) ), /* map       */
-      FD_TPU_REASM_ALIGN );
+      fd_tpu_reasm_align() );
 
 }
 
@@ -53,11 +53,11 @@ fd_tpu_reasm_new( void * shmem,
   ulong chain_cnt = fd_tpu_reasm_map_chain_cnt_est( slot_cnt );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_tpu_reasm_t *      reasm     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_t), sizeof(fd_tpu_reasm_t) );
+  fd_tpu_reasm_t *      reasm     = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_align(),         sizeof(fd_tpu_reasm_t)                  );
   ulong *               pub_slots = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                depth*sizeof(uint)                      );
   fd_tpu_reasm_slot_t * slots     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_slot_t), slot_cnt*sizeof(fd_tpu_reasm_slot_t)    );
   void *                map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_map_align(),     fd_tpu_reasm_map_footprint( chain_cnt ) );
-  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_tpu_reasm_t) );
+  FD_SCRATCH_ALLOC_FINI( l, fd_tpu_reasm_align() );
 
   fd_memset( reasm, 0, sizeof(fd_tpu_reasm_t) );
   fd_memset( slots, 0, burst*sizeof(fd_tpu_reasm_slot_t) );
