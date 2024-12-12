@@ -1661,6 +1661,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     ctx->txn_ctx->instr_info_cnt = 1;
   }
 
+  ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
+  ctx->txn_ctx->instr_trace[0].stack_height = 1;
+
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
