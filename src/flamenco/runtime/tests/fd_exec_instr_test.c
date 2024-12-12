@@ -1657,6 +1657,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
+  if (is_cpi) {
+    ctx->txn_ctx->instr_info_cnt = 1;
+  }
+
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
