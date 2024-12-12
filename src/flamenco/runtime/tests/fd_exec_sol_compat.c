@@ -488,7 +488,7 @@ sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
 
     // Compare effects
     fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
-    int ok = sol_compat_cmp_txn( effects, &fixture->output );
+    int ok = sol_compat_cmp_txn( &fixture->output, effects );
 
     // Cleanup
     pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
@@ -563,29 +563,6 @@ sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
-  return ok;
-}
-
-int
-sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
-                                uchar const *                 in,
-                                ulong                         in_sz ) {
-  // Decode fixture
-  fd_exec_test_validate_vm_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_validate_vm_fixture_t_msg ) ) {
-    FD_LOG_WARNING(( "Invalid validate_vm fixture." ));
-    return 0;
-  }
-
-  // Execute
-  void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_validate_test_run );
-
-  // Compare effects
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
-
-  // Cleanup
-  pb_release( &fd_exec_test_validate_vm_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -747,43 +724,6 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
 
   // Cleanup
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
-  sol_compat_cleanup_scratch_and_runner( runner );
-
-  // Check wksp usage is 0
-  sol_compat_check_wksp_usage();
-
-  return ok;
-}
-
-int
-sol_compat_vm_validate_v1(  uchar *       out,
-                            ulong *       out_sz,
-                            uchar const * in,
-                            ulong         in_sz ) {
-  // Setup
-  ulong fmem[ 64 ];
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
-
-  // Decode context
-  fd_exec_test_full_vm_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_full_vm_context_t_msg );
-  if ( res==NULL ) {
-    sol_compat_cleanup_scratch_and_runner( runner );
-    return 0;
-  }
-
-  // Execute
-  void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_validate_test_run );
-
-  // Encode effects
-  int ok = 0;
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_validate_vm_effects_t_msg );
-  }
-
-  // cleanup
-  pb_release( &fd_exec_test_full_vm_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
 
   // Check wksp usage is 0

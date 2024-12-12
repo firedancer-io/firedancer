@@ -44,11 +44,6 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
                             ulong                         in_sz );
 
 int
-sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
-                                uchar const *                 in,
-                                ulong                         in_sz );
-
-int
 sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
                               uchar const *                 in,
                               ulong                         in_sz );
