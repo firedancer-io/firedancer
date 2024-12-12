@@ -128,7 +128,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_xsk_align(),      fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
     l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(),  fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   }
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(),         fd_ip_footprint( 0U, 0U ) );
+  l = FD_LAYOUT_APPEND( l, fd_ip_align(),         fd_ip_footprint( 0UL, 0UL ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 

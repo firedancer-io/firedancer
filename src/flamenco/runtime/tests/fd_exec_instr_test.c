@@ -75,9 +75,9 @@ fd_exec_instr_test_runner_align( void ) {
 ulong
 fd_exec_instr_test_runner_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_exec_instr_test_runner_t), sizeof(fd_exec_instr_test_runner_t) );
-  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                      fd_funk_footprint()                 );
-  return l;
+  l = FD_LAYOUT_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
+  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                   fd_funk_footprint()                 );
+  return FD_LAYOUT_FINI( l, fd_exec_instr_test_runner_align() );
 }
 
 fd_exec_instr_test_runner_t *
@@ -85,9 +85,9 @@ fd_exec_instr_test_runner_new( void * mem,
                                void * spad_mem,
                                ulong  wksp_tag ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_instr_test_runner_t), sizeof(fd_exec_instr_test_runner_t) );
-  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                      fd_funk_footprint()                 );
-  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_exec_instr_test_runner_t) );
+  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
+  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                   fd_funk_footprint()                 );
+  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
 
   ulong txn_max = 4+fd_tile_cnt();
   ulong rec_max = 1024UL;
@@ -670,7 +670,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
   }
 
-  /* Provde default slot hashes of size 1 if not provided */
+  /* Provide default slot hashes of size 1 if not provided */
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
     fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_scratch_virtual(), 1 );
     fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
@@ -1670,6 +1670,13 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_spad_t * spad = fd_exec_instr_test_runner_get_spad( runner );
+
+  if (is_cpi) {
+    ctx->txn_ctx->instr_info_cnt = 1;
+  }
+
+  ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
+  ctx->txn_ctx->instr_trace[0].stack_height = 1;
 
   if (is_cpi) {
     ctx->txn_ctx->instr_info_cnt = 1;

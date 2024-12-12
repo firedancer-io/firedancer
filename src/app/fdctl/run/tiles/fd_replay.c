@@ -575,22 +575,22 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 }
 
 static void
-txncache_publish( fd_replay_tile_ctx_t * ctx, 
+txncache_publish( fd_replay_tile_ctx_t * ctx,
                   fd_funk_txn_t *        txn_map,
                   fd_funk_txn_t *        root_txn,
                   uchar                  is_funk_constipated ) {
-  
-  /* For the status cache, we stop rooting until the status cache has been 
+
+  /* For the status cache, we stop rooting until the status cache has been
      written out to the current snapshot. We also need to iterate up the
      funk transaction tree to figure out what slots should be constipated.
 
      As a note, when funk is constipated we don't want to iterate all the way
      up to the root because then we will register previously registered slots
-     that are in the constipated root. This introduces an edge case where 
-     we will never register the slots that in the original constipated txn. 
+     that are in the constipated root. This introduces an edge case where
+     we will never register the slots that in the original constipated txn.
      This currently gets handled in a hacky way by first tracking the first
      call to is_funk_constipated. This gets set to 1 as soon as funk gets
-     constipated. By setting this, we are able to register the slot that 
+     constipated. By setting this, we are able to register the slot that
      corresponds to the constipated root. */
 
   if( FD_UNLIKELY( !ctx->slot_ctx->status_cache ) ) {
@@ -627,15 +627,15 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong smr, uchar is_constipat
 
   /* We are ready for a snapshot if either we are on or just passed a snapshot
      interval and no snapshot is currently in progress. This is to handle the
-     case where the snapshot interval falls on a skipped slot. 
-     
+     case where the snapshot interval falls on a skipped slot.
+
      We are ready to create a snapshot if:
      1. The node is caught up to the network.
      2. There is currently no snapshot in progress
      3. The current slot is at the snapshot interval OR
         The current slot has passed a snapshot interval
 
-    If a snapshot is ready to be created we will constipate funk and the 
+    If a snapshot is ready to be created we will constipate funk and the
     status cache. This will also notify the status cache via the funk
     constipation fseq. */
 
@@ -664,9 +664,9 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong smr, uchar is_constipat
 
   ulong updated_fseq = 0UL;
 
-  /* TODO: We need a better check if the smr fell on an epoch boundary due to 
+  /* TODO: We need a better check if the smr fell on an epoch boundary due to
      skipped slots. We just don't want to make a snapshot on an epoch boundary */
-  if( (is_full_snapshot_ready || is_inc_snapshot_ready) && 
+  if( (is_full_snapshot_ready || is_inc_snapshot_ready) &&
       !fd_runtime_is_epoch_boundary( epoch_bank, smr, smr-1UL ) ) {
     /* Constipate the status cache when a snapshot is ready to be created. */
     if( is_full_snapshot_ready ) {
@@ -688,11 +688,11 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
   /* When we are trying to root for an smr that we want a snapshot for, we need
      to constipate funk as well as the txncache. The snapshot tile will notify
-     the replay tile that funk is ready to be unconstipated via the 
+     the replay tile that funk is ready to be unconstipated via the
      is_funk_constipated fseq. Txncache constipation will be handled differently.
      All operations on the status cache are bounded by a rw lock making
-     operation atomic. The status cache will internally track if it is in a 
-     constipated state. The snapshot tile will be directly responsible for 
+     operation atomic. The status cache will internally track if it is in a
+     constipated state. The snapshot tile will be directly responsible for
      unconstipating the txncache. */
 
   fd_blockstore_start_read( ctx->blockstore );
@@ -709,13 +709,13 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
   /* Once all of the banking tiles have finished executing, grab a write
      lock on funk and publish the transaction.
-     
+
      The publishing mechanism for funk and the status cache will change
      if constipation is enabled. If constipation is enabled,
      constipate the current transaction into the constipated root. This means
      we will treat the oldest ancestor as the new root of the transaction tree.
      All slots that are "rooted" in the constipated state will be published
-     into the constipated root. When constipation is disabled, flush the backed 
+     into the constipated root. When constipation is disabled, flush the backed
      up transactions into the root.
 
      There is some unfortunate behavior we have to consider here with
@@ -724,9 +724,9 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
      corresponds to the constipated root. However, during the first pass when
      we are constipated, we also need to register the constipated root into
      the txn cache. If we don't then the constipated root slot will never be
-     included in the status cache. TODO: There is probably a better way to 
-     hhandle this. 
-     
+     included in the status cache. TODO: There is probably a better way to
+     hhandle this.
+
      Constipation can be activated for a variety of reasons including snapshot
      creation and epoch account hash generation.
      TODO: Currently epoch account hash generation is unimplemented but the
@@ -736,12 +736,12 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
     fd_tpool_wait( ctx->tpool, i+1 );
   }
   fd_funk_start_write( ctx->funk );
-  
+
   uchar is_funk_constipated = fd_fseq_query( ctx->is_funk_constipated ) != 0;
 
   txncache_publish( ctx, txn_map, root_txn, is_funk_constipated );
 
-  /* Now try to publish into funk, this is handled differently based on if 
+  /* Now try to publish into funk, this is handled differently based on if
      funk is constipated. */
 
   if( !is_funk_constipated ) {
@@ -751,11 +751,11 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
     if( FD_UNLIKELY( !rc ) ) {
       FD_LOG_ERR(( "failed to funk publish slot %lu", smr ));
     }
-    
+
   } else {
     FD_LOG_WARNING(( "Publishing slot=%lu while constipated", smr ));
 
-    /* At this point, first collapse the current transaction that should be 
+    /* At this point, first collapse the current transaction that should be
        published into the oldest child transaction. */
 
     fd_funk_txn_t * txn        = root_txn;
