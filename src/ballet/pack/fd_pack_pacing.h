@@ -36,7 +36,7 @@ fd_pack_pacing_init( fd_pack_pacing_t * pacer,
                      ulong              max_cus ) {
 
   pacer->t_start = t_start;
-  pacer->t_end   = t_end - (long)((t_start-t_end)/50L); /* try to finish 98% of the way through */
+  pacer->t_end   = t_end - (long)((t_end-t_start)/20L); /* try to finish 95% of the way through */
   pacer->max_cus = max_cus;
 
   /* Time per CU depends on the hardware, the transaction mix, what
