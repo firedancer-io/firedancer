@@ -3,12 +3,12 @@
 
 FD_IMPORT_BINARY( file0, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file1, "src/app/fdctl/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/index-B6X6mhSS.js" );
-FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/index-BHCDa0bX.js" );
-FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/index-CLsw9-E4.css" );
+FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/index-B3sCvzfE.js" );
+FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/index-CbHzpPyD.js" );
+FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/index-Drf_CsDf.css" );
 FD_IMPORT_BINARY( file5, "src/app/fdctl/dist/assets/index-Dz6VwGqc.css" );
-FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
-FD_IMPORT_BINARY( file7, "src/app/fdctl/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
+FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/inter-latin-400-normal-BOOGhInR.woff2" );
+FD_IMPORT_BINARY( file7, "src/app/fdctl/dist/assets/inter-latin-400-normal-gitzw0hO.woff" );
 FD_IMPORT_BINARY( file8, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg" );
 FD_IMPORT_BINARY( file9, "src/app/fdctl/dist/index.html" );
 FD_IMPORT_BINARY( file10, "src/app/fdctl/dist/LICENSE_DEPENDENCIES" );
@@ -25,17 +25,17 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file1_sz,
     },
     {
-        .name = "/assets/index-B6X6mhSS.js",
+        .name = "/assets/index-B3sCvzfE.js",
         .data = file2,
         .data_len = &file2_sz,
     },
     {
-        .name = "/assets/index-BHCDa0bX.js",
+        .name = "/assets/index-CbHzpPyD.js",
         .data = file3,
         .data_len = &file3_sz,
     },
     {
-        .name = "/assets/index-CLsw9-E4.css",
+        .name = "/assets/index-Drf_CsDf.css",
         .data = file4,
         .data_len = &file4_sz,
     },
@@ -45,12 +45,12 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file5_sz,
     },
     {
-        .name = "/assets/inter-tight-latin-400-normal-BW_APOAv.woff",
+        .name = "/assets/inter-latin-400-normal-BOOGhInR.woff2",
         .data = file6,
         .data_len = &file6_sz,
     },
     {
-        .name = "/assets/inter-tight-latin-400-normal-CjmW70MP.woff2",
+        .name = "/assets/inter-latin-400-normal-gitzw0hO.woff",
         .data = file7,
         .data_len = &file7_sz,
     },

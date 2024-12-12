@@ -410,20 +410,21 @@ a new slot is confirmed on the currently active fork.
 #### `summary.skip_rate`
 | frequency       | type       | example                                 |
 |-----------------|------------|-----------------------------------------|
-| *Once* + *Live* | `SkipRate` | `{"epoch": 522, "skip_rate": 0.456172}` |
+| *Once* + *Live* | `SkipRate` | `{"epoch": 522, "slots_processed": 1000, "slots_skipped": 4}` |
 
-The skip rate of an epoch is the ratio of `skipped_slots/total_slots`
-for our leader slots in that epoch.  The skip rate is only known for
-slots that have happened since the validator was started, and we do
-not incorporate slots from before boot, as we cannot know if they were
-skipped or not.  If no slot has happened since boot, i.e.
-total_slots==0, skip_rate is 0.
+The skip rate of an epoch is the ratio of `slots_skipped/slots_processed`
+for our leader slots in that epoch since boot.  The skip rate is only
+known for slots that have happened since the validator was started, and
+we do not incorporate slots from before boot, as we cannot know if they
+were skipped or not.  If no slot has happened since boot, i.e.
+slots_processed==0, skip_rate should default to 0.
 
 **`SkipRate`**
-| Field     | Type     | Description |
-|-----------|----------|-------------|
-| epoch     | `number` | The epoch that the skip rate is being published for |
-| skip_rate | `number` | The updated skip rate for the provided epoch |
+| Field           | Type     | Description |
+|-----------------|----------|-------------|
+| epoch           | `number` | The epoch that the skip rate is being published for |
+| slots_processed | `number` | The latest number of slots processed in the provided epoch since boot |
+| slots_skipped   | `number` | The latest number of slots skipped in the provided epoch since boot |
 
 #### `summary.tps_history`
 | frequency | type         | example |
