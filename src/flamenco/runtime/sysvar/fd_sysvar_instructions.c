@@ -32,7 +32,7 @@ instructions_serialized_size( fd_instr_info_t const *   instrs,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
-int
+void
 fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
                                           ushort                   instrs_cnt ) {
@@ -40,8 +40,12 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 
   fd_borrowed_account_t * rec = NULL;
   int err = fd_txn_borrowed_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) )
-    return FD_ACC_MGR_ERR_READ_FAILED;
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) ) {
+    /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
+       before this is called, and this is only called if the sysvar instructions account is in
+       the borrowed accounts list. */
+    FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
+  }
   
   fd_account_meta_t * meta = fd_valloc_malloc( txn_ctx->valloc, FD_ACCOUNT_META_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
   void * data = (uchar *)meta + sizeof(fd_account_meta_t);
@@ -109,8 +113,6 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   //
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
-
-  return FD_ACC_MGR_SUCCESS;
 }
 
 int
