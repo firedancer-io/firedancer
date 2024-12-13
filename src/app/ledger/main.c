@@ -1340,8 +1340,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        shred_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--shred-max",               NULL, 1UL << 17 );
   ulong        start_slot              = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot",              NULL, 0UL       );
   ulong        end_slot                = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",                NULL, ULONG_MAX );
-  uint         verify_acc_hash         = fd_env_strip_cmdline_uint ( &argc, &argv, "--verify-acc-hash",         NULL, 0         );
-  uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 0         );
+  uint         verify_acc_hash         = fd_env_strip_cmdline_uint ( &argc, &argv, "--verify-acc-hash",         NULL, 1         );
+  uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 1         );
   char const * restore                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore",                 NULL, NULL      );
   char const * restore_funk            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk-restore",            NULL, NULL      );
   char const * restore_archive         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore-archive",         NULL, NULL      );
@@ -1373,6 +1373,13 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
   char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
   char const * lthash                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",                  NULL, "false"   );
+
+  if( FD_UNLIKELY( !verify_acc_hash ) ) {
+    /* We've got full snapshots that contain all 0s for the account
+       hash in account meta.  Running hash verify allows us to
+       populate the hash in account meta with real values. */
+    FD_LOG_ERR(( "verify-acc-hash needs to be 1" ));
+  }
 
   // TODO: Add argument validation. Make sure that we aren't including any arguments that aren't parsed for
 

@@ -326,12 +326,15 @@ fd_account_hash_task( void *tpool,
         iterator.  Instead, we will store away the record and erase
         it later where appropriate.  */
     task_info->should_erase = 1;
+    /* In the exceedingly unlikely event that the account's old hash is
+       actually 0, this would cause the account not to be included in
+       the bank hash. */
     if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
       task_info->hash_changed = 1;
     }
   } else {
     uchar *             acc_data = fd_account_get_data((fd_account_meta_t *) acc_meta);
-    fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
+    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t new_lthash_value;
     fd_lthash_zero(&new_lthash_value);
     fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data );
@@ -344,7 +347,7 @@ fd_account_hash_task( void *tpool,
 
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
     uchar *             acc_data = fd_account_get_data(acc_meta_parent);
-    fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
+    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t old_lthash_value;
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
@@ -373,7 +376,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
     if( !fd_funk_key_is_acc( rec->pair.key  ) )
       continue;
 
-    fd_pubkey_t const * pubkey  = fd_type_pun_const( rec->pair.key[0].uc );
+    fd_pubkey_t const * pubkey  = fd_funk_key_to_acc( rec->pair.key );
 
     if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
       FD_LOG_WARNING(( "null pubkey (system program?) showed up as modified" ));
@@ -390,7 +393,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
-    fd_pubkey_t const * acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
+    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( rec->pair.key );
 
     if( !fd_funk_key_is_acc( rec->pair.key  ) )
       continue;
@@ -450,7 +453,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     FD_BORROWED_ACCOUNT_DECL(acc_rec);
     acc_rec->const_rec = task_info->rec;
 
-    fd_pubkey_t const * acc_key = fd_type_pun_const( task_info->rec->pair.key[0].uc );
+    fd_pubkey_t const * acc_key = fd_funk_key_to_acc( task_info->rec->pair.key );
     int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "failed to modify account during bank hash" ));
@@ -757,8 +760,8 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
     fd_lthash_add( &accum, &new_lthash_value );
 
     fd_hash_t * h = (fd_hash_t *) metadata->hash;
-    if( (h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) != 0 ) {
-      if( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+    if( FD_LIKELY( (h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) != 0 ) ) {
+      if( FD_UNLIKELY( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) ) {
         FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
       }
     } else
@@ -913,10 +916,10 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
         fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
       } else if( do_hash_verify ) {
         uchar hash[32];
-        ulong old_slot = slot_ctx->slot_bank.slot;
-        slot_ctx->slot_bank.slot = metadata->slot;
+        // ulong old_slot = slot_ctx->slot_bank.slot;
+        // slot_ctx->slot_bank.slot = metadata->slot;
         fd_hash_account_current( (uchar *) &hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
-        slot_ctx->slot_bank.slot = old_slot;
+        // slot_ctx->slot_bank.slot = old_slot;
         if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
         }
