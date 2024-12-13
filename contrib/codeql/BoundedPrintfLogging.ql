@@ -1,5 +1,5 @@
 /**
-* @name memory bounded custom prinf check
+* @name memory bounded custom printf check
 * @description Check that custom constructed runtime logging format strings do not exceed their fixed size target buffers
 * @kind problem
 * @problem.severity warning
@@ -30,4 +30,4 @@ or
     bound = fc.(FormattingFunctionCall).getFormat().(FormatLiteral).getMaxConvertedLengthLimitedWithReason(reason) and
     bound - 1  < 512
 )
-select fc, "After formating this may have a size up to " + bound.toString() + " bytes, estimated by " + reason.toString()
+select fc, "After formatting this may have a size up to " + bound.toString() + " bytes, estimated by " + reason.toString()

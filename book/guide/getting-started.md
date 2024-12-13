@@ -78,7 +78,7 @@ includes all Firedancer development and changes that could break
 Frankendancer.
  * `v0.xxx.yyyyy` Official Frankendancer releases.
 
-The Frankendancer versoning has three components,
+The Frankendancer versioning has three components,
 
 * Major version is always `0`. The first full Firedancer release will be
 `1.x`
@@ -324,7 +324,7 @@ vary across drivers. Popular well tested drivers include:
 Firedancer installs an XDP program on the network interface
 `[tiles.net.interface]` and `lo` while it is running. This program 
 redirects traffic on ports that Firedancer is listening on via `AF_XDP`.
-Traffic targetting any other applications (e.g. an SSH or HTTP server
+Traffic targeting any other applications (e.g. an SSH or HTTP server
 running on the system) passes through as usual. The XDP program is
 unloaded when the Firedancer process exits.
 
