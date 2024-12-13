@@ -171,7 +171,7 @@ from the configuration TOML file
 ## `mem`
 Prints information about the memory requirements and the tile
 configuration and layout of the validator to `stdout` before
-exiting. The command writes diagnostic messsages from logs to `stderr`.
+exiting. The command writes diagnostic messages from logs to `stderr`.
 
 Firedancer preallocates and locks all memory it needs from huge and
 gigantic page mounts before booting, and the `hugetlbfs` stage of
