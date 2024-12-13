@@ -1295,6 +1295,12 @@ fd_feature_id_t const ids[] = {
     .name       = "enable_get_epoch_stake_syscall",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index      = offsetof(fd_features_t, disable_account_loader_special_case)>>3,
+    .id         = {"\xc7\x2b\x39\x35\x25\x63\x29\x7f\x69\x4f\x2d\x7f\x8c\x2c\xbb\x62\x13\x3e\x4d\xf8\xc9\xc0\x2d\x75\xed\xed\x28\x6a\x6f\x44\xe6\x8f"},
+                  /* EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x */
+    .name       = "disable_account_loader_special_case",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 
@@ -1520,6 +1526,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xa9a90df1904da912: return &ids[ 211 ];
   case 0x2434a84be5b684a5: return &ids[ 212 ];
   case 0xaebbcc5ad0a28864: return &ids[ 213 ];
+  case 0x7f29632535392bc7: return &ids[ 214 ];
   default: break;
   }
 
@@ -1742,5 +1749,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_feature_gate_program_to_core_
 FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_config_program_to_core_bpf                      )>>3==211UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_address_lookup_table_program_to_core_bpf        )>>3==212UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_get_epoch_stake_syscall                          )>>3==213UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_account_loader_special_case                     )>>3==214UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

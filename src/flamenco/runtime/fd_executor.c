@@ -397,7 +397,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* In agave, the only way for the account_found to be set to false, the following conditions must be met
          1. account is not sysvar instruction
          2. account is not a fee payer (for loop does not include the fee payer)
-         3. account is an instruction account or writable account (this is already checked for later in this function)
+         3. account is an instruction account or writable account (this is already checked for later in this function) or disable_account_loader_special_case is enabled
          4. account does not exist in loaded account shared data */
     if ( !is_sysvar_instruction && !account_exists ) {
       accounts_found[i] = 0;
@@ -449,7 +449,12 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
          https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L239-249 */
 
       /* If it is not writable */
-      if( fd_txn_account_is_writable_idx( txn_ctx, instr->program_id ) ) {
+      if( fd_txn_account_is_writable_idx( txn_ctx, instr->program_id )) {
+        return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      }
+
+      /* If disable_account_loader_special_case is active */
+      if ( FD_FEATURE_ACTIVE(txn_ctx->slot_ctx, disable_account_loader_special_case)) {
         return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
       }
 
