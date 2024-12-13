@@ -1083,7 +1083,7 @@ fd_log_private_boot( int  *   pargc,
 
   fd_log_thread_set( fd_env_strip_cmdline_cstr( pargc, pargv, "--log-thread", "FD_LOG_THREAD", NULL ) );
 
-  /* Init our our application physical ids */
+  /* Init our application physical ids */
   /* We ignore any user specified cpu-id in favor of the actual core
      assigned by the host OS.  We strip it from the command line so
      downstream command line handling is identical from user's point of
@@ -1093,6 +1093,7 @@ fd_log_private_boot( int  *   pargc,
 
   char const * host = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-host", "FD_LOG_HOST", NULL );
   if( !host ) { if( !gethostname( buf, FD_LOG_NAME_MAX ) ) buf[ FD_LOG_NAME_MAX-1UL ] = '\0', host = buf; }
+  fd_msan_unpoison( (void *)host, FD_LOG_NAME_MAX );
   fd_log_private_host_set( host );
 
   fd_env_strip_cmdline_ulong( pargc, pargv, "--log-cpu-id", "FD_LOG_CPU_ID", 0UL ); /* FIXME: LOG IGNORING? */
