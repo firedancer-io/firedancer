@@ -191,9 +191,9 @@ check_debian_pkgs () {
   fi
 
   if [[ -z "${SUDO}" ]]; then
-    PACKAGE_INSTALL_CMD=( apt-get install -y ${MISSING_DEBS[*]} )
+    PACKAGE_INSTALL_CMD=( apt-get update && apt-get install -y ${MISSING_DEBS[*]} )
   else
-    PACKAGE_INSTALL_CMD=( "${SUDO}" apt-get install -y ${MISSING_DEBS[*]} )
+    PACKAGE_INSTALL_CMD=( "${SUDO}" apt-get update && apt-get install -y ${MISSING_DEBS[*]} )
   fi
 }
 
