@@ -10,8 +10,9 @@ FD_TOWER_USE_HANDHOLDING:=1
 FD_TXN_HANDHOLDING:=1
 
 CPPFLAGS+=-fno-omit-frame-pointer
-CPPFLAGS+=-fsanitize=fuzzer-no-link
-CPPFLAGS+=-fsanitize-coverage=inline-8bit-counters
-
-LDFLAGS+=-fsanitize-coverage=inline-8bit-counters
+ifeq ($(FD_HAS_AFLGCC),)
+  CPPFLAGS+=-fsanitize=fuzzer-no-link
+  CPPFLAGS+=-fsanitize-coverage=inline-8bit-counters
+  LDFLAGS+=-fsanitize-coverage=inline-8bit-counters
+endif
 LDFLAGS_FUZZ+=-fsanitize=fuzzer
