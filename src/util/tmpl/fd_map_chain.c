@@ -165,6 +165,17 @@
                             ulong           sentinel, // Value to return on failure
                             myele_t const * pool );   // Current local join to element storage
 
+     // mymap_idx_query_volatile is the same as mymap_idx_query_const but with
+     // additional safety checks. If a concurrent write is occuring, this
+     // API will still return a resonable element without crashing, even
+     // if it is wrong.
+
+     ulong                                               // Index of found element on success, sentinel on failure
+     mymap_idx_query_volatile( mymap_t const * join,     // Current local join to element map
+                               ulong const *   key,      // Points to the key to find in the caller's address space
+                               ulong           sentinel, // Value to return on failure
+                               myele_t const * pool );   // Current local join to element storage
+
      // The mymap_ele_{insert,remove,query,query_const} variants are the
      // same as the above but use pointers in the caller's address
      // instead of pool element storage indices.
@@ -585,6 +596,12 @@ MAP_(idx_query_const)( MAP_(t) const *   join,
                        MAP_KEY_T const * key,
                        ulong             sentinel,
                        MAP_ELE_T const * pool );
+                      
+FD_FN_PURE ulong
+MAP_(idx_query_volatile)( MAP_(t) const *   join,
+                          MAP_KEY_T const * key,
+                          ulong             sentinel,
+                          MAP_ELE_T const * pool );
 
 #if MAP_MULTI!=0
 
@@ -811,6 +828,31 @@ MAP_(idx_query_const)( MAP_(t) const *   join,
   return sentinel;
 }
 
+FD_FN_PURE MAP_IMPL_STATIC ulong
+MAP_(idx_query_volatile)( MAP_(t) const *   join,
+                          MAP_KEY_T const * key,
+                          ulong             sentinel,
+                          MAP_ELE_T const * pool ) {
+  MAP_(private_t) const * map = MAP_(private_const)( join );
+
+  ulong ele_max = MAP_(ele_max)();
+
+  /* Find the key */
+
+  MAP_IDX_T const * cur = MAP_(private_chain_const)( map ) + MAP_(private_chain_idx)( key, map->seed, map->chain_cnt );
+  for( ulong i=0UL; i<ele_max; ++i ) {
+    ulong ele_idx = MAP_(private_unbox)( *cur );
+    if( FD_UNLIKELY( MAP_(private_idx_is_null)( ele_idx ) || ele_idx >= ele_max ) ) break; /* optimize for found */
+    if( FD_LIKELY( MAP_(key_eq)( key, &pool[ ele_idx ].MAP_KEY ) ) ) return ele_idx; /* optimize for found */
+    cur = &pool[ ele_idx ].MAP_NEXT;
+  }
+
+  /* Not found */
+
+  return sentinel;
+}
+
+
 #if MAP_MULTI!=0
 
 FD_FN_PURE MAP_IMPL_STATIC ulong
@@ -945,6 +987,15 @@ MAP_(ele_query_const)( MAP_(t) const *   join,
                        MAP_ELE_T const * sentinel,
                        MAP_ELE_T const * pool ) {
   ulong ele_idx = MAP_(idx_query_const)( join, key, MAP_(private_idx_null)(), pool );
+  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), (MAP_ELE_T const *)( (ulong)pool + (ele_idx * sizeof(MAP_ELE_T)) ), sentinel );
+}
+
+FD_FN_PURE static inline MAP_ELE_T const *
+MAP_(ele_query_volatile)( MAP_(t) const *   join,
+                       MAP_KEY_T const * key,
+                       MAP_ELE_T const * sentinel,
+                       MAP_ELE_T const * pool ) {
+  ulong ele_idx = MAP_(idx_query_volatile)( join, key, MAP_(private_idx_null)(), pool );
   return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), (MAP_ELE_T const *)( (ulong)pool + (ele_idx * sizeof(MAP_ELE_T)) ), sentinel );
 }
 
