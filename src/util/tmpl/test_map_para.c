@@ -1,10 +1,11 @@
 #include "../fd_util.h"
 
 struct myele {
-  uint mykey;
-  uint mynext;
-  uint mod;
-  uint val;
+  uint  mykey;
+  uint  mynext;
+  uint  mod;
+  uint  val;
+  ulong mymemo;
 };
 
 typedef struct myele myele_t;
@@ -16,14 +17,17 @@ typedef struct myele myele_t;
 #define POOL_IMPL_STYLE    0
 #include "fd_pool_para.c"
 
-#define MAP_NAME          mymap
-#define MAP_ELE_T         myele_t
-#define MAP_KEY_T         uint
-#define MAP_KEY           mykey
-#define MAP_IDX_T         uint
-#define MAP_NEXT          mynext
-#define MAP_KEY_HASH(k,s) fd_ulong_hash( ((ulong)*(k)) ^ (s) )
-#define MAP_IMPL_STYLE    0
+#define MAP_NAME           mymap
+#define MAP_ELE_T          myele_t
+#define MAP_KEY_T          uint
+#define MAP_KEY            mykey
+#define MAP_IDX_T          uint
+#define MAP_NEXT           mynext
+#define MAP_KEY_HASH(k,s)  fd_ulong_hash( ((ulong)*(k)) ^ (s) )
+#define MAP_IMPL_STYLE     0
+#define MAP_MEMOIZE        1
+#define MAP_MEMO           mymemo
+#define MAP_KEY_EQ_IS_SLOW 1
 #include "fd_map_para.c"
 
 FD_STATIC_ASSERT( FD_MAP_SUCCESS    == 0, unit_test );
@@ -116,9 +120,17 @@ tile_main( int     argc,
 
   /* Alloc the map parallel iterator lock scratch */
 
-  ulong   lock_max = mymap_chain_cnt( map );
-  ulong * lock_seq = (ulong *)shmem_alloc( alignof(ulong), lock_max*sizeof(ulong) );
-  for( ulong lock_idx=0UL; lock_idx<lock_max; lock_idx++ ) lock_seq[ lock_idx ] = lock_idx;
+  ulong   chain_cnt = mymap_chain_cnt( map );
+  ulong * lock_seq = (ulong *)shmem_alloc( alignof(ulong), chain_cnt*sizeof(ulong) );
+  for( ulong lock_idx=0UL; lock_idx<chain_cnt; lock_idx++ ) lock_seq[ lock_idx ] = lock_idx;
+
+  FD_TEST(  mymap_iter_lock( NULL, lock_seq, 1UL,           0 )==FD_MAP_ERR_INVAL ); /* NULL join */
+  FD_TEST(  mymap_iter_lock( map,  NULL,     1UL,           0 )==FD_MAP_ERR_INVAL ); /* NULL lock_seq */
+  FD_TEST( !mymap_iter_lock( NULL, NULL,     0UL,           0 )                   ); /* nothing to do */
+  FD_TEST( !mymap_iter_lock( NULL, lock_seq, 0UL,           0 )                   ); /* nothing to do */
+  FD_TEST( !mymap_iter_lock( map,  NULL,     0UL,           0 )                   ); /* nothing to do */
+  FD_TEST(  mymap_iter_lock( map,  lock_seq, chain_cnt+1UL, 0 )==FD_MAP_ERR_INVAL ); /* too many locks */
+  /* flags is arbitrary */
 
   /* Wait for the go code */
 
@@ -499,9 +511,9 @@ tile_main( int     argc,
 
       /* Pick a random subset of chains in an arbitrary order */
 
-      ulong lock_cnt = fd_ulong_min( fd_rng_coin_tosses( rng ), lock_max );
+      ulong lock_cnt = fd_ulong_min( fd_rng_coin_tosses( rng ), chain_cnt );
       for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ ) {
-        ulong swap_idx = lock_idx + fd_rng_ulong_roll( rng, lock_max-lock_idx );
+        ulong swap_idx = lock_idx + fd_rng_ulong_roll( rng, chain_cnt-lock_idx );
         fd_swap( lock_seq[ lock_idx ], lock_seq[ swap_idx ] );
       }
 
