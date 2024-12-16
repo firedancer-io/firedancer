@@ -235,8 +235,8 @@ fd_ghost_node_map( fd_ghost_t const * ghost ) {
 
 FD_FN_PURE static inline fd_ghost_node_t const *
 fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
-  fd_ghost_node_map_t * node_map = fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_map_gaddr );
-  fd_ghost_node_t * node_pool = fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_pool_gaddr );
+  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
+  fd_ghost_node_t * node_pool = fd_ghost_node_pool( ghost );
   return fd_ghost_node_map_ele_query_const( node_map, &slot, NULL, node_pool );
 }
 

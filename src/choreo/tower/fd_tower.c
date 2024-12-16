@@ -254,8 +254,9 @@ fd_tower_lockout_check( fd_tower_t const * tower,
      older than ghost->root), we just assume it is on the same fork. */
 
   fd_tower_vote_t const * top_vote = fd_tower_votes_peek_index_const( tower->votes, cnt - 1 );
+  fd_ghost_node_t const * root     = fd_ghost_root_node( ghost );
 
-  int lockout_check = top_vote->slot < ghost->root->slot ||
+  int lockout_check = top_vote->slot < root->slot ||
                       fd_ghost_is_descendant( ghost, fork->slot, top_vote->slot );
   FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: (slot: %lu, conf: %lu). switch: %lu.",
                   lockout_check,
@@ -271,8 +272,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
                        fd_ghost_t const * ghost ) {
 
   fd_tower_vote_t const * latest_vote = fd_tower_votes_peek_tail_const( tower->votes );
+  fd_ghost_node_t const * root        = fd_ghost_root_node( ghost );
 
-  if( FD_UNLIKELY( latest_vote->slot < ghost->root->slot ) ) {
+  if( FD_UNLIKELY( latest_vote->slot < root->slot ) ) {
 
     /* It is possible our latest vote slot precedes our ghost root. This
        can happen, for example, when we restart from a snapshot and set
@@ -306,25 +308,26 @@ fd_tower_switch_check( fd_tower_t const * tower,
      a   b
 
   */
-
+  fd_ghost_node_t * node_pool = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * gca = fd_ghost_gca( ghost, latest_vote->slot, fork->slot );
+  ulong gca_idx = fd_ghost_node_map_idx_query( fd_ghost_node_map( ghost ), &gca->slot, ULONG_MAX, fd_ghost_node_pool( ghost ) );
 
   /* gca_child is our latest_vote slot's ancestor that is also a direct
      child of GCA.  So we do not count it towards the stake of the
      different forks. */
 
   fd_ghost_node_t const * gca_child = fd_ghost_query( ghost, latest_vote->slot );
-  while( gca_child->parent != gca ) {
-    gca_child = gca_child->parent;
+  while( gca_child->parent_idx != gca_idx ) {
+    gca_child = fd_ghost_node_pool_ele( node_pool, gca_child->parent_idx );
   }
 
   ulong switch_stake = 0;
-  fd_ghost_node_t const * child = gca->child;
+  fd_ghost_node_t const * child = fd_ghost_child_node( ghost, gca );
   while ( FD_LIKELY( child ) ) {
     if ( FD_LIKELY ( child != gca_child ) ) {
       switch_stake += child->weight;
     }
-    child = child->sibling;
+    child = fd_ghost_node_pool_ele( node_pool, child->sibling_idx );
   }
 
   double switch_pct = (double)switch_stake / (double)tower->total_stake;
@@ -489,9 +492,9 @@ fd_tower_reset_fork( fd_tower_t const * tower,
         different fork.  So build off the best fork instead.
 
     See the top-level documentation in fd_tower.h for more context. */
-
-  if( FD_UNLIKELY( latest_vote->slot < ghost->root->slot ||
-                   !fd_ghost_is_descendant( ghost, latest_vote->slot, ghost->root->slot ) ) ) {
+  fd_ghost_node_t const * root = fd_ghost_root_node( ghost );
+  if( FD_UNLIKELY( latest_vote->slot < root->slot ||
+                   !fd_ghost_is_descendant( ghost, latest_vote->slot, root->slot ) ) ) {
     return fd_tower_best_fork( tower, forks, ghost );
   }
 
@@ -559,8 +562,8 @@ fd_tower_vote_fork( fd_tower_t *       tower,
      2. If our latest vote slot is older than SMR, we know we don't have
         ancestry information to determine whether we're locked out or
         can switch, so we similarly build off the best fork. */
-
-  if( FD_UNLIKELY( !fd_ghost_is_descendant( ghost, latest_vote->slot, ghost->root->slot ) ) ) {
+  fd_ghost_node_t const * root = fd_ghost_root_node( ghost );
+  if( FD_UNLIKELY( !fd_ghost_is_descendant( ghost, latest_vote->slot, root->slot ) ) ) {
     return fd_tower_best_fork( tower, forks, ghost );
   }
 
@@ -701,6 +704,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
   /* Insert the new fork head into ghost. */
 
   fd_ghost_node_t * ghost_node = fd_ghost_insert( ghost, fork->slot, parent_slot );
+  fd_ghost_node_t const * root = fd_ghost_root_node( ghost );
 
 #if FD_TOWER_USE_HANDHOLDING
   if( FD_UNLIKELY( !ghost_node ) ) {
@@ -741,12 +745,12 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
       ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
 
-      if( FD_UNLIKELY( vote_slot < ghost->root->slot ) ) continue;
+      if( FD_UNLIKELY( vote_slot < root->slot ) ) continue;
 
       /* Only process votes for slots >= root. Ghost requires vote slot
          to already exist in the ghost tree. */
 
-      if( FD_UNLIKELY( vote_slot >= ghost->root->slot ) ) {
+      if( FD_UNLIKELY( vote_slot >= root->slot ) ) {
         fd_ghost_node_t const * node = fd_ghost_replay_vote( ghost, vote_slot, &vote_state->node_pubkey, vote_acc->stake );
 
         /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
@@ -780,7 +784,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
       /* Check if this voter's root >= ghost root. We can't process
          other voters' roots that precede the ghost root. */
 
-      if( FD_UNLIKELY( vote_state->root_slot >= ghost->root->slot ) ) {
+      if( FD_UNLIKELY( vote_state->root_slot >= root->slot ) ) {
         fd_ghost_node_t const * node = fd_ghost_rooted_vote( ghost, vote_state->root_slot, &vote_state->node_pubkey, vote_acc->stake );
 
         /* Check if it has crossed finalized threshold. */
