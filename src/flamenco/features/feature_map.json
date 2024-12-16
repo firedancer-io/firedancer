@@ -213,5 +213,6 @@
   {"name":"migrate_config_program_to_core_bpf","pubkey":"2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV"},
   {"name":"migrate_address_lookup_table_program_to_core_bpf","pubkey":"C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm"},
   {"name":"enable_get_epoch_stake_syscall","pubkey":"7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np"},
-  {"name":"disable_account_loader_special_case","pubkey": "EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x"}
+  {"name":"disable_account_loader_special_case","pubkey":"EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x"},
+  {"name":"remove_accounts_executable_flag_checks","pubkey":"FfgtauHUWKeXTzjXkua9Px4tNGBFHKZ9WaigM5VbbzFx"}
 ]

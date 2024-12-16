@@ -1,7 +1,7 @@
 #include "fd_account.h"
 #include "context/fd_exec_instr_ctx.h"
 
-/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L740-L767 */
+/* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L789-L815 */
 /* Assignes the owner of this account (transaction wide) */
 int
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
@@ -20,19 +20,19 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   fd_account_meta_t const * meta = account->const_meta;
 
   /* Only the owner can assign a new owner */
-  if( !fd_account_is_owned_by_current_program( instr, meta ) ) {
+  if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   /* And only if the account is writable */
-  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   /* And only if the account is not executable */
-  if( fd_account_is_executable( meta ) ) {
+  if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   /* And only if the data is zero-initialized or empty */
-  if( !fd_account_is_zeroed( meta ) ) {
+  if( FD_UNLIKELY( !fd_account_is_zeroed( meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   /* Don't copy the account if the owner does not change */
@@ -53,7 +53,7 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L774-L796 */
+/* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L823-L845 */
 /* Overwrites the number of lamports of this account (transaction wide) */
 int
 fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
@@ -80,7 +80,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
   }
 
   /* The balance of executable accounts may not change */
-  if( FD_UNLIKELY( fd_account_is_executable( account->const_meta ) ) ) {
+  if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, account->const_meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE;
   }
 
@@ -109,7 +109,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
                          ulong *                     dlen_out ) {
 
   int err;
-  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) ) ) {
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &err ) ) ) {
     return err;
   }
 
@@ -150,7 +150,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     return err;
   }
 
-  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) ) ) {
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &err ) ) ) {
     return err;
   }
 
@@ -188,11 +188,11 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
   } while(0);
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
-  if( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, &err ) ) {
+  if( FD_UNLIKELY( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, &err ) ) ) {
     return err;
   }
 
-  if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) ) {
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &err ) ) ) {
     return err;
   }
 
@@ -205,7 +205,7 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
 
   /* Agave self.touch() is a no-op */
 
-  if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, &err ) ) {
+  if( FD_UNLIKELY( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, &err ) ) ) {
     return err;
   }
 
@@ -259,7 +259,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
   }
 
   /* One can not clear the executable flag  */
-  if( FD_UNLIKELY( fd_account_is_executable( meta ) && !is_executable ) ) {
+  if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) && !is_executable ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 

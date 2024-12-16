@@ -104,7 +104,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
     /* Next, push the region for the account data if there is account data. We
        intentionally omit copy on write as a region type. */
     int err = 0;
-    uint is_writable = (uint)(fd_account_can_data_be_changed( instr_ctx->instr, instr_acc_idx, &err ) && !err);
+    uint is_writable = (uint)(fd_account_can_data_be_changed( instr_ctx, instr_acc_idx, &err ) && !err);
 
     /* Update the mapping from instruction account index to memory region index.
        This is an optimization to avoid redundant lookups to find accounts. */
@@ -415,7 +415,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L551-563 */
         int err = 0;
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) &&
-            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+            fd_account_can_data_be_changed( &ctx, i, &err ) ) {
 
           int err = fd_account_set_data_from_slice( &ctx, i, post_data, post_len );
           if( FD_UNLIKELY( err ) ) {
@@ -432,7 +432,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         start += FD_BPF_ALIGN_OF_U128 - alignment_offset;
         int err = 0;
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) &&
-            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+            fd_account_can_data_be_changed( &ctx, i, &err ) ) {
 
           err = fd_account_set_data_length( &ctx, i, post_len );
           if( FD_UNLIKELY( err ) ) {
@@ -702,7 +702,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
         if( view_acc->const_meta ) {
           int err = 0;
           if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, pre_len, &err ) &&
-              fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+              fd_account_can_data_be_changed( &ctx, i, &err ) ) {
             err = fd_account_set_data_from_slice( &ctx, i, post_data, pre_len );
             if( FD_UNLIKELY( err ) ) {
               return err;

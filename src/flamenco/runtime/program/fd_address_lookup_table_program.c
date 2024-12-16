@@ -612,7 +612,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/address-lookup-table/src/processor.rs#L308
-  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, ACC_IDX_LUT, &err ) ) ) {
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, ACC_IDX_LUT, &err ) ) ) {
     return err;
   }
 
