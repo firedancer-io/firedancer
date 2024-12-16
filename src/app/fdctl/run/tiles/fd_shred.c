@@ -382,11 +382,27 @@ during_frag( fd_shred_ctx_t * ctx,
     ctx->send_fec_set_idx = ULONG_MAX;
     if( FD_UNLIKELY( last_in_batch )) {
       if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
-        /* If it's our turn, shred this batch */
+        /* If it's our turn, shred this batch. FD_UNLIKELY because shred tile cnt generally >= 2 */
         ulong batch_sz = sizeof(ulong)+ctx->pending_batch.pos;
 
         /* We sized this so it fits in one FEC set */
         long shredding_timing =  -fd_tickcount();
+
+        if( FD_UNLIKELY( entry_meta->block_complete && batch_sz < FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ ) ) {
+
+          /* Ensure the last batch generates >= 32 data shreds by
+             padding with 0s. Because the last FEC set is "oddly sized"
+             we only expect this code path to execute for blocks
+             containing less data than can fill 32 data shred payloads
+             (hence FD_UNLIKELY).
+
+             See documentation for FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ
+             for further context. */
+
+          fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ - batch_sz );
+          batch_sz = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
+        }
+
         fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
         FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out ) );
         fd_shredder_fini_batch( ctx->shredder );
