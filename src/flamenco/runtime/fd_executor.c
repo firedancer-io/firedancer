@@ -1923,13 +1923,6 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   #ifdef VLOG
         }
   #endif
-        if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-          ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
-          if( ret != FD_ACC_MGR_SUCCESS ) {
-            FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
-            return ret;
-          }
-        }
         return exec_result;
       }
     }
@@ -1937,24 +1930,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     if ( err != FD_EXECUTOR_INSTR_SUCCESS) {
       FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
       FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
-      if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-        ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
-        if( ret != FD_ACC_MGR_SUCCESS ) {
-          FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
-          FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, ret, txn_ctx->instr_err_idx );
-          return ret;
-        }
-      }
       return err;
     }
 
-    if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-      ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
-      if( ret != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
-        return ret;
-      }
-    }
     return 0;
   } FD_SCRATCH_SCOPE_END;
 }

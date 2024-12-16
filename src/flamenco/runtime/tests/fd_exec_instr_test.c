@@ -1477,7 +1477,8 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture borrowed accounts */
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
       fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
-      if( !acc->meta ) continue;
+      if( !( fd_txn_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      assert( acc->meta );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
       assert( modified_idx < modified_acct_cnt );
