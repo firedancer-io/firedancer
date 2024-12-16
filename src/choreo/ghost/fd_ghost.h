@@ -43,7 +43,8 @@
 
 /* fd_ghost_node_t implements a left-child, right-sibling n-ary tree.
    Each node maintains pointers to its left-most child, its
-   immediate-right sibling, and its parent. */
+   immediate-right sibling, and its parent. The indexes are directly
+   indexable into the node_pool */
 
 typedef struct fd_ghost_node fd_ghost_node_t;
 struct __attribute__((aligned(128UL))) fd_ghost_node {
@@ -57,9 +58,6 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   ulong             parent_idx;   /* index of the parent in the node pool */
   ulong             child_idx;    /* index of the left-most child in the node pool */
   ulong             sibling_idx;  /* index of the next sibling in the node pool */
-  /*fd_ghost_node_t * parent;      pointer to the parent 
-  fd_ghost_node_t * child;         pointer to the left-most child 
-  fd_ghost_node_t * sibling;       pointer to next sibling */
 };
 
 #define FD_GHOST_EQV_SAFE ( 0.52 )
@@ -124,20 +122,15 @@ struct __attribute__((aligned(128UL))) fd_ghost {
 
   /* Metadata */
 
-  //fd_ghost_node_t *     root;
   ulong                 root_idx;
   ulong                 total_stake;
 
   /* Inline data structures */
+
   ulong                 node_pool_gaddr;
   ulong                 node_map_gaddr;
   ulong                 vote_pool_gaddr;
   ulong                 vote_map_gaddr;
-
-  /*fd_ghost_node_t *     node_pool;  memory pool of ghost nodes 
-  fd_ghost_node_map_t * node_map;   map of slot_hash->fd_ghost_node_t 
-  fd_ghost_vote_t *     vote_pool;  memory pool of ghost votes 
-  fd_ghost_vote_map_t * vote_map;   each node's latest vote. map of pubkey->fd_ghost_vote_t */
 };
 typedef struct fd_ghost fd_ghost_t;
 
@@ -238,6 +231,16 @@ fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool = fd_ghost_node_pool( ghost );
   return fd_ghost_node_map_ele_query_const( node_map, &slot, NULL, node_pool );
+}
+
+FD_FN_PURE static inline fd_ghost_vote_t *
+fd_ghost_vote_pool( fd_ghost_t const * ghost ) {
+  return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->vote_pool_gaddr );
+}
+
+FD_FN_PURE static inline fd_ghost_vote_map_t *
+fd_ghost_vote_map( fd_ghost_t const * ghost ) {
+  return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->vote_map_gaddr );
 }
 
 /* Operations */

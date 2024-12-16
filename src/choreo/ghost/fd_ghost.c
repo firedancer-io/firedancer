@@ -3,7 +3,7 @@
 #include <string.h>
 
 /* clang-format off */
-// TODO ensure everytime we add a new node, initialize the parent_idx, child_idx, sibling_idx to ULONG_MAX
+// TODO check on using idx_null instead of parent_idx, child_idx, sibling_idx != ULONG_MAX
 
 void *
 fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
@@ -30,9 +30,6 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
     FD_LOG_WARNING(( "shmem must be part of a workspace" ));
     return NULL;
   }
-  /*ulong        laddr = (ulong)shmem;
-  fd_ghost_t * ghost = (void *)laddr;
-  laddr             += sizeof(fd_ghost_t);*/
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_ghost_t * ghost = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), sizeof(fd_ghost_t) );
@@ -44,23 +41,6 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
   FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() );
   FD_TEST( _l == (ulong)shmem + footprint );
 
-  /*laddr            = fd_ulong_align_up( laddr, fd_ghost_node_pool_align() );
-  ghost->node_pool = fd_ghost_node_pool_new( (void *)laddr, node_max );
-  laddr           += fd_ghost_node_pool_footprint( node_max );
-
-  laddr           = fd_ulong_align_up( laddr, fd_ghost_node_map_align() );
-  ghost->node_map = fd_ghost_node_map_new( (void *)laddr, node_max, seed );
-  laddr          += fd_ghost_node_map_footprint( node_max );
-
-  laddr            = fd_ulong_align_up( laddr, fd_ghost_vote_pool_align() );
-  ghost->vote_pool = fd_ghost_vote_pool_new( (void *)laddr, vote_max );
-  laddr           += fd_ghost_vote_pool_footprint( vote_max );
-
-  laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
-  ghost->vote_map = fd_ghost_vote_map_new( (void *)laddr, vote_max, seed );
-  laddr          += fd_ghost_vote_map_footprint( vote_max );
-
-  laddr = fd_ulong_align_up( laddr, fd_ghost_align() ); */
   ghost->node_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_node_pool_join(fd_ghost_node_pool_new( node_pool, node_max ) ));
   ghost->node_map_gaddr  = fd_wksp_gaddr_fast( wksp, fd_ghost_node_map_join(fd_ghost_node_map_new( node_map, node_max, seed ) ));
   ghost->vote_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_vote_pool_join(fd_ghost_vote_pool_new( vote_pool, vote_max ) ));
@@ -142,9 +122,8 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
     return;
   }
 
-  // TODO: do a fd_ghost_wksp function ( need to store gaddr of ghost )
-  void * node_pool = fd_ghost_node_pool( ghost );
-  void * node_map  = fd_ghost_node_map( ghost );
+  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
+  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
 
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( node_pool );
   memset( node, 0, sizeof( fd_ghost_node_t ) );
@@ -152,11 +131,8 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
   INIT_GHOST_RELATIONS( node );
 
   fd_ghost_node_map_ele_insert( node_map, node, node_pool );
-  // or use ghost->root_idx    = (ulong)(node - node_pool_join);
+  // TODO: or use ghost->root_idx    = (ulong)(node - node_pool_join);
   ghost->root_idx = fd_ghost_node_map_idx_query( node_map, &root, ULONG_MAX, node_pool );
-  if ( FD_UNLIKELY( ghost->root_idx == ULONG_MAX ) ) {
-    FD_LOG_ERR(( "ghost root node insertion failed" ));
-  }
   ghost->total_stake = total_stake;
 
   return;
@@ -172,7 +148,6 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * root   = fd_ghost_root_node( ghost );
-
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( slot < root->slot ) ) {
@@ -240,7 +215,6 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 
     /* Iterate to right-most sibling. */
     fd_ghost_node_t * curr = fd_ghost_node_pool_ele( node_pool, parent->child_idx );
-    //fd_ghost_node_t * curr = parent->child;
     while( curr->sibling_idx != ULONG_MAX ) {
       curr = fd_ghost_node_pool_ele( node_pool, curr->sibling_idx );
     }
@@ -260,7 +234,6 @@ fd_ghost_head( fd_ghost_t const * ghost ) {
   fd_ghost_node_t * node_pool  = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * head = fd_ghost_root_node( ghost );
 
-  //fd_ghost_node_t const * head = ghost->root;
   while( head->child_idx != ULONG_MAX ) {
     head                         = fd_ghost_node_pool_ele( node_pool, head->child_idx );
     fd_ghost_node_t const * curr = head;
@@ -295,7 +268,6 @@ fd_ghost_node_t const *
 fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake ) {
   FD_LOG_DEBUG(( "[%s] slot %lu, pubkey %s, stake %lu", __func__, slot, FD_BASE58_ENC_32_ALLOCA( pubkey ), stake ));
   
-  fd_wksp_t * wksp               = fd_wksp_containing( ghost );
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * root   = fd_ghost_root_node( ghost );
@@ -323,8 +295,8 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
 
   /* Query pubkey's latest vote. */
 
-  fd_ghost_vote_map_t * vote_map = fd_wksp_laddr_fast( wksp, ghost->vote_map_gaddr );
-  fd_ghost_vote_t * vote_pool    = fd_wksp_laddr_fast( wksp, ghost->vote_pool_gaddr );
+  fd_ghost_vote_map_t * vote_map = fd_ghost_vote_map( ghost );
+  fd_ghost_vote_t * vote_pool    = fd_ghost_vote_pool( ghost );
   fd_ghost_vote_t * latest_vote  = fd_ghost_vote_map_ele_query( vote_map,
                                                                 pubkey,
                                                                 NULL,
@@ -679,7 +651,7 @@ fd_ghost_child_node( fd_ghost_t const * ghost, fd_ghost_node_t const * parent ) 
 
 static void
 print( fd_ghost_t * ghost, fd_ghost_node_t const * node, int space, const char * prefix, ulong total ) {
-  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
+  fd_ghost_node_t * node_pool = fd_ghost_node_pool( ghost );
 
   if( node == NULL ) return;
 
