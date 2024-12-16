@@ -171,7 +171,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 /* Caller promises slot >= SMR. */
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t * root         = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_t const * root   = fd_ghost_root_node( ghost );
 
 
 #if FD_GHOST_USE_HANDHOLDING
@@ -258,7 +258,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 fd_ghost_node_t const *
 fd_ghost_head( fd_ghost_t const * ghost ) {
   fd_ghost_node_t * node_pool  = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t const * head = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_t const * head = fd_ghost_root_node( ghost );
 
   //fd_ghost_node_t const * head = ghost->root;
   while( head->child_idx != ULONG_MAX ) {
@@ -298,7 +298,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
   fd_wksp_t * wksp               = fd_wksp_containing( ghost );
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t * root         = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_t const * root   = fd_ghost_root_node( ghost );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( slot < root->slot ) ) {
@@ -463,9 +463,9 @@ fd_ghost_node_t const *
 fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong root, fd_pubkey_t const * pubkey, ulong stake ) {
   FD_LOG_DEBUG(( "[%s] root %lu, pubkey %s, stake %lu", __func__, root, FD_BASE58_ENC_32_ALLOCA( pubkey ), stake ));
 
-  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
-  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t * root_node    = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_map_t * node_map    = fd_ghost_node_map( ghost );
+  fd_ghost_node_t * node_pool       = fd_ghost_node_pool( ghost );
+  fd_ghost_node_t const * root_node = fd_ghost_root_node( ghost );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( root < root_node->slot ) ) {
@@ -499,9 +499,9 @@ fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong root, fd_pubkey_t const * pubkey
 
 fd_ghost_node_t const *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
-  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
-  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t * root_node    = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_map_t * node_map    = fd_ghost_node_map( ghost );
+  fd_ghost_node_t * node_pool       = fd_ghost_node_pool( ghost );
+  fd_ghost_node_t const * root_node = fd_ghost_root_node( ghost );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( slot < root_node->slot ) ) {
@@ -626,8 +626,8 @@ fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 ) {
 
 int
 fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slot ) {
-  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t * root_node    = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_t * node_pool       = fd_ghost_node_pool( ghost );
+  fd_ghost_node_t const * root_node = fd_ghost_root_node( ghost );
 
   fd_ghost_node_t const * ancestor = fd_ghost_query( ghost, slot );
 #if FD_GHOST_USE_HANDHOLDING
@@ -664,7 +664,7 @@ fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slo
 fd_ghost_node_t const *
 fd_ghost_root_node( fd_ghost_t const * ghost ) {
   fd_ghost_node_t * node_pool  = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t const * root = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_t const * root = fd_ghost_node_pool_ele_const( node_pool, ghost->root_idx );
 
   return root;
 }
@@ -672,7 +672,7 @@ fd_ghost_root_node( fd_ghost_t const * ghost ) {
 fd_ghost_node_t const *
 fd_ghost_child_node( fd_ghost_t const * ghost, fd_ghost_node_t const * parent ) {
   fd_ghost_node_t * node_pool   = fd_ghost_node_pool( ghost );
-  fd_ghost_node_t const * child = fd_ghost_node_pool_ele( node_pool, parent->child_idx );
+  fd_ghost_node_t const * child = fd_ghost_node_pool_ele_const( node_pool, parent->child_idx );
 
   return child;
 }
