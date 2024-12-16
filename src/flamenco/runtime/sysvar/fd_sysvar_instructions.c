@@ -47,11 +47,22 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
     FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
   }
   
-  fd_account_meta_t * meta = fd_valloc_malloc( txn_ctx->valloc, FD_ACCOUNT_META_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
-  void * data = (uchar *)meta + sizeof(fd_account_meta_t);
+  /* This stays within the FD spad allocation bounds because...
+     1. Case 1: rec->meta!=NULL
+        - rec->meta was set up in `fd_executor_setup_borrowed_accounts_for_txn()` and data was allocated from the spad
+        - No need to allocate meta and data here 
+     2. Case 2: rec->meta==NULL
+        - `fd_executor_setup_borrowed_accounts_for_txn()` did not make an spad allocation for this account
+        - spad memory is sized out for allocations for 128 (max number) accounts 
+        - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
+        - at most 127 accounts could be using spad memory right now, so this allocation is safe */
+  if( rec->meta==NULL ) {
+    fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
+    void * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
-  rec->const_meta = rec->meta = meta;
-  rec->const_data = rec->data = data;
+    rec->const_meta = rec->meta = meta;
+    rec->const_data = rec->data = data;
+  }
 
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account. */
@@ -113,20 +124,6 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   //
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
-}
-
-int
-fd_sysvar_instructions_cleanup_account( fd_exec_txn_ctx_t *  txn_ctx ) {
-  fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
-    return FD_ACC_MGR_ERR_READ_FAILED;
-
-  fd_valloc_free( txn_ctx->valloc, rec->meta );
-  rec->const_meta = rec->meta = NULL;
-  rec->const_data = rec->data = NULL;
-
-  return FD_ACC_MGR_SUCCESS;
 }
 
 int
