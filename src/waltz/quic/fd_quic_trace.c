@@ -5,6 +5,7 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 #include "fd_quic_private.h"
+#include "fd_quic_trace.h"
 
 /* Generate frame trace */
 
@@ -463,9 +464,24 @@ fd_quic_trace_v1_quic_hdr( char **        out_buf,
 
 
 ulong
-fd_quic_trace_v1_quic_pkt( uchar const *     buf,
+fd_quic_trace_v1_quic_pkt( fd_quic_trace_t * trace,
+                           ulong             now,
+                           uchar const *     buf,
                            ulong             buf_sz,
                            char const *      flow ) {
+  /* have we passed the fill time? */
+  if( now - trace->last_fill > trace->period ) {
+    /* refill bucket */
+    trace->cur_qty   = trace->rate;
+    trace->last_fill = now;
+  }
+
+  /* over rate */
+  if( !trace->cur_qty ) return buf_sz;
+
+  /* tracing, so decrement cur_qty */
+  trace->cur_qty--;
+
   static FD_TL char trace_buf[16384];
 
   memset( trace_buf, 0, sizeof( trace_buf ) );
@@ -508,7 +524,7 @@ fd_quic_trace_v1_quic_pkt( uchar const *     buf,
     out_buf_sz -= sz;
     printf( "\nTRACE: %s\n", trace_buf );
     fflush( stdout );
-    return rc;
+    return FD_QUIC_PARSE_FAIL;
   }
 
   sz = safe_snprintf( out_buf, out_buf_sz, "] }, " );

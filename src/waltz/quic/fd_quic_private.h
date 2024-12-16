@@ -9,6 +9,7 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
+#include "fd_quic_trace.h"
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -101,6 +102,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* last arp/routing tables update */
   ulong ip_table_upd;
+
+  /* state for QUIC sampling */
+  fd_quic_trace_t quic_trace;
 
   /* secret for generating RETRY tokens */
   uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ];
