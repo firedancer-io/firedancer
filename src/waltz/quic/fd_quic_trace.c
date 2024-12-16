@@ -469,18 +469,20 @@ fd_quic_trace_v1_quic_pkt( fd_quic_trace_t * trace,
                            uchar const *     buf,
                            ulong             buf_sz,
                            char const *      flow ) {
-  /* have we passed the fill time? */
-  if( now - trace->last_fill > trace->period ) {
-    /* refill bucket */
-    trace->cur_qty   = trace->rate;
-    trace->last_fill = now;
+  /* update the leaky bucket */
+  float time_since_update = (float)( now - trace->last_update_time );
+  float update_delta      = trace->rate * time_since_update;
+
+  if( update_delta >= 1.0f ) {
+    trace->current_value    = (ulong)fd_long_max( 0L, (long)trace->current_value - (long)update_delta );
+    trace->last_update_time = now;
   }
 
   /* over rate */
-  if( !trace->cur_qty ) return buf_sz;
+  if( trace->current_value >= trace->capacity ) return FD_QUIC_PARSE_FAIL;
 
-  /* tracing, so decrement cur_qty */
-  trace->cur_qty--;
+  /* tracing, so update current_value */
+  trace->current_value++;
 
   static FD_TL char trace_buf[16384];
 

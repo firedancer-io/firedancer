@@ -522,9 +522,10 @@ fd_quic_init( fd_quic_t * quic ) {
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
   /* Initialize quic-trace parameters */
-  state->quic_trace.rate    = (ulong)1;
-  state->quic_trace.cur_qty = state->quic_trace.rate;
-  state->quic_trace.period  = (ulong)1e9;
+  state->quic_trace.last_update_time = 0;
+  state->quic_trace.current_value    = 0;
+  state->quic_trace.rate             = 5.0f / 1e9f; /* 5 per second */
+  state->quic_trace.capacity         = 1;
 
   return quic;
 }
