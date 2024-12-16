@@ -85,6 +85,8 @@ typedef struct fd_vm_vec fd_vm_vec_t;
    and create a huge mess.
    We define both, so hopefully it's foolproof. */
 
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v != FD_SBPF_V0 )
+#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v != FD_SBPF_V0 )
 /* SIMD-0166 */
 #define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
 /* SIMD-0173 */
@@ -100,16 +102,102 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 #define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
 #define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
 #define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
-/* SIMD-0176 */
+/* SIMD-0178 + SIMD-0179 */
 #define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
-/* SIMD-XXXX */
-#define FD_VM_SBPF_STRICTER_CONTROLFLOW(v)         ( v >= FD_SBPF_V3 )
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= FD_SBPF_V3 )
-#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= FD_SBPF_V3 )
+/* SIMD-0189 */
+#define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_ENABLE_LOWER_BYTECODE_VADDR(v)  ( v >= FD_SBPF_V3 )
 
 #define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
+
+static const uint FD_VM_SBPF_STATIC_SYSCALLS_LIST[] = {
+  0,
+  //  1 = abort
+  0xb6fc1a11,
+  //  2 = sol_panic_
+  0x686093bb,
+  //  3 = sol_memcpy_
+  0x717cc4a3,
+  //  4 = sol_memmove_
+  0x434371f8,
+  //  5 = sol_memset_
+  0x3770fb22,
+  //  6 = sol_memcmp_
+  0x5fdcde31,
+  //  7 = sol_log_
+  0x207559bd,
+  //  8 = sol_log_64_
+  0x5c2a3178,
+  //  9 = sol_log_pubkey
+  0x7ef088ca,
+  // 10 = sol_log_compute_units_
+  0x52ba5096,
+  // 11 = sol_alloc_free_
+  0x83f00e8f,
+  // 12 = sol_invoke_signed_c
+  0xa22b9c85,
+  // 13 = sol_invoke_signed_rust
+  0xd7449092,
+  // 14 = sol_set_return_data
+  0xa226d3eb,
+  // 15 = sol_get_return_data
+  0x5d2245e4,
+  // 16 = sol_log_data
+  0x7317b434,
+  // 17 = sol_sha256
+  0x11f49d86,
+  // 18 = sol_keccak256
+  0xd7793abb,
+  // 19 = sol_secp256k1_recover
+  0x17e40350,
+  // 20 = sol_blake3
+  0x174c5122,
+  // 21 = sol_poseidon
+  0xc4947c21,
+  // 22 = sol_get_processed_sibling_instruction
+  0xadb8efc8,
+  // 23 = sol_get_stack_height
+  0x85532d94,
+  // 24 = sol_curve_validate_point
+  0xaa2607ca,
+  // 25 = sol_curve_group_op
+  0xdd1c41a6,
+  // 26 = sol_curve_multiscalar_mul
+  0x60a40880,
+  // 27 = sol_curve_pairing_map
+  0xf111a47e,
+  // 28 = sol_alt_bn128_group_op
+  0xae0c318b,
+  // 29 = sol_alt_bn128_compression
+  0x334fd5ed,
+  // 30 = sol_big_mod_exp
+  0x780e4c15,
+  // 31 = sol_remaining_compute_units
+  0xedef5aee,
+  // 32 = sol_create_program_address
+  0x9377323c,
+  // 33 = sol_try_find_program_address
+  0x48504a38,
+  // 34 = sol_get_sysvar
+  0x13c1b505,
+  // 35 = sol_get_epoch_stake
+  0x5be92f4a,
+  // 36 = sol_get_clock_sysvar
+  0xd56b5fe9,
+  // 37 = sol_get_epoch_schedule_sysvar
+  0x23a29a61,
+  // 38 = sol_get_last_restart_slot
+  0x188a0031,
+  // 39 = sol_get_epoch_rewards_sysvar
+  0xfdba2b3b,
+  // 40 = sol_get_fees_sysvar
+  0x3b97b73c,
+  // 41 = sol_get_rent_sysvar
+  0xbf7188f6,
+};
+#define FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ (sizeof(FD_VM_SBPF_STATIC_SYSCALLS_LIST) / sizeof(uint))
 
 FD_PROTOTYPES_BEGIN
 
