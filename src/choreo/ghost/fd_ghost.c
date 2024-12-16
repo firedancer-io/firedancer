@@ -63,30 +63,27 @@ fd_ghost_join( void * shghost ) {
     return NULL;
   }
 
-  ulong        laddr = (ulong)shghost; /* offset from a memory region */
   fd_ghost_t * ghost = (void *)shghost;
-  laddr             += sizeof(fd_ghost_t);
 
-  laddr            = fd_ulong_align_up( laddr, fd_ghost_node_pool_align() );
-  ghost->node_pool = fd_ghost_node_pool_join( (void *)laddr );
-  ulong node_max   = fd_ghost_node_pool_max( ghost->node_pool );
-  laddr           += fd_ghost_node_pool_footprint( node_max );
+  if( FD_UNLIKELY( !fd_ghost_node_pool_join( ghost->node_pool ) ) ) {
+    FD_LOG_WARNING(( "failed to join ghost node pool" ));
+    return NULL;
+  }
 
-  laddr           = fd_ulong_align_up( laddr, fd_ghost_node_map_align() );
-  ghost->node_map = fd_ghost_node_map_join( (void *)laddr );
-  laddr          += fd_ghost_node_map_footprint( node_max );
+  if( FD_UNLIKELY( !fd_ghost_node_map_join( ghost->node_map ) ) ) {
+    FD_LOG_WARNING(( "failed to join ghost node map" ));
+    return NULL;
+  }
 
-  laddr            = fd_ulong_align_up( laddr, fd_ghost_vote_pool_align() );
-  ghost->vote_pool = fd_ghost_vote_pool_join( (void *)laddr );
-  ulong vote_max   = fd_ghost_vote_pool_max( ghost->vote_pool );
-  laddr           += fd_ghost_vote_pool_footprint( vote_max );
+  if( FD_UNLIKELY( !fd_ghost_vote_pool_join( ghost->vote_pool ) ) ) {
+    FD_LOG_WARNING(( "failed to join ghost vote pool" ));
+    return NULL;
+  }
 
-  laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
-  ghost->vote_map = fd_ghost_vote_map_join( (void *)laddr );
-  laddr          += fd_ghost_vote_map_footprint( vote_max );
-
-  laddr = fd_ulong_align_up( laddr, fd_ghost_align() );
-  FD_TEST( laddr == (ulong)shghost + fd_ghost_footprint( node_max, vote_max ));
+  if( FD_UNLIKELY( !fd_ghost_vote_map_join( ghost->vote_map ) ) ) {
+    FD_LOG_WARNING(( "failed to join ghost vote map" ));
+    return NULL;
+  }
 
   return ghost;
 }
@@ -96,6 +93,26 @@ fd_ghost_leave( fd_ghost_t const * ghost ) {
 
   if( FD_UNLIKELY( !ghost ) ) {
     FD_LOG_WARNING(( "NULL ghost" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ghost_node_pool_leave( ghost->node_pool ) ) ) {
+    FD_LOG_WARNING(( "failed to leave ghost node pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ghost_node_map_leave( ghost->node_map ) ) ) {
+    FD_LOG_WARNING(( "failed to leave ghost node map" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ghost_vote_pool_leave( ghost->vote_pool ) ) ) {
+    FD_LOG_WARNING(( "failed to leave ghost vote pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ghost_vote_map_leave( ghost->vote_map ) ) ) {
+    FD_LOG_WARNING(( "failed to leave ghost vote map" ));
     return NULL;
   }
 

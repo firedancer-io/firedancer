@@ -150,17 +150,16 @@ fd_tower_join( void * shtower ) {
     return NULL;
   }
 
-  ulong        laddr = (ulong)shtower; /* offset from a memory region */
   fd_tower_t * tower = (void *)shtower;
-  laddr             += sizeof(fd_tower_t);
 
-  laddr        = fd_ulong_align_up( laddr, fd_tower_votes_align() );
-  tower->votes = fd_tower_votes_new( (void *)laddr );
-  laddr       += fd_tower_votes_footprint();
-
-  laddr            = fd_ulong_align_up( laddr, fd_tower_vote_accs_align() );
-  tower->vote_accs = fd_tower_vote_accs_new( (void *)laddr );
-  laddr           += fd_tower_vote_accs_footprint();
+  if( FD_UNLIKELY( !fd_tower_votes_join( tower->votes ) ) ) {
+    FD_LOG_WARNING(( "failed to join tower votes" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_tower_vote_accs_join( tower->vote_accs ) ) ) {
+    FD_LOG_WARNING(( "failed to join tower vote accs" ));
+    return NULL;
+  }
 
   return (fd_tower_t *)shtower;
 }
@@ -171,6 +170,16 @@ fd_tower_leave( fd_tower_t const * tower ) {
 
   if( FD_UNLIKELY( !tower ) ) {
     FD_LOG_WARNING(( "NULL tower" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_tower_votes_leave( tower->votes ) ) ) {
+    FD_LOG_WARNING(( "failed to leave tower votes" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_tower_vote_accs_leave( tower->vote_accs ) ) ) {
+    FD_LOG_WARNING(( "failed to leave tower vote accs" ));
     return NULL;
   }
 
@@ -414,8 +423,8 @@ fd_tower_threshold_check( fd_tower_t const * tower,
          vote slot >= our threshold slot.
 
          Because we are iterating vote accounts on the same fork that we
-         we want to vote for, we know these slots must all occur along
-         the same fork ancestry.
+         want to vote for, we know these slots must all occur along the
+         same fork ancestry.
 
          Therefore, if their latest vote slot >= our threshold slot, we
          know that vote must be for the threshold slot itself or one of
@@ -694,7 +703,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
      its child. if not, likely a bug in blockstore pruning. */
   if( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) {
     FD_LOG_ERR(( "missing parent slot for curr slot %lu", fork->slot ));
-  };
+  }
 #endif
   fd_blockstore_end_read( blockstore );
 

@@ -298,7 +298,7 @@
    starting from where the cluster thinks we last left off. Conveniently
    Funk, our accounts database, stores all the vote accounts including
    our own, so on bootstrap we simply load in our vote account state
-   itself to to initialize our own local view of the tower.
+   itself to initialize our own local view of the tower.
 
    *Additional Considerations*
 
@@ -426,7 +426,7 @@ fd_tower_footprint( void ) {
       alignof(fd_tower_t),        sizeof(fd_tower_t)             ),
       fd_tower_votes_align(),     fd_tower_votes_footprint()     ),
       fd_tower_vote_accs_align(), fd_tower_vote_accs_footprint() ),
-    alignof(fd_tower_t) );
+    fd_tower_align() );
 }
 /* clang-format on */
 
@@ -580,7 +580,7 @@ fd_tower_switch_check( fd_tower_t const * tower, fd_fork_t const * fork, fd_ghos
    continue voting along the same fork as our last vote.  Returns 1 if
    we pass the threshold check, 0 otherwise.
 
-   The following psuedocode describes the algorithm:
+   The following pseudocode describes the algorithm:
 
    ```
    for all vote accounts on the current fork
@@ -731,8 +731,8 @@ fd_tower_print( fd_tower_t const * tower );
 
    If tower is newer than vote_state, then the cluster has a stale view
    of our local tower.  This normally just means our last vote hasn't
-   landed yet and our vote state will eventually updated once that vote
-   or a later one does land.
+   landed yet and our vote state will eventually be updated once that
+   vote or a later one does land.
 
    If vote_state is newer than tower, then we already voted for
    fork->slot.  This means we are not caught up yet or more
