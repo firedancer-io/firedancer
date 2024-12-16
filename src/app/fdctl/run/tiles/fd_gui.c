@@ -139,14 +139,18 @@ during_frag( fd_gui_ctx_t * ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
 
    /* ... todo... sigh, sz is not correct since it's too big */
-  if( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) {
+  if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
-    sz = 8UL + peer_cnt*(58UL+12UL*34UL);
-  } else if( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) {
-    ulong leader_cnt = ((ulong *)src)[ 1 ];
-    FD_TEST( leader_cnt<=40200 );
-    sz = 40UL + leader_cnt*40UL;
+    sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
+  } else if( FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
+    ulong peer_cnt = ((ulong *)src)[ 0 ];
+    FD_TEST( peer_cnt<=40200 );
+    sz = 8UL + peer_cnt*112UL;
+  } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
+    ulong staked_cnt = ((ulong *)src)[ 1 ];
+    FD_TEST( staked_cnt<=50000UL );
+    sz = 40UL + staked_cnt*40UL;
   }
 
   if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz>sizeof( ctx->buf ) ) )
