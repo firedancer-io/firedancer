@@ -14,7 +14,7 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
-#include "fd_quic_trace.c"
+#include "fd_quic_pretty_print.c"
 
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
@@ -543,11 +543,11 @@ fd_quic_init( fd_quic_t * quic ) {
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
-  /* Initialize quic-trace parameters */
-  state->quic_trace.last_update_time = 0;
-  state->quic_trace.current_value    = 0;
-  state->quic_trace.rate             = 5.0f / 1e9f; /* 5 per second */
-  state->quic_trace.capacity         = 1;
+  /* Initialize quic-pretty-print parameters */
+  state->quic_pretty_print.last_update_time = 0;
+  state->quic_pretty_print.current_value    = 0;
+  state->quic_pretty_print.rate             = 5.0f / 1e9f; /* 5 per second */
+  state->quic_pretty_print.capacity         = 1;
 
   return quic;
 }
@@ -1725,7 +1725,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  fd_quic_trace_quic_pkt( &state->quic_trace, state->now, cur_ptr, cur_sz, "ingress" );
+  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, cur_sz, "ingress" );
 
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
@@ -1891,7 +1891,7 @@ fd_quic_handle_v1_handshake(
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  fd_quic_trace_quic_pkt( &state->quic_trace, state->now, cur_ptr, cur_sz, "ingress" );
+  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, cur_sz, "ingress" );
 
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
@@ -2156,7 +2156,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   ulong         frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  fd_quic_trace_quic_pkt( &state->quic_trace, state->now, cur_ptr, tot_sz, "ingress" );
+  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, tot_sz, "ingress" );
 
   while( frame_sz != 0UL ) {
     ulong rc = fd_quic_handle_v1_frame(
@@ -3843,7 +3843,11 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     fd_quic_crypto_keys_t * pkt_keys = key_phase_upd ? &conn->new_keys[server]
                                                      : &conn->keys[enc_level][server];
 
-    fd_quic_trace_quic_pkt( &state->quic_trace, state->now, hdr_ptr, hdr_sz + frames_sz + FD_QUIC_CRYPTO_TAG_SZ, "egress" );
+    fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
+                                   state->now,
+                                   hdr_ptr,
+                                   hdr_sz + frames_sz + FD_QUIC_CRYPTO_TAG_SZ,
+                                   "egress" );
 
     if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr_ptr, hdr_sz,
           frame_start, frames_sz, pkt_keys, hp_keys, pkt_number ) != FD_QUIC_SUCCESS ) ) {

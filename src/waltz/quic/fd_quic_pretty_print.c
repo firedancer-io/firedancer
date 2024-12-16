@@ -1,16 +1,16 @@
 #pragma GCC diagnostic ignored "-Wtype-limits"
 
-#include "templ/fd_quic_templ_trace.h"
+#include "templ/fd_quic_pretty_print.h"
 #include "templ/fd_quic_templ.h"
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 #include "fd_quic_private.h"
-#include "fd_quic_trace.h"
+#include "fd_quic_pretty_print.h"
 
-/* Generate frame trace */
+/* Generate frame pretty-print */
 
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                    \
-  static ulong fd_quic_trace_frame_##NAME(                                 \
+  static ulong fd_quic_pretty_print_frame_##NAME(                                 \
       fd_quic_##NAME##_t * frame,                                          \
       char **              out_buf,                                        \
       ulong *              out_buf_sz,                                     \
@@ -25,7 +25,7 @@
     if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL; \
     p0 += rc;                                                              \
                                                                            \
-    fd_quic_trace_struct_##NAME( out_buf, out_buf_sz, frame );             \
+    fd_quic_pretty_print_struct_##NAME( out_buf, out_buf_sz, frame );             \
                                                                            \
     return (ulong)(p0-buf);                                                \
   }
@@ -44,7 +44,7 @@
     (ulong)rtn; }))
 
 ulong
-fd_quic_trace_frame( char **           out_buf,
+fd_quic_pretty_print_frame( char **           out_buf,
                      ulong *           out_buf_sz,
                      uchar const *     buf,
                      ulong             buf_sz ) {
@@ -97,7 +97,7 @@ fd_quic_trace_frame( char **           out_buf,
       ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"frame_type\": \"%u-" #NAME "\", ", (uint)id ); \
       *out_buf    += sz; \
       *out_buf_sz -= sz; \
-      consumed = fd_quic_trace_frame_##NAME##_frame( &data.NAME##_frame, out_buf, out_buf_sz, cur_buf, (ulong)( buf_end - cur_buf ) ); \
+      consumed = fd_quic_pretty_print_frame_##NAME##_frame( &data.NAME##_frame, out_buf, out_buf_sz, cur_buf, (ulong)( buf_end - cur_buf ) ); \
       break; \
     }
   FD_QUIC_FRAME_TYPES(F)
@@ -131,7 +131,7 @@ fd_quic_trace_frame( char **           out_buf,
           return FD_QUIC_PARSE_FAIL;
         }
 
-        fd_quic_trace_struct_ack_range_frag( out_buf, out_buf_sz, ack_range );
+        fd_quic_pretty_print_struct_ack_range_frag( out_buf, out_buf_sz, ack_range );
       }
 
       if( data.ack_frame.type & 1U ) {
@@ -248,7 +248,7 @@ fd_quic_trace_frame( char **           out_buf,
         return FD_QUIC_PARSE_FAIL;
       }
 
-      /* TODO trace the reason phrase */
+      /* TODO pretty print the reason phrase */
 
       cur_buf += reason_phrase_length;
 
@@ -268,7 +268,7 @@ fd_quic_trace_frame( char **           out_buf,
         return FD_QUIC_PARSE_FAIL;
       }
 
-      /* TODO trace the reason phrase */
+      /* TODO pretty print the reason phrase */
 
       cur_buf += reason_phrase_length;
 
@@ -281,14 +281,14 @@ fd_quic_trace_frame( char **           out_buf,
 }
 
 ulong
-fd_quic_trace_frames( char **           out_buf,
+fd_quic_pretty_print_frames( char **           out_buf,
                       ulong *           out_buf_sz,
                       uchar const *     buf,
                       ulong             buf_sz );
 
 
 ulong
-fd_quic_trace_quic_hdr_initial( char **        out_buf,
+fd_quic_pretty_print_quic_hdr_initial( char **        out_buf,
                                 ulong *        out_buf_sz,
                                 uchar const ** frame_ptr,
                                 ulong *        frame_sz,
@@ -325,14 +325,14 @@ fd_quic_trace_quic_hdr_initial( char **        out_buf,
   *frame_ptr   = buf + payload_off;
   *frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  fd_quic_trace_struct_initial( out_buf, out_buf_sz, initial );
+  fd_quic_pretty_print_struct_initial( out_buf, out_buf_sz, initial );
 
   return payload_off;
 }
 
 
 ulong
-fd_quic_trace_quic_hdr_handshake( char **        out_buf,
+fd_quic_pretty_print_quic_hdr_handshake( char **        out_buf,
                                   ulong *        out_buf_sz,
                                   uchar const ** frame_ptr,
                                   ulong *        frame_sz,
@@ -369,14 +369,14 @@ fd_quic_trace_quic_hdr_handshake( char **        out_buf,
   *frame_ptr   = buf + payload_off;
   *frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  fd_quic_trace_struct_handshake( out_buf, out_buf_sz, handshake );
+  fd_quic_pretty_print_struct_handshake( out_buf, out_buf_sz, handshake );
 
   return payload_off;
 }
 
 
 ulong
-fd_quic_trace_quic_hdr_one_rtt( char **        out_buf,
+fd_quic_pretty_print_quic_hdr_one_rtt( char **        out_buf,
                                 ulong *        out_buf_sz,
                                 uchar const ** frame_ptr,
                                 ulong *        frame_sz,
@@ -417,14 +417,14 @@ fd_quic_trace_quic_hdr_one_rtt( char **        out_buf,
   *frame_ptr   = buf + payload_off;
   *frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  fd_quic_trace_struct_one_rtt( out_buf, out_buf_sz, one_rtt );
+  fd_quic_pretty_print_struct_one_rtt( out_buf, out_buf_sz, one_rtt );
 
   return payload_off;
 }
 
 
 ulong
-fd_quic_trace_quic_hdr( char **        out_buf,
+fd_quic_pretty_print_quic_hdr( char **        out_buf,
                         ulong *        out_buf_sz,
                         uchar const ** frame_ptr,
                         ulong *        frame_sz,
@@ -436,21 +436,21 @@ fd_quic_trace_quic_hdr( char **        out_buf,
   uint is_long = first >> 7u;
 
   if( !is_long ) {
-      return fd_quic_trace_quic_hdr_one_rtt( out_buf, out_buf_sz, frame_ptr, frame_sz, buf, buf_sz );
+      return fd_quic_pretty_print_quic_hdr_one_rtt( out_buf, out_buf_sz, frame_ptr, frame_sz, buf, buf_sz );
   }
 
   uint long_type = ( first >> 4u ) & 0x03u;
 
   switch( long_type ) {
     case 0x00: /* initial */
-      return fd_quic_trace_quic_hdr_initial( out_buf, out_buf_sz, frame_ptr, frame_sz, buf, buf_sz );
+      return fd_quic_pretty_print_quic_hdr_initial( out_buf, out_buf_sz, frame_ptr, frame_sz, buf, buf_sz );
     case 0x01: /* 0-rtt - unused */
       sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"0-rtt\", " );
       *out_buf    += sz;
       *out_buf_sz -= sz;
       return FD_QUIC_PARSE_FAIL;
     case 0x02: /* handshake */
-      return fd_quic_trace_quic_hdr_handshake( out_buf, out_buf_sz, frame_ptr, frame_sz, buf, buf_sz );
+      return fd_quic_pretty_print_quic_hdr_handshake( out_buf, out_buf_sz, frame_ptr, frame_sz, buf, buf_sz );
     case 0x03:
       sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"not-implemented-retry\", " );
       *out_buf    += sz;
@@ -464,32 +464,32 @@ fd_quic_trace_quic_hdr( char **        out_buf,
 
 
 ulong
-fd_quic_trace_quic_pkt( fd_quic_trace_t * trace,
+fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
                         ulong             now,
                         uchar const *     buf,
                         ulong             buf_sz,
                         char const *      flow ) {
   /* update the leaky bucket */
-  float time_since_update = (float)( now - trace->last_update_time );
-  float update_delta      = trace->rate * time_since_update;
+  float time_since_update = (float)( now - pretty_print->last_update_time );
+  float update_delta      = pretty_print->rate * time_since_update;
 
   if( update_delta >= 1.0f ) {
-    trace->current_value    = (ulong)fd_long_max( 0L, (long)trace->current_value - (long)update_delta );
-    trace->last_update_time = now;
+    pretty_print->current_value    = (ulong)fd_long_max( 0L, (long)pretty_print->current_value - (long)update_delta );
+    pretty_print->last_update_time = now;
   }
 
   /* over rate */
-  if( trace->current_value >= trace->capacity ) return FD_QUIC_PARSE_FAIL;
+  if( pretty_print->current_value >= pretty_print->capacity ) return FD_QUIC_PARSE_FAIL;
 
   /* tracing, so update current_value */
-  trace->current_value++;
+  pretty_print->current_value++;
 
-  static FD_TL char trace_buf[16384];
+  static FD_TL char pretty_print_buf[16384];
 
-  memset( trace_buf, 0, sizeof( trace_buf ) );
+  memset( pretty_print_buf, 0, sizeof( pretty_print_buf ) );
 
-  char * out_buf    = &trace_buf[0];
-  ulong  out_buf_sz = sizeof( trace_buf ) - 1UL;
+  char * out_buf    = &pretty_print_buf[0];
+  ulong  out_buf_sz = sizeof( pretty_print_buf ) - 1UL;
 
   uchar const * frame_ptr = NULL;
   ulong         frame_sz  = 0;
@@ -498,7 +498,7 @@ fd_quic_trace_quic_pkt( fd_quic_trace_t * trace,
   out_buf    += sz;
   out_buf_sz -= sz;
 
-  ulong hdr_rc = fd_quic_trace_quic_hdr( &out_buf,
+  ulong hdr_rc = fd_quic_pretty_print_quic_hdr( &out_buf,
                                          &out_buf_sz,
                                          &frame_ptr,
                                          &frame_sz,
@@ -516,7 +516,7 @@ fd_quic_trace_quic_pkt( fd_quic_trace_t * trace,
   out_buf    += sz;
   out_buf_sz -= sz;
 
-  ulong rc = fd_quic_trace_frames( &out_buf,
+  ulong rc = fd_quic_pretty_print_frames( &out_buf,
                                    &out_buf_sz,
                                    frame_ptr,
                                    frame_sz );
@@ -524,7 +524,7 @@ fd_quic_trace_quic_pkt( fd_quic_trace_t * trace,
     sz = safe_snprintf( out_buf, out_buf_sz, "], \"err\": \"parse_fail\" }, " );
     out_buf    += sz;
     out_buf_sz -= sz;
-    printf( "\nTRACE: %s\n", trace_buf );
+    printf( "\nTRACE: %s\n", pretty_print_buf );
     fflush( stdout );
     return FD_QUIC_PARSE_FAIL;
   }
@@ -533,17 +533,17 @@ fd_quic_trace_quic_pkt( fd_quic_trace_t * trace,
   out_buf    += sz;
   out_buf_sz -= sz;
 
-  for( ulong j = 0; j < (ulong)( out_buf - trace_buf); ++j ) {
-    if( trace_buf[j] == '\0' ) trace_buf[j] = '*';
+  for( ulong j = 0; j < (ulong)( out_buf - pretty_print_buf); ++j ) {
+    if( pretty_print_buf[j] == '\0' ) pretty_print_buf[j] = '*';
   }
 
-  FD_LOG_NOTICE(( "TRACE: [ %s ]", trace_buf ));
+  FD_LOG_NOTICE(( "TRACE: [ %s ]", pretty_print_buf ));
 
   return rc;
 }
 
 ulong
-fd_quic_trace_frames( char **           out_buf,
+fd_quic_pretty_print_frames( char **           out_buf,
                       ulong *           out_buf_sz,
                       uchar const *     buf,
                       ulong             buf_sz ) {
@@ -555,7 +555,7 @@ fd_quic_trace_frames( char **           out_buf,
     *out_buf    += sz;
     *out_buf_sz -= sz;
 
-    ulong rc = fd_quic_trace_frame( out_buf, out_buf_sz, buf, buf_sz );
+    ulong rc = fd_quic_pretty_print_frame( out_buf, out_buf_sz, buf, buf_sz );
     if( rc == FD_QUIC_PARSE_FAIL ) {
       sz          = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"parse_fail\" }, " );
       *out_buf    += sz;
