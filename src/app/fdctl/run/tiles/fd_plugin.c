@@ -48,12 +48,14 @@ during_frag( fd_plugin_ctx_t * ctx,
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   /* ... todo... sigh, sz is not correct since it's too big */
-  if( FD_UNLIKELY( in_idx==1UL ) ) {
-    if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
-      ulong peer_cnt = ((ulong *)src)[ 0 ];
-      FD_TEST( peer_cnt<=40200 );
-      sz = 8UL + peer_cnt*(58UL+12UL*34UL);
-    }
+  if( FD_UNLIKELY( in_idx==1UL ) && FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
+    ulong peer_cnt = ((ulong *)src)[ 0 ];
+    FD_TEST( peer_cnt<=40200 );
+    sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
+  } else if( FD_UNLIKELY( in_idx==1UL || in_idx==3UL ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
+    ulong peer_cnt = ((ulong *)src)[ 0 ];
+    FD_TEST( peer_cnt<=40200 );
+    sz = 8UL + peer_cnt*112UL;
   } else if( FD_UNLIKELY( in_idx==2UL ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];
     FD_TEST( staked_cnt<=50000UL );
@@ -96,9 +98,9 @@ after_frag( fd_plugin_ctx_t *   ctx,
       sig = FD_PLUGIN_MSG_LEADER_SCHEDULE;
       break;
     }
-    /* poh_plugin */
+    /* poh_plugin or votes_plugin */
     case 3UL: {
-      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END );
+      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE );
       break;
     }
     /* startp_plugi */
@@ -115,7 +117,7 @@ after_frag( fd_plugin_ctx_t *   ctx,
   }
 
   ulong true_size = sz;
-  if( FD_UNLIKELY( in_idx==1UL ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
+  if( FD_UNLIKELY( in_idx==1UL || ( in_idx==3UL && sig == FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
   else if( FD_UNLIKELY( in_idx==2UL ) ) true_size = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
 
   fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, sz, 0UL, 0UL, 0UL ); /* Not true_sz which might not fit */

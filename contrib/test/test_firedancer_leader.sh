@@ -36,6 +36,7 @@ SHRED_VERS=`grep shred_version: validator.log | sed -e 's@.*shred_version: \([0-
 
 sudo rm -f /tmp/localnet.funk
 sudo rm -f /tmp/localnet.blockstore
+sudo rm -f fddev.log
 
 echo "
 name = \"fd1\"
@@ -67,6 +68,8 @@ name = \"fd1\"
         use_consumed_cus = false
     [tiles.gui]
         enabled = false
+        gui_listen_address = \"64.130.51.169\"
+        gui_listen_port = 8080
 [consensus]
     expected_shred_version = $SHRED_VERS
     vote = true
