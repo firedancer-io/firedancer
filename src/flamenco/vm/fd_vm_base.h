@@ -75,6 +75,8 @@
 #define FD_VM_ERR_BAD_TEXT          (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
+#define FD_VM_INVALID_FUNCTION      (-39) /* detected an invalid function */
+#define FD_VM_INVALID_SYSCALL       (-40) /* detected an invalid syscall */
 
 /* Syscall Errors
    https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */

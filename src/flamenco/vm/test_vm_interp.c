@@ -290,6 +290,60 @@ test_0cu_exit( void ) {
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
+static void
+test_static_syscalls_list( void ) {
+  const char *static_syscalls_from_simd[] = {
+    "abort",
+    "sol_panic_",
+    "sol_memcpy_",
+    "sol_memmove_",
+    "sol_memset_",
+    "sol_memcmp_",
+    "sol_log_",
+    "sol_log_64_",
+    "sol_log_pubkey",
+    "sol_log_compute_units_",
+    "sol_alloc_free_",
+    "sol_invoke_signed_c",
+    "sol_invoke_signed_rust",
+    "sol_set_return_data",
+    "sol_get_return_data",
+    "sol_log_data",
+    "sol_sha256",
+    "sol_keccak256",
+    "sol_secp256k1_recover",
+    "sol_blake3",
+    "sol_poseidon",
+    "sol_get_processed_sibling_instruction",
+    "sol_get_stack_height",
+    "sol_curve_validate_point",
+    "sol_curve_group_op",
+    "sol_curve_multiscalar_mul",
+    "sol_curve_pairing_map",
+    "sol_alt_bn128_group_op",
+    "sol_alt_bn128_compression",
+    "sol_big_mod_exp",
+    "sol_remaining_compute_units",
+    "sol_create_program_address",
+    "sol_try_find_program_address",
+    "sol_get_sysvar",
+    "sol_get_epoch_stake",
+    "sol_get_clock_sysvar",
+    "sol_get_epoch_schedule_sysvar",
+    "sol_get_last_restart_slot",
+    "sol_get_epoch_rewards_sysvar",
+    "sol_get_fees_sysvar",
+    "sol_get_rent_sysvar",
+  };
+
+  FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[0]==0 );
+  for( ulong i=1; i<FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ; i++ ) {
+    const char *name = static_syscalls_from_simd[i-1];
+    uint key = fd_murmur3_32( name, strlen(name), 0 );
+    FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[i]==key );
+  }
+}
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -957,6 +1011,8 @@ main( int     argc,
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
   test_vm_exec_instr_ctx_delete( instr_ctx );
+
+  test_static_syscalls_list();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );
