@@ -172,7 +172,7 @@ set_state( ulong                       self_acct_idx,
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L977
   do {
     int err = 0;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, self_acct_idx, &err ) ) )
+    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, self_acct_idx, &err ) ) )
       return err;
   } while(0);
 

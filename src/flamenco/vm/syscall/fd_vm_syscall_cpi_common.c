@@ -174,7 +174,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len ); 
 
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
-        fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
+        fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
         /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
         /* TODO: not pass informational errors like this? */
 
@@ -201,7 +201,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
 
     int err;
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, post_len, &err ) &&
-        fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
+        fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
 
       ulong realloc_bytes_used = fd_ulong_sat_sub( post_len, original_len );
 
@@ -764,7 +764,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
          "caller account". Only writable accounts are caller accounts. */
       if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, i ) ) {
 
-        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx->instr, i, &err );
+        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx, i, &err );
         /* Lookup memory regions for the account data and the realloc region. */
         ulong data_region_idx    = vm->acc_region_metas[i].has_data_region ? vm->acc_region_metas[i].region_idx : 0;
         ulong realloc_region_idx = vm->acc_region_metas[i].has_resizing_region ? vm->acc_region_metas[i].region_idx : 0;

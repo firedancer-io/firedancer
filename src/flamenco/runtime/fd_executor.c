@@ -514,8 +514,9 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* The above checks from the mirrored `load_transaction_account()` function would promote
        this account to executable if necessary, so this check is sufficient.
-       https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L317-320 */
-    if( FD_UNLIKELY( !fd_account_is_executable( program_account->const_meta ) ) ) {
+       https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L493-L500 */
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) && 
+                     !fd_account_is_executable( program_account->const_meta ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
@@ -549,9 +550,10 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L335-341 */
+    /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L537-L545 */
     if( FD_UNLIKELY( memcmp( owner_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
-                     !fd_account_is_executable( owner_account->const_meta ) ) ) {
+                     ( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
+                       !fd_account_is_executable( owner_account->const_meta ) ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
