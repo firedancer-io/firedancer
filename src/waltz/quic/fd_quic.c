@@ -5715,7 +5715,7 @@ fd_quic_frame_handle_new_conn_id_frame(
 
   /* FIXME implement */
 
-  return 0;
+  return FD_QUIC_SUCCESS;
 }
 
 static ulong
