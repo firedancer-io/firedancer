@@ -77,9 +77,7 @@ query_block(bool expect, fd_blockstore_t * blockstore, int fd, ulong slotn){
   }
 
   if ( success != expect ) {
-    FD_LOG_ERR(("query_block failed for slot %lu", slotn));
-  } else {
-    FD_LOG_NOTICE(("query_block matches expected for slot %lu", slotn));
+    FD_LOG_ERR(("query_block does not match expected for slot %lu", slotn));
   }
 
   return meta[0];
@@ -174,7 +172,7 @@ void test_blockstore_archive_big( fd_wksp_t * wksp, int fd, ulong first_idx_max,
     ulong data_sz = (ulong) (1 << (rand() % 18 + 2));
 
     GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz );
-    FD_LOG_NOTICE( ( "slot %lu, data_sz %lu", slot, data_sz ) );
+    FD_LOG_DEBUG( ( "slot %lu, data_sz %lu", slot, data_sz ) );
 
     /* Checkpoint the generated data */
 

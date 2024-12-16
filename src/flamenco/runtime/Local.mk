@@ -49,5 +49,6 @@ $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_util)
 $(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
 # $(call run-unit-test,test_txncache,)
+$(call run-unit-test,test_archive_block,)
 endif
 endif
