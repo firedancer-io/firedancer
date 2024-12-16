@@ -178,28 +178,28 @@ after_frag( fd_eqvoc_tile_ctx_t * ctx,
     finalize_new_cluster_contact_info( ctx );
     return;
   } else if ( FD_UNLIKELY( in_idx == ctx->gossip_in_idx ) ) {
-    fd_gossip_duplicate_shred_t * chunk = &ctx->duplicate_shred;
-    ulong slot = ctx->duplicate_shred.slot;
-    fd_pubkey_t const * from = &chunk->from;
+    // fd_gossip_duplicate_shred_t * chunk = &ctx->duplicate_shred;
+    // ulong slot = ctx->duplicate_shred.slot;
+    // fd_pubkey_t const * from = &chunk->from;
 
-    fd_eqvoc_proof_t * proof = fd_eqvoc_proof_query( ctx->eqvoc, slot, from );
-    if( FD_UNLIKELY( !proof ) ) {
+    // fd_eqvoc_proof_t * proof = fd_eqvoc_proof_query( ctx->eqvoc, slot, from );
+    // if( FD_UNLIKELY( !proof ) ) {
 
-      if( FD_UNLIKELY( chunk->chunk_index == chunk->num_chunks - 1 ) ) {
-        FD_LOG_WARNING(( "received last proof chunk first. unable to determine chunk len. ignoring." ));
-        return;
-      }
+    //   if( FD_UNLIKELY( chunk->chunk_index == chunk->num_chunks - 1 ) ) {
+    //     FD_LOG_WARNING(( "received last proof chunk first. unable to determine chunk len. ignoring." ));
+    //     return;
+    //   }
 
-      proof = fd_eqvoc_proof_insert( ctx->eqvoc, slot, from );
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( ctx->eqvoc->leaders, slot );
-      fd_eqvoc_proof_init( proof, leader, chunk->wallclock, chunk->num_chunks, chunk->chunk_len, ctx->eqvoc->bmtree_mem );
-    }
-    fd_eqvoc_proof_chunk_insert( proof, chunk );
-    if( FD_UNLIKELY( fd_eqvoc_proof_complete( proof ) ) ) {
-      int rc = fd_eqvoc_proof_verify( proof );
-      FD_LOG_NOTICE(( "proof verify %d", rc ));
-      fd_eqvoc_proof_remove( ctx->eqvoc, &proof->key );
-    }
+    //   proof = fd_eqvoc_proof_insert( ctx->eqvoc, slot, from );
+    //   fd_pubkey_t const * leader = fd_epoch_leaders_get( ctx->eqvoc->leaders, slot );
+    //   fd_eqvoc_proof_init( proof, leader, chunk->wallclock, chunk->num_chunks, chunk->chunk_len, ctx->eqvoc->bmtree_mem );
+    // }
+    // fd_eqvoc_proof_chunk_insert( proof, chunk );
+    // if( FD_UNLIKELY( fd_eqvoc_proof_complete( proof ) ) ) {
+    //   int rc = fd_eqvoc_proof_verify( proof );
+    //   FD_LOG_NOTICE(( "proof verify %d", rc ));
+    //   fd_eqvoc_proof_remove( ctx->eqvoc, &proof->key );
+    // }
 
     return;
   }
