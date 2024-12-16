@@ -54,9 +54,12 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   ulong             gossip_stake; /* amount of stake (in lamports) that has voted for this slot via gossip (sans replay overlap) */
   ulong             rooted_stake; /* amount of stake (in lamports) that has rooted this slot */
   int               eqvoc;        /* flag there are equivocating blocks for this slot */
-  fd_ghost_node_t * parent;       /* pointer to the parent */
-  fd_ghost_node_t * child;        /* pointer to the left-most child */
-  fd_ghost_node_t * sibling;      /* pointer to next sibling */
+  ulong             parent_idx;   /* index of the parent in the node pool */
+  ulong             child_idx;    /* index of the left-most child in the node pool */
+  ulong             sibling_idx;  /* index of the next sibling in the node pool */
+  /*fd_ghost_node_t * parent;      pointer to the parent 
+  fd_ghost_node_t * child;         pointer to the left-most child 
+  fd_ghost_node_t * sibling;       pointer to next sibling */
 };
 
 #define FD_GHOST_EQV_SAFE ( 0.52 )
@@ -121,15 +124,20 @@ struct __attribute__((aligned(128UL))) fd_ghost {
 
   /* Metadata */
 
-  fd_ghost_node_t *     root;
+  //fd_ghost_node_t *     root;
+  ulong                 root_idx;
   ulong                 total_stake;
 
   /* Inline data structures */
+  ulong                 node_pool_gaddr;
+  ulong                 node_map_gaddr;
+  ulong                 vote_pool_gaddr;
+  ulong                 vote_map_gaddr;
 
-  fd_ghost_node_t *     node_pool; /* memory pool of ghost nodes */
-  fd_ghost_node_map_t * node_map;  /* map of slot_hash->fd_ghost_node_t */
-  fd_ghost_vote_t *     vote_pool; /* memory pool of ghost votes */
-  fd_ghost_vote_map_t * vote_map;  /* each node's latest vote. map of pubkey->fd_ghost_vote_t */
+  /*fd_ghost_node_t *     node_pool;  memory pool of ghost nodes 
+  fd_ghost_node_map_t * node_map;   map of slot_hash->fd_ghost_node_t 
+  fd_ghost_vote_t *     vote_pool;  memory pool of ghost votes 
+  fd_ghost_vote_map_t * vote_map;   each node's latest vote. map of pubkey->fd_ghost_vote_t */
 };
 typedef struct fd_ghost fd_ghost_t;
 
@@ -210,9 +218,26 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake );
 
 /* Accessors */
 
+FD_FN_PURE static inline fd_wksp_t *
+fd_ghost_wksp( fd_ghost_t const * ghost ) {
+  return fd_wksp_containing( ghost );
+}
+
+FD_FN_PURE static inline fd_ghost_node_t *
+fd_ghost_node_pool( fd_ghost_t const * ghost ) {
+  return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_pool_gaddr );
+}
+
+FD_FN_PURE static inline fd_ghost_node_map_t *
+fd_ghost_node_map( fd_ghost_t const * ghost ) {
+  return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_map_gaddr );
+}
+
 FD_FN_PURE static inline fd_ghost_node_t const *
 fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
-  return fd_ghost_node_map_ele_query_const( ghost->node_map, &slot, NULL, ghost->node_pool );
+  fd_ghost_node_map_t * node_map = fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_map_gaddr );
+  fd_ghost_node_t * node_pool = fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_pool_gaddr );
+  return fd_ghost_node_map_ele_query_const( node_map, &slot, NULL, node_pool );
 }
 
 /* Operations */
@@ -300,6 +325,12 @@ fd_ghost_head( fd_ghost_t const * ghost );
 FD_FN_PURE int
 fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slot );
 
+fd_ghost_node_t const *
+fd_ghost_root_node( fd_ghost_t const * ghost );
+
+fd_ghost_node_t const *
+fd_ghost_child_node( fd_ghost_t const * ghost, fd_ghost_node_t const * parent );
+
 /* Misc */
 
 /* fd_ghost_slot_print pretty-prints a formatted ghost tree.  slot
@@ -323,7 +354,9 @@ fd_ghost_slot_print( fd_ghost_t * ghost, ulong slot, ulong depth );
 
 static inline void
 fd_ghost_print( fd_ghost_t * ghost ) {
-  fd_ghost_slot_print( ghost, ghost->root->slot, 0 );
+   fd_ghost_node_t * node_pool = fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->node_pool_gaddr );
+   fd_ghost_node_t * root      = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+   fd_ghost_slot_print( ghost, root->slot, 0 );
 }
 
 FD_PROTOTYPES_END
