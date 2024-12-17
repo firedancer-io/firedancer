@@ -491,110 +491,214 @@ fd_wksp_private_unlock( fd_wksp_t * wksp ) {
 }
 
 /* private checkpt/restore APIs ***************************************/
+/* FIXME: MOVE THIS TO PUBLIC HEADER? */
 
-/* TODO: Consider making these more general (e.g. part of I/O?) */
+/* FD_WKSP_CHECKPT_{V1,V2}_{BINFO,UINFO}_MAX give the maximum byte size
+   (including the terminating '\0') of a decompressed {v1,v2} checkpt
+   {build,user} info cstr. */
 
-/* fd_wksp_private_checkpt writes size sz buffer buf to the output
-   stream checkpt.  Assumes checkpt is valid and not in a prepare.
-   Returns 0 on success and non-zero on failure (will be an errno compat
-   error code). */
+#define FD_WKSP_CHECKPT_V1_BINFO_MAX (16384UL)
+#define FD_WKSP_CHECKPT_V1_UINFO_MAX (16384UL)
 
-static inline int
-fd_wksp_private_checkpt_write( fd_io_buffered_ostream_t * checkpt,
-                               void const *               buf,
-                               ulong                      sz ) {
-  return fd_io_buffered_ostream_write( checkpt, buf, sz );
+#define FD_WKSP_CHECKPT_V2_BINFO_MAX (16384UL)
+#define FD_WKSP_CHECKPT_V2_UINFO_MAX (16384UL)
+
+/* A fd_wksp_checkpt_v2_hdr_t gives the byte layout of frame 0 of a wksp
+   v2 checkpt.  This frame contains the style, compression algo used for
+   the info, cgroup and appendix frames and fd_wksp_preview information
+   uncompressed. */
+
+struct fd_wksp_checkpt_v2_hdr {
+  ulong magic;                     /* Must be first, ==FD_WKSP_MAGIC */
+  int   style;                     /* Must be second, wksp checkpt style */
+  int   frame_style_compressed;    /* frame style used for compressed frames */
+  uint  reserved;                  /* header padding */
+  char  name[ FD_SHMEM_NAME_MAX ]; /* cstr holding the original wksp name (note: FD_SHMEM_NAME_MAX==FD_LOG_NAME_MAX==40) */
+  uint  seed;                      /* wksp seed when checkpointed (probably same used to construct) */
+  ulong part_max;                  /* part_max used to construct the wksp */
+  ulong data_max;                  /* data_max used to construct the wksp */
+};
+
+typedef struct fd_wksp_checkpt_v2_hdr fd_wksp_checkpt_v2_hdr_t;
+
+/* A fd_wksp_checkpt_v2_info_t gives the byte layout of frame 1 of a
+   wksp v2 checkpt.  frame 1 immediately follows frame 0 and this frame
+   contains the info structure followed compactly by the corresponding
+   cstr (including the terminating '\0') stored consecutively in the
+   same order.  The size fields indicate the buffer layout.  This frame
+   is compressed according hdr/ftr specification. */
+
+struct fd_wksp_checkpt_v2_info {
+  ulong mode;
+  long  wallclock;
+  ulong app_id;
+  ulong thread_id;
+  ulong host_id;
+  ulong cpu_id;
+  ulong group_id;
+  ulong tid;
+  ulong user_id;
+  /* FIXME: CONSIDER MAKING THESE ALL UCHAR / USHORT / 4 BYTE RESERVED */
+  ulong sz_app;    /* in [1,FD_LOG_NAME_MAX ~ 40B] */
+  ulong sz_thread; /* " */
+  ulong sz_host;   /* " */
+  ulong sz_cpu;    /* " */
+  ulong sz_group;  /* " */
+  ulong sz_user;   /* " */
+  ulong sz_path;   /* in [1,PATH_MAX ~ 4KiB] */
+  ulong sz_binfo;  /* in [1,FD_WKSP_CHECKPT_V2_BINFO_MAX ~ 16KiB] */
+  ulong sz_uinfo;  /* in [1,FD_WKSP_CHECKPT_V2_UINFO_MAX ~ 16KiB] */
+};
+
+typedef struct fd_wksp_checkpt_v2_info fd_wksp_checkpt_v2_info_t;
+
+/* A v2 info frame is followed by zero or more volumes.  A volume
+   consists of zero or more cgroup frames and an appendix frame.
+   Volumes are followed by a frame with a footer command and then an
+   uncompressed footer frame.
+
+   A cgroup frame starts with a zero or more meta commands that describe
+   the allocations it contains followed by a data command that indicates
+   the cgroup data section follows.
+
+   An appendix frame starts with an appendix command, giving the number
+   of cgroup frames it covers and the offset to the previous appendix
+   frame (0 if the first appendix frame).  This is followed by a ulong
+   array with checkpt offsets to those cgroup frames followed a ulong
+   array with the number of allocations in each cgroup frame.  An
+   appendix covers all cgroup frames between it and the previous
+   appendix frame (or info frame if the first appendix).
+
+   The last volume is followed by a compressed frame with a sole volumes
+   command.  The volumes command gives the offset of the appendix of the
+   last volume (or 0 if there are no volumes).  (This allows the final
+   frame to be uncompressed while all the volumes can be compressed.)
+
+   An uncompressed footer frame follows indicating the v2 checkpt is
+   done.  The command gives the total number of cgroup frames in the
+   checkpt and the offset to the last volume's appendix (or 0 if no
+   volumes).
+
+   A fd_wksp_checkpt_v2_cmd_t supports writing an arbitrarily large
+   checkpt single pass with only small upfront bounded allocation while
+   supporting both streaming and parallel restore of those frames. */
+
+union fd_wksp_checkpt_v2_cmd {
+  struct { ulong tag; /* > 0 */ ulong gaddr_lo;                     ulong gaddr_hi;                    } meta;
+  struct { ulong tag; /* ==0 */ ulong cgroup_cnt; /* ==ULONG_MAX */ ulong frame_off; /* ==ULONG_MAX */ } data;
+  struct { ulong tag; /* ==0 */ ulong cgroup_cnt; /* < ULONG_MAX */ ulong frame_off; /* < ULONG_MAX */ } appendix;
+  struct { ulong tag; /* ==0 */ ulong cgroup_cnt; /* ==ULONG_MAX */ ulong frame_off; /* < ULONG_MAX */ } volumes;
+};
+
+typedef union fd_wksp_checkpt_v2_cmd fd_wksp_checkpt_v2_cmd_t;
+
+FD_FN_PURE static inline int
+fd_wksp_checkpt_v2_cmd_is_meta( fd_wksp_checkpt_v2_cmd_t const * cmd ) {
+  return cmd->meta.tag > 0UL;
 }
 
-/* fd_wksp_private_prepare prepares to write at most max bytes to the
-   output stream checkpt.  Assumes checkpt is valid and not in a prepare
-   and max is at most checkpt's wbuf_sz.  Returns the location in the
-   caller's address space for preparing the max bytes on success (*_err
-   will be 0) and NULL on failure (*_err will be an errno compat error
-   code). */
-
-static inline void *
-fd_wksp_private_checkpt_prepare( fd_io_buffered_ostream_t * checkpt,
-                                 ulong                      max,
-                                 int *                      _err ) {
-  if( FD_UNLIKELY( fd_io_buffered_ostream_peek_sz( checkpt )<max ) ) {
-    int err = fd_io_buffered_ostream_flush( checkpt );
-    if( FD_UNLIKELY( err ) ) {
-      *_err = err;
-      return NULL;
-    }
-    /* At this point, peek_sz==wbuf_sz and wbuf_sz>=max */
-  }
-  /* At this point, peek_sz>=max */
-  *_err = 0;
-  return fd_io_buffered_ostream_peek( checkpt );
+FD_FN_PURE static inline int
+fd_wksp_checkpt_v2_cmd_is_data( fd_wksp_checkpt_v2_cmd_t const * cmd ) {
+  return (cmd->data.tag==0UL) & (cmd->data.cgroup_cnt==ULONG_MAX) & (cmd->data.frame_off==ULONG_MAX);
 }
 
-/* fd_wksp_private_publish publishes prepared bytes [prepare,next) to
-   checkpt.  Assumes checkpt is in a prepare and the number of bytes to
-   publish is at most the prepare's max.  checkpt will not be in a
-   prepare on return. */
-
-static inline void
-fd_wksp_private_checkpt_publish( fd_io_buffered_ostream_t * checkpt,
-                                 void *                     next ) {
-  fd_io_buffered_ostream_seek( checkpt, (ulong)next - (ulong)fd_io_buffered_ostream_peek( checkpt ) );
+FD_FN_PURE static inline int
+fd_wksp_checkpt_v2_cmd_is_appendix( fd_wksp_checkpt_v2_cmd_t const * cmd ) {
+  return (cmd->appendix.tag==0UL) & (cmd->appendix.cgroup_cnt<ULONG_MAX) & (cmd->appendix.frame_off<ULONG_MAX);
 }
 
-/* fd_wksp_private_cancels a prepare.  Assumes checkpt is valid and in a
-   prepare.  checkpt will not be in a prepare on return. */
-
-static inline void fd_wksp_private_checkpt_cancel( fd_io_buffered_ostream_t * checkpt ) { (void)checkpt; }
-
-/* fd_wksp_private_checkpt_ulong checkpoints the value v into a checkpt.
-   p points to the location in a prepare where v should be encoded.
-   Assumes this location has svw_enc_sz(v) available (at least 1 and at
-   most 9).  Returns the location of the first byte after the encoded
-   value (will be prep+svw_enc_sz(val)). */
-
-static inline void * fd_wksp_private_checkpt_ulong( void * prep, ulong val ) { return fd_ulong_svw_enc( (uchar *)prep, val ); }
-
-/* fd_wksp_private_checkpt_buf checkpoints a variable length buffer buf
-   of size sz into a checkpt.  p points to the location in a prepare
-   region where buf should be encoded.  Assumes this location has
-   svw_enc_sz(sz)+sz bytes available (at least 1+sz and at most 9+sz).
-   Returns the location of the first byte after the encoded buffer (will
-   be prep+svw_enc_sz(sz)+sz).  Zero sz is fine (and NULL buf is fine if
-   sz is zero). */
-
-static inline void *
-fd_wksp_private_checkpt_buf( void *       prep,
-                             void const * buf,
-                             ulong        sz ) {
-  prep = fd_wksp_private_checkpt_ulong( (uchar *)prep, sz );
-  if( FD_LIKELY( sz ) ) fd_memcpy( prep, buf, sz );
-  return (uchar *)prep + sz;
+FD_FN_PURE static inline int
+fd_wksp_checkpt_v2_cmd_is_volumes( fd_wksp_checkpt_v2_cmd_t const * cmd ) {
+  return (cmd->volumes.tag==0UL) & (cmd->volumes.cgroup_cnt==ULONG_MAX) & (cmd->volumes.frame_off<ULONG_MAX);
 }
 
-/* fd_wksp_private_restore_ulong restores a ulong from the stream in.
-   Returns 0 on success and, on return, *_val will contain the restored
-   val.  Returns non-zero on failure (will be an errno compat error
-   code) and, on failure, *_val will be zero.  This will implicitly read
-   ahead for future restores. */
+/* A fd_wksp_checkpt_v2_ftr_t gives the byte layout of the final frame
+   of a wksp v2 checkpt.  This frame contains this footer uncompressed.
+   This is wksp checkpt header backwards plus some additional
+   information to allow users to seek from the end of the checkpt to the
+   header (checkpt_sz), to the appendix frame (frame_off_appendix) and
+   do any allocations upfront necessary to completely unpack the
+   checkpt. */
+
+struct fd_wksp_checkpt_v2_ftr {
+  ulong alloc_cnt;                 /* total number of allocations in checkpt */
+  ulong cgroup_cnt;                /* total number of cgroups     in checkpt */
+  ulong volume_cnt;                /* total number of volumes     in checkpt */
+  ulong frame_off;                 /* byte offset (relative to header initial byte) of the volumes command */
+  ulong checkpt_sz;                /* checkpt byte size, from header initial byte to the footer final byte inclusive (note that
+                                      this can be used to convert offsets relative to header initial byte to offsets relative to
+                                      the end-of-file / the one past the final footer byte) */
+  ulong data_max;                  /* should match header */
+  ulong part_max;                  /* " */
+  uint  seed;                      /* " */
+  char  name[ FD_SHMEM_NAME_MAX ]; /* " */
+  uint  reserved;                  /* " */
+  int   frame_style_compressed;    /* " */
+  int   style;                     /* " */
+  ulong unmagic;                   /* ==~FD_WKSP_MAGIC */
+};
+
+typedef struct fd_wksp_checkpt_v2_ftr fd_wksp_checkpt_v2_ftr_t;
+
+/* fd_wksp_private_{checkpt,restore,printf}_v1 provide the v1
+   implementations of {checkpt,restore,printf}.  That is, checkpt_v1
+   will only write a v1 style checkpt while the {restore,printt}_v1 can
+   assume that the path exclusively contains a v1 style checkpt.  These
+   can assume that the input arguments have been validated by their
+   caller.  The printf implementation can further assume verbose is
+   positive and the verbose 0 information has already been printed.  For
+   checkpt/restore, if tpool is non-NULL, the operation will be
+   parallelized over tpool threads [t0,t1).  Assumes the caller is
+   thread t0 and threads (t0,t1) are available for thread dispatch. */
 
 int
-fd_wksp_private_restore_ulong( fd_io_buffered_istream_t * in,
-                               ulong *                    _val );
-
-/* fd_wksp_private_restore_buf restores a variable length buffer buf of
-   maximum size buf_max from the stream in.  Returns 0 on success and,
-   on success, buf will contain the buffer and *_buf_sz will contain the
-   buffer's size (will be in [0,buf_max]).  Returns non-zero on failure
-   (will be an errno compat error code) and, on failure, buf will be
-   clobbered and *_buf_sz will be zero.  This will implicitly read ahead
-   for future restores.  Zero buf_max is fine (and NULL buf is fine if
-   buf_max is zero). */
+fd_wksp_private_checkpt_v1( fd_tpool_t * tpool,
+                            ulong        t0,
+                            ulong        t1,
+                            fd_wksp_t *  wksp,
+                            char const * path,
+                            ulong        mode,
+                            char const * uinfo );
 
 int
-fd_wksp_private_restore_buf( fd_io_buffered_istream_t * in,
-                             void *                     buf,
-                             ulong                      buf_max,
-                             ulong *                    _buf_sz );
+fd_wksp_private_restore_v1( fd_tpool_t * tpool,
+                            ulong        t0,
+                            ulong        t1,
+                            fd_wksp_t *  wksp,
+                            char const * path,
+                            uint         new_seed );
+
+int
+fd_wksp_private_printf_v1( int          fd,
+                           char const * path,
+                           int          verbose );
+
+/* Similarly for v2.  Note that style==FD_WKSP_CHECKPT_STYLE_V3 in the
+   fd_wksp_checkpt function becomes a FD_WKSP_CHECKPT_STYLE_V2 with a
+   FD_CHECKPT_FRAME_STYLE_LZ4 cgroup frames in the checkpt itself. */
+
+int
+fd_wksp_private_checkpt_v2( fd_tpool_t * tpool,
+                            ulong        t0,
+                            ulong        t1,
+                            fd_wksp_t *  wksp,
+                            char const * path,
+                            ulong        mode,
+                            char const * uinfo,
+                            int          frame_style_compresed );
+
+int
+fd_wksp_private_restore_v2( fd_tpool_t * tpool,
+                            ulong        t0,
+                            ulong        t1,
+                            fd_wksp_t *  wksp,
+                            char const * path,
+                            uint         new_seed );
+
+int
+fd_wksp_private_printf_v2( int          fd,
+                           char const * path,
+                           int          verbose );
 
 FD_PROTOTYPES_END
 

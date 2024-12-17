@@ -9,6 +9,9 @@ help
 tag val
 - Sets the tag for subsequent wksp allocations to val.  Default is 1.
 
+supported-styles
+- Prints the supported checkpt styles for this target.
+
 new wksp page_cnt page_sz cpu_idx_seq mode
 - Create a workspace named wksp from page_cnt page_sz pages distributed
   over numa nodes near cpu_idx_seq.  The region will have the unix
@@ -89,10 +92,15 @@ checkpt wksp checkpt mode style info
   octal).  The style of checkpt is given by style.  info is a string
   that the user can use to provide additional information about the
   checkpoint.  Supported styles include:
-    0 - default (currently this is raw)
-    1 - raw ... all workspace allocations (partitions with a non-zero
+    0 - default ... currently this 3 if the target supports it and
+        2 if not.
+    1 - v1 ... all workspace allocations (partitions with a non-zero
         tag) will be checkpointed.  Minimal compression and hashing will
         be done to the checkpoint file.
+    2 - v2 ... like v1 but uses a different layout under the hood
+        to support fast parallel checkpt and restore.
+    3 - v3 ... like v2 but also uses supports fast parallel compressed
+        checkpt and restore.
 
 checkpt-query checkpt verbose
 - Query the checkpoint at the path checkpt.  Verbose indicates the

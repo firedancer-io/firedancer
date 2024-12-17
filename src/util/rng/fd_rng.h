@@ -472,7 +472,7 @@ FD_PROTOTYPES_END
 
 #if FD_HAS_X86
 
-#include <immintrin.h>
+#include <immintrin.h> /* FIXME: HMMM */
 
 /* rdrand reads sz cryptographically secure bytes using the RDRAND x86
    instruction.  Returns 1 if the read succeeded, 0 on failure.

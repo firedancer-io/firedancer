@@ -1477,7 +1477,8 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture borrowed accounts */
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
       fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
-      if( !acc->meta ) continue;
+      if( !( fd_txn_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      assert( acc->meta );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
       assert( modified_idx < modified_acct_cnt );
@@ -1656,6 +1657,13 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
+
+  if (is_cpi) {
+    ctx->txn_ctx->instr_info_cnt = 1;
+  }
+
+  ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
+  ctx->txn_ctx->instr_trace[0].stack_height = 1;
 
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;

@@ -1072,29 +1072,9 @@ fd_txn_prep_and_exec_task( void  *tpool,
   fd_runtime_pre_execute_check( task_info );
   fd_runtime_execute_txn( task_info );
 
-  ulong curr = slot_ctx->slot_bank.collected_execution_fees;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_execution_fees, curr, curr + task_info->txn_ctx->execution_fee ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->slot_bank.collected_execution_fees;
-    FD_COMPILER_MFENCE();
-  }
-
-  curr = slot_ctx->slot_bank.collected_priority_fees;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_priority_fees, curr, curr + task_info->txn_ctx->priority_fee ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->slot_bank.collected_priority_fees;
-    FD_COMPILER_MFENCE();
-  }
-
-  curr = slot_ctx->slot_bank.collected_rent;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_rent, curr, curr + task_info->txn_ctx->collected_rent ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->slot_bank.collected_rent;
-    FD_COMPILER_MFENCE();
-  }
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees, task_info->txn_ctx->priority_fee );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent, task_info->txn_ctx->collected_rent );
 
   // fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
@@ -1164,29 +1144,9 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_txn_reclaim_accounts( task_info->txn_ctx );
   }
 
-  ulong curr = slot_ctx->slot_bank.collected_execution_fees;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_execution_fees, curr, curr + task_info->txn_ctx->execution_fee ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->slot_bank.collected_execution_fees;
-    FD_COMPILER_MFENCE();
-  }
-
-  curr = slot_ctx->slot_bank.collected_priority_fees;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_priority_fees, curr, curr + task_info->txn_ctx->priority_fee ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->slot_bank.collected_priority_fees;
-    FD_COMPILER_MFENCE();
-  }
-
-  curr = slot_ctx->slot_bank.collected_rent;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_rent, curr, curr + task_info->txn_ctx->collected_rent ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->slot_bank.collected_rent;
-    FD_COMPILER_MFENCE();
-  }
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees, task_info->txn_ctx->priority_fee );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent, task_info->txn_ctx->collected_rent );
 
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
@@ -1528,13 +1488,8 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
     }
   }
-  ulong curr = slot_ctx->signature_cnt;
-  FD_COMPILER_MFENCE();
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->signature_cnt, curr, curr + txn_ctx->txn_descriptor->signature_cnt ) != curr ) ) {
-    FD_SPIN_PAUSE();
-    curr = slot_ctx->signature_cnt;
-    FD_COMPILER_MFENCE();
-  }
+
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
   return 0;
 }
@@ -1782,6 +1737,10 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, 128UL * txn_cnt * sizeof(fd_borrowed_account_t *) );
     ulong acc_idx = 0UL;
+    ulong nonvote_txn_count = 0;
+    ulong failed_txn_count = 0;
+    ulong nonvote_failed_txn_count = 0;
+    ulong compute_units_used = 0;
     for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
       if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
@@ -1803,6 +1762,23 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       }
 
       slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+
+      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[0];
+      fd_instr_info_t instr;
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instr );
+      int is_vote = (0 == memcmp(instr.program_id_pubkey.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)));
+      if( is_vote ) {
+        if( FD_UNLIKELY( exec_txn_err ) ) {
+          failed_txn_count++;
+        }
+      } else {
+        nonvote_txn_count++;
+        if( FD_UNLIKELY( exec_txn_err ) ) {
+          nonvote_failed_txn_count++;
+          failed_txn_count++;
+        }
+      }
+      compute_units_used += txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
 
       if( FD_LIKELY( slot_ctx->status_cache ) ) {
         results[num_cache_txns] = exec_txn_err == 0 ? 1 : 0;
@@ -1902,6 +1878,13 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         }
       }
     }
+
+    /* Accumulate transaction counters */
+
+    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, nonvote_txn_count );
+    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->failed_txn_count, failed_txn_count );
+    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_failed_txn_count, nonvote_failed_txn_count );
+    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, compute_units_used );
 
     /* All the accounts have been accumulated and can be saved */
 
@@ -2062,13 +2045,7 @@ fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
       fd_runtime_prepare_execute_finalize_txn( slot_ctx, spad, capture_ctx, &txns[i], &task_infos[i] );
     }
 
-    ulong curr_cnt = slot_ctx->slot_bank.transaction_count;
-    FD_COMPILER_MFENCE();
-    while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.transaction_count, curr_cnt, curr_cnt + txn_cnt ) != curr_cnt ) ) {
-      FD_SPIN_PAUSE();
-      curr_cnt = slot_ctx->slot_bank.transaction_count;
-      FD_COMPILER_MFENCE();
-    }
+    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.transaction_count, txn_cnt );
 
     return 0;
   } FD_SCRATCH_SCOPE_END;
@@ -2260,6 +2237,11 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->slot_bank.collected_priority_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
+  slot_ctx->txn_count = 0;
+  slot_ctx->nonvote_txn_count = 0;
+  slot_ctx->failed_txn_count = 0;
+  slot_ctx->nonvote_failed_txn_count = 0;
+  slot_ctx->total_compute_units_used = 0;
 
   if( slot_ctx->slot_bank.slot != 0 && (
       FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
@@ -4160,6 +4142,9 @@ static int
 fd_new_target_program_account( fd_exec_slot_ctx_t *    slot_ctx,
                                const fd_pubkey_t *     target_program_data_address,
                                fd_borrowed_account_t * out_rec ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/account/src/lib.rs#L471 */
+  out_rec->meta->info.rent_epoch = 0UL;
+
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L86-L88 */
   fd_bpf_upgradeable_loader_state_t state = {
     .discriminant = fd_bpf_upgradeable_loader_state_enum_program,
@@ -4600,6 +4585,11 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_
   slot_ctx->slot_bank.collected_priority_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
+  slot_ctx->txn_count = 0;
+  slot_ctx->nonvote_txn_count = 0;
+  slot_ctx->failed_txn_count = 0;
+  slot_ctx->nonvote_failed_txn_count = 0;
+  slot_ctx->total_compute_units_used = 0;
 
   fd_sysvar_slot_history_update(slot_ctx);
 

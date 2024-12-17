@@ -4,8 +4,8 @@
 #define INSERT( c, p )                                                                             \
   slots[i]        = c;                                                                             \
   parent_slots[i] = p;                                                                             \
-  fd_ghost_insert( ghost, slots[i], parent_slots[i] );
-
+  fd_ghost_insert( ghost, slots[i], parent_slots[i] );                                             \
+  i++;
 
 fd_ghost_node_t *
 query_mut( fd_ghost_t * ghost, ulong slot ) {
@@ -314,6 +314,7 @@ main( int argc, char ** argv ) {
   test_ghost_simple( wksp );
   test_ghost_publish_left( wksp );
   test_ghost_publish_right( wksp );
+  test_ghost_gca( wksp );
 
   fd_halt();
   return 0;

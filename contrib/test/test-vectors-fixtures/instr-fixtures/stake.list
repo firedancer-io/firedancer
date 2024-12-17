@@ -584,6 +584,7 @@ dump/test-vectors/instr/fixtures/stake/crash-ee9d61c57649c2eae4ada0e441af06c5d51
 dump/test-vectors/instr/fixtures/stake/crash-eeeb2dee8366925a173368a7ca34a3ac6db9b4c3.fix
 dump/test-vectors/instr/fixtures/stake/crash-f02bc78a2f9ad840fba3f688014fc2609ceec439.fix
 dump/test-vectors/instr/fixtures/stake/crash-f06e9f3003ca1b182c09e7b4c05ecbae7ec626b4.fix
+dump/test-vectors/instr/fixtures/stake/crash-f2e925185043128e1cda0e21f2ab338321383ee4.fix
 dump/test-vectors/instr/fixtures/stake/crash-f45fe6d2812e3d454829a50c50a524add63c83b0.fix
 dump/test-vectors/instr/fixtures/stake/crash-f59dab30dc88938ae9d2de5729efa76937242178.fix
 dump/test-vectors/instr/fixtures/stake/crash-f6a94dfea4a0bc6488a9e3b5f2c56f4b3d514171.fix

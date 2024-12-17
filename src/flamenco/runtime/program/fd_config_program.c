@@ -223,7 +223,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   do {
     int err;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, 0, &err ) ) ) {
+    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, 0, &err ) ) ) {
       return err;
     }
   } while(0);

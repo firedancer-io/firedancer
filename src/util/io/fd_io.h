@@ -185,6 +185,13 @@
 
 #include "../bits/fd_bits.h"
 
+/* FD_IO_SEEK_TYPE_{SET,CUR,END} give supported seek types.  They have
+   the same meaning as the corresponding lseek SEEK_{SET,CUR_END}. */
+
+#define FD_IO_SEEK_TYPE_SET (0)
+#define FD_IO_SEEK_TYPE_CUR (1)
+#define FD_IO_SEEK_TYPE_END (2)
+
 /* fd_io_buffered_{istream,ostream}_t is an opaque handle of an
    {input,output} stream with buffered {reads,writes}.  The internals
    are visible here to facilitate inlining various operations.  This is
@@ -211,6 +218,11 @@ struct fd_io_buffered_ostream_private {
 };
 
 typedef struct fd_io_buffered_ostream_private fd_io_buffered_ostream_t;
+
+/* FD_IO_MMIO_MODE_* give supported modes for memory mapped I/O */
+
+#define FD_IO_MMIO_MODE_READ_ONLY  (0)
+#define FD_IO_MMIO_MODE_READ_WRITE (1)
 
 FD_PROTOTYPES_BEGIN
 
@@ -338,6 +350,70 @@ fd_io_write( int          fd,
              ulong        src_min,
              ulong        src_max,
              ulong *      _src_sz );
+
+/* fd_io_sz returns the current byte size of the file underlying the
+   given file descriptor.  Note that writing to a file descriptor may
+   increase the file size.  On success, returns 0 and *_sz will contain
+   the current size (in [0,LONG_MAX], not ULONG_MAX for fd_io_seek
+   friendliness).  On failure, returns a strerror compatible error code
+   and *_sz will be 0.  Reasons for failure include the usual fstat
+   reasons. */
+
+int
+fd_io_sz( int     fd,
+          ulong * _sz );
+
+/* fd_io_truncate truncates the file underlying the given file descriptor
+   to be sz bytes long.  If sz is larger than the current size, the file
+   will be zero padded to sz.  If smaller, the trailing size bytes will
+   be discarded.  On success, returns 0.  On failure, returns a strerror
+   compatible error code.  Reasons for failure include sz is too large /
+   incompatible with ftruncate and the usual ftruncate reasons.
+   Truncating a file to a size that is smaller than the file offset of
+   any open file descriptor (file system wide) on that file has
+   undefined behavior.  (POSIX has some conventions here but portable
+   code should not rely on them.) */
+
+int
+fd_io_truncate( int   fd,
+                ulong sz );
+
+/* fd_io_seek seeks the byte index of the given file descriptor
+   according to rel_off and type.  Seeking to indices outside [0,sz]
+   (i.e. before the SOF / first byte of the file and strictly after EOF
+   / one past the last byte of the file) is not supported (POSIX has
+   defined behaviors but portable code should not assume them).
+
+     type==FD_IO_SEEK_TYPE_SET: the index will be seeked rel_off bytes
+     from SOF / the first byte of the file.  Supported rel_off are in
+     [0,sz].
+
+     type==FD_IO_SEEK_TYPE_CUR: the index will be seeked rel_off bytes
+     from the current byte index.  Supported rel_off are in
+     [-idx,sz-idx].
+
+     type==FD_IO_SEEK_TYPE_END: the index will be seeked rel_off bytes
+     from EOF / one past the last byte of the file.  Supported rel_off
+     are in [-sz,0].
+
+  On success, returns 0 and *_idx will contain the new byte index (will
+  be in [0,sz] for supported rel_off and in [0,LONG_MAX] generally).  On
+  failure, returns a strerror compatible error code and *_idx will be 0.
+  Reasons for failure include unsupported type, rel_off is not lseek
+  compatible, and the usual lseek reasons (e.g. fd is not seekable ...
+  a pipe / socket / etc).
+
+  Note that, if the file descriptor supports it:
+
+    fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &idx );
+
+  will return fd's current byte index (in [0,sz]) in idx. */
+
+int
+fd_io_seek( int     fd,
+            long    rel_off,
+            int     type,
+            ulong * _idx );
 
 /* fd_io_buffered_read is like fd_io_read but can consolidate many
    tiny reads into a larger fd_io_read via the given buffer.  Unlike
@@ -741,6 +817,62 @@ fd_io_buffered_ostream_flush( fd_io_buffered_ostream_t * out ) {
   ulong wsz;
   return fd_io_write( out->fd, out->wbuf, wbuf_used, wbuf_used, &wsz );
 }
+
+/* Memory mapped I/O APIs */
+
+/* fd_io_mmio_init starts memory mapped I/O on the file underlying
+   the given file descriptor.  Specifically, it maps the file into the
+   caller's address space according to the given FD_IO_MMIO_MODE.
+
+   On success, returns 0.  On return, *(caller_mmio_t *)_mmio will point
+   to the first byte in the caller's address space where the file was
+   mapped (will be aligned at least 4096 currently) and *_mmio_sz will
+   contain the region's byte size (which is the same as the file's
+   size).  The mapping's lifetime will be until the corresponding fini
+   or the process/thread group terminates (normally or not).  If the
+   file has zero size, the region will be NULL and non-NULL otherwise.
+   The usual POSIX semantics for fd and the underlying file apply.  In
+   particular, fd can be closed and/or the file deleted during memory
+   mapped I/O without issue.  Retains no interest in mmio or mmio_sz.
+
+   On failure, returns a non-zero strerror compatible error code.  On
+   return, the region will be an NULL with zero length.  Reasons for
+   failure include all usual the fd_io_sz reasons and mmap reasons (e.g.
+   fd is a file descriptor of a memory mappable file).  Retains no
+   interest in mmio or mmio_sz.
+
+   IMPORTANT SAFETY TIP!  Changes to the file via the region are not
+   guaranteed visible to others until the corresponding fini.
+   Conversely, changes by others to the file during memory mapped I/O
+   may not become visible during memory mapped I/O.  Lastly, concurrent
+   memory mapped I/O to the same file (whether via the same file
+   descriptor or not and/or within the same thread group or not) is
+   supported currently.  E.g. a slow but portable init/fini
+   implementation under the hood could, on init, allocate a suitably
+   aligned memory region, read the entire file into that region and
+   return that region and, on fini, write the entire region back to the
+   file (if applicable) and free it while an optimized implementation
+   could use target specific virtual memory APIs to eliminate excess
+   alloc/free/read/write operations. */
+
+int
+fd_io_mmio_init( int     fd,
+                 int     mode,
+                 void *  _mmio,      /* Psychologically, a "caller_mmio_t **" */
+                 ulong * _mmio_sz );
+
+/* fd_io_mmio_fini finishes memory mapped I/O on a file.  mmio and
+   mmio_sz should be region where the memory mapped I/O is in progress.
+   Memory mapped I/O will not be in progress on return.  Guaranteed not
+   to fail from the caller's point of view.  See fd_shmem_mmio_init for
+   more details. */
+
+void
+fd_io_mmio_fini( void const * mmio,
+                 ulong        mmio_sz );
+
+/* TODO: consider a fd_io_mmio_sync API to allow changes to an
+   in-progress mmio to be made visible? */
 
 /* Misc APIs */
 

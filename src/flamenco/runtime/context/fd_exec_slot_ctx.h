@@ -69,6 +69,11 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_hash_t                   account_delta_hash;
   ulong                       prev_lamports_per_signature;
   ulong                       parent_transaction_count;
+  ulong                       txn_count;
+  ulong                       nonvote_txn_count;
+  ulong                       failed_txn_count;
+  ulong                       nonvote_failed_txn_count;
+  ulong                       total_compute_units_used;
 
   fd_sysvar_cache_t *         sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;

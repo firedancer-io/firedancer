@@ -120,16 +120,14 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   } else {
     char const * restore = fd_env_strip_cmdline_cstr ( argc, argv, "--restore-blockstore", NULL, NULL );
     if( restore == NULL ) FD_LOG_ERR(( "must use --wksp-name-blockstore or --restore-blockstore in offline mode" ));
-    uint seed;
-    ulong part_max;
-    ulong data_max;
-    int err = fd_wksp_restore_preview( restore, &seed, &part_max, &data_max );
+    fd_wksp_preview_t preview[1];
+    int err = fd_wksp_preview( restore, preview );
     if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", restore, err ));
-    ulong page_cnt = (data_max + FD_SHMEM_GIGANTIC_PAGE_SZ-1U)/FD_SHMEM_GIGANTIC_PAGE_SZ;
+    ulong page_cnt = (preview->data_max + FD_SHMEM_GIGANTIC_PAGE_SZ-1U)/FD_SHMEM_GIGANTIC_PAGE_SZ;
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, page_cnt, 0, "wksp-blockstore", 0UL );
     if( !wksp ) FD_LOG_ERR(( "unable to restore %s: failed to create wksp", restore ));
     FD_LOG_NOTICE(( "restoring blockstore wksp %s", restore ));
-    fd_wksp_restore( wksp, restore, seed );
+    fd_wksp_restore( wksp, restore, preview->seed );
   }
   fd_wksp_tag_query_info_t info;
   ulong tag = 1;

@@ -59,6 +59,27 @@ fd_ulong_sat_sub( ulong x, ulong y ) {
   return fd_ulong_if( cf, 0UL, res );
 }
 
+FD_FN_CONST static inline long
+fd_long_sat_add( long x, long y ) {
+  long res;
+  int cf = __builtin_saddl_overflow ( x, y, &res );
+  /* https://stackoverflow.com/a/56531252
+     x + y overflows => x, y have the same sign
+     we can use either to determine the result,
+     with the trick described in the SO answe.
+     We chose x because it works also for sub. */
+  return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
+}
+
+FD_FN_CONST static inline long
+fd_long_sat_sub( long x, long y ) {
+  long res;
+  int cf = __builtin_ssubl_overflow ( x, y, &res );
+  return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
+}
+
+/* fd_long_sat_mul is left as an exercise to the reader */
+
 FD_FN_CONST static inline uint
 fd_uint_sat_add( uint x, uint y ) {
   uint res;

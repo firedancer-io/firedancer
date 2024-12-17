@@ -280,8 +280,10 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   /* At this point, partition i has a zero tag and is not in the idle
      stack, free treap, or used treap.  Further, it is guaranteed to be
      large enough to hold the request.  Trim it to fit the request as
-     tightly as possible. */
-  /* TODO: consider failing if can't trim and overallocation >> sz */
+     tightly as possible.  We check before we trim that there are enough
+     idle partitions available to complete the request (this improves
+     checkpointing as all allocated partitions will be reasonably
+     tight). */
 
   ulong lo = pinfo[ i ].gaddr_lo;
   ulong hi = pinfo[ i ].gaddr_hi;
@@ -289,8 +291,23 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   ulong r0 = fd_ulong_align_up( lo, align );
   ulong r1 = r0 + sz;
 
+  ulong part_max = wksp->part_max;
+  ulong idle_idx = fd_wksp_private_pinfo_idx( wksp->idle_top_cidx );
+  for( int idle_rem = (r0>lo) + (r1<hi); idle_rem; idle_rem-- ) {
+    if( FD_UNLIKELY( idle_idx >= part_max ) ) {
+      if( FD_UNLIKELY( fd_wksp_private_free_treap_insert( i, wksp, pinfo ) ) ) { /* Could eliminate this with additional surgery */
+        fd_wksp_private_unlock( wksp );
+        FD_LOG_WARNING(( "corrupt wksp detected" ));
+        goto fail;
+      }
+      fd_wksp_private_unlock( wksp );
+      FD_LOG_WARNING(( "too few partitions available for allocation (part_max %lu)", part_max ));
+      goto fail;
+    }
+    idle_idx = fd_wksp_private_pinfo_idx( pinfo[ idle_idx ].parent_cidx );
+  }
+
   if( FD_UNLIKELY( r0>lo ) ) { /* opt for reasonable alignments */
-    if( FD_UNLIKELY( fd_wksp_private_idle_stack_is_empty( wksp ) ) ) goto trimmed; /* No partitions avail ... use untrimmed */
     ulong j = fd_wksp_private_split_before( i, hi-r0, wksp, pinfo );
     if( FD_UNLIKELY( fd_wksp_private_free_treap_insert( j, wksp, pinfo ) ) ) {
       fd_wksp_private_unlock( wksp );
@@ -301,7 +318,6 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   }
 
   if( FD_LIKELY( r1<hi ) ) { /* opt for splitting a final large partition */
-    if( FD_UNLIKELY( fd_wksp_private_idle_stack_is_empty( wksp ) ) ) goto trimmed; /* No partitions avail ... use untrimmed */
     ulong j = fd_wksp_private_split_after( i, sz, wksp, pinfo );
     if( FD_UNLIKELY( fd_wksp_private_free_treap_insert( j, wksp, pinfo ) ) ) {
       fd_wksp_private_unlock( wksp );
@@ -311,7 +327,6 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
     hi = r1;
   }
 
-trimmed:
   if( FD_UNLIKELY( fd_wksp_private_used_treap_insert( i, wksp, pinfo ) ) ) {
     fd_wksp_private_unlock( wksp );
     FD_LOG_WARNING(( "corrupt wksp detected" ));
@@ -575,6 +590,7 @@ fd_wksp_usage( fd_wksp_t *       wksp,
       fd_wksp_private_unlock( wksp );
       FD_LOG_WARNING(( "corrupt wksp detected" ));
       fd_memset( usage, 0, sizeof(fd_wksp_usage_t) );
+      return usage;
     }
     pinfo[ i ].cycle_tag = cycle_tag; /* mark i as visited */
 

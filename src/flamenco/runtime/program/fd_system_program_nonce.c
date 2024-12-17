@@ -106,7 +106,7 @@ fd_system_program_set_nonce_state( fd_exec_instr_ctx_t *             ctx,
 
   do {
     int err = 99999;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, acct_idx, &err ) ) )
+    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, acct_idx, &err ) ) )
       return err;
   } while(0);
 

@@ -116,6 +116,11 @@
   interp_jump_table[ 0x14 ] = FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(sbpf_version) ? &&interp_0x14 : &&interp_0x14depr;
   interp_jump_table[ 0x17 ] = FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(sbpf_version) ? &&interp_0x17 : &&interp_0x17depr;
 
+  /* SIMD-0178: static syscalls */
+  interp_jump_table[ 0x85 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x85 : &&interp_0x85depr;
+  interp_jump_table[ 0x95 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x95 : &&interp_0x9d;
+  interp_jump_table[ 0x9d ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x9d : &&sigill;
+
   /* Unpack the VM state */
 
   ulong pc        = vm->pc;
@@ -178,6 +183,76 @@
   reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
   reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
   goto *interp_jump_table[ opcode ]      /* Guaranteed in-bounds */
+
+/* FD_VM_INTERP_SYSCALL_EXEC
+   (macro to handle the logic of 0x85 pre- and post- SIMD-0178: static syscalls)
+
+   Setup.
+   Update the vm with the current vm execution state for the
+   syscall.  Note that BRANCH_BEGIN has pc at the syscall and
+   already updated ic and cu to reflect all instructions up to
+   and including the syscall instruction itself.
+
+   Execution.
+   Do the syscall.  We use ret reduce the risk of the syscall
+   accidentally modifying other registers (note however since a
+   syscall has the vm handle it still do arbitrary modifications
+   to the vm state) and the risk of a pointer escape on reg from
+   inhibiting compiler optimizations (this risk is likely low in
+   as this is the only point in the whole interpreter core that
+   calls outside this translation unit).
+   At this point, vm->cu is positive.
+
+   Error handling.
+   If we trust syscall implementations to handle the vm state
+   correctly, the below could be implemented as unpacking the vm
+   state and jumping to sigsys on error.  But we provide some
+   extra protection to make various strong guarantees:
+
+   - We do not let the syscall modify pc currently as nothing
+     requires this and it reduces risk of a syscall bug mucking
+     up the interpreter.  If there ever was a syscall that
+     needed to modify the pc (e.g. a syscall that has execution
+     resume from a different location than the instruction
+     following the syscall), do "pc = vm->pc" below.
+
+   - We do not let the syscall modify ic currently as nothing
+     requires this and it keeps the ic precise.  If a future
+     syscall needs this, do "ic = vm->ic" below.
+
+   - We do not let the syscall increase cu as nothing requires
+     this and it guarantees the interpreter will halt in a
+     reasonable finite amount of time.  If a future syscall
+     needs this, do "cu = vm->cu" below.
+
+   - A syscall that returns SIGCOST is always treated as though
+     it also zerod cu.
+
+   At this point, vm->cu is whatever the syscall tried to set
+   and cu is positive.
+
+   Exit
+   At this point, cu is positive and err is clear.
+*/
+# define FD_VM_INTERP_SYSCALL_EXEC                                          \
+  /* Setup */                                                               \
+  vm->pc        = pc;                                                       \
+  vm->ic        = ic;                                                       \
+  vm->cu        = cu;                                                       \
+  vm->frame_cnt = frame_cnt;                                                \
+  /* Execution */                                                           \
+  ulong ret[1];                                                             \
+  err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );   \
+  reg[0] = ret[0];                                                          \
+  /* Error handling */                                                      \
+  ulong cu_req = vm->cu;                                                    \
+  cu = fd_ulong_min( cu_req, cu );                                          \
+  if( FD_UNLIKELY( err ) ) {                                                \
+    if( err==FD_VM_ERR_SIGCOST ) cu = 0UL; /* cmov */                       \
+    goto sigsyscall;                                                        \
+  }                                                                         \
+  /* Exit */
+
 
   /* FD_VM_INTERP_INSTR_BEGIN / FD_VM_INTERP_INSTR_END bracket opcode's
      implementation for an opcode that does not branch.  On entry, the
@@ -657,6 +732,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x85) /* FD_SBPF_OP_CALL_IMM */
+    /* imm has already been validated */
+    FD_VM_INTERP_STACK_PUSH;
+    pc = (ulong)( (long)pc + (long)(int)imm );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x85depr) { /* FD_SBPF_OP_CALL_IMM */
 
     fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
     if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
@@ -682,22 +763,19 @@ interp_exec:
           is a best-effort implementation that should match the VM state
           in all ways except error code. */
 
-      /* Note the original implementation had the imm magic number
-          check after the calldest check.  But fd_pchash_inverse of the
-          magic number is 0xb00c380U.  This is beyond possible text_cnt
-          values.  So we do it first to simplify the code and clean up
-          fault handling. */
-
-      if( FD_UNLIKELY( imm==0x71e3cf81U ) ){
+      /* Special case to handle entrypoint.
+         ebpf::hash_symbol_name(b"entrypoint") = 0xb00c380, and
+         fd_pchash_inverse( 0xb00c380U ) = 0x71e3cf81U */
+      if( FD_UNLIKELY( imm==0x71e3cf81U ) ) {
         FD_VM_INTERP_STACK_PUSH;
-        pc = entry_pc; /* FIXME: MAGIC NUMBER */
+        pc = entry_pc - 1;
       } else {
-        
+
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
         if( FD_UNLIKELY( target_pc>text_cnt ) ){
           /* ...to match state of Agave VM when faulting
-             Note: this check MUST be BEFORE fd_sbpf_calldests_test,
-             because it prevents overflowing calldests. */
+              Note: this check MUST be BEFORE fd_sbpf_calldests_test,
+              because it prevents overflowing calldests. */
           FD_VM_INTERP_STACK_PUSH;
           goto sigtextbr;
         }
@@ -707,74 +785,15 @@ interp_exec:
         }
 
         FD_VM_INTERP_STACK_PUSH;
-        pc = target_pc;
+        pc = target_pc - 1;
       }
-      pc--;
 
     } else {
 
-      /* Update the vm with the current vm execution state for the
-          syscall.  Note that BRANCH_BEGIN has pc at the syscall and
-          already updated ic and cu to reflect all instructions up to
-          and including the syscall instruction itself. */
+      FD_VM_INTERP_SYSCALL_EXEC;
 
-      vm->pc        = pc;
-      vm->ic        = ic;
-      vm->cu        = cu;
-      vm->frame_cnt = frame_cnt;
-
-      /* Do the syscall.  We use ret reduce the risk of the syscall
-          accidentally modifying other registers (note however since a
-          syscall has the vm handle it still do arbitrary modifications
-          to the vm state) and the risk of a pointer escape on reg from
-          inhibiting compiler optimizations (this risk is likely low in
-          as this is the only point in the whole interpreter core that
-          calls outside this translation unit). */
-
-      /* At this point, vm->cu is positive */
-
-      ulong ret[1];
-      err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );
-      reg[0] = ret[0];
-
-      /* If we trust syscall implementations to handle the vm state
-          correctly, the below could be implemented as unpacking the vm
-          state and jumping to sigsys on error.  But we provide some
-          extra protection to make various strong guarantees:
-
-          - We do not let the syscall modify pc currently as nothing
-            requires this and it reduces risk of a syscall bug mucking
-            up the interpreter.  If there ever was a syscall that
-            needed to modify the pc (e.g. a syscall that has execution
-            resume from a different location than the instruction
-            following the syscall), do "pc = vm->pc" below.
-
-          - We do not let the syscall modify ic currently as nothing
-            requires this and it keeps the ic precise.  If a future
-            syscall needs this, do "ic = vm->ic" below.
-
-          - We do not let the syscall increase cu as nothing requires
-            this and it guarantees the interpreter will halt in a
-            reasonable finite amount of time.  If a future syscall
-            needs this, do "cu = vm->cu" below.
-
-          - A syscall that returns SIGCOST is always treated as though
-            it also zerod cu. */
-
-      /* At this point, vm->cu is whatever the syscall tried to set
-          and cu is positive */
-
-      ulong cu_req = vm->cu;
-      cu = fd_ulong_min( cu_req, cu );
-      if( FD_UNLIKELY( err ) ) {
-        if( err==FD_VM_ERR_SIGCOST ) cu = 0UL; /* cmov */
-        goto sigsyscall;
-      }
-
-      /* At this point, cu is positive and err is clear */
     }
-
-  FD_VM_INTERP_BRANCH_END;
+  } FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x86) /* FD_SBPF_OP_LMUL32_IMM */
     reg[ dst ] = (ulong)( (uint)reg_dst * imm );
@@ -861,21 +880,20 @@ interp_exec:
     reg[ dst ] = (ulong)( (uint)reg_dst % imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
-      /* Agave JIT VM exit implementation analysis below.
+  FD_VM_INTERP_BRANCH_BEGIN(0x95) { /* FD_SBPF_OP_SYSCALL */
+    /* imm has already been validated to not overflow */
+    uint syscall_key = FD_VM_SBPF_STATIC_SYSCALLS_LIST[ imm ];
+    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, syscall_key, NULL );
 
-       Agave references:
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L503-L509
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L697-L702 */
-    if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
-    frame_cnt--;
-    reg[6]   = shadow[ frame_cnt ].r6;
-    reg[7]   = shadow[ frame_cnt ].r7;
-    reg[8]   = shadow[ frame_cnt ].r8;
-    reg[9]   = shadow[ frame_cnt ].r9;
-    reg[10]  = shadow[ frame_cnt ].r10;
-    pc       = shadow[ frame_cnt ].pc;
-  FD_VM_INTERP_BRANCH_END;
+    /* this check is probably useless, as validation includes checking that the
+       syscall is active in this epoch.
+       However, it's safe to keep it here, because at the time of writing this
+       code we're not (re)validating all programs at every new epoch. */
+    if( FD_UNLIKELY( !syscall ) ) goto sigill;
+
+    FD_VM_INTERP_SYSCALL_EXEC;
+
+  } FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x96) /* FD_SBPF_OP_LMUL64_IMM */
     reg[ dst ] = reg_dst * (ulong)(long)(int)imm;
@@ -900,6 +918,22 @@ interp_exec:
     reg[ dst ] = fd_vm_mem_ld_8( vm, vaddr, haddr, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x9d) /* FD_SBPF_OP_EXIT */
+      /* Agave JIT VM exit implementation analysis below.
+
+       Agave references:
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L503-L509
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L697-L702 */
+    if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
+    frame_cnt--;
+    reg[6]   = shadow[ frame_cnt ].r6;
+    reg[7]   = shadow[ frame_cnt ].r7;
+    reg[8]   = shadow[ frame_cnt ].r8;
+    reg[9]   = shadow[ frame_cnt ].r9;
+    reg[10]  = shadow[ frame_cnt ].r10;
+    pc       = shadow[ frame_cnt ].pc;
+  FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9e) /* FD_SBPF_OP_LMUL64_REG */
     reg[ dst ] = reg_dst * reg_src;

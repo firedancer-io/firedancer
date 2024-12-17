@@ -117,7 +117,7 @@
      void const * mypool_shpool_const( mypool_t const * join );
      void const * mypool_shele_const ( mypool_t const * join );
      ulong        mypool_ele_max     ( mypool_t const * join );
-     
+
      void * mypool_shpool( mypool_t * join );
      void * mypool_shele ( mypool_t * join );
 
@@ -200,7 +200,7 @@
      // call.
 
      int mypool_release( mypool_t * join, myele_t * ele, int blocking );
-     
+
      // mypool_is_locked returns whether or not a mypool is locked.
      // Assumes join is a current local join.
 
@@ -243,7 +243,7 @@
      // and the mypool is locked or otherwise idle.
 
      int mypool_verify( mypool_t const * join );
-     
+
      // mypool_strerror converts an FD_POOL_SUCCESS / FD_POOL_ERR code
      // into a human readable cstr.  The lifetime of the returned
      // pointer is infinite.  The returned pointer is always to a
@@ -392,8 +392,9 @@ FD_FN_CONST static inline POOL_IDX_T POOL_(private_cidx)( ulong  idx ) { return 
 FD_FN_CONST static inline ulong      POOL_(private_idx) ( ulong cidx ) { return (ulong)     cidx; }
 
 /* pool_private_cas does a ulong FD_ATOMIC_CAS when FD_HAS_ATOMIC
-   support is available and emulates it when not.  When emulated, the
-   pool will not be safe to use concurrently (but will still work). */
+   support is available and emulates it when not.  Similarly for
+   pool_private_fetch_and_or.  When emulated, the pool will not be safe
+   to use concurrently (but will still work). */
 
 static inline ulong
 POOL_(private_cas)( ulong volatile * p,
@@ -409,6 +410,21 @@ POOL_(private_cas)( ulong volatile * p,
 # endif
   FD_COMPILER_MFENCE();
   return o;
+}
+
+static inline ulong
+POOL_(private_fetch_and_or)( ulong volatile * p,
+                             ulong            b ) {
+  ulong x;
+  FD_COMPILER_MFENCE();
+# if FD_HAS_ATOMIC
+  x = FD_ATOMIC_FETCH_AND_OR( p, b );
+# else
+  x = *p;
+  *p = x | b;
+# endif
+  FD_COMPILER_MFENCE();
+  return x;
 }
 
 FD_FN_CONST static inline ulong POOL_(ele_max_max)( void ) { return (ulong)(POOL_IDX_T)(ULONG_MAX >> POOL_VER_WIDTH); }
@@ -740,13 +756,14 @@ POOL_(lock)( POOL_(t) * join,
   FD_COMPILER_MFENCE();
 
   for(;;) {
-    ulong ver_top     = *_v;
-    ulong ver         = POOL_(private_vidx_ver)( ver_top );
-    ulong new_ver_top = ver_top + (1UL<<POOL_IDX_WIDTH);
 
-    if( FD_LIKELY( !(ver & 1UL)                                            ) && /* opt for unlocked */
-        FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) )  /* opt for low contention */
-      break;
+    /* use a test-and-test-and-set style for reduced contention */
+
+    ulong ver_top = *_v;
+    if( FD_LIKELY( !(ver_top & (1UL<<POOL_IDX_WIDTH)) ) ) { /* opt for low contention */
+      ver_top = POOL_(private_fetch_and_or)( _v, 1UL<<POOL_IDX_WIDTH );
+      if( FD_LIKELY( !(ver_top & (1UL<<POOL_IDX_WIDTH)) ) ) break; /* opt for low contention */
+    }
 
     if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
       err = FD_POOL_ERR_AGAIN;

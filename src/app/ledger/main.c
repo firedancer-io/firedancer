@@ -1249,7 +1249,7 @@ replay( fd_ledger_args_t * args ) {
 
   fd_ledger_main_setup( args );
 
-  fd_blockstore_init( args->blockstore, -1, &args->slot_ctx->slot_bank );
+  fd_blockstore_init( args->blockstore, -1, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &args->slot_ctx->slot_bank );
 
   FD_LOG_WARNING(( "setup done" ));
 
@@ -1557,8 +1557,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        shred_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--shred-max",               NULL, 1UL << 17 );
   ulong        start_slot              = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot",              NULL, 0UL       );
   ulong        end_slot                = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",                NULL, ULONG_MAX );
-  uint         verify_acc_hash         = fd_env_strip_cmdline_uint ( &argc, &argv, "--verify-acc-hash",         NULL, 0         );
-  uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 0         );
+  uint         verify_acc_hash         = fd_env_strip_cmdline_uint ( &argc, &argv, "--verify-acc-hash",         NULL, 1         );
+  uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 1         );
   char const * restore                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore",                 NULL, NULL      );
   char const * restore_funk            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk-restore",            NULL, NULL      );
   char const * restore_archive         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore-archive",         NULL, NULL      );
@@ -1594,6 +1594,13 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        incremental_freq        = fd_env_strip_cmdline_ulong( &argc, &argv, "--incremental-freq",        NULL, ULONG_MAX );
   char const * snapshot_dir            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshot-dir",            NULL, NULL      );
   ulong        snapshot_tcnt           = fd_env_strip_cmdline_ulong( &argc, &argv, "--snapshot-tcnt",           NULL, 2UL       );
+
+  if( FD_UNLIKELY( !verify_acc_hash ) ) {
+    /* We've got full snapshots that contain all 0s for the account
+       hash in account meta.  Running hash verify allows us to
+       populate the hash in account meta with real values. */
+    FD_LOG_ERR(( "verify-acc-hash needs to be 1" ));
+  }
 
   // TODO: Add argument validation. Make sure that we aren't including any arguments that aren't parsed for
 

@@ -30,3 +30,4 @@ run-runtime-test-nightly: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l mainnet-257033306 -s snapshot-257033306-EE3WdRoE4J1LTjegJMK3ZzxKZbSMQhLMaTM5Jp4SygMU.tar.zst -p 100 -y 450 -m 500000000 -e 257213306 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l mainnet-296243940 -s snapshot-296400651-HDt9Gf1YKcruvuBV4q442qV4xjHer4KZ9sZao9XQspZP.tar.zst -p 75 -y 750 -m 700000000 -e 296550651 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l devnet-340941576 -s snapshot-340924320-8j9h6EKmuZ3G93Y3Pb3FqrNdCDTGE5PKowHMY3xkXG1K.tar.zst -p 75 -y 400 -m 200000000 -e 340941580 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l testnet-305516256 -s snapshot-305516254-C4oM7ajmCMo1aDakR8Q8FriSVpXW53jwbb3da37jm7bN.tar.zst -p 75 -y 400 -m 150000000 -e 305516292 --zst
