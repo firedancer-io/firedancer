@@ -59,6 +59,21 @@ exit_group
 # This is not needed in production environments.
 #
 # arg0 is the file descriptor we wish to read from.  The monitor will
-# ensure this is always the stderr pipe that it created the Firedancer
-# child process with.
-read: (eq (arg 0) drain_output_fd)
+# ensure that this is always either the stderr pipe that it created 
+# the Firedancer child process with or the stdin file descriptor
+# used by the monitor.
+read: (or (eq (arg 0) drain_output_fd)
+          (eq (arg 0) 0))
+
+# monitor: set and get terminal attributes
+# The monitor uses tcgetattr and tcsetattr to run a curses-like UI.
+ioctl: (and (eq (arg 0) 0)
+            (or (eq (arg 1) TCGETS)
+                (eq (arg 1) TCSETS)))
+
+# monitor: check if stdin has data
+# The monitor must not be blocked when reading stdin. This syscall allows
+# the monitor to know if new data is available to be read from STDIN.
+pselect6: (and (eq (arg 0) 1)
+               (eq (arg 2) 0)
+               (eq (arg 3) 0))
