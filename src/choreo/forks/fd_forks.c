@@ -334,7 +334,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
 
        Optimize for unlikely because there is usually just one fork. */
 
-    int stale = fork->slot < slot || !fd_ghost_is_descendant( ghost, fork->slot, slot );
+    int stale = fork->slot < slot || !fd_ghost_is_ancestor( ghost, fork->slot, slot );
     if( FD_UNLIKELY( !fork->lock && stale ) ) {
       FD_LOG_NOTICE(( "adding %lu to prune. root %lu", fork->slot, slot ));
       if( FD_LIKELY( !curr ) ) {
