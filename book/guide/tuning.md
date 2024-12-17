@@ -220,7 +220,7 @@ it down to the relevant information,
 
 Here we see what is happening. The blockstore is completely busy
 spending 99.973% of its time storing data, while the PoH and shred tiles
-are in back-pressure waiting for the the blockstore to catch up. The
+are in back-pressure waiting for the blockstore to catch up. The
 blockstore is an Agave component built on RocksDB that is not rewritten
 as part of Frankendancer.
 

@@ -5,13 +5,15 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
 
-const ulong slot_history_min_account_size = 131097;
+/* FIXME These constants should be header defines */
+
+static const ulong slot_history_min_account_size = 131097;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
-const ulong slot_history_max_entries = 1024 * 1024;
+static const ulong slot_history_max_entries = 1024 * 1024;
 
 /* TODO: move into seperate bitvec library */
-const ulong bits_per_block = 8 * sizeof(ulong);
+static const ulong bits_per_block = 8 * sizeof(ulong);
 void fd_sysvar_slot_history_set( fd_slot_history_t* history, ulong i ) {
   // Corrupt history, zero everything out
   if ( i > history->next_slot && i - history->next_slot >= slot_history_max_entries ) {
@@ -29,7 +31,7 @@ void fd_sysvar_slot_history_set( fd_slot_history_t* history, ulong i ) {
   history->bits.bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
 
-const ulong blocks_len = slot_history_max_entries / bits_per_block;
+static const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
 int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
                                           fd_slot_history_t * history ) {

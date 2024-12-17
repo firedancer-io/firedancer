@@ -34,7 +34,7 @@
    These are the main technical innovations that enable Solana to work
    well.
 
-   What about Proof of History? 
+   What about Proof of History?
 
    One particular niche problem is about the leader schedule.  When the
    leader computer is moving from one bank to another, the new bank must
@@ -82,10 +82,10 @@
     (1) Whenever any other leader in the network finishes a slot, and
         the slot is determined to be the best one to build off of, this
         tile gets "reset" onto that block, the so called "reset slot".
-    
+
     (2) The tile is constantly doing busy work, hash(hash(hash(...))) on
         top of the last reset slot, even when it is not leader.
-    
+
     (3) When the tile becomes leader, it continues hashing from where it
         was.  Typically, the prior leader finishes their slot, so the
         reset slot will be the parent one, and this tile only publishes
@@ -186,7 +186,7 @@
         The leader needs to periodically checkpoint the hash value
         associated with a given hashcnt so that they can publish it to
         other nodes for verification.
-        
+
         On mainnet-beta, testnet, and devnet this occurs once every
         62,500 hashcnts, or approximately once every 6.4 microseconds.
         This value is determined at genesis time, and according to the
@@ -319,17 +319,6 @@
 #include "../../../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 
-/* When we are becoming leader, and we think the prior leader might have
-   skipped their slot, we give them a grace period to finish.  In the
-   Agave client this is called grace ticks.  This is a courtesy to
-   maintain network health, and is not strictly necessary.  It is
-   actually advantageous to us as new leader to take over right away and
-   give no grace period, since we could generate more fees.
-
-   Here we define the grace period to be two slots, which is taken from
-   Agave directly. */
-#define GRACE_SLOTS (2UL)
-
 /* The maximum number of microblocks that pack is allowed to pack into a
    single slot.  This is not consensus critical, and pack could, if we
    let it, produce as many microblocks as it wants, and the slot would
@@ -424,6 +413,7 @@ typedef struct {
      to prevent clock drift.  If we didn't do this, our 2nd slot would
      end 400ms + `time_for_replay_to_move_slot_and_reset_poh` after
      our 1st, rather than just strictly 400ms. */
+  int  lagged_consecutive_leader_start;
   ulong expect_sequential_leader_slot;
 
   /* There's a race condition ... let's say two banks A and B, bank A
@@ -480,6 +470,8 @@ typedef struct {
 
   /* If an in progress frag should be skipped */
   int skip_frag;
+
+  ulong max_active_descendant;
 
   /* If we currently are the leader according the clock AND we have
      received the leader bank for the slot from the replay stage,
@@ -539,9 +531,9 @@ typedef struct {
      2. Signal to the tile they wish to acquire the lock, by setting
         fd_poh_waiting_lock to 1.
 
-   During before credit, the tile will check if there is the waiting
-   lock is set to 1, and if so, set the returned lock to 1, indicating
-   to the waiter that they may now proceed.
+   During after_credit, the tile will check if the waiting lock is set
+   to 1, and if so, set the returned lock to 1, indicating to the waiter
+   that they may now proceed.
 
    When the waiter is done reading and writing, they restore the
    returned lock value back to zero, and the POH tile continues with its
@@ -805,6 +797,13 @@ fd_ext_poh_reset_slot( void ) {
   return reset_slot;
 }
 
+CALLED_FROM_RUST void
+fd_ext_poh_update_active_descendant( ulong max_active_descendant ) {
+  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  ctx->max_active_descendant = max_active_descendant;
+  fd_ext_poh_write_unlock();
+}
+
 /* fd_ext_poh_reached_leader_slot returns 1 if we have reached a slot
    where we are leader.  This is used by the replay stage to determine
    if it should create a new leader bank descendant of the prior reset
@@ -841,36 +840,34 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
     return 1;
   }
 
-  if( FD_LIKELY( ctx->next_leader_slot>=1UL ) ) {
-    fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, ctx->next_leader_slot-1UL ); /* Safe to call from Rust */
-    if( FD_LIKELY( leaders ) ) {
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, ctx->next_leader_slot-1UL ); /* Safe to call from Rust */
-      if( FD_LIKELY( leader ) ) {
-        if( FD_UNLIKELY( !memcmp( leader->uc, ctx->identity_key.uc, 32UL ) ) ) {
-          /* We were the leader in the previous slot, so also no need for
-             a grace period.  We wouldn't get here if we were still
-             processing the prior slot so begin new one immediately. */
-          fd_ext_poh_write_unlock();
-          return 1;
-        }
-      }
+  long now_ns = fd_log_wallclock();
+  long expected_start_time_ns = ctx->reset_slot_start_ns + (long)((double)(ctx->next_leader_slot-ctx->reset_slot)*ctx->slot_duration_ns);
+
+  /* If a prior leader is still in the process of publishing their slot,
+     delay ours to let them finish ... unless they are so delayed that
+     we risk getting skipped by the leader following us.  1.2 seconds
+     is a reasonable default here, although any value between 0 and 1.6
+     seconds could be considered reasonable.  This is arbitrary and
+     chosen due to intuition. */
+
+  if( FD_UNLIKELY( now_ns<expected_start_time_ns+(long)(3.0*ctx->slot_duration_ns) ) ) {
+    /* If the max_active_descendant is >= next_leader_slot, we waited
+       too long and a leader after us started publishing to try and skip
+       us.  Just start our leader slot immediately, we mgiht win ... */
+
+    if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot && ctx->max_active_descendant<ctx->next_leader_slot ) ) {
+      /* If one of the leaders between the reset slot and our leader
+         slot is in the process of publishing (they have a descendant
+         bank that is in progress of being replayed), then keep waiting.
+         We probably wouldn't get a leader slot out before they
+         finished.
+
+         Unless... we are past the deadline to start our slot by more
+         than 1.2 seconds, in which case we should probably start it to
+         avoid getting skipped by the leader behind us. */
+      fd_ext_poh_write_unlock();
+      return 0;
     }
-  }
-
-  if( FD_UNLIKELY( ctx->next_leader_slot-ctx->reset_slot>=4UL ) ) {
-    /* The prior leader has not completed any slot successfully during
-       their 4 leader slots, so they are probably inactive and no need
-       to give a grace period. */
-    fd_ext_poh_write_unlock();
-    return 1;
-  }
-
-  if( FD_LIKELY( ctx->slot-ctx->next_leader_slot<GRACE_SLOTS ) ) {
-    /* The prior leader hasn't finished their last slot, and they are
-       likely still publishing, and within their grace period of two
-       slots so we will keep waiting. */
-    fd_ext_poh_write_unlock();
-    return 0;
   }
 
   fd_ext_poh_write_unlock();
@@ -906,6 +903,15 @@ publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+
+  if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start ) ) {
+    /* If we are mirroring Agave behavior, the wall clock gets reset
+       here so we don't count time spent waiting for a bank to freeze
+       or replay stage to actually start the slot towards our 400ms.
+       
+       See extended comments in the config file on this option. */
+    ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
+  }
 
   long slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
 
@@ -1105,6 +1111,12 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
       ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
     }
   }
+
+  /* When we reset, we need to allow PoH to tick freely again rather
+     than being constrained.  If we are leader after the reset, this
+     is OK because we won't tick until we get a bank, and the lower
+     bound will be reset with the value from the bank. */
+  ctx->microblocks_lower_bound = ctx->max_microblocks_per_slot;
 
   if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
@@ -1465,7 +1477,7 @@ after_credit( fd_poh_ctx_t *      ctx,
   FD_TEST( target_hashcnt <= restricted_hashcnt );
 
   if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return; /* Nothing to do, don't publish a tick twice */
-  
+
   *charge_busy = 1;
 
   while( ctx->hashcnt<target_hashcnt ) {
@@ -1528,9 +1540,9 @@ after_credit( fd_poh_ctx_t *      ctx,
 
 static inline void
 metrics_write( fd_poh_ctx_t * ctx ) {
-  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
-  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
-  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
+  FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
+  FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
 static int
@@ -1597,7 +1609,7 @@ during_frag( fd_poh_ctx_t * ctx,
   int is_frag_for_prior_leader_slot = 0;
   if( FD_LIKELY( pkt_type==POH_PKT_TYPE_DONE_PACKING || pkt_type==POH_PKT_TYPE_MICROBLOCK ) ) {
     /* The following sequence is possible...
-    
+
         1. We become leader in slot 10
         2. While leader, we switch to a fork that is on slot 8, where
             we are leader
@@ -1690,13 +1702,11 @@ after_frag( fd_poh_ctx_t *      ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)chunk;
   (void)tsorig;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
@@ -1913,7 +1923,7 @@ out1( fd_topo_t const *      topo,
     if( !strcmp( link->name, name ) ) {
       if( FD_UNLIKELY( idx!=ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had multiple output links named %s but expected one", tile->name, tile->kind_id, name ));
       idx = i;
-    } 
+    }
   }
 
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had no output link named %s", tile->name, tile->kind_id, name ));
@@ -1952,10 +1962,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->reset_slot            = ULONG_MAX;
 
+  ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   ctx->microblocks_lower_bound = 0UL;
 
+  ctx->max_active_descendant = 0UL;
 
   ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
   FD_TEST( poh_shred_obj_id!=ULONG_MAX );
@@ -2003,12 +2015,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Agave client" ));
 
-  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
-                                                        FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ),
-                                                            FD_MHIST_SECONDS_MAX( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
-  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH_TILE, SLOT_DONE_DELAY_SECONDS  ),
-                                                     FD_MHIST_SECONDS_MAX( POH_TILE, SLOT_DONE_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH, BEGIN_LEADER_DELAY_SECONDS ),
+                                                        FD_MHIST_SECONDS_MAX( POH, BEGIN_LEADER_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ),
+                                                            FD_MHIST_SECONDS_MAX( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH, SLOT_DONE_DELAY_SECONDS  ),
+                                                     FD_MHIST_SECONDS_MAX( POH, SLOT_DONE_DELAY_SECONDS  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

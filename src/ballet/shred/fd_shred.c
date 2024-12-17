@@ -93,3 +93,28 @@ fd_shred_parse( uchar const * const buf,
 
   return shred;
 }
+
+FD_FN_PURE int
+fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out ) {
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( bmtree_mem,
+                                                     FD_SHRED_MERKLE_NODE_SZ,
+                                                     FD_BMTREE_LONG_PREFIX_SZ,
+                                                     FD_SHRED_MERKLE_LAYER_CNT );
+
+  uchar shred_type  = fd_shred_type( shred->variant );
+  int is_data_shred = fd_shred_is_data( shred_type );
+  ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
+  ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
+
+  ulong tree_depth           = fd_shred_merkle_cnt( shred->variant ); /* In [0, 15] */
+  ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
+                                      - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
+                                      - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
+  ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type );
+  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )+FD_SHRED_CODE_HEADER_SZ-FD_ED25519_SIG_SZ;
+  ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
+  fd_bmtree_node_t leaf;
+  fd_bmtree_hash_leaf( &leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+
+  return fd_bmtree_commitp_insert_with_proof( tree, shred_idx, &leaf, (uchar const *)fd_shred_merkle_nodes( shred ), fd_shred_merkle_cnt( shred->variant ), root_out );
+}

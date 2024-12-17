@@ -68,6 +68,7 @@ typedef struct {
   struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
     ulong blockhash_expired;
+    ulong blockhash_unknown;
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -105,6 +106,7 @@ fd_ext_resolv_tile_cnt( void ) {
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
+  FD_MCNT_SET( RESOLV, BLOCKHASH_UNKNOWN, ctx->metrics.blockhash_unknown );
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
 }
 
@@ -154,13 +156,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
-            ulong               chunk,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sig;
-  (void)chunk;
 
   if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {
     switch( sig ) {
@@ -200,11 +200,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
   fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
 
   /* If we can't find the recent blockhash ... it means one of three things,
-  
+
      (1) It's really old (more than 28 minutes) or just non-existent.
      (2) It's really new (we haven't seen the bank yet).
      (3) It's a durable nonce transaction (just let it pass).
-     
+
     We want to assume case (2) for now, because we don't want to drop
     early incoming votes and things if we don't yet know the bank.  If
     there's a lot of spam coming in with old blockhashes, we can
@@ -219,6 +219,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
       ctx->metrics.blockhash_expired++;
       return;
     }
+  } else {
+    ctx->metrics.blockhash_unknown++;
   }
 
   if( FD_UNLIKELY( txn->addr_table_adtl_cnt ) ) {
@@ -240,7 +242,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
     sz = txn_t_sz+txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t)+sizeof(ushort);
   }
 
-  fd_stem_publish( stem, 0UL, reference_slot, ctx->out_chunk, sz, 0UL, tsorig, 0UL );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, 0UL, reference_slot, ctx->out_chunk, sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );
 }
 

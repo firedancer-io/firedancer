@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 224
+#define FD_TYPE_NAME_COUNT 229
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -50,7 +50,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_snapshot_slot_acc_vecs",
  "fd_reward_type",
  "fd_solana_accounts_db_fields",
- "fd_epoch_stakes_current",
+ "fd_versioned_epoch_stakes_current",
  "fd_versioned_epoch_stakes",
  "fd_versioned_epoch_stakes_pair",
  "fd_reward_info",
@@ -144,8 +144,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_config_keys",
  "fd_bpf_loader_program_instruction_write",
  "fd_bpf_loader_program_instruction",
- "fd_bpf_loader_v4_program_instruction_write",
- "fd_bpf_loader_v4_program_instruction",
+ "fd_loader_v4_program_instruction_write",
+ "fd_loader_v4_program_instruction_truncate",
+ "fd_loader_v4_program_instruction",
  "fd_bpf_upgradeable_loader_program_instruction_write",
  "fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len",
  "fd_bpf_upgradeable_loader_program_instruction_extend_program",
@@ -154,6 +155,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_bpf_upgradeable_loader_state_program",
  "fd_bpf_upgradeable_loader_state_program_data",
  "fd_bpf_upgradeable_loader_state",
+ "fd_loader_v4_state",
  "fd_frozen_hash_status",
  "fd_frozen_hash_versioned",
  "fd_lookup_table_meta",
@@ -167,6 +169,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_gossip_ip_addr",
  "fd_gossip_prune_data",
  "fd_gossip_prune_sign_data",
+ "fd_gossip_socket_addr_old",
+ "fd_gossip_socket_addr_ip4",
+ "fd_gossip_socket_addr_ip6",
  "fd_gossip_socket_addr",
  "fd_gossip_contact_info_v1",
  "fd_gossip_vote",

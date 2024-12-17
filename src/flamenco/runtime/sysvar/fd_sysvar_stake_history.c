@@ -7,7 +7,7 @@
    of the corresponding fd_types entry. */
 FD_STATIC_ASSERT( FD_SYSVAR_STAKE_HISTORY_CAP == FD_STAKE_HISTORY_MIN, types );
 
-void
+static void
 write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
                      fd_stake_history_t * stake_history ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */

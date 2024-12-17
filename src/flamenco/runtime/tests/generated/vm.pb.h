@@ -69,6 +69,17 @@ typedef struct fd_exec_test_syscall_effects {
     struct fd_exec_test_input_data_region *input_data_regions;
     /* Error Kind (should be used along with error code) */
     fd_exec_test_err_kind_t error_kind;
+    /* Output registers (to test interpreter) */
+    uint64_t r1;
+    uint64_t r2;
+    uint64_t r3;
+    uint64_t r4;
+    uint64_t r5;
+    uint64_t r6;
+    uint64_t r7;
+    uint64_t r8;
+    uint64_t r9;
+    uint64_t r10;
 } fd_exec_test_syscall_effects_t;
 
 /* Effects of fd_vm_validate */
@@ -124,6 +135,8 @@ This model is used by the Firedancer VM for CALL_IMMs */
     bool tracing_enabled;
     bool has_return_data;
     fd_exec_test_return_data_t return_data;
+    /* SBPF version */
+    uint32_t sbpf_version;
 } fd_exec_test_vm_context_t;
 
 /* Execution context for a VM Syscall execution. */
@@ -193,20 +206,20 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT    {NULL, NULL}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
@@ -232,6 +245,16 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_PC_TAG      10
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INPUT_DATA_REGIONS_TAG 11
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_ERROR_KIND_TAG 12
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R1_TAG      107
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R2_TAG      108
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R3_TAG      109
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R4_TAG      110
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R5_TAG      111
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R6_TAG      112
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R7_TAG      113
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R8_TAG      114
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R9_TAG      115
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_R10_TAG     116
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_RESULT_TAG 1
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SUCCESS_TAG 2
 #define FD_EXEC_TEST_RETURN_DATA_PROGRAM_ID_TAG  1
@@ -259,6 +282,7 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_CALL_WHITELIST_TAG 21
 #define FD_EXEC_TEST_VM_CONTEXT_TRACING_ENABLED_TAG 22
 #define FD_EXEC_TEST_VM_CONTEXT_RETURN_DATA_TAG  23
+#define FD_EXEC_TEST_VM_CONTEXT_SBPF_VERSION_TAG 24
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_VM_CTX_TAG  1
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INSTR_CTX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_SYSCALL_INVOCATION_TAG 3
@@ -303,7 +327,8 @@ X(a, STATIC,   SINGULAR, BOOL,     check_size,       19) \
 X(a, STATIC,   SINGULAR, UINT64,   entry_pc,         20) \
 X(a, POINTER,  SINGULAR, BYTES,    call_whitelist,   21) \
 X(a, STATIC,   SINGULAR, BOOL,     tracing_enabled,  22) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  return_data,      23)
+X(a, STATIC,   OPTIONAL, MESSAGE,  return_data,      23) \
+X(a, STATIC,   SINGULAR, UINT32,   sbpf_version,     24)
 #define FD_EXEC_TEST_VM_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_VM_CONTEXT_DEFAULT NULL
 #define fd_exec_test_vm_context_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
@@ -340,7 +365,17 @@ X(a, POINTER,  SINGULAR, BYTES,    log,               8) \
 X(a, POINTER,  SINGULAR, BYTES,    rodata,            9) \
 X(a, STATIC,   SINGULAR, UINT64,   pc,               10) \
 X(a, POINTER,  REPEATED, MESSAGE,  input_data_regions,  11) \
-X(a, STATIC,   SINGULAR, UENUM,    error_kind,       12)
+X(a, STATIC,   SINGULAR, UENUM,    error_kind,       12) \
+X(a, STATIC,   SINGULAR, UINT64,   r1,              107) \
+X(a, STATIC,   SINGULAR, UINT64,   r2,              108) \
+X(a, STATIC,   SINGULAR, UINT64,   r3,              109) \
+X(a, STATIC,   SINGULAR, UINT64,   r4,              110) \
+X(a, STATIC,   SINGULAR, UINT64,   r5,              111) \
+X(a, STATIC,   SINGULAR, UINT64,   r6,              112) \
+X(a, STATIC,   SINGULAR, UINT64,   r7,              113) \
+X(a, STATIC,   SINGULAR, UINT64,   r8,              114) \
+X(a, STATIC,   SINGULAR, UINT64,   r9,              115) \
+X(a, STATIC,   SINGULAR, UINT64,   r10,             116)
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_DEFAULT NULL
 #define fd_exec_test_syscall_effects_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t

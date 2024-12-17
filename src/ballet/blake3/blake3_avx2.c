@@ -232,10 +232,10 @@ INLINE void load_counters(uint64_t counter, bool increment_counter,
 }
 
 static
-void blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
-                       const uint32_t key[8], uint64_t counter,
-                       bool increment_counter, uint8_t flags,
-                       uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
+void fd_blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
+                          const uint32_t key[8], uint64_t counter,
+                          bool increment_counter, uint8_t flags,
+                          uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
   __m256i h_vecs[8] = {
       set1(key[0]), set1(key[1]), set1(key[2]), set1(key[3]),
       set1(key[4]), set1(key[5]), set1(key[6]), set1(key[7]),
@@ -291,27 +291,27 @@ void blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
 }
 
 #if FD_HAS_AVX
-void blake3_hash_many_sse41(const uint8_t *const *inputs, size_t num_inputs,
-                            size_t blocks, const uint32_t key[8],
-                            uint64_t counter, bool increment_counter,
-                            uint8_t flags, uint8_t flags_start,
-                            uint8_t flags_end, uint8_t *out);
-#else
-void blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
+void fd_blake3_hash_many_sse41(const uint8_t *const *inputs, size_t num_inputs,
                                size_t blocks, const uint32_t key[8],
                                uint64_t counter, bool increment_counter,
                                uint8_t flags, uint8_t flags_start,
                                uint8_t flags_end, uint8_t *out);
+#else
+void fd_blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
+                                  size_t blocks, const uint32_t key[8],
+                                  uint64_t counter, bool increment_counter,
+                                  uint8_t flags, uint8_t flags_start,
+                                  uint8_t flags_end, uint8_t *out);
 #endif /* FD_HAS_AVX */
 
-void blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
-                           size_t blocks, const uint32_t key[8],
-                           uint64_t counter, bool increment_counter,
-                           uint8_t flags, uint8_t flags_start,
-                           uint8_t flags_end, uint8_t *out) {
+void fd_blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
+                              size_t blocks, const uint32_t key[8],
+                              uint64_t counter, bool increment_counter,
+                              uint8_t flags, uint8_t flags_start,
+                              uint8_t flags_end, uint8_t *out) {
   while (num_inputs >= DEGREE) {
-    blake3_hash8_avx2(inputs, blocks, key, counter, increment_counter, flags,
-                      flags_start, flags_end, out);
+    fd_blake3_hash8_avx2(inputs, blocks, key, counter, increment_counter, flags,
+                         flags_start, flags_end, out);
     if (increment_counter) {
       counter += DEGREE;
     }
@@ -320,11 +320,11 @@ void blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
     out = &out[DEGREE * BLAKE3_OUT_LEN];
   }
 #if FD_HAS_AVX
-  blake3_hash_many_sse41(inputs, num_inputs, blocks, key, counter,
-                         increment_counter, flags, flags_start, flags_end, out);
+  fd_blake3_hash_many_sse41(inputs, num_inputs, blocks, key, counter,
+                            increment_counter, flags, flags_start, flags_end, out);
 #else
-  blake3_hash_many_portable(inputs, num_inputs, blocks, key, counter,
-                            increment_counter, flags, flags_start, flags_end,
-                            out);
+  fd_blake3_hash_many_portable(inputs, num_inputs, blocks, key, counter,
+                               increment_counter, flags, flags_start, flags_end,
+                               out);
 #endif
 }

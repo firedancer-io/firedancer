@@ -78,8 +78,6 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_MAX_DATA            max_data frame
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
        FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
-       FD_QUIC_PKT_META_FLAGS_KEY_UPDATE          indicates key update was in effect
-       FD_QUIC_PKT_META_FLAGS_KEY_PHASE           set only if key_phase was set in the short-header
        FD_QUIC_PKT_META_FLAGS_PING                set to send a PING frame
 
      some of these flags are mutually exclusive */
@@ -90,8 +88,6 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
 # define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
-# define          FD_QUIC_PKT_META_FLAGS_KEY_UPDATE         (1u<<9u)
-# define          FD_QUIC_PKT_META_FLAGS_KEY_PHASE          (1u<<10u)
   fd_quic_range_t        range;       /* range of bytes referred to by this meta */
                                       /* stream data or crypto data */
                                       /* we currently do not put both in the same packet */

@@ -715,20 +715,24 @@ stake_deactivate( fd_stake_t * stake, ulong epoch, uint * custom_err ) {
 }
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L62
-static inline int
-new_warmup_cooldown_rate_epoch( fd_exec_instr_ctx_t const * invoke_context,
-                                /* out */ ulong *           epoch,
-                                int *                       err ) {
+int
+fd_new_warmup_cooldown_rate_epoch( fd_exec_slot_ctx_t const * slot_ctx,
+                                   /* out */ ulong *          epoch,
+                                   int *                      err ) {
   *err = 0;
-  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( invoke_context->slot_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !epoch_schedule ) ) {
     *epoch = ULONG_MAX;
     *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     return 1;
   }
-  ulong slot = invoke_context->epoch_ctx->features.reduce_stake_warmup_cooldown;
-  *epoch     = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  return 1;
+  /* reduce_stake_warmup_cooldown is activated on all clusters, so we shouldn't have a `None` case. */
+  if( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, reduce_stake_warmup_cooldown ) ) ) {
+    ulong slot = slot_ctx->epoch_ctx->features.reduce_stake_warmup_cooldown;
+    *epoch     = fd_slot_to_epoch( epoch_schedule, slot, NULL );
+    return 1;
+  }
+  return 0;
 }
 
 /**********************************************************************/
@@ -793,7 +797,7 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
     ulong new_rate_activation_epoch = ULONG_MAX;
     int   err;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1111
-    int   is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch, &err );
+    int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->slot_ctx, &new_rate_activation_epoch, &err );
     if( FD_UNLIKELY( err ) ) return err;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1108
@@ -1102,7 +1106,7 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   ulong new_rate_activation_epoch = ULONG_MAX;
   int   err;
-  int   is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch, &err );
+  int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->slot_ctx, &new_rate_activation_epoch, &err );
   if( FD_UNLIKELY( err ) ) return err;
 
   *out =
@@ -1137,7 +1141,7 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
                   uint *                        custom_err ) {
   ulong new_rate_activation_epoch = ULONG_MAX;
   int   err;
-  int   is_some = new_warmup_cooldown_rate_epoch( ctx, &new_rate_activation_epoch, &err );
+  int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->slot_ctx, &new_rate_activation_epoch, &err );
   if( FD_UNLIKELY( err ) ) return err;
 
   // FIXME FD_LIKELY
@@ -2734,7 +2738,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     uchar custodian_index           = 5;
     ulong new_rate_activation_epoch = ULONG_MAX;
     int   err;
-    int   is_some = new_warmup_cooldown_rate_epoch( ctx, &new_rate_activation_epoch, &err );
+    int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->slot_ctx, &new_rate_activation_epoch, &err );
     if( FD_UNLIKELY( err ) ) return err;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L200

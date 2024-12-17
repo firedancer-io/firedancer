@@ -103,8 +103,6 @@ typedef struct fd_hash_hash_age_pair_t_mapnode fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_hash_hash_age_pair_t_mapnode {
     fd_hash_hash_age_pair_t elem;
     ulong redblack_parent;
@@ -498,8 +496,6 @@ typedef struct fd_vote_accounts_pair_t_mapnode fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_vote_accounts_pair_t_mapnode {
     fd_vote_accounts_pair_t elem;
     ulong redblack_parent;
@@ -551,8 +547,6 @@ typedef struct fd_stake_accounts_pair_t_mapnode fd_stake_accounts_pair_t_mapnode
 #define REDBLK_NAME fd_stake_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_stake_accounts_pair_t_mapnode {
     fd_stake_accounts_pair_t elem;
     ulong redblack_parent;
@@ -605,8 +599,6 @@ typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_NAME fd_stake_weight_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_stake_weight_t_mapnode {
     fd_stake_weight_t elem;
     ulong redblack_parent;
@@ -717,8 +709,6 @@ typedef struct fd_delegation_pair_t_mapnode fd_delegation_pair_t_mapnode_t;
 #define REDBLK_NAME fd_delegation_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_delegation_pair_t_mapnode {
     fd_delegation_pair_t elem;
     ulong redblack_parent;
@@ -762,8 +752,6 @@ typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_NAME fd_stake_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_stake_pair_t_mapnode {
     fd_stake_pair_t elem;
     ulong redblack_parent;
@@ -1174,7 +1162,7 @@ typedef struct fd_solana_accounts_db_fields_off fd_solana_accounts_db_fields_off
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_epoch_stakes_current {
+struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current {
   fd_stakes_stake_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
@@ -1182,22 +1170,22 @@ struct __attribute__((aligned(8UL))) fd_epoch_stakes_current {
   ulong epoch_authorized_voters_len;
   fd_pubkey_pubkey_pair_t * epoch_authorized_voters;
 };
-typedef struct fd_epoch_stakes_current fd_epoch_stakes_current_t;
-#define FD_EPOCH_STAKES_CURRENT_FOOTPRINT sizeof(fd_epoch_stakes_current_t)
-#define FD_EPOCH_STAKES_CURRENT_ALIGN (8UL)
+typedef struct fd_versioned_epoch_stakes_current fd_versioned_epoch_stakes_current_t;
+#define FD_VERSIONED_EPOCH_STAKES_CURRENT_FOOTPRINT sizeof(fd_versioned_epoch_stakes_current_t)
+#define FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_epoch_stakes_current_off {
+struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current_off {
   uint stakes_off;
   uint total_stake_off;
   uint node_id_to_vote_accounts_off;
   uint epoch_authorized_voters_off;
 };
-typedef struct fd_epoch_stakes_current_off fd_epoch_stakes_current_off_t;
-#define FD_EPOCH_STAKES_CURRENT_OFF_FOOTPRINT sizeof(fd_epoch_stakes_current_off_t)
-#define FD_EPOCH_STAKES_CURRENT_OFF_ALIGN (8UL)
+typedef struct fd_versioned_epoch_stakes_current_off fd_versioned_epoch_stakes_current_off_t;
+#define FD_VERSIONED_EPOCH_STAKES_CURRENT_OFF_FOOTPRINT sizeof(fd_versioned_epoch_stakes_current_off_t)
+#define FD_VERSIONED_EPOCH_STAKES_CURRENT_OFF_ALIGN (8UL)
 
 union fd_versioned_epoch_stakes_inner {
-  fd_epoch_stakes_current_t Current;
+  fd_versioned_epoch_stakes_current_t Current;
 };
 typedef union fd_versioned_epoch_stakes_inner fd_versioned_epoch_stakes_inner_t;
 
@@ -2200,8 +2188,6 @@ typedef struct fd_clock_timestamp_vote_t_mapnode fd_clock_timestamp_vote_t_mapno
 #define REDBLK_NAME fd_clock_timestamp_vote_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_clock_timestamp_vote_t_mapnode {
     fd_clock_timestamp_vote_t elem;
     ulong redblack_parent;
@@ -3316,39 +3302,55 @@ typedef struct fd_bpf_loader_program_instruction fd_bpf_loader_program_instructi
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_t)
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L18 */
+/* https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L11-L17 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_bpf_loader_v4_program_instruction_write {
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_write {
   uint offset;
   ulong bytes_len;
   uchar* bytes;
 };
-typedef struct fd_bpf_loader_v4_program_instruction_write fd_bpf_loader_v4_program_instruction_write_t;
-#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_bpf_loader_v4_program_instruction_write_t)
-#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
+typedef struct fd_loader_v4_program_instruction_write fd_loader_v4_program_instruction_write_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_loader_v4_program_instruction_write_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_bpf_loader_v4_program_instruction_write_off {
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_write_off {
   uint offset_off;
   uint bytes_off;
 };
-typedef struct fd_bpf_loader_v4_program_instruction_write_off fd_bpf_loader_v4_program_instruction_write_off_t;
-#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_OFF_FOOTPRINT sizeof(fd_bpf_loader_v4_program_instruction_write_off_t)
-#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_OFF_ALIGN (8UL)
+typedef struct fd_loader_v4_program_instruction_write_off fd_loader_v4_program_instruction_write_off_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_OFF_FOOTPRINT sizeof(fd_loader_v4_program_instruction_write_off_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_OFF_ALIGN (8UL)
 
-union fd_bpf_loader_v4_program_instruction_inner {
-  fd_bpf_loader_v4_program_instruction_write_t write;
-  uint truncate;
+/* https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L33-L36 */
+/* Encoded Size: Fixed (4 bytes) */
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_truncate {
+  uint new_size;
 };
-typedef union fd_bpf_loader_v4_program_instruction_inner fd_bpf_loader_v4_program_instruction_inner_t;
+typedef struct fd_loader_v4_program_instruction_truncate fd_loader_v4_program_instruction_truncate_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_FOOTPRINT sizeof(fd_loader_v4_program_instruction_truncate_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/sdk/program/src/loader_v4_instruction.rs#L5-L6 */
-struct fd_bpf_loader_v4_program_instruction {
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_truncate_off {
+  uint new_size_off;
+};
+typedef struct fd_loader_v4_program_instruction_truncate_off fd_loader_v4_program_instruction_truncate_off_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_OFF_FOOTPRINT sizeof(fd_loader_v4_program_instruction_truncate_off_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_OFF_ALIGN (8UL)
+
+union fd_loader_v4_program_instruction_inner {
+  fd_loader_v4_program_instruction_write_t write;
+  fd_loader_v4_program_instruction_truncate_t truncate;
+};
+typedef union fd_loader_v4_program_instruction_inner fd_loader_v4_program_instruction_inner_t;
+
+/* https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L5 */
+struct fd_loader_v4_program_instruction {
   uint discriminant;
-  fd_bpf_loader_v4_program_instruction_inner_t inner;
+  fd_loader_v4_program_instruction_inner_t inner;
 };
-typedef struct fd_bpf_loader_v4_program_instruction fd_bpf_loader_v4_program_instruction_t;
-#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_bpf_loader_v4_program_instruction_t)
-#define FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN (8UL)
+typedef struct fd_loader_v4_program_instruction fd_loader_v4_program_instruction_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_loader_v4_program_instruction_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
 /*  */
 /* Encoded Size: Dynamic */
@@ -3482,6 +3484,26 @@ struct fd_bpf_upgradeable_loader_state {
 typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_t)
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43 */
+/* Encoded Size: Fixed (48 bytes) */
+struct __attribute__((aligned(8UL))) fd_loader_v4_state {
+  ulong slot;
+  fd_pubkey_t authority_address_or_next_version;
+  ulong status;
+};
+typedef struct fd_loader_v4_state fd_loader_v4_state_t;
+#define FD_LOADER_V4_STATE_FOOTPRINT sizeof(fd_loader_v4_state_t)
+#define FD_LOADER_V4_STATE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_loader_v4_state_off {
+  uint slot_off;
+  uint authority_address_or_next_version_off;
+  uint status_off;
+};
+typedef struct fd_loader_v4_state_off fd_loader_v4_state_off_t;
+#define FD_LOADER_V4_STATE_OFF_FOOTPRINT sizeof(fd_loader_v4_state_off_t)
+#define FD_LOADER_V4_STATE_OFF_ALIGN (8UL)
 
 /* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178 */
 /* Encoded Size: Dynamic */
@@ -3720,21 +3742,73 @@ typedef struct fd_gossip_prune_sign_data_off fd_gossip_prune_sign_data_off_t;
 #define FD_GOSSIP_PRUNE_SIGN_DATA_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_addr {
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_old {
   fd_gossip_ip_addr_t addr;
   ushort port;
+};
+typedef struct fd_gossip_socket_addr_old fd_gossip_socket_addr_old_t;
+#define FD_GOSSIP_SOCKET_ADDR_OLD_FOOTPRINT sizeof(fd_gossip_socket_addr_old_t)
+#define FD_GOSSIP_SOCKET_ADDR_OLD_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_old_off {
+  uint addr_off;
+  uint port_off;
+};
+typedef struct fd_gossip_socket_addr_old_off fd_gossip_socket_addr_old_off_t;
+#define FD_GOSSIP_SOCKET_ADDR_OLD_OFF_FOOTPRINT sizeof(fd_gossip_socket_addr_old_off_t)
+#define FD_GOSSIP_SOCKET_ADDR_OLD_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip4 {
+  fd_gossip_ip4_addr_t addr;
+  ushort port;
+};
+typedef struct fd_gossip_socket_addr_ip4 fd_gossip_socket_addr_ip4_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP4_FOOTPRINT sizeof(fd_gossip_socket_addr_ip4_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip4_off {
+  uint addr_off;
+  uint port_off;
+};
+typedef struct fd_gossip_socket_addr_ip4_off fd_gossip_socket_addr_ip4_off_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP4_OFF_FOOTPRINT sizeof(fd_gossip_socket_addr_ip4_off_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP4_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip6 {
+  fd_gossip_ip6_addr_t addr;
+  ushort port;
+  uint flowinfo;
+  uint scope_id;
+};
+typedef struct fd_gossip_socket_addr_ip6 fd_gossip_socket_addr_ip6_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP6_FOOTPRINT sizeof(fd_gossip_socket_addr_ip6_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip6_off {
+  uint addr_off;
+  uint port_off;
+  uint flowinfo_off;
+  uint scope_id_off;
+};
+typedef struct fd_gossip_socket_addr_ip6_off fd_gossip_socket_addr_ip6_off_t;
+#define FD_GOSSIP_SOCKET_ADDR_IP6_OFF_FOOTPRINT sizeof(fd_gossip_socket_addr_ip6_off_t)
+#define FD_GOSSIP_SOCKET_ADDR_IP6_OFF_ALIGN (8UL)
+
+union fd_gossip_socket_addr_inner {
+  fd_gossip_socket_addr_ip4_t ip4;
+  fd_gossip_socket_addr_ip6_t ip6;
+};
+typedef union fd_gossip_socket_addr_inner fd_gossip_socket_addr_inner_t;
+
+struct fd_gossip_socket_addr {
+  uint discriminant;
+  fd_gossip_socket_addr_inner_t inner;
 };
 typedef struct fd_gossip_socket_addr fd_gossip_socket_addr_t;
 #define FD_GOSSIP_SOCKET_ADDR_FOOTPRINT sizeof(fd_gossip_socket_addr_t)
 #define FD_GOSSIP_SOCKET_ADDR_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_off {
-  uint addr_off;
-  uint port_off;
-};
-typedef struct fd_gossip_socket_addr_off fd_gossip_socket_addr_off_t;
-#define FD_GOSSIP_SOCKET_ADDR_OFF_FOOTPRINT sizeof(fd_gossip_socket_addr_off_t)
-#define FD_GOSSIP_SOCKET_ADDR_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v1 {
@@ -5506,17 +5580,17 @@ ulong fd_solana_accounts_db_fields_size( fd_solana_accounts_db_fields_t const * 
 ulong fd_solana_accounts_db_fields_footprint( void );
 ulong fd_solana_accounts_db_fields_align( void );
 
-void fd_epoch_stakes_current_new( fd_epoch_stakes_current_t * self );
-int fd_epoch_stakes_current_decode( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_epoch_stakes_current_decode_unsafe( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_stakes_current_decode_offsets( fd_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_stakes_current_encode( fd_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_epoch_stakes_current_destroy( fd_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_epoch_stakes_current_size( fd_epoch_stakes_current_t const * self );
-ulong fd_epoch_stakes_current_footprint( void );
-ulong fd_epoch_stakes_current_align( void );
+void fd_versioned_epoch_stakes_current_new( fd_versioned_epoch_stakes_current_t * self );
+int fd_versioned_epoch_stakes_current_decode( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_versioned_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_versioned_epoch_stakes_current_decode_unsafe( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_versioned_epoch_stakes_current_decode_offsets( fd_versioned_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_versioned_epoch_stakes_current_encode( fd_versioned_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_versioned_epoch_stakes_current_destroy( fd_versioned_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_versioned_epoch_stakes_current_walk( void * w, fd_versioned_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_versioned_epoch_stakes_current_size( fd_versioned_epoch_stakes_current_t const * self );
+ulong fd_versioned_epoch_stakes_current_footprint( void );
+ulong fd_versioned_epoch_stakes_current_align( void );
 
 void fd_versioned_epoch_stakes_new_disc( fd_versioned_epoch_stakes_t * self, uint discriminant );
 void fd_versioned_epoch_stakes_new( fd_versioned_epoch_stakes_t * self );
@@ -6861,41 +6935,55 @@ enum {
 fd_bpf_loader_program_instruction_enum_write = 0,
 fd_bpf_loader_program_instruction_enum_finalize = 1,
 }; 
-void fd_bpf_loader_v4_program_instruction_write_new( fd_bpf_loader_v4_program_instruction_write_t * self );
-int fd_bpf_loader_v4_program_instruction_write_decode( fd_bpf_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_v4_program_instruction_write_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_bpf_loader_v4_program_instruction_write_decode_unsafe( fd_bpf_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_v4_program_instruction_write_decode_offsets( fd_bpf_loader_v4_program_instruction_write_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_v4_program_instruction_write_encode( fd_bpf_loader_v4_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_bpf_loader_v4_program_instruction_write_destroy( fd_bpf_loader_v4_program_instruction_write_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_bpf_loader_v4_program_instruction_write_walk( void * w, fd_bpf_loader_v4_program_instruction_write_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_bpf_loader_v4_program_instruction_write_size( fd_bpf_loader_v4_program_instruction_write_t const * self );
-ulong fd_bpf_loader_v4_program_instruction_write_footprint( void );
-ulong fd_bpf_loader_v4_program_instruction_write_align( void );
+void fd_loader_v4_program_instruction_write_new( fd_loader_v4_program_instruction_write_t * self );
+int fd_loader_v4_program_instruction_write_decode( fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_write_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_write_decode_unsafe( fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_write_decode_offsets( fd_loader_v4_program_instruction_write_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_write_encode( fd_loader_v4_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_write_destroy( fd_loader_v4_program_instruction_write_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_loader_v4_program_instruction_write_walk( void * w, fd_loader_v4_program_instruction_write_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_loader_v4_program_instruction_write_size( fd_loader_v4_program_instruction_write_t const * self );
+ulong fd_loader_v4_program_instruction_write_footprint( void );
+ulong fd_loader_v4_program_instruction_write_align( void );
 
-void fd_bpf_loader_v4_program_instruction_new_disc( fd_bpf_loader_v4_program_instruction_t * self, uint discriminant );
-void fd_bpf_loader_v4_program_instruction_new( fd_bpf_loader_v4_program_instruction_t * self );
-int fd_bpf_loader_v4_program_instruction_decode( fd_bpf_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_v4_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_bpf_loader_v4_program_instruction_decode_unsafe( fd_bpf_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_v4_program_instruction_encode( fd_bpf_loader_v4_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_bpf_loader_v4_program_instruction_destroy( fd_bpf_loader_v4_program_instruction_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_bpf_loader_v4_program_instruction_walk( void * w, fd_bpf_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_bpf_loader_v4_program_instruction_size( fd_bpf_loader_v4_program_instruction_t const * self );
-ulong fd_bpf_loader_v4_program_instruction_footprint( void );
-ulong fd_bpf_loader_v4_program_instruction_align( void );
+void fd_loader_v4_program_instruction_truncate_new( fd_loader_v4_program_instruction_truncate_t * self );
+int fd_loader_v4_program_instruction_truncate_decode( fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_truncate_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_truncate_decode_unsafe( fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_truncate_decode_offsets( fd_loader_v4_program_instruction_truncate_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_truncate_encode( fd_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_truncate_destroy( fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_loader_v4_program_instruction_truncate_walk( void * w, fd_loader_v4_program_instruction_truncate_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_loader_v4_program_instruction_truncate_size( fd_loader_v4_program_instruction_truncate_t const * self );
+ulong fd_loader_v4_program_instruction_truncate_footprint( void );
+ulong fd_loader_v4_program_instruction_truncate_align( void );
 
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_write( fd_bpf_loader_v4_program_instruction_t const * self );
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_truncate( fd_bpf_loader_v4_program_instruction_t const * self );
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_deploy( fd_bpf_loader_v4_program_instruction_t const * self );
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_retract( fd_bpf_loader_v4_program_instruction_t const * self );
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_transfer_authority( fd_bpf_loader_v4_program_instruction_t const * self );
+void fd_loader_v4_program_instruction_new_disc( fd_loader_v4_program_instruction_t * self, uint discriminant );
+void fd_loader_v4_program_instruction_new( fd_loader_v4_program_instruction_t * self );
+int fd_loader_v4_program_instruction_decode( fd_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_decode_unsafe( fd_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_encode( fd_loader_v4_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_destroy( fd_loader_v4_program_instruction_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_loader_v4_program_instruction_walk( void * w, fd_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_loader_v4_program_instruction_size( fd_loader_v4_program_instruction_t const * self );
+ulong fd_loader_v4_program_instruction_footprint( void );
+ulong fd_loader_v4_program_instruction_align( void );
+
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_write( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_truncate( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_deploy( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize( fd_loader_v4_program_instruction_t const * self );
 enum {
-fd_bpf_loader_v4_program_instruction_enum_write = 0,
-fd_bpf_loader_v4_program_instruction_enum_truncate = 1,
-fd_bpf_loader_v4_program_instruction_enum_deploy = 2,
-fd_bpf_loader_v4_program_instruction_enum_retract = 3,
-fd_bpf_loader_v4_program_instruction_enum_transfer_authority = 4,
+fd_loader_v4_program_instruction_enum_write = 0,
+fd_loader_v4_program_instruction_enum_truncate = 1,
+fd_loader_v4_program_instruction_enum_deploy = 2,
+fd_loader_v4_program_instruction_enum_retract = 3,
+fd_loader_v4_program_instruction_enum_transfer_authority = 4,
+fd_loader_v4_program_instruction_enum_finalize = 5,
 }; 
 void fd_bpf_upgradeable_loader_program_instruction_write_new( fd_bpf_upgradeable_loader_program_instruction_write_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_write_decode( fd_bpf_upgradeable_loader_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -7021,6 +7109,18 @@ fd_bpf_upgradeable_loader_state_enum_buffer = 1,
 fd_bpf_upgradeable_loader_state_enum_program = 2,
 fd_bpf_upgradeable_loader_state_enum_program_data = 3,
 }; 
+void fd_loader_v4_state_new( fd_loader_v4_state_t * self );
+int fd_loader_v4_state_decode( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_state_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_state_decode_unsafe( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_state_decode_offsets( fd_loader_v4_state_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_state_encode( fd_loader_v4_state_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_loader_v4_state_destroy( fd_loader_v4_state_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_loader_v4_state_walk( void * w, fd_loader_v4_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_loader_v4_state_size( fd_loader_v4_state_t const * self );
+ulong fd_loader_v4_state_footprint( void );
+ulong fd_loader_v4_state_align( void );
+
 void fd_frozen_hash_status_new( fd_frozen_hash_status_t * self );
 int fd_frozen_hash_status_decode( fd_frozen_hash_status_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_frozen_hash_status_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7193,11 +7293,47 @@ ulong fd_gossip_prune_sign_data_size( fd_gossip_prune_sign_data_t const * self )
 ulong fd_gossip_prune_sign_data_footprint( void );
 ulong fd_gossip_prune_sign_data_align( void );
 
+void fd_gossip_socket_addr_old_new( fd_gossip_socket_addr_old_t * self );
+int fd_gossip_socket_addr_old_decode( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_old_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_socket_addr_old_decode_unsafe( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_old_decode_offsets( fd_gossip_socket_addr_old_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_old_encode( fd_gossip_socket_addr_old_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_socket_addr_old_destroy( fd_gossip_socket_addr_old_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_socket_addr_old_walk( void * w, fd_gossip_socket_addr_old_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_socket_addr_old_size( fd_gossip_socket_addr_old_t const * self );
+ulong fd_gossip_socket_addr_old_footprint( void );
+ulong fd_gossip_socket_addr_old_align( void );
+
+void fd_gossip_socket_addr_ip4_new( fd_gossip_socket_addr_ip4_t * self );
+int fd_gossip_socket_addr_ip4_decode( fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip4_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip4_decode_unsafe( fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip4_decode_offsets( fd_gossip_socket_addr_ip4_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip4_encode( fd_gossip_socket_addr_ip4_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip4_destroy( fd_gossip_socket_addr_ip4_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_socket_addr_ip4_walk( void * w, fd_gossip_socket_addr_ip4_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_socket_addr_ip4_size( fd_gossip_socket_addr_ip4_t const * self );
+ulong fd_gossip_socket_addr_ip4_footprint( void );
+ulong fd_gossip_socket_addr_ip4_align( void );
+
+void fd_gossip_socket_addr_ip6_new( fd_gossip_socket_addr_ip6_t * self );
+int fd_gossip_socket_addr_ip6_decode( fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip6_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip6_decode_unsafe( fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip6_decode_offsets( fd_gossip_socket_addr_ip6_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_gossip_socket_addr_ip6_encode( fd_gossip_socket_addr_ip6_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_socket_addr_ip6_destroy( fd_gossip_socket_addr_ip6_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_gossip_socket_addr_ip6_walk( void * w, fd_gossip_socket_addr_ip6_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_socket_addr_ip6_size( fd_gossip_socket_addr_ip6_t const * self );
+ulong fd_gossip_socket_addr_ip6_footprint( void );
+ulong fd_gossip_socket_addr_ip6_align( void );
+
+void fd_gossip_socket_addr_new_disc( fd_gossip_socket_addr_t * self, uint discriminant );
 void fd_gossip_socket_addr_new( fd_gossip_socket_addr_t * self );
 int fd_gossip_socket_addr_decode( fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_socket_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_socket_addr_decode_unsafe( fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_addr_decode_offsets( fd_gossip_socket_addr_off_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_socket_addr_encode( fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_gossip_socket_addr_destroy( fd_gossip_socket_addr_t * self, fd_bincode_destroy_ctx_t * ctx );
 void fd_gossip_socket_addr_walk( void * w, fd_gossip_socket_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
@@ -7205,6 +7341,12 @@ ulong fd_gossip_socket_addr_size( fd_gossip_socket_addr_t const * self );
 ulong fd_gossip_socket_addr_footprint( void );
 ulong fd_gossip_socket_addr_align( void );
 
+FD_FN_PURE uchar fd_gossip_socket_addr_is_ip4( fd_gossip_socket_addr_t const * self );
+FD_FN_PURE uchar fd_gossip_socket_addr_is_ip6( fd_gossip_socket_addr_t const * self );
+enum {
+fd_gossip_socket_addr_enum_ip4 = 0,
+fd_gossip_socket_addr_enum_ip6 = 1,
+}; 
 void fd_gossip_contact_info_v1_new( fd_gossip_contact_info_v1_t * self );
 int fd_gossip_contact_info_v1_decode( fd_gossip_contact_info_v1_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_contact_info_v1_decode_preflight( fd_bincode_decode_ctx_t * ctx );

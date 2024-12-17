@@ -12,7 +12,7 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)shmem, fd_ghost_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_ghost_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
@@ -137,7 +137,7 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
   }
 
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( ghost->node_pool );
-  memset( node, 0, sizeof( fd_ghost_node_t ));
+  memset( node, 0, sizeof( fd_ghost_node_t ) );
   node->slot = root;
 
   fd_ghost_node_map_ele_insert( ghost->node_map, node, ghost->node_pool );
@@ -156,7 +156,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 /* Caller promises slot >= SMR. */
 
 #if FD_GHOST_USE_HANDHOLDING
-  if (FD_UNLIKELY( slot < ghost->root->slot )) {
+  if( FD_UNLIKELY( slot < ghost->root->slot ) ) {
     FD_LOG_ERR(( "slot %lu is older than ghost root %lu", slot, ghost->root->slot ));
   }
 #endif
@@ -180,10 +180,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 /* Caller promises parent_slot is already in ghost. */
 
 #if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_ghost_node_map_ele_query( ghost->node_map,
-                                                 &parent_slot,
-                                                 NULL,
-                                                 ghost->node_pool ) ) ) {
+  if( FD_UNLIKELY( !parent ) ) {
     FD_LOG_ERR(( "[fd_ghost_node_insert] missing parent_slot %lu.", parent_slot ));
   }
 #endif
@@ -633,13 +630,15 @@ print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total
     printf( " " );
   if( FD_UNLIKELY( node->weight > 100 ) ) {
   }
-  double pct = ( (double)node->weight / (double)total ) * 100;
   if( FD_UNLIKELY( total == 0 ) ) {
     printf( "%s%lu (%lu)", prefix, node->slot, node->weight );
-  } else if( FD_UNLIKELY( pct < 0.99 ) ) {
-    printf( "%s%lu (%.0lf%%, %lu)", prefix, node->slot, pct, node->weight );
   } else {
-    printf( "%s%lu (%.0lf%%)", prefix, node->slot, pct );
+    double pct = ( (double)node->weight / (double)total ) * 100;
+    if( FD_UNLIKELY( pct < 0.99 )) {
+      printf( "%s%lu (%.0lf%%, %lu)", prefix, node->slot, pct, node->weight );
+    } else {
+      printf( "%s%lu (%.0lf%%)", prefix, node->slot, pct );
+    }
   }
 
   fd_ghost_node_t * curr = node->child;

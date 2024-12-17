@@ -145,9 +145,9 @@ wu_insert_variable( wu_t a, int n, uint v ) {
 /* Binary operations */
 
 /* Note: wu_shl/wu_shr is an unsigned left/right shift by imm bits; imm
-   must be a compile time constant in 0:63.  The variable variants are
+   must be a compile time constant in [0,31].  The variable variants are
    slower but do not require the shift amount to be known at compile
-   time (should still be in 0:63). */
+   time (should still be in [0,31]). */
 
 #define wu_not(a) _mm256_xor_si256( _mm256_set1_epi32( -1 ), (a) ) /* [ ~a0 ~a1 ... ~a7 ] */
 

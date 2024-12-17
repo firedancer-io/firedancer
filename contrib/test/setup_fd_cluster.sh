@@ -2,7 +2,7 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
-PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1)
+PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1 | head -n 1)
 RPC_URL="http://$PRIMARY_IP:8899/"
 AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 
@@ -67,8 +67,8 @@ fetch_program memo  1.0.0 Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo BPFLoader1
 fetch_program memo  3.0.0 MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr BPFLoader2111111111111111111111111111111111
 fetch_program associated-token-account 1.1.2 ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL BPFLoader2111111111111111111111111111111111
 fetch_program feature-proposal 1.0.0 Feat1YXHhH6t1juaWF74WLcfv4XoNocjXA6sPWHNgAse BPFLoader2111111111111111111111111111111111
-solana program dump GigabithNd6HmU4nRFPHXAkBK9nAtvNuHnSavWi3G7Zj -ut nanotoken.so
-genesis_args+=(--upgradeable-program NanoToken1111111111111111111111111111111111 BPFLoaderUpgradeab1e11111111111111111111111 nanotoken.so none)
+# $AGAVE_PATH/solana program dump GigabithNd6HmU4nRFPHXAkBK9nAtvNuHnSavWi3G7Zj -ut nanotoken.so
+# genesis_args+=(--upgradeable-program NanoToken1111111111111111111111111111111111 BPFLoaderUpgradeab1e11111111111111111111111 nanotoken.so none)
 
 echo "${genesis_args[@]}"
 
@@ -82,6 +82,7 @@ GENESIS_OUTPUT=$($AGAVE_PATH/solana-genesis \
     --bootstrap-validator-stake-lamports 1000000000000000 \
     --faucet-pubkey test-ledger/faucet-keypair.json --faucet-lamports 1000000000000000000 \
     --slots-per-epoch 200 \
+    --enable-warmup-epochs \
     --hashes-per-tick 1024 \
     --ticks-per-slot 64 \
     ${genesis_args[@]})

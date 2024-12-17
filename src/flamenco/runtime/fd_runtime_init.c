@@ -3,6 +3,7 @@
 #include "../types/fd_types.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
 /* This file must not depend on fd_executor.h */
 
@@ -222,7 +223,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
                     (long)slot_ctx->slot_bank.slot,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ),
-                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.lthash.lthash ) ));
+                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ) ));
 
     slot_ctx->slot_bank.collected_execution_fees = 0;
     slot_ctx->slot_bank.collected_priority_fees = 0;

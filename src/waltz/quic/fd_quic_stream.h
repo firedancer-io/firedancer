@@ -4,8 +4,6 @@
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
 
-#define FD_QUIC_STREAM_ID_UNUSED (~0ul)
-
 /* Forward declarations */
 
 typedef struct fd_quic_conn       fd_quic_conn_t;

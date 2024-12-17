@@ -4,31 +4,28 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../fd_choreo_base.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
 
-/* fd_eqvoc presents an API for detecting and sending / receiving
-   "proofs" of equivocation.
+/* fd_eqvoc presents an API for detecting and sending / receiving proofs
+   of equivocation.
 
-   Equivocation is when the shred producer produces two or more versions
-   of a shred for the same (slot, idx). An equivocation proof comprises
-   a sample of two shreds that conflict in a way that imply the shreds'
-   producer equivocated.
+   APIs prefixed with `fd_eqvoc_proof` relate to constructing and
+   verifying equivocation proofs from shreds.
 
-   The proof can be both direct and indirect (implied). A direct proof
-   is simpler: the proof is generated when you observe two versions of
-   the same shred, ie. two shreds that have the same slot and shred_idx
-   but a different data payload. Indirect
+   APIs prefixed with `fd_eqvoc_fec` relate to shred and FEC set
+   metadata indexing to detect equivocating shreds.
 
-   The following lists the equivocation cases:
+   Equivocation is when a shred producer produces two or more versions
+   of a shred for the same (slot, idx).  An equivocation proof comprises
+   two shreds that conflict in a way that imply the shreds' producer
+   equivocated.
 
-   1. Two shreds with the same slot and idx but different data payloads.
-   2. Two shreds in the same FEC set have different merkle roots.
-   3. Two shreds in the same FEC set with different metadata ie.
-      code_cnt, data_cnt, last_idx.
-   4. Two shreds in the same FEC set that are both data shreds, where
-      one is marked as the last data shred in the slot, but the other
-      shred has a higher data shred index than that.
-   3. Two shreds in different FEC sets and the FEC sets are overlapping
-      ie. the same shred idx appears in both FEC sets.
+   The proof can be both direct and indirect (implied).  A direct proof,
+   for example, contains two shreds with the same shred index but
+   different data payloads.  An indirect proof contains two shreds with
+   different shred indices, and the metadata on the shreds implies there
+   must be two or more versions of a block for that slot.  See
+   `fd_eqvoc_proof_verify` for more details.
 
    Every FEC set must have the same signature for every shred in the
    set, so a different signature would indicate equivocation.  Note in
@@ -43,94 +40,150 @@
 #define FD_EQVOC_USE_HANDHOLDING 1
 #endif
 
-#define FD_EQVOC_MAX     ( 1UL << 10 )
 #define FD_EQVOC_FEC_MAX ( 67UL )
 
-/* This is the standard IPv6 MTU - IP / UDP headers - DuplicateShred application headers
-   https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/cluster_info.rs#L113 */
-#define FD_EQVOC_CHUNK_MAX ( 1232UL - 115UL )
-
-/* The chunk_cnt is encoded in a UCHAR_MAX, so you can have at most UCHAR_MAX chunkskj */
-#define FD_EQVOC_CHUNK_MIN ( FD_SHRED_MAX_SZ * 2 / UCHAR_MAX + 1 )
-
-struct fd_eqvoc_chunk {
-  fd_slot_pubkey_t            key;
-  ulong                       next;
-  fd_gossip_duplicate_shred_t duplicate_shred;
-};
-typedef struct fd_eqvoc_chunk fd_eqvoc_chunk_t;
-
-#define POOL_NAME fd_eqvoc_chunk_pool
-#define POOL_T    fd_eqvoc_chunk_t
-#include "../../util/tmpl/fd_pool.c"
-
-/* clang-format off */
-#define MAP_NAME               fd_eqvoc_chunk_map
-#define MAP_ELE_T              fd_eqvoc_chunk_t
-#define MAP_KEY_T              fd_slot_pubkey_t
-#define MAP_KEY_EQ(k0,k1)      (FD_SLOT_PUBKEY_EQ(k0,k1))
-#define MAP_KEY_HASH(key,seed) (FD_SLOT_PUBKEY_HASH(key,seed))
-#include "../../util/tmpl/fd_map_chain.c"
-
-
-struct fd_eqvoc_key {
+struct fd_slot_fec {
   ulong slot;
   uint  fec_set_idx;
 };
-typedef struct fd_eqvoc_key fd_eqvoc_key_t;
+typedef struct fd_slot_fec fd_slot_fec_t;
 
 /* clang-format off */
-static const fd_eqvoc_key_t     fd_eqvoc_key_null = { 0 };
-#define FD_EQVOC_KEY_NULL       fd_eqvoc_key_null
-#define FD_EQVOC_KEY_INVAL(key) (!((key).slot) & !((key).fec_set_idx))
-#define FD_EQVOC_KEY_EQ(k0,k1)  (!(((k0).slot) ^ ((k1).slot))) & !(((k0).fec_set_idx) ^ (((k1).fec_set_idx)))
-#define FD_EQVOC_KEY_HASH(key)  ((uint)(((key).slot)<<15UL) | (((key).fec_set_idx)))
+static const fd_slot_fec_t     fd_slot_fec_null = { 0 };
+#define FD_SLOT_FEC_NULL       fd_slot_fec_null
+#define FD_SLOT_FEC_INVAL(key) (!((key).slot) & !((key).fec_set_idx))
+#define FD_SLOT_FEC_EQ(k0,k1)  (!(((k0).slot) ^ ((k1).slot))) & !(((k0).fec_set_idx) ^ (((k1).fec_set_idx)))
+#define FD_SLOT_FEC_HASH(key)  ((uint)(((key).slot)<<15UL) | (((key).fec_set_idx)))
 /* clang-format on */
 
-struct fd_eqvoc_entry {
-  fd_eqvoc_key_t   key;
+struct fd_eqvoc_fec {
+  fd_slot_fec_t    key;
   ulong            next;
   ulong            code_cnt;
   ulong            data_cnt;
   uint             last_idx;
   fd_ed25519_sig_t sig;
 };
-typedef struct fd_eqvoc_entry fd_eqvoc_entry_t;
+typedef struct fd_eqvoc_fec fd_eqvoc_fec_t;
 
-#define POOL_NAME fd_eqvoc_pool
-#define POOL_T    fd_eqvoc_entry_t
+#define POOL_NAME fd_eqvoc_fec_pool
+#define POOL_T    fd_eqvoc_fec_t
 #include "../../util/tmpl/fd_pool.c"
 
 /* clang-format off */
-#define MAP_NAME               fd_eqvoc_map
-#define MAP_ELE_T              fd_eqvoc_entry_t
-#define MAP_KEY_T              fd_eqvoc_key_t
-#define MAP_KEY_EQ(k0,k1)      (FD_EQVOC_KEY_EQ(*k0,*k1))
-#define MAP_KEY_HASH(key,seed) (FD_EQVOC_KEY_HASH(*key)^seed)
+#define MAP_NAME               fd_eqvoc_fec_map
+#define MAP_ELE_T              fd_eqvoc_fec_t
+#define MAP_KEY_T              fd_slot_fec_t
+#define MAP_KEY_EQ(k0,k1)      (FD_SLOT_FEC_EQ(*k0,*k1))
+#define MAP_KEY_HASH(key,seed) (FD_SLOT_FEC_HASH(*key)^seed)
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
-typedef int (*fd_eqvoc_sig_verify_fn)( void * arg, fd_shred_t * shred ); 
+#define FD_EQVOC_PROOF_MAX ( 2*FD_SHRED_MAX_SZ + 2*sizeof(ulong) ) /* 2 shreds prefixed with sz */
+
+/* This is the standard MTU
+
+   IPv6 MTU - IP / UDP headers = 1232
+   DuplicateShredMaxPayloadSize = 1232 - 115
+   DuplicateShred headers = 63
+
+   https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/cluster_info.rs#L113 */
+#define FD_EQVOC_PROOF_CHUNK_MAX ( 1232UL - 115UL - 63UL )
+#define FD_EQVOC_PROOF_CHUNK_CNT ( ( FD_EQVOC_PROOF_MAX / FD_EQVOC_PROOF_CHUNK_MAX ) + 1 ) /* 3 */
+
+/* The chunk_cnt is encoded in a UCHAR_MAX, so you can have at most
+   UCHAR_MAX chunks */
+#define FD_EQVOC_PROOF_CHUNK_MIN ( ( FD_EQVOC_PROOF_MAX / UCHAR_MAX ) + 1 ) /* 20 */
+
+#define FD_EQVOC_PROOF_VERIFY_FAILURE           (0)
+#define FD_EQVOC_PROOF_VERIFY_SUCCESS_SIGNATURE (1)
+#define FD_EQVOC_PROOF_VERIFY_SUCCESS_META      (2)
+#define FD_EQVOC_PROOF_VERIFY_SUCCESS_LAST      (3)
+#define FD_EQVOC_PROOF_VERIFY_SUCCESS_OVERLAP   (4)
+#define FD_EQVOC_PROOF_VERIFY_SUCCESS_CHAINED   (5)
+
+#define FD_EQVOC_PROOF_VERIFY_ERR_SLOT      (-1) /* different slot */
+#define FD_EQVOC_PROOF_VERIFY_ERR_VERSION   (-2) /* different shred version */
+#define FD_EQVOC_PROOF_VERIFY_ERR_TYPE      (-3) /* wrong shred type (must be chained {resigned} merkle) */
+#define FD_EQVOC_PROOF_VERIFY_ERR_MERKLE    (-4) /* merkle root failed */
+#define FD_EQVOC_PROOF_VERIFY_ERR_SIGNATURE (-5) /* sig verify of shred producer failed */
+
+#define SET_NAME fd_eqvoc_proof_set
+#define SET_MAX  256
+#include "../../util/tmpl/fd_set.c"
+
+struct fd_eqvoc_proof {
+  fd_slot_pubkey_t     key;
+  ulong                prev; /* reserved for data structure use */
+  ulong                next; /* reserved for data structure use*/
+
+  fd_pubkey_t         producer;   /* producer of shreds' pubkey */
+  void *              bmtree_mem; /* scratch space for reconstructing
+                                     the merkle root */
+  ulong               wallclock;  /* `wallclock` */
+  ulong               chunk_cnt;  /* `num_chunks` */
+  ulong               chunk_sz;   /* `chunk_len` */
+
+  /* static declaration of an fd_set that occupies 4 words ie. 256 bits
+     that tracks which proof chunks have been received. */
+
+  fd_eqvoc_proof_set_t set[UCHAR_MAX / sizeof( ulong )];
+
+  /* DuplicateShred messages are serialized in the following format:
+
+     ---------
+     shred1_sz
+     ---------
+     shred1
+     ---------
+     shred2_sz
+     ---------
+     shred2
+     ---------
+
+     Each shred is prepended with its size in bytes, before being
+     chunked.
+  */
+
+   uchar shreds[2 * FD_SHRED_MAX_SZ + 2 * sizeof(ulong)];
+};
+typedef struct fd_eqvoc_proof fd_eqvoc_proof_t;
+
+#define POOL_NAME fd_eqvoc_proof_pool
+#define POOL_T    fd_eqvoc_proof_t
+#include "../../util/tmpl/fd_pool.c"
+
+/* clang-format off */
+#define MAP_NAME               fd_eqvoc_proof_map
+#define MAP_ELE_T              fd_eqvoc_proof_t
+#define MAP_KEY_T              fd_slot_pubkey_t
+#define MAP_KEY_EQ(k0,k1)      (FD_SLOT_PUBKEY_EQ(k0,k1))
+#define MAP_KEY_HASH(key,seed) (FD_SLOT_PUBKEY_HASH(key,seed))
+#include "../../util/tmpl/fd_map_chain.c"
+/* clang-format on */
 
 struct fd_eqvoc {
 
   /* primitives */
 
-  ulong min_slot;      /* min slot we're currently indexing. */
-  ulong key_max;       /* max # of FEC sets we can index. */
+  fd_pubkey_t me; /* our pubkey */
+  ulong fec_max;
+  ulong proof_max;
   ulong shred_version; /* shred version we expect in all shreds in eqvoc-related msgs. */
 
   /* owned */
 
-  fd_eqvoc_map_t *   map;
-  fd_eqvoc_entry_t * pool;
-  fd_sha512_t *      sha512;
-  void *             bmtree_mem;
+  fd_eqvoc_fec_t *       fec_pool;
+  fd_eqvoc_fec_map_t *   fec_map;
+  // fd_eqvoc_fec_dlist_t * fec_dlist;
+  fd_eqvoc_proof_t *     proof_pool;
+  fd_eqvoc_proof_map_t * proof_map;
+  fd_sha512_t *          sha512;
+  void *                 bmtree_mem;
 
   /* borrowed  */
-  fd_epoch_leaders_t const * leaders;
 
-  fd_eqvoc_sig_verify_fn sig_verify_fn; 
+  fd_epoch_leaders_t const * leaders;
 };
 typedef struct fd_eqvoc fd_eqvoc_t;
 
@@ -146,7 +199,7 @@ fd_eqvoc_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_eqvoc_footprint( ulong key_max ) {
+fd_eqvoc_footprint( ulong fec_max, ulong proof_max ) {
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -154,13 +207,15 @@ fd_eqvoc_footprint( ulong key_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_eqvoc_t),      sizeof(fd_eqvoc_t) ),
-      fd_eqvoc_pool_align(),    fd_eqvoc_pool_footprint( key_max ) ),
-      fd_eqvoc_map_align(),     fd_eqvoc_map_footprint( FD_EQVOC_MAX ) ),
-      fd_sha512_align(),        fd_sha512_footprint() ),
-      fd_bmtree_commit_align(), fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) ),
-      fd_eqvoc_map_align(),     fd_eqvoc_map_footprint( FD_EQVOC_MAX ) ),
+      alignof(fd_eqvoc_t),         sizeof(fd_eqvoc_t) ),
+      fd_eqvoc_fec_pool_align(),   fd_eqvoc_fec_pool_footprint( fec_max ) ),
+      fd_eqvoc_fec_map_align(),    fd_eqvoc_fec_map_footprint( fec_max ) ),
+      fd_eqvoc_proof_pool_align(), fd_eqvoc_proof_pool_footprint( proof_max ) ),
+      fd_eqvoc_proof_map_align(),  fd_eqvoc_proof_map_footprint( proof_max ) ),
+      fd_sha512_align(),           fd_sha512_footprint() ),
+      fd_bmtree_commit_align(),    fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) ),
    fd_eqvoc_align() );
 }
 /* clang-format on */
@@ -170,7 +225,7 @@ fd_eqvoc_footprint( ulong key_max ) {
    with the required footprint and alignment. */
 
 void *
-fd_eqvoc_new( void * shmem, ulong key_max, ulong seed );
+fd_eqvoc_new( void * shmem, ulong fec_max, ulong proof_max, ulong seed );
 
 /* fd_eqvoc_join joins the caller to the eqvoc.  eqvoc points to the
    first byte of the memory region backing the eqvoc in the caller's
@@ -198,28 +253,32 @@ fd_eqvoc_leave( fd_eqvoc_t const * eqvoc );
 void *
 fd_eqvoc_delete( void * sheqvoc );
 
-/* fd_eqvoc_insert inserts `shred` into eqvoc, indexing it by (slot,
-   fec_set_idx).  If `shred` is a coding shred, it populates entry's
-   metadata fields. */
+/* fd_eqvoc_init initializes eqvoc with the expected shred version. */
 
 void
-fd_eqvoc_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred );
+fd_eqvoc_init( fd_eqvoc_t * eqvoc, ulong shred_version );
 
-/* fd_eqvoc_query queries for FEC set metadata on (slot, fec_set_idx).
-   At least one coding shred most be inserted to populate code_cnt,
-   data_cnt, and the last data shred in the slot to populate last_idx.
-   Otherwise fields are defaulted to 0, 0, FD_SHRED_IDX_NULL
+/* fd_eqvoc_fec_query queries for FEC set metadata on (slot,
+   fec_set_idx).  At least one coding shred most be inserted to populate
+   code_cnt, data_cnt, and the last data shred in the slot to populate
+   last_idx.  Otherwise fields are defaulted to 0, 0, FD_SHRED_IDX_NULL
    respectively.  Callers should check whether fields are the default
    values before using them. */
 
-FD_FN_CONST static inline fd_eqvoc_entry_t const *
-fd_eqvoc_query( fd_eqvoc_t const * eqvoc, ulong slot, uint fec_set_idx ) {
-  fd_eqvoc_key_t key = { slot, fec_set_idx };
-  return fd_eqvoc_map_ele_query_const( eqvoc->map, &key, NULL, eqvoc->pool );
+FD_FN_PURE static inline fd_eqvoc_fec_t const *
+fd_eqvoc_fec_query( fd_eqvoc_t const * eqvoc, ulong slot, uint fec_set_idx ) {
+  fd_slot_fec_t key = { slot, fec_set_idx };
+  return fd_eqvoc_fec_map_ele_query_const( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool );
 }
 
-/* fd_eqvoc_search searches for whether `shred` implies equivocation by
-   checking for a conflict in the currently indexed FEC sets. Returns
+/* fd_eqvoc_fec_insert inserts a new FEC entry into eqvoc, indexed by
+   (slot, fec_set_idx). */
+
+fd_eqvoc_fec_t *
+fd_eqvoc_fec_insert( fd_eqvoc_t * eqvoc, ulong slot, uint fec_set_idx );
+
+/* fd_eqvoc_fec_search searches for whether `shred` implies equivocation
+   by checking for a conflict in the currently indexed FEC sets. Returns
    the conflicting entry if there is one, NULL otherwise.
 
    A FEC set "overlaps" with another if they both contain a data shred
@@ -242,24 +301,152 @@ fd_eqvoc_query( fd_eqvoc_t const * eqvoc, ulong slot, uint fec_set_idx ) {
    set.  Similarly, we look forward at most data_cnt idxs to find the
    next FEC set. */
 
-fd_eqvoc_entry_t const *
-fd_eqvoc_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred );
+fd_eqvoc_fec_t const *
+fd_eqvoc_fec_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred );
 
-/* fd_eqvoc_test tests whether shred1 and shred2 present a valid
-   equivocation proof.  See the header at the top of the file for an
-   explanation and enumeration of the equivocation cases.
+/* fd_eqvoc_proof_query queries for the proof at (slot, from). */
 
-   To prevent false positives, this function checks equivocation proofs
-   contain the following:
+FD_FN_PURE static inline fd_eqvoc_proof_t *
+fd_eqvoc_proof_query( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from ) {
+  fd_slot_pubkey_t key = { slot, *from };
+  return fd_eqvoc_proof_map_ele_query( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool );
+}
 
-   1. shred1 and shred2 are for the same slot
-   2. shred1 and shred2 are the expected shred_version
-   3. shred1 and shred2 contain valid signatures by the current leader
-   4. shred1 and shred2 are the same shred type
- */
+/* fd_eqvoc_proof_query_const is the const version of the above. */
+
+FD_FN_PURE static inline fd_eqvoc_proof_t const *
+fd_eqvoc_proof_query_const( fd_eqvoc_t const * eqvoc, ulong slot, fd_pubkey_t const * from ) {
+  fd_slot_pubkey_t key = { slot, *from };
+  return fd_eqvoc_proof_map_ele_query_const( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool );
+}
+
+/* fd_eqvoc_proof_insert inserts a proof entry into eqvoc, keyed by
+   (slot, from) where from is the pubkey that generated the proof. */
+
+fd_eqvoc_proof_t *
+fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from );
+
+void
+fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, ulong wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem );
+
+/* fd_eqvoc_proof_chunk_insert inserts a proof chunk into the proof.
+   Proofs are divided into chunks before they are transmitted via
+   gossip, so this function is necessary for reconstruction. */
+
+void
+fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t const * chunk );
+
+/* fd_eqvoc_shreds_chunk_insert is a lower-level API for the above. */
+
+void
+fd_eqvoc_shreds_chunk_insert( fd_shred_t * shred1, fd_shred_t * shred2, fd_gossip_duplicate_shred_t const * chunk );
+
+/* fd_eqvoc_proof_remove removes the proof entry associated with key. */
+
+void
+fd_eqvoc_proof_remove( fd_eqvoc_t * eqvoc, fd_slot_pubkey_t const * key );
+
+/* fd_eqvoc_proof_complete checks whether the proof has received all
+   chunks ie. is complete.  Returns 1 if so, 0 otherwise. */
+
+static inline int
+fd_eqvoc_proof_complete( fd_eqvoc_proof_t const * proof ) {
+  for( uchar i = 0; i < proof->chunk_cnt; i++ ) {
+    if( !fd_eqvoc_proof_set_test( proof->set, i ) ) return 0;
+  }
+  return 1;
+}
+
+/* fd_eqvoc_proof_verify verifies that the two shreds contained in
+   `proof` do in fact equivocate.
+
+   Returns: FD_EQVOC_VERIFY_FAILURE if they do not
+     FD_EQVOC_VERIFY_SUCCESS_{REASON} if they do
+     FD_EQVOC_VERIFY_ERR_{REASON} if the shreds were not valid inputs
+
+   Two shreds equivocate if they satisfy any of the following:
+
+   1. They are in the same FEC set but have different signatures.
+   2. They are in the same FEC set and are both coding shreds, but have
+      different coding metadata ie. code_cnt, data_cnt, first_code_idx.
+   3. They are in the same FEC set and are both data shreds.  One shred
+      is marked as the last data shred in the slot
+      (FD_SHRED_DATA_FLAG_SLOT_COMPLETE), but the other shred has a
+      higher data shred index.
+   4. They are in different FEC sets and the shred with a lower FEC set
+      index is a coding shred, whereas the shred with the higher FEC set
+      index is either a coding or data shred.  The lower coding shred's
+      `data_cnt` implies the lower FEC set intersects with the higher
+      FEC set ie. the FEC sets are overlapping.
+   5. They are in different FEC sets and the shred with a lower FEC set
+      index is a coding shred, and the FEC sets are adjacent ie. the
+      last data shred index in the lower FEC set is one less than the
+      first data shred index in the higher FEC set.  The merkle root of
+      the lower FEC set is different from the chained merkle root of the
+      higher FEC set.
+
+   Note: two shreds are in the same FEC set if they have the same slot
+   and same FEC set index.
+
+   To prevent false positives, this function also performs the following
+   input validation on the shreds:
+
+   1. shred1 and shred2 are both the expected shred_version.
+   2. shred1 and shred2 are for the same slot.
+   3. shred1 and shred2 are either chained merkle or chained resigned
+      merkle variants.
+   4. shred1 and shred2 contain valid signatures signed by the same
+      producer pubkey.
+
+   If any of the above input validation fail, this function returns
+   FD_EQVOC_VERIFY_ERR_{REASON} for the appropriate reason. */
 
 int
-fd_eqvoc_test( fd_eqvoc_t const * eqvoc, fd_shred_t * shred1, fd_shred_t * shred2 );
+fd_eqvoc_proof_verify( fd_eqvoc_proof_t const * proof );
+
+/* fd_eqvoc_proof_shreds_verify is a lower-level API for
+   fd_eqvoc_proof_verify.  Refer above for documentation.  */
+
+int
+fd_eqvoc_shreds_verify( fd_shred_t const * shred1, fd_shred_t const * shred2, fd_pubkey_t const * producer, void * bmtree_mem );
+
+/* fd_eqvoc_proof_shred1 returns a pointer to shred1 in `proof`. */
+
+static inline fd_shred_t *
+fd_eqvoc_proof_shred1( fd_eqvoc_proof_t * proof ) {
+  return (fd_shred_t *)fd_type_pun_const( proof->shreds + sizeof(ulong) );
+}
+
+/* fd_eqvoc_proof_shred1_const returns a const pointer to shred1 in
+   `proof`. */
+
+static inline fd_shred_t const *
+fd_eqvoc_proof_shred1_const( fd_eqvoc_proof_t const * proof ) {
+  return (fd_shred_t const *)fd_type_pun_const( proof->shreds + sizeof(ulong) );
+}
+
+/* fd_eqvoc_proof_shred2 returns a pointer to shred2 in `proof`. */
+
+static inline fd_shred_t *
+fd_eqvoc_proof_shred2( fd_eqvoc_proof_t * proof ) {
+  ulong shred1_sz = *(ulong *)fd_type_pun( proof->shreds );
+  return (fd_shred_t *)fd_type_pun( proof->shreds + shred1_sz + 2*sizeof(ulong) );
+}
+
+/* fd_eqvoc_proof_shred2_const returns a const pointer to shred2 in `proof`. */
+
+static inline fd_shred_t const *
+fd_eqvoc_proof_shred2_const( fd_eqvoc_proof_t const * proof ) {
+  ulong shred1_sz = *(ulong const *)fd_type_pun_const( proof->shreds );
+  return (fd_shred_t const *)fd_type_pun_const( proof->shreds + shred1_sz + 2*sizeof(ulong) );
+}
+
+/* fd_eqvoc_verify verifies `slot` has FEC sets with merkle roots that
+   correctly chain, including that the first FEC set in slot's merkle
+   hash chains from the last FEC set in parent slot's merkle hash. */
+
+int
+fd_eqvoc_slot_verify( fd_eqvoc_t const * eqvoc, fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_eqvoc_from_chunks reconstructs shred1_out and shred2_out from
    `chunks` which is an array of "duplicate shred" gossip msgs. Shred1
@@ -278,27 +465,28 @@ fd_eqvoc_test( fd_eqvoc_t const * eqvoc, fd_shred_t * shred1, fd_shred_t * shred
    Behavior is undefined otherwise.
 
    Does additional sanity-check validation eg. checking chunk_len <=
-   FD_EQVOC_CHUNK_MAX. */
+   FD_eqvoc_proof_MAX.
+
+   This function is expected to be deprecated once chunks are specified
+   to be fixed-length in the gossip protocol. */
 
 void
-fd_eqvoc_from_chunks( fd_eqvoc_t const *            eqvoc,
-                      fd_gossip_duplicate_shred_t * chunks,
-                      fd_shred_t *                  shred1_out,
-                      fd_shred_t *                  shred2_out );
+fd_eqvoc_proof_from_chunks( fd_gossip_duplicate_shred_t const * chunks,
+                            fd_eqvoc_proof_t * proof_out );
 
 /* fd_eqvoc_to_chunks constructs an array of DuplicateShred gossip msgs
    (`chunks_out`) from shred1 and shred2.
 
-   Shred1 and shred2 are concatenated (this concatenation is virtual in
-   the implementation) and then spliced into chunks of `chunk_len` size.
-   These chunks are embedded in the body of each DuplicateShred msg,
-   along with a common header across all msgs.
+   Shred1 and shred2 are concatenated (the concatenation is implemented
+   virtually) and then spliced into chunks of FD_EQVOC_PROOF_CHUNK_MAX
+   size. These chunks are embedded in the body of each DuplicateShred
+   msg, along with a common header across all msgs.
 
    Caller supplies `chunks_out`, which is an array that MUST contain
-   `ceil(shred1_payload_sz + shred2_payload_sz / chunk_len)` elements.
-   Each chunk in `chunks_out` MUST have a buffer of at least `chunk_len`
-   size available in its `chunk` pointer field.  Behavior is undefined
-   otherwise.
+   `ceil(shred1_payload_sz + shred2_payload_sz /
+   FD_EQVOC_PROOF_CHUNK_MAX)` elements.  Each chunk in `chunks_out` MUST
+   have a buffer of at least `chunk_len` size available in its `chunk`
+   pointer field.  Behavior is undefined otherwise.
 
    IMPORTANT SAFETY TIP!  The lifetime of each chunk in `chunks_out`
    must be at least as long as the lifetime of the array of
@@ -306,10 +494,6 @@ fd_eqvoc_from_chunks( fd_eqvoc_t const *            eqvoc,
    safety guarantee. */
 
 void
-fd_eqvoc_to_chunks( fd_eqvoc_t const *            eqvoc,
-                    fd_shred_t const *            shred1,
-                    fd_shred_t const *            shred2,
-                    ulong                         chunk_len,
-                    fd_gossip_duplicate_shred_t * chunks_out );
+fd_eqvoc_proof_to_chunks( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t * chunks_out );
 
 #endif /* HEADER_fd_src_choreo_eqvoc_fd_eqvoc_h */

@@ -105,8 +105,9 @@ static action_t DEV_ACTIONS[] = {
   { .name = "txn",     .args = txn_cmd_args,     .fn = txn_cmd_fn,     .perm = txn_cmd_perm     },
   { .name = "bench",   .args = bench_cmd_args,   .fn = bench_cmd_fn,   .perm = bench_cmd_perm   },
   { .name = "load",    .args = load_cmd_args,    .fn = load_cmd_fn,    .perm = load_cmd_perm    },
-  { .name = "dump",    .args = dump_cmd_args,    .fn = dump_cmd_fn,    .perm = NULL             },
-  { .name = "flame",   .args = flame_cmd_args,   .fn = flame_cmd_fn,   .perm = flame_cmd_perm   },
+  { .name = "dump",    .args = dump_cmd_args,    .fn = dump_cmd_fn,    .perm = NULL,           .is_diagnostic=1 },
+  { .name = "flame",   .args = flame_cmd_args,   .fn = flame_cmd_fn,   .perm = flame_cmd_perm, .is_diagnostic=1 },
+  { .name = "quic-trace", .args = quic_trace_cmd_args, .fn = quic_trace_cmd_fn, .perm = NULL, .is_diagnostic=1 },
 };
 
 extern char fd_log_private_path[ 1024 ];
@@ -196,7 +197,7 @@ fddev_main( int     argc,
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
 
-  int is_allowed_live = !strcmp( action->name, "flame" ) || !strcmp( action->name, "dump" );
+  int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "

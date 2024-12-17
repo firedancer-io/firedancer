@@ -1,0 +1,62 @@
+name: "CodeQL Nightly Analysis"
+
+on:
+    workflow_call:
+    workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze (${{matrix.language}})
+    runs-on: 1T
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - language: c-cpp
+          build-mode: manual
+          compiler: clang
+          machine: linux_clang_x86_64
+          compiler-version: 15.0.6
+          extras: rpath no-agave
+    env:
+      MACHINE: ${{ matrix.machine }}
+      EXTRAS: ${{ matrix.extras || '' }}
+      CC: ${{ matrix.compiler }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/deps
+        with:
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+      - uses: dtolnay/rust-toolchain@1.73.0
+      - name: clean targets
+        run: |
+          make clean --silent >/dev/null
+      - uses: ./.github/actions/submodule
+        with:
+          machine: ${{ matrix.machine }}
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+        if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: ./contrib/codeql/
+          config: |
+              disable-default-queries: true
+      - if: matrix.build-mode == 'manual'
+        shell: bash
+        run: |
+          make -j fddev
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+          upload: 'always'
+

@@ -160,7 +160,8 @@ stake account.
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
 void
 refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                       fd_stake_history_t const * history ) {
+                       fd_stake_history_t const * history,
+                       ulong *                    new_rate_activation_epoch ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
@@ -171,7 +172,6 @@ refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     void * mem = fd_scratch_alloc( fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint(maplen));
     fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join(fd_stake_weight_t_map_new(mem, maplen));
     fd_stake_weight_t_mapnode_t * root = NULL;
-    ulong * new_rate_activation_epoch = NULL;
 
     // Iterate over each stake delegation and accumulate the stake amount associated with the given vote account.
     for (
@@ -276,7 +276,8 @@ refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx) {
+fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
+                          ulong *               new_rate_activation_epoch ) {
   
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
@@ -298,7 +299,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx) {
   fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(slot_ctx->valloc, 10000);
   fd_stake_weight_t_mapnode_t * root = NULL;
 
-  ulong * new_rate_activation_epoch = NULL;
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     FD_BORROWED_ACCOUNT_DECL(acc);
     int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.account, acc);

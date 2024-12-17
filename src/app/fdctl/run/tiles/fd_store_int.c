@@ -36,7 +36,6 @@
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 
 #define STAKE_IN_IDX    0
 #define REPAIR_IN_IDX   1
@@ -82,10 +81,11 @@ struct fd_store_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
 
-  fd_pubkey_t          identity_key[1]; /* Just the public key */
+  fd_pubkey_t identity_key[1]; /* Just the public key */
 
-  fd_store_t * store;
+  fd_store_t *      store;
   fd_blockstore_t * blockstore;
+  int               blockstore_fd; /* file descriptor for archival file */
 
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
@@ -142,6 +142,7 @@ struct fd_store_tile_ctx {
   fd_txn_iter_t * txn_iter_map;
 
   int   in_wen_restart;
+  ulong restart_funk_root;
   ulong restart_heaviest_fork_slot;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
@@ -201,16 +202,17 @@ during_frag( fd_store_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX && ctx->in_wen_restart ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>sizeof(ulong) ) ) {
+    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>sizeof(ulong)*2 ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
     }
 
-    FD_TEST( sz==sizeof(ulong) );
+    FD_TEST( sz==sizeof(ulong)*2 );
     if( FD_UNLIKELY( ctx->restart_heaviest_fork_slot!=0 ) ) {
       FD_LOG_ERR(( "Store tile should only receive heaviest_fork_slot once during wen-restart. Something may have corrupted." ));
     }
     const uchar * buf               = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
     ctx->restart_heaviest_fork_slot = FD_LOAD( ulong, buf );
+    ctx->restart_funk_root          = FD_LOAD( ulong, buf+sizeof(ulong) );
 
     return;
   }
@@ -232,13 +234,11 @@ after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 in_idx,
             ulong                 seq,
             ulong                 sig,
-            ulong                 chunk,
             ulong                 sz,
             ulong                 tsorig,
             fd_stem_context_t *   stem ) {
   (void)seq;
   (void)sig;
-  (void)chunk;
   (void)sz;
   (void)tsorig;
   (void)stem;
@@ -272,7 +272,8 @@ after_frag( fd_store_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX && ctx->in_wen_restart ) ) {
-    FD_LOG_NOTICE(( "Store tile starts to repair backwards from slot%lu", ctx->restart_heaviest_fork_slot ));
+    FD_LOG_NOTICE(( "Store tile starts to repair backwards from slot%lu, which should be on the same fork as slot%lu",
+                    ctx->restart_heaviest_fork_slot, ctx->restart_funk_root ));
     fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
     return;
   }
@@ -431,10 +432,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                         slot,
                         caught_up ));
 
-        FD_MGAUGE_SET( REPLAY, SLOT, ctx->store->curr_turbine_slot );
-        FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
-        FD_MGAUGE_SET( REPLAY, BEHIND, behind );
-
         fd_raw_block_txn_iter_t iter;
         fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
         if( FD_LIKELY( query ) ) {
@@ -457,7 +454,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
           fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
           insert->iter = iter;
         } else {
-          FD_LOG_WARNING(("FINISHED BLOCK %lu", slot ));
           replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
         }
         FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), txn_cnt, block->shreds_cnt ));
@@ -521,10 +517,15 @@ after_credit( fd_store_tile_ctx_t * ctx,
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
 
-    if( FD_UNLIKELY( ctx->in_wen_restart &&
-                     i==ctx->restart_heaviest_fork_slot &&
-                     store_slot_prepare_mode!= FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED) ) {
-      fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+    if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
+      if( FD_UNLIKELY( slot<ctx->restart_funk_root ) ) {
+        FD_LOG_ERR(( "Halting wen-restart because the fork repaired from heaviest_fork_slot(%lu) to %lu is different from the fork for funk root(%lu)",
+                     ctx->restart_heaviest_fork_slot, slot, ctx->restart_funk_root ));
+      }
+      if( FD_UNLIKELY( i==ctx->restart_heaviest_fork_slot &&
+                       store_slot_prepare_mode!=FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED ) ) {
+        fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+      }
     }
   }
 }
@@ -541,11 +542,13 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_store_tile_ctx_t) );
 
   if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->blockstore_fd = open( tile->store_int.blockstore_file, O_RDONLY );
 }
 
 static void
@@ -595,6 +598,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* root_slot fseq                                                     */
   /**********************************************************************/
+
   ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
   ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
@@ -626,7 +630,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_NOTICE(( "finished blockstore_wksp restore %s", tile->store_int.blockstore_restore ));
     fd_wksp_tag_query_info_t info;
     ulong tag = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.wksp_tag", blockstore_obj_id );
-    if (fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0) {
+    if( FD_LIKELY( fd_wksp_tag_query( ctx->blockstore_wksp, &tag, 1, &info, 1 ) > 0 ) ) {
       void * blockstore_mem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
       ctx->blockstore       = fd_blockstore_join( blockstore_mem );
     } else {
@@ -640,6 +644,8 @@ unprivileged_init( fd_topo_t *      topo,
 
     ctx->blockstore = fd_blockstore_join( blockstore_shmem );
   }
+
+  FD_LOG_NOTICE(( "blockstore: %s", tile->store_int.blockstore_file ));
 
   FD_TEST( ctx->blockstore );
   ctx->store->blockstore = ctx->blockstore;
@@ -668,6 +674,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
 
   /* Set up ctx states for wen-restart */
+  ctx->restart_funk_root          = 0;
   ctx->restart_heaviest_fork_slot = 0;
   ctx->in_wen_restart             = tile->store_int.in_wen_restart;
 
@@ -763,7 +770,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_store_tile_ctx_t) );
+
+  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
   return sock_filter_policy_store_int_instr_cnt;
 }
 
@@ -772,15 +784,19 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_store_tile_ctx_t) );
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
-  out_fds[ out_cnt++ ] = 2; /* stderr */
+  out_fds[ out_cnt++ ] = STDERR_FILENO;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
   return out_cnt;
 }
 

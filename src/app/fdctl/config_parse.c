@@ -291,9 +291,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ushort, tiles.quic.quic_transaction_listen_port          );
   CFG_POP      ( uint,   tiles.quic.txn_reassembly_count                  );
   CFG_POP      ( uint,   tiles.quic.max_concurrent_connections            );
-  CFG_POP      ( uint,   tiles.quic.max_concurrent_streams_per_connection );
   CFG_POP      ( uint,   tiles.quic.max_concurrent_handshakes             );
-  CFG_POP      ( uint,   tiles.quic.max_inflight_quic_packets             );
   CFG_POP      ( uint,   tiles.quic.idle_timeout_millis                   );
   CFG_POP      ( uint,   tiles.quic.ack_delay_millis                      );
   CFG_POP      ( bool,   tiles.quic.retry                                 );
@@ -306,6 +304,8 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
+
+  CFG_POP      ( bool,   tiles.poh.lagged_consecutive_leader_start        );
 
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
@@ -350,17 +350,24 @@ fdctl_pod_to_cfg( config_t * config,
 
   /* Firedancer-only configuration */
 
+  CFG_POP      ( ulong,  blockstore.shred_max                             );
+  CFG_POP      ( ulong,  blockstore.block_max                             );
+  CFG_POP      ( ulong,  blockstore.idx_max                               );
+  CFG_POP      ( ulong,  blockstore.txn_max                               );
+  CFG_POP      ( ulong,  blockstore.alloc_max                             );
+  CFG_POP      ( cstr,   blockstore.file                                  );
+  CFG_POP      ( cstr,   blockstore.checkpt                               );
+  CFG_POP      ( cstr,   blockstore.restore                               );
+
+  CFG_POP      ( bool,   consensus.vote                                   );
+
   CFG_POP_ARRAY( cstr,   tiles.gossip.entrypoints                         );
   CFG_POP      ( ushort, tiles.gossip.gossip_listen_port                  );
   CFG_POP_ARRAY( ushort, tiles.gossip.peer_ports                          );
 
-  CFG_POP      ( bool,   consensus.vote                                   );
-
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
 
-  CFG_POP      ( cstr,   tiles.replay.blockstore_checkpt                  );
-  CFG_POP      ( bool,   tiles.replay.blockstore_publish                  );
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( ulong,  tiles.replay.funk_rec_max                        );
@@ -375,13 +382,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( bool,   tiles.replay.in_wen_restart                      );
+  CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
   CFG_POP      ( cstr,   tiles.replay.wen_restart_coordinator             );
 
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_shred_max             );
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_block_max              );
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_txn_max               );
-  CFG_POP      ( ulong,  tiles.store_int.blockstore_alloc_max             );
-  CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
@@ -450,10 +453,8 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
   CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );
   CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_connections );
-  CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_streams_per_connection );
   CFG_HAS_NON_ZERO( tiles.quic.txn_reassembly_count );
   CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_handshakes );
-  CFG_HAS_NON_ZERO( tiles.quic.max_inflight_quic_packets );
   CFG_HAS_NON_ZERO( tiles.quic.idle_timeout_millis );
 
   CFG_HAS_NON_ZERO( tiles.verify.signature_cache_size );

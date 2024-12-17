@@ -49,11 +49,18 @@
 #define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
 #define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
 
+/* Convenience macro for `fd_account_check_num_insn_accounts()` */
+#define CHECK_NUM_INSN_ACCS( _ctx, _expected ) do {                        \
+  if( FD_UNLIKELY( (_ctx)->instr->acct_cnt<(_expected) ) ) {               \
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                      \
+  }                                                                        \
+} while(0)
+
 FD_PROTOTYPES_BEGIN
 
 /* Instruction account APIs *******************************************/
 
-/* Assert that enougha ccounts were supplied to this instruction. Returns 
+/* Assert that enough ccounts were supplied to this instruction. Returns 
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and 
    FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
@@ -397,32 +404,6 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
     }
   }
   return -1;
-}
-
-/* Transaction account APIs *******************************************/
-
-/* https://github.com/anza-xyz/agave/blob/92ad51805862fbb47dc40968dff9f93b57395b51/sdk/program/src/message/legacy.rs#L636 */
-static inline int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
-  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
-  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
-    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
-  }
-
-  if( idx==acct_addr_cnt ) {
-    return 0;
-  }
-
-  if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) 
-      || ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
-    return 0;
-  }
-
-  if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
-    return 0;
-  }
-
-  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
 }
 
 FD_PROTOTYPES_END

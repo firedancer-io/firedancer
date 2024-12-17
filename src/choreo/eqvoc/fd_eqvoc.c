@@ -1,7 +1,8 @@
 #include "fd_eqvoc.h"
+#include "../../ballet/shred/fd_shred.h"
 
 void *
-fd_eqvoc_new( void * shmem, ulong key_max, ulong seed ) {
+fd_eqvoc_new( void * shmem, ulong fec_max, ulong proof_max, ulong seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -14,21 +15,24 @@ fd_eqvoc_new( void * shmem, ulong key_max, ulong seed ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),      sizeof(fd_eqvoc_t) );
-  void * pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_pool_align(),    fd_eqvoc_pool_footprint( key_max ) );
-  void * map         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_map_align(),     fd_eqvoc_map_footprint( key_max ) );
-  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),        fd_sha512_footprint() );
-  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(), fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
+  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),         sizeof(fd_eqvoc_t) );
+  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),   fd_eqvoc_fec_pool_footprint( fec_max ) );
+  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),    fd_eqvoc_fec_map_footprint( fec_max ) );
+  void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(), fd_eqvoc_proof_pool_footprint( proof_max ) );
+  void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),  fd_eqvoc_proof_map_footprint( proof_max ) );
+  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),           fd_sha512_footprint() );
+  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(),    fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_eqvoc_align() );
 
-  fd_eqvoc_pool_new( pool, key_max );
-  fd_eqvoc_map_new( map, key_max, seed );
-  fd_sha512_new( sha512 );
-  (void)bmtree_mem; /* does not require `new` */
-
-  eqvoc->min_slot      = FD_SLOT_NULL;
-  eqvoc->key_max       = key_max;
+  eqvoc->fec_max       = fec_max;
+  eqvoc->proof_max     = proof_max;
   eqvoc->shred_version = 0;
+  fd_eqvoc_fec_pool_new( fec_pool, fec_max );
+  fd_eqvoc_fec_map_new( fec_map, fec_max, seed );
+  fd_eqvoc_proof_pool_new( proof_pool, proof_max );
+  fd_eqvoc_proof_map_new( proof_map, proof_max, seed );
+  fd_sha512_new( sha512 );
+  (void)bmtree_mem; /* does not require new */
 
   return shmem;
 }
@@ -47,20 +51,23 @@ fd_eqvoc_join( void * sheqvoc ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, sheqvoc );
-  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),      sizeof(fd_eqvoc_t) );
-  void * pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_pool_align(),    fd_eqvoc_pool_footprint( eqvoc->key_max ) );
-  void * map         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_map_align(),     fd_eqvoc_map_footprint( eqvoc->key_max ) );
-  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),        fd_sha512_footprint() );
-  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(), fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
+  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),        sizeof(fd_eqvoc_t) );
+  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),  fd_eqvoc_fec_pool_footprint( eqvoc->fec_max ) );
+  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),   fd_eqvoc_fec_map_footprint( eqvoc->fec_max ) );
+  void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(), fd_eqvoc_proof_pool_footprint( eqvoc->proof_max ) );
+  void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),  fd_eqvoc_proof_map_footprint( eqvoc->proof_max ) );
+  void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),           fd_sha512_footprint() );
+  void * bmtree_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bmtree_commit_align(),    fd_bmtree_commit_footprint( FD_SHRED_MERKLE_LAYER_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_eqvoc_align() );
 
-  (void)eqvoc;      /* does not require `join` */
-  eqvoc->pool       = fd_eqvoc_pool_join( pool );
-  eqvoc->map        = fd_eqvoc_map_join( map );
+  eqvoc->fec_pool   = fd_eqvoc_fec_pool_join( fec_pool );
+  eqvoc->fec_map    = fd_eqvoc_fec_map_join( fec_map );
+  eqvoc->proof_pool = fd_eqvoc_proof_pool_join( proof_pool );
+  eqvoc->proof_map  = fd_eqvoc_proof_map_join( proof_map );
   eqvoc->sha512     = fd_sha512_join( sha512 );
-  eqvoc->bmtree_mem = bmtree_mem;
+  eqvoc->bmtree_mem = bmtree_mem; /* does not require join */
 
-  return eqvoc;
+  return (fd_eqvoc_t *)sheqvoc;
 }
 
 void *
@@ -91,36 +98,35 @@ fd_eqvoc_delete( void * eqvoc ) {
 }
 
 void
-fd_eqvoc_insert( fd_eqvoc_t * eqvoc, fd_shred_t const * shred ) {
-  fd_eqvoc_key_t     key   = { shred->slot, shred->fec_set_idx };
-  fd_eqvoc_entry_t * entry = fd_eqvoc_map_ele_query( eqvoc->map, &key, NULL, eqvoc->pool );
-  if( FD_UNLIKELY( !entry ) ) {
-  
-    /* TODO eviction logic */
-
-    entry                  = fd_eqvoc_pool_ele_acquire( eqvoc->pool );
-    entry->key.slot        = shred->slot;
-    entry->key.fec_set_idx = shred->fec_set_idx;
-    entry->code_cnt        = 0;
-    entry->data_cnt        = 0;
-    entry->last_idx        = FD_SHRED_IDX_NULL;
-    memcpy( entry->sig, shred->signature, FD_ED25519_SIG_SZ );
-  }
-
-  if( FD_LIKELY( fd_shred_is_code( fd_shred_type( shred->variant ) ) ) ) { /* optimize for coding shreds (code_cnt >= data_cnt) */
-    entry->code_cnt = shred->code.code_cnt;
-    entry->data_cnt = shred->code.data_cnt;
-  } else if( FD_UNLIKELY( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) {
-    entry->last_idx = shred->idx;
-  }
-
-  /* This cannot fail */
-  fd_eqvoc_map_ele_insert( eqvoc->map, entry, eqvoc->pool );
+fd_eqvoc_init( fd_eqvoc_t * eqvoc, ulong shred_version ) {
+  eqvoc->shred_version = shred_version;
 }
 
-fd_eqvoc_entry_t const *
-fd_eqvoc_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
-  fd_eqvoc_entry_t const * entry = fd_eqvoc_query( eqvoc, shred->slot, shred->fec_set_idx );
+fd_eqvoc_fec_t *
+fd_eqvoc_fec_insert( fd_eqvoc_t * eqvoc, ulong slot, uint fec_set_idx ) {
+  fd_slot_fec_t key = { slot, fec_set_idx };
+
+  #if FD_EQVOC_USE_HANDHOLDING
+  if( FD_UNLIKELY( fd_eqvoc_fec_map_ele_query( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool ) ) ) FD_LOG_ERR(( "[%s] key (%lu, %u) already in map.", __func__, slot, fec_set_idx ));
+  #endif
+
+  /* FIXME eviction */
+
+  if( FD_UNLIKELY( !fd_eqvoc_fec_pool_free( eqvoc->fec_pool ) ) ) FD_LOG_ERR(( "[%s] map full.", __func__ ));
+
+  fd_eqvoc_fec_t * fec = fd_eqvoc_fec_pool_ele_acquire( eqvoc->fec_pool );
+  fec->key.slot        = slot;
+  fec->key.fec_set_idx = fec_set_idx;
+  fec->code_cnt        = 0;
+  fec->data_cnt        = 0;
+  fec->last_idx        = FD_SHRED_IDX_NULL;
+  fd_eqvoc_fec_map_ele_insert( eqvoc->fec_map, fec, eqvoc->fec_pool);
+  return fec;
+}
+
+fd_eqvoc_fec_t const *
+fd_eqvoc_fec_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
+  fd_eqvoc_fec_t const * entry = fd_eqvoc_fec_query( eqvoc, shred->slot, shred->fec_set_idx );
 
   /* If we've already seen a shred in this FEC set */
 
@@ -144,7 +150,7 @@ fd_eqvoc_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
   /* Look backward FEC_MAX idxs for overlap. */
 
   for( uint i = 1; shred->fec_set_idx >= i && i < FD_EQVOC_FEC_MAX; i++ ) {
-    fd_eqvoc_entry_t const * conflict = fd_eqvoc_query( eqvoc, shred->slot, shred->fec_set_idx - i );
+    fd_eqvoc_fec_t const * conflict = fd_eqvoc_fec_query( eqvoc, shred->slot, shred->fec_set_idx - i );
     if( FD_UNLIKELY( conflict &&
                      conflict->data_cnt > 0 &&
                      conflict->key.fec_set_idx + conflict->data_cnt > shred->fec_set_idx ) ) {
@@ -155,7 +161,7 @@ fd_eqvoc_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
   /* Look forward data_cnt idxs for overlap. */
 
   for( uint i = 1; entry && i < entry->data_cnt; i++ ) {
-    fd_eqvoc_entry_t const * conflict = fd_eqvoc_query( eqvoc, shred->slot, shred->fec_set_idx + i );
+    fd_eqvoc_fec_t const * conflict = fd_eqvoc_fec_query( eqvoc, shred->slot, shred->fec_set_idx + i );
     if( FD_UNLIKELY( conflict ) ) return conflict;
   }
 
@@ -163,238 +169,255 @@ fd_eqvoc_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
 }
 
 int
-shred_merkle_root( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred, fd_bmtree_node_t * root_out ) {
-  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( eqvoc->bmtree_mem,
-                                                     FD_SHRED_MERKLE_NODE_SZ,
-                                                     FD_BMTREE_LONG_PREFIX_SZ,
-                                                     FD_SHRED_MERKLE_LAYER_CNT );
+fd_eqvoc_fec_verify( FD_PARAM_UNUSED fd_eqvoc_t const * eqvoc,
+                     fd_blockstore_t *                  blockstore,
+                     ulong                              slot,
+                     uint                               fec_set_idx,
+                     fd_hash_t *                        chained_hash ) {
 
-  uchar shred_type  = fd_shred_type( shred->variant );
-  int is_data_shred = fd_shred_is_data( shred_type );
-  ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
-  ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
+  fd_shred_t * shred = NULL;
+  uint         idx   = fec_set_idx;
+  do {
+    shred = fd_buf_shred_query( blockstore, slot, idx );
 
-  ulong tree_depth           = fd_shred_merkle_cnt( shred->variant ); /* In [0, 15] */
-  ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
-                                      - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
-                                      - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
-  ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type );
-  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )+FD_SHRED_CODE_HEADER_SZ-FD_ED25519_SIG_SZ;
-  ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
-  fd_bmtree_node_t leaf;
-  fd_bmtree_hash_leaf( &leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+#if FD_EQVOC_USE_HANDHOLDING
+    if( FD_UNLIKELY( !shred ) ) {
+      FD_LOG_WARNING(( "[%s] couldn't find shred %lu %u", __func__, slot, fec_set_idx ));
+      return 0;
+    }
+#endif
 
-  return fd_bmtree_commitp_insert_with_proof( tree, shred_idx, &leaf, (uchar const *)fd_shred_merkle_nodes( shred ), fd_shred_merkle_cnt( shred->variant ), root_out );
+#if FD_EQVOC_USE_HANDHOLDING
+    FD_TEST( fd_shred_is_chained( fd_shred_type( shred->variant ) ) );
+#endif
+
+    if( FD_UNLIKELY( 0 != memcmp( chained_hash, shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
+      return 0;
+    }
+
+  } while( shred->fec_set_idx == fec_set_idx );
+
+  return 1;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/duplicate_shred.rs#L107-L177 */
+fd_eqvoc_proof_t *
+fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from ) {
+  fd_slot_pubkey_t key = { slot, *from };
+
+  #if FD_EQVOC_USE_HANDHOLDING
+  if( FD_UNLIKELY( fd_eqvoc_proof_map_ele_query( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool ) ) ) FD_LOG_ERR(( "[%s] key (%lu, %s) already in map.", __func__, slot, FD_BASE58_ENC_32_ALLOCA( from->uc ) ));
+  #endif
+
+  /* FIXME eviction */
+
+  fd_eqvoc_proof_t * proof = fd_eqvoc_proof_pool_ele_acquire( eqvoc->proof_pool );
+  memset( proof, 0, sizeof(fd_eqvoc_proof_t) );
+  proof->key.slot = slot;
+  proof->key.hash = *from;
+  fd_eqvoc_proof_map_ele_insert( eqvoc->proof_map, proof, eqvoc->proof_pool );
+  return proof;
+}
+
+void
+fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t const * chunk ) {
+  if( FD_UNLIKELY( chunk->wallclock > proof->wallclock ) ) {
+    FD_LOG_WARNING(( "[%s] received newer chunk (slot: %lu from: %s). overwriting.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    proof->wallclock = chunk->wallclock;
+    proof->chunk_cnt = chunk->num_chunks;
+    memset( proof->set, 0, 4 * sizeof(ulong) );
+    // fd_eqvoc_proof_set_null( proof->set );
+  }
+
+  if ( FD_UNLIKELY( chunk->wallclock < proof->wallclock ) ) {
+    FD_LOG_WARNING(( "[%s] received older chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    return;
+  }
+
+  if( FD_UNLIKELY( proof->chunk_cnt != chunk->num_chunks ) ) {
+    FD_LOG_WARNING(( "[%s] received incompatible chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    return;
+  }
+    
+
+  if( FD_UNLIKELY( fd_eqvoc_proof_set_test( proof->set, chunk->chunk_index ) ) ) {
+    FD_LOG_WARNING(( "[%s] already received chunk %u. slot: %lu from: %s. ignoring.", __func__, chunk->chunk_index, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    return;
+  }
+
+  fd_memcpy( &proof->shreds[proof->chunk_sz * chunk->chunk_index], chunk->chunk, chunk->chunk_len );
+  fd_eqvoc_proof_set_insert( proof->set, chunk->chunk_index );
+}
+
+/* fd_eqvoc_proof_init initializes a new proof entry. */
+
+void
+fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, ulong wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem ) {
+  proof->producer   = *producer;
+  proof->bmtree_mem = bmtree_mem;
+  proof->wallclock  = wallclock;
+  proof->chunk_cnt  = chunk_cnt;
+  proof->chunk_sz   = chunk_sz;
+  memset( proof->set, 0, 4 * sizeof(ulong) );
+  memset( proof->shreds, 0, 2472 );
+}
+
+
+void
+fd_eqvoc_proof_remove( fd_eqvoc_t * eqvoc, fd_slot_pubkey_t const * key ) {
+  fd_eqvoc_proof_t * proof = fd_eqvoc_proof_map_ele_remove( eqvoc->proof_map, key, NULL, eqvoc->proof_pool );
+  if( FD_UNLIKELY( !proof ) ) {
+    FD_LOG_WARNING(( "[%s] key (%lu, %s) not in map.", __func__, key->slot, FD_BASE58_ENC_32_ALLOCA( key->hash.uc ) ));
+    return;
+  }
+  fd_eqvoc_proof_pool_ele_release( eqvoc->proof_pool, proof );
+}
+
 int
-fd_eqvoc_test( fd_eqvoc_t const * eqvoc, fd_shred_t * shred1, fd_shred_t * shred2 ) {
+fd_eqvoc_proof_verify( fd_eqvoc_proof_t const * proof ) {
+  return fd_eqvoc_shreds_verify( fd_eqvoc_proof_shred1_const( proof ), fd_eqvoc_proof_shred2_const( proof ), &proof->producer, proof->bmtree_mem );
+}
 
-  /* Optimize for valid equivocation proof */
-
+int
+fd_eqvoc_shreds_verify( fd_shred_t const * shred1, fd_shred_t const * shred2, fd_pubkey_t const * producer, void * bmtree_mem ) {
   if( FD_UNLIKELY( shred1->slot != shred2->slot ) ) {
-    return 0;
+    return FD_EQVOC_PROOF_VERIFY_ERR_SLOT;
   }
 
-  if( FD_UNLIKELY( shred1->version != eqvoc->shred_version ) ) {
-    return 0;
+  if( FD_UNLIKELY( shred1->version != shred2->version ) ) {
+    return FD_EQVOC_PROOF_VERIFY_ERR_VERSION;
   }
 
-  if( FD_UNLIKELY( shred2->version != eqvoc->shred_version ) ) {
-    return 0;
+  if( FD_UNLIKELY( !fd_shred_is_chained ( fd_shred_type( shred1->variant) ) &&
+                   !fd_shred_is_resigned( fd_shred_type( shred2->variant ) ) ) ) {
+    return FD_EQVOC_PROOF_VERIFY_ERR_TYPE;
   }
 
-  /* Verify both shreds contain valid signatures for the leader of their
-     slot, which requires deriving the merkle root and sig-verifying it
-     because the leader signs the merkle root for merkle shreds. */
+  /* Check both shreds contain valid signatures from the assigned leader
+     to that slot. This requires deriving the merkle root and
+     sig-verifying it, because the leader signs the merkle root for
+     merkle shreds.
 
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( eqvoc->leaders, shred1->slot );
-  fd_bmtree_node_t    root1;
-  if( FD_UNLIKELY( !shred_merkle_root( eqvoc, shred1, &root1 ) ) ) {
-    return 0;
+     TODO remove? */
+
+  fd_bmtree_node_t root1 = { 0 };
+  if( FD_UNLIKELY( !fd_shred_merkle_root( shred1, bmtree_mem, &root1 ) ) ) {
+    return FD_EQVOC_PROOF_VERIFY_ERR_MERKLE;
   }
   fd_bmtree_node_t root2;
-  if( FD_UNLIKELY( !shred_merkle_root( eqvoc, shred2, &root2 ) ) ) {
-    return 0;
+  if( FD_UNLIKELY( !fd_shred_merkle_root( shred2, bmtree_mem, &root2 ) ) ) {
+    return FD_EQVOC_PROOF_VERIFY_ERR_MERKLE;
   }
+  fd_sha512_t _sha512[1];
+  fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( _sha512 ) );
   if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( root1.hash,
                                                             32UL,
                                                             shred1->signature,
-                                                            leader->uc,
-                                                            eqvoc->sha512 ) ||
+                                                            producer->uc,
+                                                            sha512 ) ||
                    FD_ED25519_SUCCESS != fd_ed25519_verify( root2.hash,
                                                             32UL,
                                                             shred2->signature,
-                                                            leader->uc,
-                                                            eqvoc->sha512 ) ) ) {
-    return 0;
+                                                            producer->uc,
+                                                            sha512 ) ) ) {
+    return FD_EQVOC_PROOF_VERIFY_ERR_SIGNATURE;
   }
 
-  if( FD_UNLIKELY( shred1->fec_set_idx == shred2->fec_set_idx
-                && 0 != memcmp( &root1, &root2, sizeof( fd_bmtree_node_t ) ) ) ) {
-    return 1;
-  }
+  /* Same FEC set index checks */
 
-  if( FD_UNLIKELY( fd_shred_type( shred1->variant ) != fd_shred_type( shred2->variant ) ) ) {
-    return 0;
-  }
+  if( FD_LIKELY( shred1->fec_set_idx == shred2->fec_set_idx ) ) {
 
-  if( FD_UNLIKELY( shred1->idx == shred2->idx ) ) {
+    /* Test if two shreds have different signatures when they are in the
+      same FEC set. */
+
     if( FD_LIKELY( 0 != memcmp( shred1->signature, shred2->signature, FD_ED25519_SIG_SZ ) ) ) {
-      return 1;
+      return FD_EQVOC_PROOF_VERIFY_SUCCESS_SIGNATURE;
     }
-    return 0;
-  }
 
-  if( FD_UNLIKELY( fd_shred_is_data( fd_shred_type( shred1->variant ) ) ) ) {
-    if( FD_UNLIKELY( ( shred1->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE && shred2->idx > shred1->idx ) )
-                  || ( shred2->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE && shred1->idx > shred2->idx ) ) {
-      return 1;
+    /* Test if the shreds have different coding metadata when they're
+       both coding shreds in the same FEC set. */
+
+    if( FD_UNLIKELY( fd_shred_is_code( fd_shred_type( shred1->variant ) ) &&
+                     fd_shred_is_code( fd_shred_type( shred2->variant ) ) &&
+                     ( shred1->code.code_cnt != shred2->code.code_cnt ||
+                       shred1->code.data_cnt != shred2->code.data_cnt ||
+                       shred1->idx - shred1->code.idx == shred2->idx - shred2->code.idx ) ) ) {
+      return FD_EQVOC_PROOF_VERIFY_SUCCESS_META;
+    }
+
+    /* Test if one shred is marked the last shred in the slot, but the
+       other shred has a higher index when both shreds are data
+       shreds. */
+
+    if( FD_UNLIKELY( fd_shred_is_data( fd_shred_type( shred1->variant ) ) &&
+                     fd_shred_is_data( fd_shred_type( shred2->variant ) ) &&
+                     ( ( shred1->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE && shred2->idx > shred1->idx )  ||
+                       ( shred2->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE && shred1->idx > shred2->idx ) ) ) ) {
+      return FD_EQVOC_PROOF_VERIFY_SUCCESS_LAST;
     }
   }
 
-  fd_eqvoc_entry_t const * entry1 = fd_eqvoc_query( eqvoc, shred1->slot, shred1->fec_set_idx );
-  fd_eqvoc_entry_t const * entry2 = fd_eqvoc_query( eqvoc, shred2->slot, shred2->fec_set_idx );
+  /* Different FEC set index checks. Lower FEC set index shred must be a
+     coding shred. */
 
-  /* If the FEC set idx is the same but any metadata is different, mark
-     it as equivocating. */
+  fd_shred_t const * lo = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx, shred1, shred2 );
+  fd_shred_t const * hi = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx, shred1, shred2 );
 
-  if( FD_UNLIKELY( shred1->fec_set_idx == shred2->fec_set_idx &&
-                   ( entry1->code_cnt != entry2->code_cnt ||
-                     entry1->data_cnt != entry2->data_cnt ||
-                     entry1->last_idx != entry2->last_idx ) ) ) {
-    return 1;
+  if ( FD_UNLIKELY( fd_shred_is_code( fd_shred_type( lo->variant ) ) ) ) {
+
+    /* Test for overlap. The FEC sets overlap if the lower fec_set_idx +
+       data_cnt > higher fec_set_idx. We must have received at least one
+       coding shred in the FEC set with the lower fec_set_idx to perform
+       this check. */
+
+    if( FD_UNLIKELY( lo->fec_set_idx + lo->code.data_cnt > hi->fec_set_idx ) ) {
+      return FD_EQVOC_PROOF_VERIFY_SUCCESS_OVERLAP;
+    }
+
+    /* Test for conflicting chained merkle roots when shred1 and shred2
+      are in adjacent FEC sets. We know the FEC sets are adjacent if the
+      last data shred index in the lower FEC set is one less than the
+      first data shred index in the higher FEC set. */
+
+    if( FD_UNLIKELY( lo->fec_set_idx + lo->code.data_cnt == hi->fec_set_idx ) ) {
+      uchar * merkle_hash  = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx,
+                                        (uchar *)shred1 + fd_shred_merkle_off( shred1 ),
+                                        (uchar *)shred2 + fd_shred_merkle_off( shred2 ) );
+      uchar * chained_hash = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx,
+                                        (uchar *)shred1 + fd_shred_chain_off( shred1->variant ),
+                                        (uchar *)shred2 + fd_shred_chain_off( shred2->variant ) );
+      if ( FD_LIKELY( 0 != memcmp( merkle_hash, chained_hash, FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
+        return FD_EQVOC_PROOF_VERIFY_SUCCESS_CHAINED;
+      };
+    }
   }
 
-  /* This is only reachable if shred1 and shred2 are in different FEC
-     sets, so check for overlap. */
+  /* None of the equivocation tests passed, so this equivocation proof
+     failed to verify. */
 
-  ulong lo = fd_ulong_min( shred1->fec_set_idx, shred2->fec_set_idx );
-  ulong hi = fd_ulong_max( shred1->fec_set_idx, shred2->fec_set_idx );
-
-  fd_eqvoc_entry_t const * lo_entry = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx, entry1, entry2 );
-  FD_LOG_NOTICE(("lo %lu hi %lu data_cnt %lu %lu", lo, hi, lo_entry->data_cnt, lo + lo_entry->data_cnt ));
-
-  /* The FEC sets must overlap in data shred indices if the lower FEC
-     set index crosses into the higher FEC set index based on the data
-     shred count. */
-
-  if ( FD_UNLIKELY( lo_entry && lo_entry->data_cnt > 0 && lo + lo_entry->data_cnt >= hi ) ) {
-    return 1;
-  }
-
-  return 0;
+  return FD_EQVOC_PROOF_VERIFY_FAILURE;
 }
 
 void
-fd_eqvoc_from_chunks( FD_PARAM_UNUSED fd_eqvoc_t const * eqvoc,
-                      fd_gossip_duplicate_shred_t *      chunks,
-                      fd_shred_t *                       shred1_out,
-                      fd_shred_t *                       shred2_out ) {
-  /* FIXME add validation */
-
-  uchar * shred1_bytes = (uchar *)shred1_out;
-  uchar * shred2_bytes = (uchar *)shred2_out;
-
+fd_eqvoc_proof_from_chunks( fd_gossip_duplicate_shred_t const * chunks,
+                            fd_eqvoc_proof_t * proof_out ) {
   ulong chunk_cnt = chunks[0].num_chunks;
-  ulong chunk_len = chunks[0].chunk_len;
-
-  ulong off       = 0;
-  ulong shred1_sz = 0;
-  ulong shred2_sz = 0;
-  for( ulong i = 0; i < chunk_cnt; i++ ) {
-    for( ulong j = 0; j < chunk_cnt; j++ ) {
-
-      /* FIXME O(n^2). DOS for small chunks */
-
-      if( chunks[j].chunk_index == i ) {
-
-        if( FD_LIKELY( off > FD_SHRED_VARIANT_OFF ) ) {
-          shred1_sz = fd_shred_sz( shred1_out );
-        }
-
-        if( FD_LIKELY( off > shred1_sz + FD_SHRED_VARIANT_OFF ) ) {
-          shred2_sz = fd_shred_sz( shred2_out );
-        }
-
-        if( !shred1_sz || off + chunk_len <= shred1_sz ) {
-
-          /* copy from chunk into shred1 */
-
-          fd_memcpy( shred1_bytes + off, chunks[j].chunk, chunk_len );
-          off += chunk_len;
-
-        } else if( off < shred1_sz ) {
-
-          /* copy prefix of chunk into shred1 and suffix of chunk into shred2 */
-
-          ulong len = shred1_sz - off;
-          fd_memcpy( shred1_bytes + off, chunks[j].chunk, len );
-          off += len;
-
-          fd_memcpy( shred2_bytes + off - shred1_sz, chunks[j].chunk + len, chunk_len - len );
-          off += chunk_len - len;
-
-        } else {
-
-          /* copy from chunk into shred2 */
-
-          ulong len = fd_ulong_min( chunk_len,
-                                    fd_ulong_if( (int)shred2_sz,
-                                                 shred2_sz - ( off - shred1_sz ),
-                                                 chunk_len ) );
-          fd_memcpy( shred2_bytes + off - shred1_sz, chunks[j].chunk, len );
-          off += chunk_len;
-        }
-      }
-    }
+  for ( ulong i = 0; i < chunk_cnt; i++ ) {
+    fd_eqvoc_proof_chunk_insert( proof_out, chunks + i );
   }
 }
 
 void
-fd_eqvoc_to_chunks( FD_PARAM_UNUSED fd_eqvoc_t const * eqvoc,
-                    fd_shred_t const *                 shred1,
-                    fd_shred_t const *                 shred2,
-                    ulong                              chunk_len,
-                    fd_gossip_duplicate_shred_t *      chunks_out ) {
-  uchar * shred1_bytes = (uchar *)shred1;
-  uchar * shred2_bytes = (uchar *)shred2;
-
-  ulong off = 0;
-  while( FD_LIKELY( off < fd_shred_sz( shred1 ) + fd_shred_sz( shred2 ) ) ) {
-    ulong chunk_idx = off / chunk_len;
-
-    if( off + chunk_len < fd_shred_sz( shred1 ) ) {
-
-      /* copy from shred1 into chunk */
-
-      fd_memcpy( chunks_out[chunk_idx].chunk, shred1_bytes + off, chunk_len );
-      off += chunk_len;
-
-    } else if( off < fd_shred_sz( shred1 ) ) {
-
-      /* copy suffix of shred1 and prefix of shred2 into chunk */
-
-      ulong suffix = fd_shred_sz( shred1 ) - off;
-      fd_memcpy( chunks_out[chunk_idx].chunk, shred1_bytes + off, suffix );
-      off += suffix;
-
-      ulong prefix = chunk_len - suffix;
-      fd_memcpy( chunks_out[chunk_idx].chunk + suffix, shred2_bytes, prefix );
-      off += prefix;
-
-    } else {
-
-      /* copy from shred2 into chunk */
-
-      ulong len = fd_ulong_min( chunk_len,
-                                fd_shred_sz( shred2 ) - ( off - fd_shred_sz( shred1 ) ) );
-      fd_memcpy( chunks_out[chunk_idx].chunk, shred2_bytes + off - fd_shred_sz( shred1 ), len );
-      off += len;
-    }
+fd_eqvoc_proof_to_chunks( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t * chunks_out ) {
+  for (uchar i = 0; i < FD_EQVOC_PROOF_CHUNK_CNT; i++ ) {
+    fd_gossip_duplicate_shred_t * chunk = &chunks_out[i];
+    chunk->duplicate_shred_index = i;
+    chunk->from = proof->key.hash;
+    chunk->wallclock = (ulong)fd_log_wallclock();
+    chunk->slot = proof->key.slot;
+    chunk->num_chunks = FD_EQVOC_PROOF_CHUNK_CNT;
+    chunk->chunk_len = FD_EQVOC_PROOF_CHUNK_MAX;
+    ulong off = i * FD_EQVOC_PROOF_CHUNK_MAX;
+    ulong sz  = fd_ulong_min( FD_EQVOC_PROOF_CHUNK_MAX, FD_EQVOC_PROOF_MAX - off );
+    fd_memcpy( chunks_out[i].chunk, proof->shreds + off, sz );
   }
-  ulong sz  = fd_shred_sz( shred1 ) + fd_shred_sz( shred2 );
-  ulong cnt = sz / chunk_len;
-  cnt       = fd_ulong_if( (int)( sz % chunk_len ), cnt + 1, cnt );
 }

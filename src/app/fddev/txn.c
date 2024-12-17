@@ -88,7 +88,7 @@ send_quic_transactions( fd_quic_t *         quic,
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
   quic->cb.stream_notify    = cb_stream_notify;
 
-  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
+  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port );
   while ( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
     fd_quic_service( quic );
     fd_quic_udpsock_service( udpsock );
@@ -142,13 +142,13 @@ txn_cmd_fn( args_t *         args,
   ready_cmd_fn( args, config );
 
   fd_quic_limits_t quic_limits = {
-    .conn_cnt         = 1UL,
-    .handshake_cnt    = 1UL,
-    .conn_id_cnt      = 4UL,
-    .rx_stream_cnt    = 1UL,
+    .conn_cnt         =  1UL,
+    .handshake_cnt    =  1UL,
+    .conn_id_cnt      =  4UL,
+    .stream_id_cnt    = 64UL,
     .inflight_pkt_cnt = 64UL,
     .tx_buf_sz        = fd_ulong_pow2_up( FD_TXN_MTU ),
-    .stream_pool_cnt  = 16
+    .stream_pool_cnt  = 16UL
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );

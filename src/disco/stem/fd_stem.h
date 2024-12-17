@@ -3,6 +3,8 @@
 
 #include "../fd_disco_base.h"
 
+#define FD_STEM_SCRATCH_ALIGN (128UL)
+
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;
    ulong *           seqs;

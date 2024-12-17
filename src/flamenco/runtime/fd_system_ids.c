@@ -37,6 +37,10 @@ const fd_pubkey_t fd_solana_spl_token_id                      = { .uc = { TOKEN_
 const fd_pubkey_t fd_solana_zk_token_proof_program_id         = { .uc = { ZK_TOKEN_PROG_ID         } };
 const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_GAMAL_PROG_ID      } };
 
+const fd_pubkey_t fd_solana_address_lookup_table_program_buffer_address = { .uc = { ADDR_LUT_PROG_BUFFER_ID } };
+const fd_pubkey_t fd_solana_config_program_buffer_address               = { .uc = { CONFIG_PROG_BUFFER_ID } };
+const fd_pubkey_t fd_solana_feature_program_buffer_address              = { .uc = { FEATURE_PROG_BUFFER_ID } };
+
 /* https://github.com/firedancer-io/agave/blob/66c126b41ec2b55b3f747a4ac4e3ee6b439164a5/sdk/src/reserved_account_keys.rs#L152-L194 */
 #define MAP_PERFECT_NAME fd_pubkey_active_reserved_keys_tbl
 #define MAP_PERFECT_LG_TBL_SZ 5

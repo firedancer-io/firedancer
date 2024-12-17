@@ -6847,18 +6847,18 @@ ulong fd_solana_accounts_db_fields_size( fd_solana_accounts_db_fields_t const * 
   return size;
 }
 
-int fd_epoch_stakes_current_decode( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_decode( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
-  int err = fd_epoch_stakes_current_decode_preflight( ctx );
+  int err = fd_versioned_epoch_stakes_current_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_epoch_stakes_current_new( self );
+    fd_versioned_epoch_stakes_current_new( self );
   }
-  fd_epoch_stakes_current_decode_unsafe( self, ctx );
+  fd_versioned_epoch_stakes_current_decode_unsafe( self, ctx );
   return FD_BINCODE_SUCCESS;
 }
-int fd_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   int err;
   err = fd_stakes_stake_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -6884,7 +6884,7 @@ int fd_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_epoch_stakes_current_decode_unsafe( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
+void fd_versioned_epoch_stakes_current_decode_unsafe( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_stakes_stake_decode_unsafe( &self->stakes, ctx );
   fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
   fd_bincode_uint64_decode_unsafe( &self->node_id_to_vote_accounts_len, ctx );
@@ -6906,7 +6906,7 @@ void fd_epoch_stakes_current_decode_unsafe( fd_epoch_stakes_current_t * self, fd
   } else
     self->epoch_authorized_voters = NULL;
 }
-int fd_epoch_stakes_current_encode( fd_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_encode( fd_versioned_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_stakes_stake_encode( &self->stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -6930,7 +6930,7 @@ int fd_epoch_stakes_current_encode( fd_epoch_stakes_current_t const * self, fd_b
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_epoch_stakes_current_decode_offsets( fd_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_decode_offsets( fd_versioned_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
   self->stakes_off = (uint)( (ulong)ctx->data - (ulong)data );
@@ -6961,11 +6961,11 @@ int fd_epoch_stakes_current_decode_offsets( fd_epoch_stakes_current_off_t * self
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_epoch_stakes_current_new(fd_epoch_stakes_current_t * self) {
-  fd_memset( self, 0, sizeof(fd_epoch_stakes_current_t) );
+void fd_versioned_epoch_stakes_current_new(fd_versioned_epoch_stakes_current_t * self) {
+  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_current_t) );
   fd_stakes_stake_new( &self->stakes );
 }
-void fd_epoch_stakes_current_destroy( fd_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+void fd_versioned_epoch_stakes_current_destroy( fd_versioned_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_stakes_stake_destroy( &self->stakes, ctx );
   if( self->node_id_to_vote_accounts ) {
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
@@ -6981,11 +6981,11 @@ void fd_epoch_stakes_current_destroy( fd_epoch_stakes_current_t * self, fd_binco
   }
 }
 
-ulong fd_epoch_stakes_current_footprint( void ){ return FD_EPOCH_STAKES_CURRENT_FOOTPRINT; }
-ulong fd_epoch_stakes_current_align( void ){ return FD_EPOCH_STAKES_CURRENT_ALIGN; }
+ulong fd_versioned_epoch_stakes_current_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_CURRENT_FOOTPRINT; }
+ulong fd_versioned_epoch_stakes_current_align( void ){ return FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN; }
 
-void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_stakes_current", level++ );
+void fd_versioned_epoch_stakes_current_walk( void * w, fd_versioned_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes_current", level++ );
   fd_stakes_stake_walk( w, &self->stakes, fun, "stakes", level );
   fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->node_id_to_vote_accounts_len ) {
@@ -7000,9 +7000,9 @@ void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * s
       fd_pubkey_pubkey_pair_walk(w, self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level );
     fun( w, NULL, "epoch_authorized_voters", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_stakes_current", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes_current", level-- );
 }
-ulong fd_epoch_stakes_current_size( fd_epoch_stakes_current_t const * self ) {
+ulong fd_versioned_epoch_stakes_current_size( fd_versioned_epoch_stakes_current_t const * self ) {
   ulong size = 0;
   size += fd_stakes_stake_size( &self->stakes );
   size += sizeof(ulong);
@@ -7027,7 +7027,7 @@ int fd_versioned_epoch_stakes_inner_decode_preflight( uint discriminant, fd_binc
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_epoch_stakes_current_decode_preflight( ctx );
+    err = fd_versioned_epoch_stakes_current_decode_preflight( ctx );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -7037,7 +7037,7 @@ int fd_versioned_epoch_stakes_inner_decode_preflight( uint discriminant, fd_binc
 void fd_versioned_epoch_stakes_inner_decode_unsafe( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
-    fd_epoch_stakes_current_decode_unsafe( &self->Current, ctx );
+    fd_versioned_epoch_stakes_current_decode_unsafe( &self->Current, ctx );
     break;
   }
   }
@@ -7066,7 +7066,7 @@ void fd_versioned_epoch_stakes_decode_unsafe( fd_versioned_epoch_stakes_t * self
 void fd_versioned_epoch_stakes_inner_new( fd_versioned_epoch_stakes_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
   case 0: {
-    fd_epoch_stakes_current_new( &self->Current );
+    fd_versioned_epoch_stakes_current_new( &self->Current );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -7083,7 +7083,7 @@ void fd_versioned_epoch_stakes_new( fd_versioned_epoch_stakes_t * self ) {
 void fd_versioned_epoch_stakes_inner_destroy( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
   switch( discriminant ) {
   case 0: {
-    fd_epoch_stakes_current_destroy( &self->Current, ctx );
+    fd_versioned_epoch_stakes_current_destroy( &self->Current, ctx );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -7101,7 +7101,7 @@ void fd_versioned_epoch_stakes_walk( void * w, fd_versioned_epoch_stakes_t const
   switch( self->discriminant ) {
   case 0: {
     fun( w, self, "Current", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-    fd_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
+    fd_versioned_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
     break;
   }
   }
@@ -7112,7 +7112,7 @@ ulong fd_versioned_epoch_stakes_size( fd_versioned_epoch_stakes_t const * self )
   size += sizeof(uint);
   switch (self->discriminant) {
   case 0: {
-    size += fd_epoch_stakes_current_size( &self->inner.Current );
+    size += fd_versioned_epoch_stakes_current_size( &self->inner.Current );
     break;
   }
   }
@@ -7123,7 +7123,7 @@ int fd_versioned_epoch_stakes_inner_encode( fd_versioned_epoch_stakes_inner_t co
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_epoch_stakes_current_encode( &self->Current, ctx );
+    err = fd_versioned_epoch_stakes_current_encode( &self->Current, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -20953,18 +20953,18 @@ int fd_bpf_loader_program_instruction_encode( fd_bpf_loader_program_instruction_
   return fd_bpf_loader_program_instruction_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
-int fd_bpf_loader_v4_program_instruction_write_decode( fd_bpf_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_write_decode( fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
-  int err = fd_bpf_loader_v4_program_instruction_write_decode_preflight( ctx );
+  int err = fd_loader_v4_program_instruction_write_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_bpf_loader_v4_program_instruction_write_new( self );
+    fd_loader_v4_program_instruction_write_new( self );
   }
-  fd_bpf_loader_v4_program_instruction_write_decode_unsafe( self, ctx );
+  fd_loader_v4_program_instruction_write_decode_unsafe( self, ctx );
   return FD_BINCODE_SUCCESS;
 }
-int fd_bpf_loader_v4_program_instruction_write_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_write_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint32_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20977,7 +20977,7 @@ int fd_bpf_loader_v4_program_instruction_write_decode_preflight( fd_bincode_deco
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_bpf_loader_v4_program_instruction_write_decode_unsafe( fd_bpf_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx ) {
+void fd_loader_v4_program_instruction_write_decode_unsafe( fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_bincode_uint32_decode_unsafe( &self->offset, ctx );
   fd_bincode_uint64_decode_unsafe( &self->bytes_len, ctx );
   if( self->bytes_len ) {
@@ -20986,7 +20986,7 @@ void fd_bpf_loader_v4_program_instruction_write_decode_unsafe( fd_bpf_loader_v4_
   } else
     self->bytes = NULL;
 }
-int fd_bpf_loader_v4_program_instruction_write_encode( fd_bpf_loader_v4_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_write_encode( fd_loader_v4_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint32_encode( self->offset, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20998,7 +20998,7 @@ int fd_bpf_loader_v4_program_instruction_write_encode( fd_bpf_loader_v4_program_
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_bpf_loader_v4_program_instruction_write_decode_offsets( fd_bpf_loader_v4_program_instruction_write_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_write_decode_offsets( fd_loader_v4_program_instruction_write_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
   self->offset_off = (uint)( (ulong)ctx->data - (ulong)data );
@@ -21014,26 +21014,26 @@ int fd_bpf_loader_v4_program_instruction_write_decode_offsets( fd_bpf_loader_v4_
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_bpf_loader_v4_program_instruction_write_new(fd_bpf_loader_v4_program_instruction_write_t * self) {
-  fd_memset( self, 0, sizeof(fd_bpf_loader_v4_program_instruction_write_t) );
+void fd_loader_v4_program_instruction_write_new(fd_loader_v4_program_instruction_write_t * self) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_write_t) );
 }
-void fd_bpf_loader_v4_program_instruction_write_destroy( fd_bpf_loader_v4_program_instruction_write_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+void fd_loader_v4_program_instruction_write_destroy( fd_loader_v4_program_instruction_write_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   if( self->bytes ) {
     fd_valloc_free( ctx->valloc, self->bytes );
     self->bytes = NULL;
   }
 }
 
-ulong fd_bpf_loader_v4_program_instruction_write_footprint( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT; }
-ulong fd_bpf_loader_v4_program_instruction_write_align( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_ALIGN; }
+ulong fd_loader_v4_program_instruction_write_footprint( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT; }
+ulong fd_loader_v4_program_instruction_write_align( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_ALIGN; }
 
-void fd_bpf_loader_v4_program_instruction_write_walk( void * w, fd_bpf_loader_v4_program_instruction_write_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_v4_program_instruction_write", level++ );
+void fd_loader_v4_program_instruction_write_walk( void * w, fd_loader_v4_program_instruction_write_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_program_instruction_write", level++ );
   fun( w, &self->offset, "offset", FD_FLAMENCO_TYPE_UINT, "uint", level );
   fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_loader_v4_program_instruction_write", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_program_instruction_write", level-- );
 }
-ulong fd_bpf_loader_v4_program_instruction_write_size( fd_bpf_loader_v4_program_instruction_write_t const * self ) {
+ulong fd_loader_v4_program_instruction_write_size( fd_loader_v4_program_instruction_write_t const * self ) {
   ulong size = 0;
   size += sizeof(uint);
   do {
@@ -21043,33 +21043,90 @@ ulong fd_bpf_loader_v4_program_instruction_write_size( fd_bpf_loader_v4_program_
   return size;
 }
 
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_write(fd_bpf_loader_v4_program_instruction_t const * self) {
+int fd_loader_v4_program_instruction_truncate_decode( fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_loader_v4_program_instruction_truncate_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_loader_v4_program_instruction_truncate_new( self );
+  }
+  fd_loader_v4_program_instruction_truncate_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_program_instruction_truncate_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_program_instruction_truncate_decode_unsafe( fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->new_size, ctx );
+}
+int fd_loader_v4_program_instruction_truncate_encode( fd_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->new_size, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_program_instruction_truncate_decode_offsets( fd_loader_v4_program_instruction_truncate_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->new_size_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_program_instruction_truncate_new(fd_loader_v4_program_instruction_truncate_t * self) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_truncate_t) );
+}
+void fd_loader_v4_program_instruction_truncate_destroy( fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+}
+
+ulong fd_loader_v4_program_instruction_truncate_footprint( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_FOOTPRINT; }
+ulong fd_loader_v4_program_instruction_truncate_align( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_ALIGN; }
+
+void fd_loader_v4_program_instruction_truncate_walk( void * w, fd_loader_v4_program_instruction_truncate_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_program_instruction_truncate", level++ );
+  fun( w, &self->new_size, "new_size", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_program_instruction_truncate", level-- );
+}
+ulong fd_loader_v4_program_instruction_truncate_size( fd_loader_v4_program_instruction_truncate_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  return size;
+}
+
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_write(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 0;
 }
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_truncate(fd_bpf_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_truncate(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 1;
 }
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_deploy(fd_bpf_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_deploy(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 2;
 }
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_retract(fd_bpf_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 3;
 }
-FD_FN_PURE uchar fd_bpf_loader_v4_program_instruction_is_transfer_authority(fd_bpf_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 4;
 }
-void fd_bpf_loader_v4_program_instruction_inner_new( fd_bpf_loader_v4_program_instruction_inner_t * self, uint discriminant );
-int fd_bpf_loader_v4_program_instruction_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize(fd_loader_v4_program_instruction_t const * self) {
+  return self->discriminant == 5;
+}
+void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instruction_inner_t * self, uint discriminant );
+int fd_loader_v4_program_instruction_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_bpf_loader_v4_program_instruction_write_decode_preflight( ctx );
+    err = fd_loader_v4_program_instruction_write_decode_preflight( ctx );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = fd_bincode_uint32_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_loader_v4_program_instruction_truncate_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 2: {
@@ -21079,19 +21136,22 @@ int fd_bpf_loader_v4_program_instruction_inner_decode_preflight( uint discrimina
     return FD_BINCODE_SUCCESS;
   }
   case 4: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 5: {
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
 }
-void fd_bpf_loader_v4_program_instruction_inner_decode_unsafe( fd_bpf_loader_v4_program_instruction_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+void fd_loader_v4_program_instruction_inner_decode_unsafe( fd_loader_v4_program_instruction_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
-    fd_bpf_loader_v4_program_instruction_write_decode_unsafe( &self->write, ctx );
+    fd_loader_v4_program_instruction_write_decode_unsafe( &self->write, ctx );
     break;
   }
   case 1: {
-    fd_bincode_uint32_decode_unsafe( &self->truncate, ctx );
+    fd_loader_v4_program_instruction_truncate_decode_unsafe( &self->truncate, ctx );
     break;
   }
   case 2: {
@@ -21103,36 +21163,40 @@ void fd_bpf_loader_v4_program_instruction_inner_decode_unsafe( fd_bpf_loader_v4_
   case 4: {
     break;
   }
+  case 5: {
+    break;
+  }
   }
 }
-int fd_bpf_loader_v4_program_instruction_decode( fd_bpf_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_decode( fd_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
-  int err = fd_bpf_loader_v4_program_instruction_decode_preflight( ctx );
+  int err = fd_loader_v4_program_instruction_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_bpf_loader_v4_program_instruction_new( self );
+    fd_loader_v4_program_instruction_new( self );
   }
-  fd_bpf_loader_v4_program_instruction_decode_unsafe( self, ctx );
+  fd_loader_v4_program_instruction_decode_unsafe( self, ctx );
   return FD_BINCODE_SUCCESS;
 }
-int fd_bpf_loader_v4_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  return fd_bpf_loader_v4_program_instruction_inner_decode_preflight( discriminant, ctx );
+  return fd_loader_v4_program_instruction_inner_decode_preflight( discriminant, ctx );
 }
-void fd_bpf_loader_v4_program_instruction_decode_unsafe( fd_bpf_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx ) {
+void fd_loader_v4_program_instruction_decode_unsafe( fd_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
-  fd_bpf_loader_v4_program_instruction_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
+  fd_loader_v4_program_instruction_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
 }
-void fd_bpf_loader_v4_program_instruction_inner_new( fd_bpf_loader_v4_program_instruction_inner_t * self, uint discriminant ) {
+void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instruction_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
   case 0: {
-    fd_bpf_loader_v4_program_instruction_write_new( &self->write );
+    fd_loader_v4_program_instruction_write_new( &self->write );
     break;
   }
   case 1: {
+    fd_loader_v4_program_instruction_truncate_new( &self->truncate );
     break;
   }
   case 2: {
@@ -21142,49 +21206,53 @@ void fd_bpf_loader_v4_program_instruction_inner_new( fd_bpf_loader_v4_program_in
     break;
   }
   case 4: {
+    break;
+  }
+  case 5: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
-void fd_bpf_loader_v4_program_instruction_new_disc( fd_bpf_loader_v4_program_instruction_t * self, uint discriminant ) {
+void fd_loader_v4_program_instruction_new_disc( fd_loader_v4_program_instruction_t * self, uint discriminant ) {
   self->discriminant = discriminant;
-  fd_bpf_loader_v4_program_instruction_inner_new( &self->inner, self->discriminant );
+  fd_loader_v4_program_instruction_inner_new( &self->inner, self->discriminant );
 }
-void fd_bpf_loader_v4_program_instruction_new( fd_bpf_loader_v4_program_instruction_t * self ) {
-  fd_memset( self, 0, sizeof(fd_bpf_loader_v4_program_instruction_t) );
-  fd_bpf_loader_v4_program_instruction_new_disc( self, UINT_MAX );
+void fd_loader_v4_program_instruction_new( fd_loader_v4_program_instruction_t * self ) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_t) );
+  fd_loader_v4_program_instruction_new_disc( self, UINT_MAX );
 }
-void fd_bpf_loader_v4_program_instruction_inner_destroy( fd_bpf_loader_v4_program_instruction_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+void fd_loader_v4_program_instruction_inner_destroy( fd_loader_v4_program_instruction_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
   switch( discriminant ) {
   case 0: {
-    fd_bpf_loader_v4_program_instruction_write_destroy( &self->write, ctx );
+    fd_loader_v4_program_instruction_write_destroy( &self->write, ctx );
     break;
   }
   case 1: {
+    fd_loader_v4_program_instruction_truncate_destroy( &self->truncate, ctx );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
-void fd_bpf_loader_v4_program_instruction_destroy( fd_bpf_loader_v4_program_instruction_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_bpf_loader_v4_program_instruction_inner_destroy( &self->inner, self->discriminant, ctx );
+void fd_loader_v4_program_instruction_destroy( fd_loader_v4_program_instruction_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_inner_destroy( &self->inner, self->discriminant, ctx );
 }
 
-ulong fd_bpf_loader_v4_program_instruction_footprint( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT; }
-ulong fd_bpf_loader_v4_program_instruction_align( void ){ return FD_BPF_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN; }
+ulong fd_loader_v4_program_instruction_footprint( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT; }
+ulong fd_loader_v4_program_instruction_align( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN; }
 
-void fd_bpf_loader_v4_program_instruction_walk( void * w, fd_bpf_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_bpf_loader_v4_program_instruction", level++);
+void fd_loader_v4_program_instruction_walk( void * w, fd_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_loader_v4_program_instruction", level++);
   switch( self->discriminant ) {
   case 0: {
     fun( w, self, "write", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-    fd_bpf_loader_v4_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
+    fd_loader_v4_program_instruction_write_walk( w, &self->inner.write, fun, "write", level );
     break;
   }
   case 1: {
     fun( w, self, "truncate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-  fun( w, &self->inner.truncate, "truncate", FD_FLAMENCO_TYPE_UINT, "uint", level );
+    fd_loader_v4_program_instruction_truncate_walk( w, &self->inner.truncate, fun, "truncate", level );
     break;
   }
   case 2: {
@@ -21199,45 +21267,49 @@ void fd_bpf_loader_v4_program_instruction_walk( void * w, fd_bpf_loader_v4_progr
     fun( w, self, "transfer_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
+  case 5: {
+    fun( w, self, "finalize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_bpf_loader_v4_program_instruction", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_loader_v4_program_instruction", level-- );
 }
-ulong fd_bpf_loader_v4_program_instruction_size( fd_bpf_loader_v4_program_instruction_t const * self ) {
+ulong fd_loader_v4_program_instruction_size( fd_loader_v4_program_instruction_t const * self ) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
   case 0: {
-    size += fd_bpf_loader_v4_program_instruction_write_size( &self->inner.write );
+    size += fd_loader_v4_program_instruction_write_size( &self->inner.write );
     break;
   }
   case 1: {
-    size += sizeof(uint);
+    size += fd_loader_v4_program_instruction_truncate_size( &self->inner.truncate );
     break;
   }
   }
   return size;
 }
 
-int fd_bpf_loader_v4_program_instruction_inner_encode( fd_bpf_loader_v4_program_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_inner_encode( fd_loader_v4_program_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_bpf_loader_v4_program_instruction_write_encode( &self->write, ctx );
+    err = fd_loader_v4_program_instruction_write_encode( &self->write, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 1: {
-    err = fd_bincode_uint32_encode( self->truncate, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_loader_v4_program_instruction_truncate_encode( &self->truncate, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_bpf_loader_v4_program_instruction_encode( fd_bpf_loader_v4_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_encode( fd_loader_v4_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err = fd_bincode_uint32_encode( self->discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  return fd_bpf_loader_v4_program_instruction_inner_encode( &self->inner, self->discriminant, ctx );
+  return fd_loader_v4_program_instruction_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
 int fd_bpf_upgradeable_loader_program_instruction_write_decode( fd_bpf_upgradeable_loader_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -22160,6 +22232,82 @@ int fd_bpf_upgradeable_loader_state_encode( fd_bpf_upgradeable_loader_state_t co
   int err = fd_bincode_uint32_encode( self->discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return fd_bpf_upgradeable_loader_state_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+int fd_loader_v4_state_decode( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_loader_v4_state_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_loader_v4_state_new( self );
+  }
+  fd_loader_v4_state_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_state_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_bytes_decode_preflight( 32, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_state_decode_unsafe( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_pubkey_decode_unsafe( &self->authority_address_or_next_version, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->status, ctx );
+}
+int fd_loader_v4_state_encode( fd_loader_v4_state_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->authority_address_or_next_version, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->status, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_state_decode_offsets( fd_loader_v4_state_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->slot_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->authority_address_or_next_version_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_bytes_decode_preflight( 32, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->status_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_state_new(fd_loader_v4_state_t * self) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_state_t) );
+  fd_pubkey_new( &self->authority_address_or_next_version );
+}
+void fd_loader_v4_state_destroy( fd_loader_v4_state_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_pubkey_destroy( &self->authority_address_or_next_version, ctx );
+}
+
+ulong fd_loader_v4_state_footprint( void ){ return FD_LOADER_V4_STATE_FOOTPRINT; }
+ulong fd_loader_v4_state_align( void ){ return FD_LOADER_V4_STATE_ALIGN; }
+
+void fd_loader_v4_state_walk( void * w, fd_loader_v4_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_state", level++ );
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_pubkey_walk( w, &self->authority_address_or_next_version, fun, "authority_address_or_next_version", level );
+  fun( w, &self->status, "status", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_state", level-- );
+}
+ulong fd_loader_v4_state_size( fd_loader_v4_state_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += fd_pubkey_size( &self->authority_address_or_next_version );
+  size += sizeof(ulong);
+  return size;
 }
 
 int fd_frozen_hash_status_decode( fd_frozen_hash_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -23544,6 +23692,259 @@ ulong fd_gossip_prune_sign_data_size( fd_gossip_prune_sign_data_t const * self )
   return size;
 }
 
+int fd_gossip_socket_addr_old_decode( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_addr_old_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_socket_addr_old_new( self );
+  }
+  fd_gossip_socket_addr_old_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_old_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_old_decode_unsafe( fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_ip_addr_decode_unsafe( &self->addr, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+}
+int fd_gossip_socket_addr_old_encode( fd_gossip_socket_addr_old_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip_addr_encode( &self->addr, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->port, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_old_decode_offsets( fd_gossip_socket_addr_old_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_ip_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_old_new(fd_gossip_socket_addr_old_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_socket_addr_old_t) );
+  fd_gossip_ip_addr_new( &self->addr );
+}
+void fd_gossip_socket_addr_old_destroy( fd_gossip_socket_addr_old_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_gossip_ip_addr_destroy( &self->addr, ctx );
+}
+
+ulong fd_gossip_socket_addr_old_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_OLD_FOOTPRINT; }
+ulong fd_gossip_socket_addr_old_align( void ){ return FD_GOSSIP_SOCKET_ADDR_OLD_ALIGN; }
+
+void fd_gossip_socket_addr_old_walk( void * w, fd_gossip_socket_addr_old_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr_old", level++ );
+  fd_gossip_ip_addr_walk( w, &self->addr, fun, "addr", level );
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr_old", level-- );
+}
+ulong fd_gossip_socket_addr_old_size( fd_gossip_socket_addr_old_t const * self ) {
+  ulong size = 0;
+  size += fd_gossip_ip_addr_size( &self->addr );
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_gossip_socket_addr_ip4_decode( fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_addr_ip4_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_socket_addr_ip4_new( self );
+  }
+  fd_gossip_socket_addr_ip4_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_ip4_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip4_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_ip4_decode_unsafe( fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_ip4_addr_decode_unsafe( &self->addr, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+}
+int fd_gossip_socket_addr_ip4_encode( fd_gossip_socket_addr_ip4_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip4_addr_encode( &self->addr, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->port, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_ip4_decode_offsets( fd_gossip_socket_addr_ip4_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_ip4_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_ip4_new(fd_gossip_socket_addr_ip4_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_socket_addr_ip4_t) );
+  fd_gossip_ip4_addr_new( &self->addr );
+}
+void fd_gossip_socket_addr_ip4_destroy( fd_gossip_socket_addr_ip4_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_gossip_ip4_addr_destroy( &self->addr, ctx );
+}
+
+ulong fd_gossip_socket_addr_ip4_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_IP4_FOOTPRINT; }
+ulong fd_gossip_socket_addr_ip4_align( void ){ return FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN; }
+
+void fd_gossip_socket_addr_ip4_walk( void * w, fd_gossip_socket_addr_ip4_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr_ip4", level++ );
+  fd_gossip_ip4_addr_walk( w, &self->addr, fun, "addr", level );
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr_ip4", level-- );
+}
+ulong fd_gossip_socket_addr_ip4_size( fd_gossip_socket_addr_ip4_t const * self ) {
+  ulong size = 0;
+  size += fd_gossip_ip4_addr_size( &self->addr );
+  size += sizeof(ushort);
+  return size;
+}
+
+int fd_gossip_socket_addr_ip6_decode( fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_addr_ip6_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_gossip_socket_addr_ip6_new( self );
+  }
+  fd_gossip_socket_addr_ip6_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_ip6_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip6_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_ip6_decode_unsafe( fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_ip6_addr_decode_unsafe( &self->addr, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->flowinfo, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->scope_id, ctx );
+}
+int fd_gossip_socket_addr_ip6_encode( fd_gossip_socket_addr_ip6_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_gossip_ip6_addr_encode( &self->addr, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->port, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->flowinfo, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->scope_id, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_ip6_decode_offsets( fd_gossip_socket_addr_ip6_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_gossip_ip6_addr_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint16_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->flowinfo_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->scope_id_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_addr_ip6_new(fd_gossip_socket_addr_ip6_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_socket_addr_ip6_t) );
+  fd_gossip_ip6_addr_new( &self->addr );
+}
+void fd_gossip_socket_addr_ip6_destroy( fd_gossip_socket_addr_ip6_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_gossip_ip6_addr_destroy( &self->addr, ctx );
+}
+
+ulong fd_gossip_socket_addr_ip6_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_IP6_FOOTPRINT; }
+ulong fd_gossip_socket_addr_ip6_align( void ){ return FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN; }
+
+void fd_gossip_socket_addr_ip6_walk( void * w, fd_gossip_socket_addr_ip6_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr_ip6", level++ );
+  fd_gossip_ip6_addr_walk( w, &self->addr, fun, "addr", level );
+  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
+  fun( w, &self->flowinfo, "flowinfo", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->scope_id, "scope_id", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr_ip6", level-- );
+}
+ulong fd_gossip_socket_addr_ip6_size( fd_gossip_socket_addr_ip6_t const * self ) {
+  ulong size = 0;
+  size += fd_gossip_ip6_addr_size( &self->addr );
+  size += sizeof(ushort);
+  size += sizeof(uint);
+  size += sizeof(uint);
+  return size;
+}
+
+FD_FN_PURE uchar fd_gossip_socket_addr_is_ip4(fd_gossip_socket_addr_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_socket_addr_is_ip6(fd_gossip_socket_addr_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_gossip_socket_addr_inner_new( fd_gossip_socket_addr_inner_t * self, uint discriminant );
+int fd_gossip_socket_addr_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_socket_addr_ip4_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    err = fd_gossip_socket_addr_ip6_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_gossip_socket_addr_inner_decode_unsafe( fd_gossip_socket_addr_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_socket_addr_ip4_decode_unsafe( &self->ip4, ctx );
+    break;
+  }
+  case 1: {
+    fd_gossip_socket_addr_ip6_decode_unsafe( &self->ip6, ctx );
+    break;
+  }
+  }
+}
 int fd_gossip_socket_addr_decode( fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
   int err = fd_gossip_socket_addr_decode_preflight( ctx );
@@ -23556,58 +23957,108 @@ int fd_gossip_socket_addr_decode( fd_gossip_socket_addr_t * self, fd_bincode_dec
   return FD_BINCODE_SUCCESS;
 }
 int fd_gossip_socket_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  err = fd_gossip_ip_addr_decode_preflight( ctx );
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
+  return fd_gossip_socket_addr_inner_decode_preflight( discriminant, ctx );
 }
 void fd_gossip_socket_addr_decode_unsafe( fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_ip_addr_decode_unsafe( &self->addr, ctx );
-  fd_bincode_uint16_decode_unsafe( &self->port, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_gossip_socket_addr_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
 }
-int fd_gossip_socket_addr_encode( fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_gossip_ip_addr_encode( &self->addr, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( self->port, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
+void fd_gossip_socket_addr_inner_new( fd_gossip_socket_addr_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    fd_gossip_socket_addr_ip4_new( &self->ip4 );
+    break;
+  }
+  case 1: {
+    fd_gossip_socket_addr_ip6_new( &self->ip6 );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
 }
-int fd_gossip_socket_addr_decode_offsets( fd_gossip_socket_addr_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  uchar const * data = ctx->data;
-  int err;
-  self->addr_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_gossip_ip_addr_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  self->port_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint16_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
+void fd_gossip_socket_addr_new_disc( fd_gossip_socket_addr_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_gossip_socket_addr_inner_new( &self->inner, self->discriminant );
 }
-void fd_gossip_socket_addr_new(fd_gossip_socket_addr_t * self) {
+void fd_gossip_socket_addr_new( fd_gossip_socket_addr_t * self ) {
   fd_memset( self, 0, sizeof(fd_gossip_socket_addr_t) );
-  fd_gossip_ip_addr_new( &self->addr );
+  fd_gossip_socket_addr_new_disc( self, UINT_MAX );
+}
+void fd_gossip_socket_addr_inner_destroy( fd_gossip_socket_addr_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  case 0: {
+    fd_gossip_socket_addr_ip4_destroy( &self->ip4, ctx );
+    break;
+  }
+  case 1: {
+    fd_gossip_socket_addr_ip6_destroy( &self->ip6, ctx );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
 }
 void fd_gossip_socket_addr_destroy( fd_gossip_socket_addr_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_gossip_ip_addr_destroy( &self->addr, ctx );
+  fd_gossip_socket_addr_inner_destroy( &self->inner, self->discriminant, ctx );
 }
 
 ulong fd_gossip_socket_addr_footprint( void ){ return FD_GOSSIP_SOCKET_ADDR_FOOTPRINT; }
 ulong fd_gossip_socket_addr_align( void ){ return FD_GOSSIP_SOCKET_ADDR_ALIGN; }
 
 void fd_gossip_socket_addr_walk( void * w, fd_gossip_socket_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_addr", level++ );
-  fd_gossip_ip_addr_walk( w, &self->addr, fun, "addr", level );
-  fun( w, &self->port, "port", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_addr", level-- );
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_gossip_socket_addr", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "ip4", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_gossip_socket_addr_ip4_walk( w, &self->inner.ip4, fun, "ip4", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "ip6", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_gossip_socket_addr_ip6_walk( w, &self->inner.ip6, fun, "ip6", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_gossip_socket_addr", level-- );
 }
 ulong fd_gossip_socket_addr_size( fd_gossip_socket_addr_t const * self ) {
   ulong size = 0;
-  size += fd_gossip_ip_addr_size( &self->addr );
-  size += sizeof(ushort);
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_socket_addr_ip4_size( &self->inner.ip4 );
+    break;
+  }
+  case 1: {
+    size += fd_gossip_socket_addr_ip6_size( &self->inner.ip6 );
+    break;
+  }
+  }
   return size;
+}
+
+int fd_gossip_socket_addr_inner_encode( fd_gossip_socket_addr_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_socket_addr_ip4_encode( &self->ip4, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_gossip_socket_addr_ip6_encode( &self->ip6, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_addr_encode( fd_gossip_socket_addr_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_gossip_socket_addr_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
 int fd_gossip_contact_info_v1_decode( fd_gossip_contact_info_v1_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -31988,8 +32439,6 @@ ulong fd_duplicate_slot_proof_size( fd_duplicate_slot_proof_t const * self ) {
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_hash_hash_age_pair_t_map_compare( fd_hash_hash_age_pair_t_mapnode_t * left, fd_hash_hash_age_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -31997,8 +32446,6 @@ long fd_hash_hash_age_pair_t_map_compare( fd_hash_hash_age_pair_t_mapnode_t * le
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_vote_accounts_pair_t_map_compare( fd_vote_accounts_pair_t_mapnode_t * left, fd_vote_accounts_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32006,8 +32453,6 @@ long fd_vote_accounts_pair_t_map_compare( fd_vote_accounts_pair_t_mapnode_t * le
 #define REDBLK_NAME fd_stake_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_stake_accounts_pair_t_map_compare( fd_stake_accounts_pair_t_mapnode_t * left, fd_stake_accounts_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32015,8 +32460,6 @@ long fd_stake_accounts_pair_t_map_compare( fd_stake_accounts_pair_t_mapnode_t * 
 #define REDBLK_NAME fd_stake_weight_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
@@ -32024,8 +32467,6 @@ long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake
 #define REDBLK_NAME fd_delegation_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_delegation_pair_t_map_compare( fd_delegation_pair_t_mapnode_t * left, fd_delegation_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account) );
 }
@@ -32033,8 +32474,6 @@ long fd_delegation_pair_t_map_compare( fd_delegation_pair_t_mapnode_t * left, fd
 #define REDBLK_NAME fd_stake_pair_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_stake_pair_t_map_compare( fd_stake_pair_t_mapnode_t * left, fd_stake_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account) );
 }
@@ -32042,8 +32481,6 @@ long fd_stake_pair_t_map_compare( fd_stake_pair_t_mapnode_t * left, fd_stake_pai
 #define REDBLK_NAME fd_clock_timestamp_vote_t_map
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 long fd_clock_timestamp_vote_t_map_compare( fd_clock_timestamp_vote_t_mapnode_t * left, fd_clock_timestamp_vote_t_mapnode_t * right ) {
   return memcmp( left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey) );
 }

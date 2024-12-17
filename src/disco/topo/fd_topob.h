@@ -29,7 +29,7 @@ FD_PROTOTYPES_BEGIN
    with no tiles, objects, links. */
 
 fd_topo_t *
-fd_topob_new( void * mem, 
+fd_topob_new( void * mem,
               char const * app_name );
 
 /* Add a workspace with the given name to the topology.  Workspace names
@@ -42,7 +42,7 @@ fd_topob_wksp( fd_topo_t *  topo,
 
 /* Add an object with the given name to the toplogy.  An object is
    something that takes up space in memory, in a workspace.
-   
+
    The workspace must exist and have been added to the topology.
    Adding an object will cause it to occupt space in memory, but not
    be mapped into any tiles.  If you wish the object to be readable or
@@ -76,7 +76,6 @@ void
 fd_topob_link( fd_topo_t *  topo,
                char const * link_name,
                char const * wksp_name,
-               int          is_reasm,
                ulong        depth,
                ulong        mtu,
                ulong        burst );
@@ -137,7 +136,7 @@ fd_topob_auto_layout( fd_topo_t * topo );
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
    the topology before returning.
-   
+
    This must be called to finish creating the topology. */
 
 void

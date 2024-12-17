@@ -60,7 +60,7 @@ fd_xdp_session_fini( fd_xdp_session_t * session ) {
 }
 
 #define EBPF_KERN_LOG_BUFSZ (32768UL)
-char ebpf_kern_log[ EBPF_KERN_LOG_BUFSZ ];
+static char ebpf_kern_log[ EBPF_KERN_LOG_BUFSZ ];
 
 /* Define some kernel uapi constants in case the user is compiling
    with older kernel headers.  This is especially a problem on Ubuntu

@@ -1,4 +1,5 @@
 #include "fd_quic_stream.h"
+#include "fd_quic_enum.h"
 
 /* buffer helper functions */
 /* fd_quic_buffer_store

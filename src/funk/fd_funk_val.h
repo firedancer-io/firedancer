@@ -74,7 +74,7 @@ fd_funk_val_safe( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's 
 
    The returned pointer is in the caller's address space and, if
    non-NULL, the value at the pointer is stable for its lifetime or
-   until it it is modified.
+   until it is modified.
 
    IMPORTANT SAFETY TIP!  There are _no_ alignment guarantees on the
    returned value (even if off itself is aligned).
@@ -151,7 +151,7 @@ fd_funk_val_write( fd_funk_rec_t *   rec,     /* Assumed in caller's address spa
 /* fd_funk_val_copy copies sz bytes starting at data into the record
    value, replacing the existing record value.  rec's value will be able
    to accommodate at least sz_est in the future without resizing on
-   return.  If sz_est is 0 on entry, it will be be set to sz as a
+   return.  If sz_est is 0 on entry, it will be set to sz as a
    reasonable default before any argument checking.
 
    data points to the bytes to write.  [data,data+sz) should not overlap

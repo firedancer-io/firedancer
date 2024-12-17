@@ -161,6 +161,14 @@ fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
 }
 
+/* fd_pack_current_block_cost returns the number of CUs that have been
+   scheduled in the current block, net of any rebates.  It should be
+   between 0 and the specified value of max_cost_per_block, but it can
+   be slightly higher due to temporary cost model nonsense.  Due to
+   rebates, this number may decrease as the block progresses.  pack must
+   be a valid local join. */
+FD_FN_PURE ulong fd_pack_current_block_cost( fd_pack_t const * pack );
+
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
    must be a valid local join.  The result will be in [1,
@@ -355,8 +363,12 @@ void fd_pack_rebate_cus( fd_pack_t * pack, fd_txn_p_t const * txns, ulong txn_cn
 /* fd_pack_microblock_complete signals that the bank_tile with index
    bank_tile has completed its previously scheduled microblock.  This
    permits the scheduling of transactions that conflict with the
-   previously scheduled microblock. */
-void fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
+   previously scheduled microblock.  It is safe to call this multiple
+   times after a microblock or even if bank_tile does not have a
+   previously scheduled; in this case, the function will return 0 and
+   act as a no-op.  Returns 1 if the bank_tile had an outstanding,
+   previously scheduled microblock to mark as completed. */
+int fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 
 /* fd_pack_expire_before deletes all available transactions with
    expires_at values strictly less than expire_before.  pack must be a

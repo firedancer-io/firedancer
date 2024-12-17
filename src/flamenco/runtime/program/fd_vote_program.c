@@ -1933,8 +1933,8 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
 }
 
 // ??
-static ulong
-query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
+ulong
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
   fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
   key.elem.key                                  = *pubkey;
   fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find(
@@ -1965,7 +1965,7 @@ process_vote_state_update( ulong                         vote_acct_idx,
           lockout->slot,
           &vote_state_update->hash,
           0,
-          query_pubkey_stake( vote_account->pubkey,
+          fd_query_pubkey_stake( vote_account->pubkey,
             &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
 
       if( FD_LIKELY( vote_state_update->has_root ) ) {
@@ -2041,6 +2041,29 @@ process_tower_sync( ulong                         vote_acct_idx,
                     fd_tower_sync_t *             tower_sync,
                     fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
                     fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
+
+  if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
+    fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
+    fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
+    if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
+      fd_bank_hash_cmp_lock( bank_hash_cmp );
+      fd_bank_hash_cmp_insert(
+        bank_hash_cmp,
+          lockout->slot,
+          &tower_sync->hash,
+          0,
+          fd_query_pubkey_stake( vote_account->pubkey,
+            &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
+
+      if( FD_LIKELY( tower_sync->has_root ) ) {
+        fd_bank_hash_cmp_entry_t * cmp =
+          fd_bank_hash_cmp_map_query( bank_hash_cmp->map, tower_sync->root, NULL );
+        if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
+      }
+
+      fd_bank_hash_cmp_unlock( bank_hash_cmp );
+    }
+  }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1194
   fd_vote_state_t vote_state;
@@ -2292,7 +2315,8 @@ process_authorize_with_seed_instruction(
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L90
-uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
+static uint
+vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
   uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
@@ -2838,7 +2862,7 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   }
 }
 
-void
+static void
 upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
   FD_SCRATCH_SCOPE_BEGIN {
 

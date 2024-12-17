@@ -113,5 +113,10 @@
 /* Retry token lifetime in seconds */
 #define FD_QUIC_RETRY_TOKEN_LIFETIME (3)
 
+#define FD_QUIC_STREAM_ID_UNUSED (ULONG_MAX)
+
+#define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
+#define FD_QUIC_PKT_NUM_PENDING (~1ul)
+
 #endif
 

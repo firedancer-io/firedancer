@@ -68,6 +68,11 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog );
 
+void
+fd_bpf_get_sbpf_versions( uint *                     sbpf_min_version,
+                          uint *                     sbpf_max_version,
+                          fd_exec_slot_ctx_t const * slot_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h */

@@ -34,13 +34,13 @@ git checkout -q $GIT_REF
 cd ../..
 
 LOG=$LOG_PATH/test_exec_syscall
-cat contrib/test/test-vectors-fixtures/syscall-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
-
-LOG=$LOG_PATH/test_exec_cpi
-cat contrib/test/test-vectors-fixtures/cpi-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/test-vectors-fixtures/syscall-fixtures/*.list | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_interp
-cat contrib/test/test-vectors-fixtures/vm-interp-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/test-vectors-fixtures/vm-interp-fixtures/*.list | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+find dump/test-vectors/vm_interp/fixtures/v0 -type f -name '*.fix' | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+find dump/test-vectors/vm_interp/fixtures/v1 -type f -name '*.fix' | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+find dump/test-vectors/vm_interp/fixtures/v2 -type f -name '*.fix' | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/test-vectors-fixtures/precompile-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
@@ -53,9 +53,16 @@ LOG=$LOG_PATH/test_elf_loader
 cat contrib/test/test-vectors-fixtures/elf-loader-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_instr
-cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG
+cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG
 
-LOG=$LOG_PATH/test_vm_validate
-cat contrib/test/test-vectors-fixtures/vm-validate-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+# check if ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed exists
+if [ -f ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed ]; then
+  LOG=$LOG_PATH/test_exec_cpi
+  cat contrib/test/test-vectors-fixtures/cpi-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed --log-path $LOG
+else
+  # skip stubbed tests if the binary does not exist
+  echo -e "\e[38;5;214mNOTICE:\e[0m Skipping stubbed tests due to missing stub binary"
+  echo "Build with EXTRAS=fuzz-stubs to build the stub binary"
+fi
 
 echo Test vectors success

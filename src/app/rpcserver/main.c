@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -33,6 +34,14 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
   if( args->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
+  }
+
+  char const * blockstore_file = fd_env_strip_cmdline_cstr( argc, argv, "--blockstore-file", NULL, NULL );
+  if( FD_UNLIKELY( !blockstore_file ))
+    FD_LOG_ERR(( "--blockstore-file argument is required" ));
+  args->blockstore_fd = open( blockstore_file, O_RDONLY );
+  if( args->blockstore_fd == -1 ) {
+    FD_LOG_ERR(( "failed to open blockstore file" ));
   }
 
   const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
@@ -111,16 +120,14 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   } else {
     char const * restore = fd_env_strip_cmdline_cstr ( argc, argv, "--restore-blockstore", NULL, NULL );
     if( restore == NULL ) FD_LOG_ERR(( "must use --wksp-name-blockstore or --restore-blockstore in offline mode" ));
-    uint seed;
-    ulong part_max;
-    ulong data_max;
-    int err = fd_wksp_restore_preview( restore, &seed, &part_max, &data_max );
+    fd_wksp_preview_t preview[1];
+    int err = fd_wksp_preview( restore, preview );
     if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", restore, err ));
-    ulong page_cnt = (data_max + FD_SHMEM_GIGANTIC_PAGE_SZ-1U)/FD_SHMEM_GIGANTIC_PAGE_SZ;
+    ulong page_cnt = (preview->data_max + FD_SHMEM_GIGANTIC_PAGE_SZ-1U)/FD_SHMEM_GIGANTIC_PAGE_SZ;
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, page_cnt, 0, "wksp-blockstore", 0UL );
     if( !wksp ) FD_LOG_ERR(( "unable to restore %s: failed to create wksp", restore ));
     FD_LOG_NOTICE(( "restoring blockstore wksp %s", restore ));
-    fd_wksp_restore( wksp, restore, seed );
+    fd_wksp_restore( wksp, restore, preview->seed );
   }
   fd_wksp_tag_query_info_t info;
   ulong tag = 1;

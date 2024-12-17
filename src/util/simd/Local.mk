@@ -12,10 +12,12 @@ $(call add-hdrs,fd_avx.h fd_avx_wc.h fd_avx_wi.h fd_avx_wu.h fd_avx_wf.h fd_avx_
 ifdef FD_HAS_AVX
 $(call make-unit-test,test_avx_8x32,test_avx_8x32 test_avx_common,fd_util)
 $(call make-unit-test,test_avx_4x64,test_avx_4x64 test_avx_common,fd_util)
+$(call make-unit-test,test_avx_16x16,test_avx_16x16 test_avx_common,fd_util)
 $(call make-unit-test,test_avx_32x8,test_avx_32x8 test_avx_common,fd_util)
-$(call run-unit-test,test_avx_8x32,)
-$(call run-unit-test,test_avx_4x64,)
-$(call run-unit-test,test_avx_32x8,)
+$(call run-unit-test,test_avx_8x32)
+$(call run-unit-test,test_avx_4x64)
+$(call run-unit,test-test_avx_16x16)
+$(call run-unit-test,test_avx_32x8)
 endif
 
 $(call add-hdrs,fd_avx512.h fd_avx512_wwi.h fd_avx512_wwu.h fd_avx512_wwl.h fd_avx512_wwv.h)

@@ -212,8 +212,6 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_dcache_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
     return fd_cnc_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    return fd_tpu_reasm_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
@@ -255,14 +253,12 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_dcache_footprint( fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1), 0UL );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
     return fd_cnc_footprint( 0UL );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    return fd_tpu_reasm_footprint( VAL("depth"), VAL("burst") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("txn_max") ) + VAL("alloc_max");
+    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {

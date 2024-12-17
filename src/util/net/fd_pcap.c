@@ -315,7 +315,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
 
     if( FD_UNLIKELY( hdr_rem<sizeof(fd_udp_hdr_t) ) ) { FD_LOG_WARNING(( "Header buffer too small for UDP hdr" )); return 0; }
 
-    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_udp_hdr_t), 1, file ) )!=1 ) {
+    if( FD_UNLIKELY( fread( _hdr_buf, sizeof(fd_udp_hdr_t), 1, file ) !=1 ) ) {
       if( FD_UNLIKELY( !feof( file ) ) )
         FD_LOG_WARNING(( "packet udp hdr fread failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       else

@@ -76,27 +76,40 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 
 /* SBPF version and features
    https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
-*/
-#define FD_VM_SBPF_VERSION_1  (1UL)
-#define FD_VM_SBPF_VERSION_2  (2UL)
-#define FD_VM_SBPF_VERSION_3  (3UL)
-#define FD_VM_SBPF_VERSION_4  (4UL)
 
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES               (2UL)  /* SIMD-0166 */
-#define FD_VM_SBPF_CALLX_USES_SRC_REG                 (3UL)  /* SIMD-0173 */
-#define FD_VM_SBPF_DISABLE_LDDW                       (3UL)
-#define FD_VM_SBPF_DISABLE_LE                         (3UL)
-#define FD_VM_SBPF_MOVE_MEMORY_INSTRUCTION_CLASSES    (3UL)
-#define FD_VM_SBPF_ENABLE_PQR                         (3UL)  /* SIMD-0174 */
-#define FD_VM_SBPF_DISABLE_NEG                        (3UL)
-#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS          (3UL)
-#define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS (3UL)
-#define FD_VM_SBPF_STATIC_SYSCALLS                    (4UL)  /* SIMD-0176 */
-#define FD_VM_SBPF_STRICTER_CONTROLFLOW               (4UL)  /* SIMD-XXXX */
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP        (4UL)
-#define FD_VM_SBPF_ENABLE_ELF_VADDR                   (4UL)
+   Note: SIMDs enable or disable features, e.g. BPF instructions.
+   If we have macros with names ENABLE vs DISABLE, we have the advantage that
+   the condition is always pretty clear: sbpf_version <= activation_version,
+   but the disadvantage of inconsistent names.
+   Viceversa, calling everything ENABLE has the risk to invert a <= with a >=
+   and create a huge mess.
+   We define both, so hopefully it's foolproof. */
 
-#define FD_VM_SBPF_HAS( vm, feature )   ((vm)->sbpf_version >= (feature))
+/* SIMD-0166 */
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
+/* SIMD-0173 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= FD_SBPF_V2 )
+/* SIMD-0174 */
+#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
+/* SIMD-0176 */
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
+/* SIMD-XXXX */
+#define FD_VM_SBPF_STRICTER_CONTROLFLOW(v)         ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v >= FD_SBPF_V3 )
+
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
+
+#define FD_VM_OFFSET_MASK (0xffffffffUL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -116,42 +129,6 @@ FD_PROTOTYPES_BEGIN
     vm->instr_ctx->txn_ctx->exec_err = err;                               \
     vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;   \
   }))
-
-/* fd_vm_cu API *******************************************************/
-
-/* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
-/* FD_VM_CU_UPDATE charges the vm cost compute units.
-
-   If the vm does not have more than cost cu available, this will cause
-   the caller to zero out the vm->cu and return with FD_VM_ERR_SIGCOST.
-   This macro is robust.
-   This is meant to be used by syscall implementations and strictly
-   conforms with the vm-syscall ABI interface.
-
-   Note: in Agave a syscall can return success leaving 0 available CUs.
-   The instruction will fail at the next instruction (e.g., exit).
-   To reproduce the same behavior, we do not return FD_VM_ERR_SIGCOST
-   when cu == 0.
-
-   FD_VM_CU_MEM_UPDATE charges the vm the equivalent of sz bytes of
-   compute units.  Behavior is otherwise identical to FD_VM_CU_UPDATE.
-   FIXME: THIS API PROBABLY BELONGS IN SYSCALL CPI LAND. */
-
-#define FD_VM_CU_UPDATE( vm, cost ) (__extension__({ \
-    fd_vm_t * _vm   = (vm);                          \
-    ulong     _cost = (cost);                        \
-    ulong     _cu   = _vm->cu;                       \
-    if( FD_UNLIKELY( _cost>_cu ) ) {                 \
-      _vm->cu = 0UL;                                 \
-      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ); \
-      return FD_VM_ERR_SIGCOST;                      \
-    }                                                \
-    _vm->cu = _cu - _cost;                           \
-  }))
-
-/* https://github.com/anza-xyz/agave/blob/5263c9d61f3af060ac995956120bef11c1bbf182/programs/bpf_loader/src/syscalls/mem_ops.rs#L7 */
-#define FD_VM_CU_MEM_OP_UPDATE( vm, sz ) \
-  FD_VM_CU_UPDATE( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) )
 
 #define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> 32, 5UL )
 
@@ -178,7 +155,7 @@ fd_vm_instr( ulong opcode, /* Assumed valid */
 FD_FN_CONST static inline ulong fd_vm_instr_opcode( ulong instr ) { return   instr      & 255UL;       } /* In [0,256) */
 FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return ((instr>> 8) &  15UL);      } /* In [0,16)  */
 FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return ((instr>>12) &  15UL);      } /* In [0,16)  */
-FD_FN_CONST static inline short fd_vm_instr_offset( ulong instr ) { return (short)(ushort)(instr>>16); }
+FD_FN_CONST static inline ulong fd_vm_instr_offset( ulong instr ) { return (ulong)(long)(short)(ushort)(instr>>16); }
 FD_FN_CONST static inline uint  fd_vm_instr_imm   ( ulong instr ) { return (uint)(instr>>32);          }
 
 FD_FN_CONST static inline ulong fd_vm_instr_opclass       ( ulong instr ) { return  instr      & 7UL; } /* In [0,8)  */
@@ -289,6 +266,9 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              uchar           write,
                              ulong           sentinel,
                              uchar *         is_multi_region ) {
+  if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) {
+    return sentinel; /* Access is too large */
+  }
 
   /* Binary search to find the correct memory region.  If direct mapping is not
      enabled, then there is only 1 memory region which spans the input region. */
@@ -336,7 +316,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  ulong              sentinel,
                  uchar *            is_multi_region ) {
   ulong region = FD_VADDR_TO_REGION( vaddr );
-  ulong offset = vaddr & 0xffffffffUL;
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
@@ -377,7 +357,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
   ulong region   = FD_VADDR_TO_REGION( vaddr );
-  ulong offset   = vaddr & 0xffffffffUL;
+  ulong offset   = vaddr & FD_VM_OFFSET_MASK;
   if( FD_UNLIKELY( region==4UL ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
   }
@@ -391,7 +371,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
 
 static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * dst ) {
 
-  ulong offset              = vaddr & 0xffffffffUL;
+  ulong offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   uint  bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                               (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -448,7 +428,7 @@ FD_FN_PURE static inline ulong fd_vm_mem_ld_8( fd_vm_t const * vm, ulong vaddr, 
    the case where the store spans multiple input memory regions. */
 
 static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * src ) {
-  ulong   offset              = vaddr & 0xffffffffUL;
+  ulong   offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong   region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   ulong   bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                                  (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -507,205 +487,6 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
   }
 }
 
-/* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
-/* FD_VM_MEM_HADDR_LD returns a read only pointer to the first byte
-   in the host address space corresponding to vm's virtual address range
-   [vaddr,vaddr+sz).  If the vm has check_align enabled, the vaddr
-   should be aligned to align and the returned pointer will be similarly
-   aligned.  Align is assumed to be a power of two <= 8 (FIXME: CHECK
-   THIS LIMIT).
-
-   If the virtual address range cannot be mapped to the host address
-   space completely and/or (when applicable) vaddr is not appropriately
-   aligned, this will cause the caller to return FD_VM_ERR_SIGSEGV.
-   This macro is robust.  This is meant to be used by syscall
-   implementations and strictly conforms with the vm-syscall ABI
-   interface.
-
-   FD_VM_MEM_HADDR_ST returns a read-write pointer but is otherwise
-   identical to FD_VM_MEM_HADDR_LD.
-
-   FD_VM_MEM_HADDR_LD_FAST and FD_VM_HADDR_ST_FAST are for use when the
-   corresponding vaddr region it known to correctly resolve (e.g.  a
-   syscall has already done preflight checks on them).
-
-   These macros intentionally don't support multi region loads/stores.
-   The load/store macros are used by vm syscalls and mirror the use
-   of translate_slice{_mut}. However, this check does not allow for 
-   multi region accesses. So if there is an attempt at a multi region
-   translation, an error will be returned. 
-
-   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a 
-   store, but intentionally omits the is_writable checks for the 
-   input region that are done during memory translation. */
-
-#define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                         \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
-      FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    (void const *)_haddr;                                                                                   \
-  }))
-
-#define FD_VM_MEM_HADDR_LD_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                               \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    (void const *)_haddr;                                                                                   \
-  }))
-
-static inline void *
-FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int *err ) {
-  fd_vm_t const * _vm       = (vm);
-  uchar           _is_multi = 0;
-  ulong           _vaddr    = (vaddr);
-  ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi );
-  int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));
-  if ( FD_UNLIKELY( sz > LONG_MAX ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );
-    *err = FD_VM_ERR_SIGSEGV;
-    return 0;
-  }
-  if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {
-    FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-    *err = FD_VM_ERR_SIGSEGV;
-    return 0;
-  }
-  if ( FD_UNLIKELY( _sigbus ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );
-    *err = FD_VM_ERR_SIGSEGV;
-    return 0;
-  }
-  return (void *)_haddr;
-}
-
-#define FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                         \
-    int _err = 0;                                                                                           \
-    void * ret = FD_VM_MEM_HADDR_ST_( vm, vaddr, align, sz, &_err );                                        \
-    if ( FD_UNLIKELY( 0 != _err ))                                                                          \
-      return _err;                                                                                          \
-    ret;                                                                                                    \
-}))
-
-#define FD_VM_MEM_HADDR_ST_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                               \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
-    (void const *)_haddr;                                                                                   \
-  }))
-
-#define FD_VM_MEM_HADDR_ST_WRITE_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                         \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 0, 0UL, &_is_multi ); \
-    int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                   \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    if( FD_UNLIKELY( (!_haddr) | _is_multi ) ) {                                                            \
-      FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_ERR_SYSCALL_UNALIGNED_POINTER );                                \
-      return FD_VM_ERR_SIGSEGV;                                                                             \
-    }                                                                                                       \
-    (void *)_haddr;                                                                                         \
-  }))
-
-
-#define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
-#define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
-
-/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED simply converts a vaddr within the input memory region
-   into an haddr. The macro assumes that the caller already checked that the vaddr exists within the
-   input region (region==4UL) and sets the region_idx and haddr. */
-#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_UNCHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
-  _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
-  _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
-}))
-
-/* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
-   Agave's translate_slice function returns an empty array if the sz == 0.
-
-   Users of this macro should be aware that they should never access the returned value if sz==0.
-
-   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560 
-
-   LONG_MAX check: https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580
-   Technically, the check in Agave is against
-   "pointer-sized signed integer type ... The size of this primitive is
-    how many bytes it takes to reference any location in memory. For
-    example, on a 32 bit target, this is 4 bytes and on a 64 bit target,
-    this is 8 bytes."
-   Realistically, given the amount of memory that a validator consumes,
-   no one is going to be running on a 32 bit target. So, we don't bother
-   with conditionally compiling in an INT_MAX check. We just assume
-   LONG_MAX. */
-#define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
-      return FD_VM_ERR_INVAL;                                                                                   \
-    }                                                                                                           \
-    void const * haddr = 0UL;                                                                                   \
-    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
-      haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz );                                                       \
-    }                                                                                                           \
-    haddr;                                                                                                      \
-}))
-
-
-/* This is the same as the above function but passes in a size of 1 to support
-   loads with no size bounding support. */
-#define FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, vaddr, align ) (__extension__({                              \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
-      return FD_VM_ERR_INVAL;                                                                                   \
-    }                                                                                                           \
-    void const * haddr = 0UL;                                                                                   \
-    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
-      haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, 1UL );                                                      \
-    }                                                                                                           \
-    haddr;                                                                                                      \
-}))
-
-#define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_LENGTH );                                        \
-      return FD_VM_ERR_INVAL;                                                                                   \
-    }                                                                                                           \
-    void * haddr = 0UL;                                                                                         \
-    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
-      haddr = FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz );                                                       \
-    }                                                                                                           \
-    haddr;                                                                                                      \
-}))
-
-/* FIXME: use overlap logic from runtime? */
-#define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, vaddr0, sz0, vaddr1, sz1 ) do {                                    \
-  if( FD_UNLIKELY( ((vaddr0> vaddr1) && ((vaddr0-vaddr1)<sz1)) ||                                               \
-                   ((vaddr1>=vaddr0) && ((vaddr1-vaddr0)<sz0)) ) ) {                                            \
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_COPY_OVERLAPPING );                                        \
-    return FD_VM_ERR_MEM_OVERLAP;                                                                               \
-  }                                                                                                             \
-} while(0)
 
 FD_PROTOTYPES_END
 

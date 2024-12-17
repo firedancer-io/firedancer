@@ -266,7 +266,7 @@ main( int     argc,
                               0UL,
                               0UL,
                               100UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   test_vm_syscall_toggle_direct_mapping( vm, 1 ); /* enable direct mapping */
 
@@ -293,7 +293,7 @@ main( int     argc,
                               0UL,
                               0UL,
                               100UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset across multiple input mem regions",
                               vm,
@@ -318,7 +318,7 @@ main( int     argc,
                               (ulong)&input + 50UL,
                               1UL,
                               800UL,
-                              0UL, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
   input_mem_regions[2].is_writable=1;
 
 
@@ -351,7 +351,7 @@ main( int     argc,
                               (ulong)&vm->heap[0],
                               (ulong)&vm->rodata[0],
                               100UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   // test we cannot copy more than the available size from the read-only region
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy from read only region to heap region",
@@ -361,7 +361,7 @@ main( int     argc,
                               (ulong)&vm->rodata[0],
                               (ulong)&vm->heap[0],
                               rodata_sz + 1UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   // test we cannot copy overlapping regions in heap where src is before dst
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src before dst",
@@ -371,7 +371,7 @@ main( int     argc,
                               (ulong)&vm->heap[0],
                               (ulong)&vm->heap[10],
                               100UL,
-                              0UL, FD_VM_ERR_MEM_OVERLAP );
+                              0UL, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );
 
   // test we cannot copy overlapping regions in heap where src is after dst
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src after dst",
@@ -381,7 +381,7 @@ main( int     argc,
                               (ulong)&vm->heap[10],
                               (ulong)&vm->heap[0],
                               100UL,
-                              0UL, FD_VM_ERR_MEM_OVERLAP );
+                              0UL, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );
 
   test_vm_syscall_toggle_direct_mapping( vm, 1 ); /* enable direct mapping */
 
@@ -412,7 +412,7 @@ main( int     argc,
                               (ulong)&vm->heap[0],
                               (ulong)&vm->rodata[0],
                               100UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   // test we cannot copy more than the available size from the read-only region
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy from read only region to heap region",
@@ -422,7 +422,7 @@ main( int     argc,
                               (ulong)&vm->rodata[0],
                               (ulong)&vm->heap[0],
                               rodata_sz + 1UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   // test we cannot copy overlapping regions in heap where src is before dst
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src before dst",
@@ -432,7 +432,7 @@ main( int     argc,
                               (ulong)&vm->heap[0],
                               (ulong)&vm->heap[10],
                               100UL,
-                              0UL, FD_VM_ERR_MEM_OVERLAP );
+                              0UL, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );
 
   // test we cannot copy overlapping regions in heap where src is after dst
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src after dst",
@@ -442,7 +442,7 @@ main( int     argc,
                               (ulong)&vm->heap[10],
                               (ulong)&vm->heap[0],
                               100UL,
-                              0UL, FD_VM_ERR_MEM_OVERLAP );
+                              0UL, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input (single region)",
                                 vm,
@@ -460,7 +460,7 @@ main( int     argc,
                                 vm->input_mem_regions[0].haddr + 80UL,
                                 vm->input_mem_regions[0].haddr + 120UL,
                                 50UL,
-                                0UL, FD_VM_ERR_MEM_OVERLAP );
+                                0UL, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input multiple regions",
                                 vm,
@@ -478,7 +478,7 @@ main( int     argc,
                                 vm->input_mem_regions[0].haddr + 50UL,
                                 vm->input_mem_regions[0].haddr + 450UL,
                                 500UL,
-                                0UL, FD_VM_ERR_MEM_OVERLAP );
+                                0UL, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );
 
 
   test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */
@@ -521,7 +521,7 @@ main( int     argc,
                                (ulong)&vm->heap[0],
                                (ulong)&vm->rodata[0],
                                100UL,
-                               0UL, FD_VM_ERR_SIGSEGV );
+                               0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   test_vm_syscall_toggle_direct_mapping( vm, 1 ); /* enable direct mapping */
 
@@ -563,7 +563,7 @@ main( int     argc,
                                (ulong)&vm->heap[0],
                                (ulong)&vm->rodata[0],
                                100UL,
-                               0UL, FD_VM_ERR_SIGSEGV );
+                               0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
 
   test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input (single region)",
@@ -636,7 +636,7 @@ main( int     argc,
                               (ulong)&vm->rodata[100],
                               (ulong)&vm->rodata[200],
                               100UL,
-                              0UL, FD_VM_ERR_SIGSEGV );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   memset( (void*)input_mem_regions[0].haddr, 0xFF, 400UL );
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp input region equal",

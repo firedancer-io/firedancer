@@ -158,10 +158,16 @@ fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );
 void *
 fd_exec_txn_ctx_delete( void * mem );
 
+/* Sets up a basic transaction ctx without a txn descriptor or txn raw. Useful
+   for mocking transaction context objects for instructions. */
+void 
+fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx );
+
 void
 fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
                        fd_txn_t const * txn_descriptor,
                        fd_rawtxn_b_t const * txn_raw );
+
 void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
                                     fd_exec_txn_ctx_t * txn_ctx );
@@ -195,6 +201,15 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
                               fd_borrowed_account_t * * account );
 
+/* The fee payer is a valid modifiable account if it is passed in as writable
+   in the message via a valid signature. We ignore if the account has been 
+   demoted or not (see fd_txn_account_is_writable_idx) for more details. 
+   Agave and Firedancer will reject the fee payer if the transaction message
+   doesn't have a writable signature. */
+int
+fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx, 
+                                          fd_borrowed_account_t * * account );
+
 int
 fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
                                     uchar idx,
@@ -207,6 +222,21 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
                                 fd_borrowed_account_t * * account );
 void
 fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
+
+/* In agave, the writable accounts cache is populated by this below function.
+   This cache is then referenced to determine if a transaction account is
+   writable or not. 
+   
+   The overall logic is as follows: an account can be passed
+   in as writable based on the signature and readonly signature as they are
+   passed in by the transaction message. However, the account's writable
+   status will be demoted if either of the two conditions are met:
+   1. If the account is in the set of reserved pubkeys
+   2. If the account is the program id AND the upgradeable loader account is in 
+      the set of transaction accounts. */
+/* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
+int
+fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx );
 
 FD_PROTOTYPES_END
 

@@ -5,7 +5,7 @@ SHELL:=bash
 CPPFLAGS:=-isystem ./$(OPT)/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_HAS_BACKTRACE=0
 RUSTFLAGS:=-C force-frame-pointers=yes
 CC:=gcc
-CFLAGS=-std=c17
+CFLAGS=-std=c17 -fwrapv
 CXX:=g++
 CXXFLAGS=-std=c++17
 LD:=g++

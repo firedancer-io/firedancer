@@ -189,16 +189,14 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
 }
 
 static ulong _recv = 0;
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
 
   ulong expected_data_sz = 512ul;
 
@@ -210,18 +208,19 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
     FD_LOG_WARNING(( "data wrong size. Is: %lu, expected: %lu",
                      data_sz, expected_data_sz ));
     fail = 1;
-    return;
+    return FD_QUIC_SUCCESS;
   }
 
   if( FD_UNLIKELY( 0!=memcmp( data, "Hello world", 11u ) ) ) {
     FD_LOG_WARNING(( "value received incorrect" ));
     fail = 1;
-    return;
+    return FD_QUIC_SUCCESS;
   }
 
   FD_LOG_DEBUG(( "recv ok" ));
 
   _recv++;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -308,7 +307,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      = 10,
+    .stream_id_cnt      = 10,
     .stream_pool_cnt    = 400,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14
@@ -327,14 +326,14 @@ main( int argc, char ** argv ) {
   FD_TEST( client_quic );
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
-  client_quic->cb.stream_receive   = my_stream_receive_cb;
+  client_quic->cb.stream_rx        = my_stream_rx_cb;
   client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
   client_quic->cb.now     = test_clock;
   client_quic->cb.now_ctx = NULL;
 
   server_quic->cb.conn_new       = my_connection_new;
-  server_quic->cb.stream_receive = my_stream_receive_cb;
+  server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
   server_quic->cb.now     = test_clock;
@@ -354,7 +353,7 @@ main( int argc, char ** argv ) {
   uint k = 1;
 
   /* populate free streams */
-  populate_stream_meta( quic_limits.rx_stream_cnt );
+  populate_stream_meta( 10 );
 
   char buf[512] = "Hello world!\x00-   ";
 
@@ -425,8 +424,7 @@ main( int argc, char ** argv ) {
           client_conn = fd_quic_connect(
               client_quic,
               server_quic->config.net.ip_addr,
-              server_quic->config.net.listen_udp_port,
-              server_quic->config.sni );
+              server_quic->config.net.listen_udp_port );
 
           if( !client_conn ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));
@@ -445,7 +443,7 @@ main( int argc, char ** argv ) {
 
           state = 0;
 
-          populate_streams( quic_limits.rx_stream_cnt, client_conn );
+          populate_streams( 10, client_conn );
         }
 
         break;

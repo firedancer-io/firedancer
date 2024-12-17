@@ -21,6 +21,9 @@ void
 initialize_workspaces( config_t * const config );
 
 void
+initialize_stacks( config_t * const config );
+
+void
 run_firedancer_init( config_t * const config,
                      int              init_workspaces );
 

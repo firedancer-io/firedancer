@@ -9,7 +9,7 @@
 #define FILE_SLOT_NUM_DIGITS    (20UL) /* Max number of digits in a ulong */
 
 /**** Helpers *****************************************************************/
-void
+static void
 set_file_name( char * file_name_ptr, ulong start_slot, ulong end_slot ) {
   /* File name should be "startslot_endslot" */
   fd_memset( file_name_ptr, '\0', FD_SHREDCAP_CAPTURE_FILE_NAME_LENGTH );

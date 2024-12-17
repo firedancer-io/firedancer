@@ -32,7 +32,7 @@
       },
       "id": 7,
       "panels": [],
-      "title": "QUIC",
+      "title": "TPU",
       "type": "row"
     },
     {
@@ -83,7 +83,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -194,7 +195,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -262,7 +264,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
+      "description": "Transaction count received in the current interval",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -274,7 +276,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -319,14 +322,14 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_stream_closed_end{instance=~\"$instance\"}[$__range]))",
+          "expr": "sum(increase(quic_tile_txns_received_quic_fast{instance=~\"$instance\"}[$__range])) + sum(increase(quic_tile_txns_received_quic_frag{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "QUIC Streams Recvd",
+      "title": "QUIC Txns Recvd",
       "type": "stat"
     },
     {
@@ -334,7 +337,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
+      "description": "Transaction count failed in QUIC stream handling code (abandoned, too large, overrun). Not counting small streams",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -346,7 +349,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -391,14 +395,14 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_stream_closed_conn_abort{instance=~\"$instance\"}[$__range])) + sum(increase(quic_stream_closed_drop{instance=~\"$instance\"}[$__range])) +  + sum(increase(quic_stream_closed_peer_reset{instance=~\"$instance\"}[$__range]))",
+          "expr": "sum(increase(quic_tile_txns_abandoned{instance=~\"$instance\"}[$__range])) + sum(increase(quic_tile_quic_txn_too_large{instance=~\"$instance\"}[$__range])) + sum(increase(quic_tile_txns_overrun{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "QUIC Streams Failed",
+      "title": "QUIC Txns Failed",
       "type": "stat"
     },
     {
@@ -406,7 +410,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
+      "description": "Ratio of streams received vs streams started",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -419,7 +423,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red"
+                "color": "red",
+                "value": null
               },
               {
                 "color": "yellow",
@@ -467,7 +472,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_stream_closed_end{instance=~\"$instance\"}[$__range])) / sum(increase(quic_stream_opened{instance=~\"$instance\"}[$__range]))",
+          "expr": "(sum(increase(quic_tile_txns_received_quic_fast{instance=~\"$instance\"}[$__range])) + sum(increase(quic_tile_txns_received_quic_frag{instance=~\"$instance\"}[$__range]))) / (sum(increase(quic_tile_txns_received_quic_fast{instance=~\"$instance\"}[$__range])) + sum(increase(quic_tile_txn_reasms_started{instance=~\"$instance\"}[$__range])))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -527,7 +532,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -595,14 +601,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -697,7 +705,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -766,14 +775,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -836,14 +847,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -895,7 +908,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "QUIC stream events per second\n(Each QUIC stream corresponds to one Solana transaction)\n\n- Success: Txn received and passed on to the block production pipeline\n- Dropped: Txn dropped due to excessive concurrency by the peer. (see `tiles.quic.max_concurrent_streams_per_connection` config option) \n- Conn Abort: Txn dropped because the connection closed",
+      "description": "QUIC stream events per second\n(Each QUIC stream corresponds to one Solana transaction)\n\n- QUIC Unfragmented Rcvd: Peer sent an entire transaction in one QUIC frame\n- QUIC Fragmented Rcvd: Peer sent a transaction fragment\n- QUIC Abandoned: Txn dropped because the connection closed\n- QUIC Overrun: Reassembly operation dropped because lack of buffer space\n- QUIC Txn Undersz: Stream fully received but it's smaller than the smallest valid transaction. Some clients abuse undersize streams as a ping mechanism but this is harmless to Firedancer\n- QUIC Txn Oversz: Stream byte received that is beyond the transaction MTU\n- UDP Rcvd: Peer sent an entire transaction in one UDP packet\n- UDP Undersz: UDP packet too small\n- UDP Oversz: UDP packet too large",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -909,8 +922,8 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
+            "fillOpacity": 41,
+            "gradientMode": "hue",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -927,7 +940,7 @@
             "spanNulls": false,
             "stacking": {
               "group": "A",
-              "mode": "none"
+              "mode": "normal"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -938,7 +951,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -959,10 +973,14 @@
       "id": 18,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "calcs": [
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "Max",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "single",
@@ -976,12 +994,12 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_stream_closed_end{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_tile_txns_received_quic_fast{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
-          "legendFormat": "Success",
+          "legendFormat": "QUIC Unfragmented Rcvd",
           "range": true,
-          "refId": "B"
+          "refId": "A"
         },
         {
           "datasource": {
@@ -989,10 +1007,23 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_stream_closed_drop{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_tile_txns_received_quic_frag{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
-          "legendFormat": "Dropped",
+          "legendFormat": "QUIC Fragmented Rcvd",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_tile_txns_abandoned{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "QUIC Abandoned",
           "range": true,
           "refId": "C"
         },
@@ -1002,15 +1033,80 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_stream_closed_conn_abort{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_tile_txns_overrun{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
-          "legendFormat": "Conn Abort",
+          "legendFormat": "QUIC Overrun",
           "range": true,
-          "refId": "A"
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_tile_quic_txn_too_small{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "QUIC Txn Undersz",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_tile_quic_txn_too_large{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "QUIC Txn Oversz",
+          "range": true,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_tile_txns_received_udp{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "UDP Rcvd",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_tile_non_quic_packet_too_small{instance=~\"instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "UDP Undersz",
+          "range": true,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_tile_non_quic_packet_too_large{instance=~\"instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "UDP Oversz",
+          "range": true,
+          "refId": "I"
         }
       ],
-      "title": "QUIC Streams",
+      "title": "TPU Transaction Rate",
       "type": "timeseries"
     },
     {
@@ -1061,7 +1157,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1170,7 +1267,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1293,7 +1391,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1316,7 +1415,7 @@
         "legend": {
           "calcs": [],
           "displayMode": "list",
-          "placement": "right",
+          "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
@@ -1389,6 +1488,125 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "fixedColor": "red",
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 19,
+        "y": 26
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(link_overrun_polling_frag_count{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])",
+          "instant": false,
+          "legendFormat": "QUIC drops",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(tile_context_switch_involuntary_count{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Involuntary Context Switches",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(quic_frame_fail_parse{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "QUIC Parse Fail",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "QUIC RX Drops",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -1424,41 +1642,36 @@
             }
           },
           "mappings": [],
-          "max": 1,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red"
-              },
-              {
-                "color": "yellow",
-                "value": 0.6
-              },
-              {
                 "color": "green",
-                "value": 0.9
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
               }
             ]
           },
-          "unit": "percentunit"
+          "unit": "s"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 5,
-        "x": 19,
-        "y": 26
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 33
       },
-      "id": 23,
+      "id": 28,
       "options": {
         "legend": {
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": false
+          "showLegend": true
         },
         "tooltip": {
           "mode": "single",
@@ -1474,123 +1687,221 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "1 - sum(increase(quic_stream_closed_end{instance=~\"$instance\"}[$__rate_interval])) / sum(increase(quic_stream_opened{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "format": "time_series",
           "instant": false,
-          "legendFormat": "__auto",
+          "interval": "",
+          "legendFormat": "p50",
           "range": true,
           "refId": "A"
-        }
-      ],
-      "title": "Stream Drop Rate",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": true,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "id": 21,
-      "panels": [
+        },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisBorderShow": false,
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 0,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "auto",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green"
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              }
-            },
-            "overrides": []
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p90",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
           },
-          "gridPos": {
-            "h": 7,
-            "w": 4,
-            "x": 0,
-            "y": 34
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
           },
-          "id": 22,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": false
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
           },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
-              },
-              "editorMode": "code",
-              "expr": "sum(rate(quic_tile_reassembly_append_error_oversize {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_append_error_skip     {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_append_error_state    {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_publish_error_oversize{instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_publish_error_skip    {instance=~\"$instance\"}[$__rate_interval])) +\nsum(rate(quic_tile_reassembly_publish_error_state   {instance=~\"$instance\"}[$__rate_interval]))",
-              "instant": false,
-              "legendFormat": "__auto",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "Reassembly Errors",
-          "type": "timeseries"
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "histogram_quantile(0.999, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p99.9",
+          "range": true,
+          "refId": "D"
         }
       ],
-      "title": "TPU Reassembly",
-      "type": "row"
+      "title": "QUIC RX Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "pps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 12,
+        "y": 33
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_ack_tx_new{instance=~\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "New",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_ack_tx_merged{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Merged",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_ack_tx_cancel{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Cancelled",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_ack_tx_drop{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Out of Buffers",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(quic_ack_tx_noop{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Not ACK eliciting",
+          "range": true,
+          "refId": "E"
+        }
+      ],
+      "title": "QUIC ACK TX",
+      "type": "timeseries"
     },
     {
       "collapsed": false,
@@ -1598,7 +1909,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 41
       },
       "id": 8,
       "panels": [],
@@ -1652,7 +1963,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1668,7 +1980,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 42
       },
       "id": 9,
       "options": {
@@ -1762,7 +2074,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1778,7 +2091,7 @@
         "h": 9,
         "w": 8,
         "x": 12,
-        "y": 35
+        "y": 42
       },
       "id": 10,
       "options": {
@@ -1830,6 +2143,119 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "pps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 20,
+        "y": 42
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(rate(net_tile_xdp_rx_dropped_other{instance=~\"$instance\"}[$__rate_interval])) + sum(rate(net_tile_xdp_rx_dropped_ring_full{instance=~\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "RX",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "-sum(rate(net_tile_tx_dropped{instance=~\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "TX",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Dropped Packet Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "description": "Number of packets dropped in the current Grafana time interval",
       "fieldConfig": {
         "defaults": {
@@ -1841,7 +2267,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1856,7 +2283,7 @@
         "h": 3,
         "w": 4,
         "x": 20,
-        "y": 35
+        "y": 48
       },
       "id": 5,
       "maxDataPoints": 1,
@@ -1908,120 +2335,9 @@
       ],
       "title": "Dropped Packets",
       "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green"
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "pps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 20,
-        "y": 38
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "10.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(rate(net_tile_xdp_rx_dropped_other{instance=~\"$instance\"}[$__rate_interval])) + sum(rate(net_tile_xdp_rx_dropped_ring_full{instance=~\"$instance\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "RX",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "-sum(rate(net_tile_tx_dropped{instance=~\"$instance\"}[$__rate_interval]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "TX",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Dropped Packet Rate",
-      "type": "timeseries"
     }
   ],
+  "refresh": "",
   "schemaVersion": 39,
   "tags": [],
   "templating": {
@@ -2082,6 +2398,6 @@
   "timezone": "utc",
   "title": "Firedancer Networking",
   "uid": "fb867872-560e-46ec-b867-3b8907951824",
-  "version": 13,
+  "version": 29,
   "weekStart": ""
 }

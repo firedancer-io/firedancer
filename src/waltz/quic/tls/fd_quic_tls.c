@@ -149,7 +149,6 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
                     fd_quic_tls_t *    quic_tls,
                     void *             context,
                     int                is_server,
-                    char const *       hostname,
                     fd_quic_transport_params_t const * self_transport_params ) {
   // clear the handshake bits
   fd_memset( self, 0, sizeof(fd_quic_tls_hs_t) );
@@ -191,9 +190,6 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
   } else {
     fd_tls_estate_cli_new( &self->hs.cli );
   }
-
-  /* TODO set TLS hostname if client */
-  (void)hostname;
 
   /* Set QUIC transport params */
   self->self_transport_params = *self_transport_params;

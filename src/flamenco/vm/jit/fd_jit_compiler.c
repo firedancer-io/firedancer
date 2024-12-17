@@ -684,7 +684,7 @@ fd_jit_compile( struct dasm_State **       Dst,
   //|->vm_fault:
   //| mov edi, FD_VM_ERR_ABORT
   //| jmp ->longjmp
-  dasm_put(Dst, 534, FD_VM_ERR_ABORT);
+  dasm_put(Dst, 534, FD_VM_ERR_SIGABORT);
 #line 536 "fd_jit_compiler.dasc"
 
   /* JIT entrypoint from C code */
@@ -724,7 +724,7 @@ fd_jit_compile( struct dasm_State **       Dst,
     ulong opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */
     ulong dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */
     ulong src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */
-    short offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */
+    ulong offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */
     uint  imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */
 
     /* Macros for translating register accesses */

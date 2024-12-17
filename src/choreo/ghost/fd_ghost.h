@@ -53,7 +53,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   ulong             stake;        /* amount of stake (in lamports) that has voted for this slot */
   ulong             gossip_stake; /* amount of stake (in lamports) that has voted for this slot via gossip (sans replay overlap) */
   ulong             rooted_stake; /* amount of stake (in lamports) that has rooted this slot */
-  int               eqv;          /* flag for equivocation (multiple blocks) in this slot */
+  int               eqvoc;        /* flag there are equivocating blocks for this slot */
   fd_ghost_node_t * parent;       /* pointer to the parent */
   fd_ghost_node_t * child;        /* pointer to the left-most child */
   fd_ghost_node_t * sibling;      /* pointer to next sibling */
@@ -66,9 +66,9 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
 #define POOL_T    fd_ghost_node_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME               fd_ghost_node_map
-#define MAP_ELE_T              fd_ghost_node_t
-#define MAP_KEY                slot
+#define MAP_NAME  fd_ghost_node_map
+#define MAP_ELE_T fd_ghost_node_t
+#define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_ghost_vote_t represents a validator's vote.  This includes the
@@ -110,6 +110,8 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
    | node_pool          |
    ----------------------
    | node_map           |
+   ----------------------
+   | vote_pool          |
    ----------------------
    | vote_map           |
    ----------------------
@@ -225,9 +227,9 @@ fd_ghost_node_t *
 fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot );
 
 /* fd_ghost_replay_vote votes for slot, adding pubkey's stake to the
-   `replay_stake` field for slot and to the `weight` field for both slot
-   and slot's ancestors.  If pubkey has previously voted, pubkey's stake
-   is also subtracted from `weight` for its previous vote slot and its
+   `stake` field for slot and to the `weight` field for both slot and
+   slot's ancestors.  If pubkey has previously voted, pubkey's stake is
+   also subtracted from `weight` for its previous vote slot and its
    ancestors.
 
    Assumes slot is present in ghost (if handholding is enabled,

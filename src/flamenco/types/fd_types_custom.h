@@ -258,8 +258,6 @@ typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
 #define REDBLK_NAME fd_vote_reward_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-#undef REDBLK_T
-#undef REDBLK_NAME
 struct fd_vote_reward_t_mapnode {
     fd_vote_reward_t elem;
     ulong redblack_parent;
@@ -388,7 +386,7 @@ typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 enum {
 fd_epoch_reward_status_enum_Active = 0,
 fd_epoch_reward_status_enum_Inactive = 1,
-}; 
+};
 
 /*******************************************************************************************/
 #endif

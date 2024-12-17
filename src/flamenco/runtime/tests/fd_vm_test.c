@@ -28,93 +28,10 @@ fd_vm_syscall_noop( void * _vm,
   return 0;
 }
 
-ulong
-fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
-                              void const *                  input_,
-                              void **                       output_,
-                              void *                        output_buf,
-                              ulong                         output_bufsz ) {
-  (void) runner;
-  fd_exec_test_full_vm_context_t const * input  = fd_type_pun_const( input_ );
-  fd_exec_test_validate_vm_effects_t **  output = fd_type_pun( output_ );
-
-  if( FD_UNLIKELY( !input->has_vm_ctx ) ) {
-    return 0UL;
-  }
-
-  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
-
-  FD_TEST( output_bufsz >= sizeof(fd_exec_test_validate_vm_effects_t) );
-
-  /* Capture outputs */
-  FD_SCRATCH_ALLOC_INIT( l, output_buf );
-
-  fd_exec_test_validate_vm_effects_t * effects =
-    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_validate_vm_effects_t),
-                                sizeof (fd_exec_test_validate_vm_effects_t) );
-  FD_SCRATCH_ALLOC_FINI( l, 1UL );
-
-  fd_valloc_t valloc = fd_scratch_virtual();
-  do{
-    fd_exec_test_vm_context_t const * vm_ctx = &input->vm_ctx;
-
-    /* Follows prost/solfuzz-agave behavior for empty bytes field */
-    uchar * rodata = NULL;
-    ulong rodata_sz = 0UL;
-    if( FD_LIKELY( vm_ctx->rodata ) ) {
-      rodata = vm_ctx->rodata->bytes;
-      rodata_sz = vm_ctx->rodata->size;
-    }
-
-    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);
-    ulong text_cnt = vm_ctx->rodata_text_section_length / 8UL;
-
-    fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
-    FD_TEST( vm );
-
-    fd_vm_init(
-      vm,
-      ctx,
-      0, /* heap_max */
-      0, /* cu_avail */
-      rodata,
-      rodata_sz,
-      text,
-      text_cnt,
-      vm_ctx->rodata_text_section_offset,
-      vm_ctx->rodata_text_section_length,
-      0, /* entry_pc, not used in validate at the moment */
-      NULL, /* calldests */
-      TEST_VM_DEFAULT_SBPF_VERSION,
-      NULL, /* syscalls */
-      NULL, /* trace */
-      NULL, /* sha */
-      NULL, /* mem regions */
-      0,    /* mem regions count */
-      NULL, /* mem regions accs */
-      0,    /* is deprecated */
-      FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping ) /* direct mapping */
-    );
-    effects->result = fd_vm_validate( vm );
-
-    fd_valloc_free( valloc, fd_vm_delete( fd_vm_leave( vm ) ) );
-
-  } while(0);
-
-
-  /* Run vm validate and capture result */
-
-  effects->success = (effects->result == FD_VM_SUCCESS);
-  *output = effects;
-
-  test_vm_exec_instr_ctx_delete( ctx );
-  return sizeof (fd_exec_test_validate_vm_effects_t);
-}
-
 void
-setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
-                           fd_vm_t *                 vm,
-                           fd_exec_instr_ctx_t *     instr_ctx ) {
+fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
+                              fd_vm_t *                 vm,
+                              fd_exec_instr_ctx_t *     instr_ctx ) {
   /* cur_region is used to figure out what acc region index the account
      corresponds to. */
   uint cur_region = 0UL;
@@ -150,7 +67,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     return 0UL;
   }
 
-  if( !( input->has_vm_ctx && input->has_syscall_invocation ) ) {
+  if( !( input->has_vm_ctx ) ) {
     fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
     return 0UL;
   }
@@ -180,14 +97,24 @@ do{
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+  uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
   }
 
-  /* Setup calldests from call_whitelist */
-  ulong * calldests = (ulong *) input->vm_ctx.call_whitelist->bytes;
+  /* Setup calldests from call_whitelist.
+     Alloc calldests with the expected size (1 bit per ix, rounded up to ulong) */
+  ulong max_pc = (rodata_sz + 7) / 8;
+  ulong calldests_sz = ((max_pc + 63) / 64) * 8;
+  ulong * calldests = fd_valloc_malloc( valloc, fd_sbpf_calldests_align(), calldests_sz );
+  memset( calldests, 0, calldests_sz );
+  if( input->vm_ctx.call_whitelist && input->vm_ctx.call_whitelist->size > 0 ) {
+    memcpy( calldests, input->vm_ctx.call_whitelist->bytes, input->vm_ctx.call_whitelist->size );
+    /* Make sure bits over max_pc are all 0s. */
+    ulong mask = (1UL << (max_pc % 64)) - 1UL;
+    calldests[ max_pc / 64 ] &= mask;
+  }
 
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
@@ -229,7 +156,7 @@ do{
     rodata_sz, /* text_sz */
     input->vm_ctx.entry_pc,
     calldests,
-    TEST_VM_DEFAULT_SBPF_VERSION,
+    input->vm_ctx.sbpf_version,
     syscalls,
     trace, /* trace */
     NULL, /* sha */
@@ -240,11 +167,15 @@ do{
     FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) /* direct mapping */
   );
 
-  /* Override some execution state values from the interp fuzzer input
-     This is so we can test if the interp (or vm setup) mutates any of
-     these erroneously */
+  /* Setup registers.
+     r1, r10, r11 are initialized by EbpfVm::new (r10) or EbpfVm::execute_program (r1, r11),
+     or equivalently by fd_vm_init and fd_vm_setup_state_for_execution.
+     Modifying them will most like break execution.
+     In syscalls we allow override them (especially r1) because that simulates the fact
+     that a program partially executed before reaching the syscall.
+     Here we want to test what happens when the program starts from the beginning. */
   vm->reg[0]  = input->vm_ctx.r0;
-  // vm->reg[1]  = input->vm_ctx.r1; // set in fd_vm_init
+  // vm->reg[1]  = input->vm_ctx.r1; // do not override
   vm->reg[2]  = input->vm_ctx.r2;
   vm->reg[3]  = input->vm_ctx.r3;
   vm->reg[4]  = input->vm_ctx.r4;
@@ -253,16 +184,17 @@ do{
   vm->reg[7]  = input->vm_ctx.r7;
   vm->reg[8]  = input->vm_ctx.r8;
   vm->reg[9]  = input->vm_ctx.r9;
-  // vm->reg[10]  = input->vm_ctx.r10; // set in fd_vm_init
-  vm->reg[11] = input->vm_ctx.r11;
+  // vm->reg[10]  = input->vm_ctx.r10; // do not override
+  // vm->reg[11]  = input->vm_ctx.r11; // do not override
 
   // Propagate the acc_regions_meta to the vm
   vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Validate the vm
   if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
-    effects->error = -1;
+    // custom error, avoid -1 because we use it for "unknown error" in solfuzz-agave
+    effects->error = -2;
     break;
   }
 
@@ -295,7 +227,18 @@ do{
   /* Capture outputs */
   effects->cu_avail    = vm->cu;
   effects->frame_count = vm->frame_cnt;
-  effects->r0          = exec_res ? 0 : vm->reg[0]; /* Only capture r0 if no error */
+  /* Only capture registers if no error */;
+  effects->r0          = exec_res ? 0 : vm->reg[0];
+  effects->r1          = exec_res ? 0 : vm->reg[1];
+  effects->r2          = exec_res ? 0 : vm->reg[2];
+  effects->r3          = exec_res ? 0 : vm->reg[3];
+  effects->r4          = exec_res ? 0 : vm->reg[4];
+  effects->r5          = exec_res ? 0 : vm->reg[5];
+  effects->r6          = exec_res ? 0 : vm->reg[6];
+  effects->r7          = exec_res ? 0 : vm->reg[7];
+  effects->r8          = exec_res ? 0 : vm->reg[8];
+  effects->r9          = exec_res ? 0 : vm->reg[9];
+  effects->r10         = exec_res ? 0 : vm->reg[10];
 
   /* skip logs since syscalls are stubbed */
 
@@ -307,15 +250,26 @@ do{
 
   effects->pc = vm->pc;
 
-  effects->heap       = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  if( vm->heap_max > 0 ) {
+    effects->heap       = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    effects->heap->size = (uint)vm->heap_max;
+    fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  }
 
-  effects->stack       = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
-  effects->stack->size = (uint)FD_VM_STACK_MAX;
-  fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
+  /* Compress stack by removing right-most 0s.
+     This reduces the total size of effects/fixtures when stack is not used,
+     otherwise each would waste 256kB. */
+  int rtrim_sz;
+  for( rtrim_sz=FD_VM_STACK_MAX-1; rtrim_sz>=0; rtrim_sz-- ) {
+    if( vm->stack[rtrim_sz] != 0 ) break;
+  }
+  if( rtrim_sz > 0 || (vm->stack[0] != 0) ) {
+    effects->stack       = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+    effects->stack->size = (uint)rtrim_sz+1;
+    fd_memcpy( effects->stack->bytes, vm->stack, (ulong)rtrim_sz+1 );
+  }
 
   effects->rodata       = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
@@ -343,10 +297,10 @@ do{
 
 
 uint
-setup_vm_input_regions( fd_vm_input_region_t *                   input,
-                        fd_exec_test_input_data_region_t const * test_input,
-                        ulong                                    test_input_count,
-                        fd_valloc_t                              valloc ) {
+fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
+                           fd_exec_test_input_data_region_t const * test_input,
+                           ulong                                    test_input_count,
+                           fd_valloc_t                              valloc ) {
   ulong offset = 0UL;
   uint input_idx = 0UL;
   for( ulong i=0; i<test_input_count; i++ ) {
