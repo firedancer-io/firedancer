@@ -23,8 +23,9 @@ ready_cmd_fn( args_t *         args,
        anyway. */
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
-    /* Don't wait for thread tiles, they will not report ready. */
-    if( strncmp( tile->name, "thread", 7 )==0 ) continue;
+    /* Don't wait for rtpool/stpool tiles, they will not report ready. */
+    if( strncmp( tile->name, "rtpool", 7 )==0 ) continue;
+    if( strncmp( tile->name, "stpool", 7 )==0 ) continue;
 
     long start = fd_log_wallclock();
     int printed = 0;
