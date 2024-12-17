@@ -7,6 +7,7 @@
 #include "fd_executor.h"
 #include "fd_account.h"
 #include "fd_hashes.h"
+#include "fd_txncache.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -1107,7 +1108,7 @@ fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
                                         ulong txn_cnt,
                                         fd_tpool_t * tpool ) {
   int res = 0;
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ) - 1, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     if( FD_UNLIKELY(!( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS )) ) {
       task_info->exec_res = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
@@ -2206,7 +2207,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
-  fd_sysvar_fees_new_derived(slot_ctx, slot_ctx->slot_bank.fee_rate_governor, slot_ctx->parent_signature_cnt);
+  fd_sysvar_fees_new_derived(slot_ctx, slot_ctx->slot_bank.fee_rate_governor, slot_ctx->slot_bank.parent_signature_cnt);
 
   // TODO: move all these out to a fd_sysvar_update() call...
   long clock_update_time = -fd_log_wallclock();
@@ -2348,6 +2349,8 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
     }
 
+    slot_ctx->tick_count = 0UL;
+
     long block_execute_time = -fd_log_wallclock();
 
     int res = fd_runtime_block_execute_prepare( slot_ctx );
@@ -2358,7 +2361,14 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     ulong txn_cnt = block_info->txn_cnt;
     fd_txn_p_t * txn_ptrs = fd_scratch_alloc( alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
 
+    /* This now collects the tick entries in a block */
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
+
+    /* TODO: Currently the tick height is manually updated for each executed 
+       slot as a hack to support snapshot loading. This code should be removed 
+       once correct tick calculation is implemented. */
+    slot_ctx->slot_bank.tick_height     += 64UL;
+    slot_ctx->slot_bank.max_tick_height += 64UL;
 
     res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, tpool, spads, spad_cnt );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -2781,32 +2791,61 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
   }
 }
 
-static int
+static int FD_FN_UNUSED
 fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_capture_ctx_t * capture_ctx,
-                             fd_tpool_t * tpool ) {
+                             fd_tpool_t * tpool ) {        
   /* Publish any transaction older than 31 slots */
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     /* TODO: tmp change */
-    if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
+    if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
-      fd_funk_start_write(funk);
-      ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
+      if( slot_ctx->status_cache && !fd_txncache_get_is_constipated( slot_ctx->status_cache ) ) {
+        FD_LOG_WARNING(("REGISTERING ROOT %lu", txn->xid.ul[0] ));
+        fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
+      } else if( slot_ctx->status_cache ) {
+        fd_txncache_register_constipated_slot( slot_ctx->status_cache, txn->xid.ul[0] );
+      }
+
+      fd_funk_start_write( funk );
+      ulong publish_err = 0;
+      // todo: this publish_err thing is bs...
+      if( slot_ctx->epoch_ctx->constipate_root ) {
+        fd_funk_txn_t *p = fd_funk_txn_parent( txn, txnmap );
+        if( p != NULL ) {
+          slot_ctx->root_slot = txn->xid.ul[0];
+          FD_LOG_WARNING(("CONSTIPATED PUBLISH %lu into %lu", slot_ctx->root_slot, p->xid.ul[0]));
+
+          if( fd_funk_txn_publish_into_parent(funk, txn, 1) == FD_FUNK_SUCCESS ) {
+            publish_err = 1;
+          }
+        } else {
+          publish_err = 1;
+        }
+      } else {
+        slot_ctx->root_slot = txn->xid.ul[0];
+        if( slot_ctx->root_slot % slot_ctx->snapshot_freq == 0 || (slot_ctx->root_slot % slot_ctx->incremental_freq == 0 && slot_ctx->last_snapshot_slot) ) {
+
+          slot_ctx->last_snapshot_slot = slot_ctx->root_slot;
+          FD_LOG_WARNING(("CONSTIPATING"));
+          slot_ctx->epoch_ctx->constipate_root = 1;
+          fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
+        }
+        FD_LOG_WARNING(("PUBLISH for slot %lu ", txn->xid.ul[0]));
+        publish_err = fd_funk_txn_publish(funk, txn, 1);
+      }
       if (publish_err == 0) {
         FD_LOG_ERR(("publish err"));
         return -1;
       }
-      if( slot_ctx->status_cache ) {
-        fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
-      }
 
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
       if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
-        fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash );
+        fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, &slot_ctx->slot_bank.epoch_account_hash );
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
 
@@ -3274,6 +3313,10 @@ fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
                                       fd_pubkey_t const *        key,
                                       ulong                      epoch ) {
 
+  if( !memcmp(key, &fd_sysvar_last_restart_slot_id, sizeof(fd_pubkey_t)) ) {
+    FD_LOG_WARNING(("PURR"));
+  }
+
   if( !FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
     return fd_runtime_collect_from_existing_account( slot_ctx, acc, key, epoch );
   } else {
@@ -3711,8 +3754,9 @@ fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_rec_key_t id   = fd_acc_funk_key( &fd_sysvar_incinerator_id );
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_rec_t const * rec = fd_funk_rec_query( funk, slot_ctx->funk_txn, &id );
-  if( rec )
+  if( rec ) {
     fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, rec ), 1 );
+  }
 }
 
 void

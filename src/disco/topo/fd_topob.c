@@ -118,6 +118,7 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave ) {
+
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
   if( FD_UNLIKELY( topo->tile_cnt>=FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "too many tiles" ));
@@ -353,10 +354,12 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
-    "thread", /* FIREDANCER only */
+    "rtpool", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
+    "snaps",  /* FIREDANCER only */
+    "stpool", /* FIREDANCER only */
 #endif
   };
 

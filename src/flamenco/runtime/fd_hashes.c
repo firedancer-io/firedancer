@@ -38,7 +38,7 @@ struct fd_pubkey_hash_pair_list {
 typedef struct fd_pubkey_hash_pair_list fd_pubkey_hash_pair_list_t;
 
 static void
-fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_hash_t * hash, fd_exec_slot_ctx_t * slot_ctx FD_PARAM_UNUSED ) {
+fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_hash_t * hash ) {
   fd_sha256_t shas[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT];
   uchar       num_hashes[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT+1];
 
@@ -219,14 +219,15 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
               fd_hash_t * hash,
               fd_pubkey_hash_pair_t * dirty_keys,
               ulong dirty_key_cnt ) {
-  slot_ctx->prev_banks_hash = slot_ctx->slot_bank.banks_hash;
-  slot_ctx->parent_signature_cnt = slot_ctx->signature_cnt;
+  slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
+  slot_ctx->slot_bank.parent_signature_cnt = slot_ctx->signature_cnt;
   slot_ctx->prev_lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
   slot_ctx->parent_transaction_count = slot_ctx->slot_bank.transaction_count;
 
   sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
   fd_pubkey_hash_pair_list_t list1 = { .pairs = dirty_keys, .pairs_len = dirty_key_cnt };
-  fd_hash_account_deltas(&list1, 1, &slot_ctx->account_delta_hash, slot_ctx );
+
+  fd_hash_account_deltas(&list1, 1, &slot_ctx->account_delta_hash );
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
@@ -250,7 +251,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     fd_solcap_write_bank_preimage(
         capture_ctx->capture,
         hash->hash,
-        slot_ctx->prev_banks_hash.hash,
+        slot_ctx->slot_bank.prev_banks_hash.hash,
         slot_ctx->account_delta_hash.hash,
         &slot_ctx->slot_bank.poh.hash,
         slot_ctx->signature_cnt );
@@ -266,7 +267,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                   "last_blockhash:   %s\n",
                   slot_ctx->slot_bank.slot,
                   FD_BASE58_ENC_32_ALLOCA( hash->hash ),
-                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->prev_banks_hash.hash ),
+                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
                   FD_BASE58_ENC_32_ALLOCA( slot_ctx->account_delta_hash.hash ),
                   FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
                   slot_ctx->signature_cnt,
@@ -515,6 +516,16 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
+  /* TODO: This should be factored out */
+  fd_funk_rec_key_t key = {0};
+  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_TOMBSTONES;
+
+  fd_funk_rec_t * tombstones = fd_funk_rec_write_prepare( funk, txn, &key, 512008, 1, NULL, NULL );
+  uchar * tombstone_rec  = fd_funk_val( tombstones, fd_funk_wksp( funk ) );
+  ulong * tombestone_cnt = (ulong *)tombstone_rec;
+  uchar * tombstone_data = tombstone_rec + sizeof(ulong);
+  *tombestone_cnt = 0;
+
   for( ulong i = 0; i < task_data.info_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
     /* Upgrade to writable record */
@@ -522,7 +533,10 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec), 1);
+    //fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, task_info->rec ), 1 );
+
+    fd_memcpy( tombstone_data + *tombestone_cnt * sizeof(fd_pubkey_t), task_info->acc_pubkey, sizeof(fd_pubkey_t) );
+    *tombestone_cnt += 1UL;
   }
 
   // Sanity-check LT Hash
@@ -713,15 +727,21 @@ typedef struct accounts_hash accounts_hash_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 static fd_pubkey_hash_pair_t *
-fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint range_cnt, ulong * num_pairs_out, fd_lthash_value_t *lthash_values, ulong n0
+fd_accounts_sorted_subrange( fd_funk_t         * funk, 
+                             uint                range_idx,
+                             uint                range_cnt, 
+                             ulong             * num_pairs_out, 
+                             fd_lthash_value_t * lthash_values, 
+                             ulong               n0,
+                             fd_valloc_t         valloc
  ) {
-  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
+
   fd_wksp_t *     wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
   ulong           num_iter_accounts = fd_funk_rec_map_key_max( rec_map );
   ulong           max_pairs = ( range_cnt == 1U ? num_iter_accounts : 2UL*num_iter_accounts/range_cnt ); /* Initial estimate */
   ulong           num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, max_pairs * sizeof(fd_pubkey_hash_pair_t) );
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( valloc, FD_PUBKEY_HASH_PAIR_ALIGN, max_pairs * sizeof(fd_pubkey_hash_pair_t) );
   FD_TEST(NULL != pairs);
   ulong           range_len = ULONG_MAX/range_cnt;
   ulong           range_min = range_len*range_idx;
@@ -769,9 +789,9 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
 
     if( num_pairs == max_pairs ) {
       /* Try again with a larger array */
-      fd_valloc_free( slot_ctx->valloc, pairs );
+      fd_valloc_free( valloc, pairs );
       max_pairs *= 2;
-      pairs = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, max_pairs * sizeof(fd_pubkey_hash_pair_t) );
+      pairs = fd_valloc_malloc( valloc, FD_PUBKEY_HASH_PAIR_ALIGN, max_pairs * sizeof(fd_pubkey_hash_pair_t) );
       FD_TEST(NULL != pairs);
       num_pairs = 0;
       fd_lthash_zero(&accum);
@@ -794,10 +814,11 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
 }
 
 struct fd_subrange_task_info {
-  fd_exec_slot_ctx_t * slot_ctx;
+  fd_funk_t * funk;
   ulong num_lists;
   fd_pubkey_hash_pair_list_t * lists;
   fd_lthash_value_t *lthash_values;
+  fd_valloc_t valloc;
 };
 typedef struct fd_subrange_task_info fd_subrange_task_info_t;
 
@@ -811,60 +832,65 @@ fd_accounts_sorted_subrange_task( void *tpool,
                                   ulong n0, ulong n1 FD_PARAM_UNUSED) {
   fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)tpool;
   fd_pubkey_hash_pair_list_t * list = task_info->lists + m0;
-  list->pairs = fd_accounts_sorted_subrange( task_info->slot_ctx, (uint)m0, (uint)task_info->num_lists, &list->pairs_len, task_info->lthash_values, n0 );
+  list->pairs = fd_accounts_sorted_subrange( task_info->funk, (uint)m0, (uint)task_info->num_lists, &list->pairs_len, task_info->lthash_values, n0, task_info->valloc );
 }
 
 int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash ) {
+fd_accounts_hash( fd_funk_t          * funk,
+                  fd_slot_bank_t     * slot_bank,
+                  fd_valloc_t          valloc,
+                  fd_tpool_t         * tpool,
+                  fd_hash_t          * accounts_hash ) {
   FD_LOG_NOTICE(("accounts_hash start"));
 
   if( tpool == NULL || fd_tpool_worker_cnt( tpool ) <= 1U ) {
     ulong                   num_pairs = 0;
-    fd_lthash_value_t *lthash_values = fd_valloc_malloc( slot_ctx->valloc, FD_LTHASH_VALUE_ALIGN, FD_LTHASH_VALUE_FOOTPRINT );
+    fd_lthash_value_t *lthash_values = fd_valloc_malloc( valloc, FD_LTHASH_VALUE_ALIGN, FD_LTHASH_VALUE_FOOTPRINT );
     fd_lthash_zero(&lthash_values[0]);
 
-    fd_pubkey_hash_pair_t * pairs = fd_accounts_sorted_subrange( slot_ctx, 0, 1, &num_pairs, lthash_values, 0 );
+    fd_pubkey_hash_pair_t * pairs = fd_accounts_sorted_subrange( funk, 0, 1, &num_pairs, lthash_values, 0, valloc );
     FD_TEST(NULL != pairs);
     fd_pubkey_hash_pair_list_t list1 = { .pairs = pairs, .pairs_len = num_pairs };
-    fd_hash_account_deltas( &list1, 1, accounts_hash, slot_ctx );
-    fd_valloc_free( slot_ctx->valloc, pairs );
+    fd_hash_account_deltas( &list1, 1, accounts_hash );
+    fd_valloc_free( valloc, pairs );
 
-    fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash);
+    fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_bank->lthash.lthash);
     fd_lthash_add( acc, &lthash_values[0] );
 
-    fd_valloc_free( slot_ctx->valloc, lthash_values );
+    fd_valloc_free( valloc, lthash_values );
   } else {
     ulong num_lists = fd_tpool_worker_cnt( tpool );
     FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
     fd_pubkey_hash_pair_list_t lists[num_lists];
 
-    fd_lthash_value_t *lthash_values = fd_valloc_malloc( slot_ctx->valloc, FD_LTHASH_VALUE_ALIGN, num_lists * FD_LTHASH_VALUE_FOOTPRINT );
+    fd_lthash_value_t *lthash_values = fd_valloc_malloc( valloc, FD_LTHASH_VALUE_ALIGN, num_lists * FD_LTHASH_VALUE_FOOTPRINT );
     for( ulong i = 0; i < num_lists; i++ ) {
       fd_lthash_zero(&lthash_values[i]);
     }
 
     fd_subrange_task_info_t task_info = {
-      .slot_ctx = slot_ctx,
+      .funk = funk,
       .num_lists = num_lists,
       .lists = lists,
-      .lthash_values = lthash_values};
-    fd_tpool_exec_all_rrobin( tpool, 0, num_lists, fd_accounts_sorted_subrange_task, &task_info, NULL, NULL, 1, 0, num_lists );
-    fd_hash_account_deltas( lists, num_lists, accounts_hash, slot_ctx );
+      .lthash_values = lthash_values,
+      .valloc = valloc };
+    fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_task, &task_info, NULL, NULL, 1, 0, num_lists );
+    fd_hash_account_deltas( lists, num_lists, accounts_hash );
     for( ulong i = 0; i < num_lists; ++i ) {
-      fd_valloc_free( slot_ctx->valloc, lists[i].pairs );
+      fd_valloc_free( valloc, lists[i].pairs );
     }
-    fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash);
+    fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_bank->lthash.lthash);
     for( ulong i = 0; i < num_lists; i++ ) {
       fd_lthash_add( acc, &lthash_values[i] );
     }
 
-    fd_valloc_free( slot_ctx->valloc, lthash_values );
+    fd_valloc_free( valloc, lthash_values );
   }
-  FD_LOG_NOTICE(("accounts_lthash %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash )));
+  FD_LOG_NOTICE(("accounts_lthash %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_bank->lthash.lthash )));
 
   // fd_accounts_check_lthash( slot_ctx );
 
-  FD_LOG_INFO(("accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
+  FD_LOG_NOTICE(("accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
 
   return 0;
 }
@@ -933,10 +959,93 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
 
   sort_pubkey_hash_pair_inplace( pairs, num_pairs );
   fd_pubkey_hash_pair_list_t list1 = { .pairs = pairs, .pairs_len = num_pairs };
-  fd_hash_account_deltas( &list1, 1, accounts_hash, slot_ctx );
+  fd_hash_account_deltas( &list1, 1, accounts_hash );
 
   fd_valloc_free( slot_ctx->valloc, pairs );
   fd_scratch_pop();
+
+  FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
+
+  return 0;
+}
+
+int
+fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk, 
+                             fd_valloc_t                 valloc, 
+                             fd_hash_t *                 accounts_hash, 
+                             fd_funk_rec_key_t const * * pubkeys,
+                             ulong                       pubkeys_len,
+                             ulong                       do_hash_verify ) {
+  FD_LOG_NOTICE(( "accounts_hash_inc_no_txn" ));
+
+  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+
+  // How many total records are we dealing with?
+  ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+  ulong                   num_pairs         = 0UL;
+  fd_pubkey_hash_pair_t * pairs             = fd_valloc_malloc( valloc, 
+                                                                FD_PUBKEY_HASH_PAIR_ALIGN, 
+                                                                num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
+  
+  if( FD_UNLIKELY( !pairs ) ) {
+    FD_LOG_ERR(( "failed to allocate memory for pairs" ));
+  }
+
+  fd_blake3_t * b3 = NULL;
+
+  FD_SCRATCH_SCOPE_BEGIN {
+
+  for( ulong i=0UL; i<pubkeys_len; i++ ) {
+    fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, pubkeys[i] );
+
+    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+    int is_empty = (metadata->info.lamports == 0);
+
+    if( is_empty ) {
+      pairs[num_pairs].rec = rec;
+
+      fd_hash_t * hash = fd_scratch_alloc( alignof(fd_hash_t), sizeof(fd_hash_t) );
+      if( !b3 ) {
+        b3 = fd_scratch_alloc( alignof(fd_blake3_t), sizeof(fd_blake3_t) );
+      }
+      fd_blake3_init  ( b3 );
+      fd_blake3_append( b3, rec->pair.key->uc, sizeof(fd_pubkey_t) );
+      fd_blake3_fini  ( b3, hash );
+
+      pairs[ num_pairs ].hash = hash;
+      num_pairs++;
+      continue;
+    } else {
+      fd_hash_t *h = (fd_hash_t*)metadata->hash;
+      if( !(h->ul[ 0 ] | h->ul[ 1 ] | h->ul[ 2 ] | h->ul[ 3 ]) ) {
+        // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
+        fd_hash_account_current( (uchar*)metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data( metadata ) );
+      } else if( do_hash_verify ) {
+        uchar hash[ FD_HASH_FOOTPRINT ];
+        fd_hash_account_current( (uchar*)&hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data( metadata ) );
+        if( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, FD_HASH_FOOTPRINT ) ) {
+          FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA(metadata->hash), FD_BASE58_ENC_32_ALLOCA(&hash) ));
+        }
+      }
+    }
+
+    if( (metadata->info.executable & ~1) ) {
+      continue;
+    }
+
+    pairs[ num_pairs ].rec = rec;
+    pairs[ num_pairs ].hash = (fd_hash_t const *)metadata->hash;
+    num_pairs++;
+  }
+
+  sort_pubkey_hash_pair_inplace( pairs, num_pairs );
+  fd_pubkey_hash_pair_list_t list1 = { .pairs = pairs, .pairs_len = num_pairs };
+  fd_hash_account_deltas( &list1, 1, accounts_hash );
+
+  fd_valloc_free( valloc, pairs );
+
+  } FD_SCRATCH_SCOPE_END;
 
   FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
 
@@ -951,7 +1060,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
     fd_hash_t hash;
-    fd_accounts_hash( slot_ctx, tpool, &hash );
+    fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, &hash );
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -960,20 +1069,78 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
 
     return 0;
   }
-  return fd_accounts_hash( slot_ctx, tpool, accounts_hash );
+  return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, accounts_hash );
+}
+
+/* TODO: Combine with the above to get correct snapshot hash verification. */
+
+int
+fd_snapshot_service_hash( fd_hash_t       * accounts_hash,
+                          fd_hash_t       * snapshot_hash,
+                          fd_slot_bank_t  * slot_bank,
+                          fd_epoch_bank_t * epoch_bank,
+                          fd_funk_t       * funk,
+                          fd_tpool_t      * tpool,
+                          fd_valloc_t       valloc ) {
+
+  fd_sha256_t h;
+  fd_accounts_hash( funk, slot_bank, valloc, tpool, accounts_hash );
+
+  int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
+
+  if( should_include_eah ) {
+    fd_sha256_init( &h );
+    fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_fini( &h, snapshot_hash );
+  } else {
+    fd_memcpy( snapshot_hash, accounts_hash, sizeof(fd_hash_t) );
+  }
+
+  return 0;
+}
+
+int
+fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
+                              fd_hash_t *                 snapshot_hash,
+                              fd_slot_bank_t *            slot_bank,
+                              fd_epoch_bank_t *           epoch_bank,
+                              fd_funk_t *                 funk,
+                              fd_funk_rec_key_t const * * pubkeys,
+                              ulong                       pubkeys_len,
+                              fd_valloc_t                 valloc ) {
+
+  fd_sha256_t h;
+  fd_accounts_hash_inc_no_txn( funk, valloc, accounts_hash, pubkeys, pubkeys_len, 0UL );
+
+  int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
+
+  if( should_include_eah ) {
+    fd_sha256_init( &h );
+    fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_fini( &h, snapshot_hash );
+  } else {
+    fd_memcpy( snapshot_hash, accounts_hash, sizeof(fd_hash_t) );
+  }
+
+  return 0;
 }
 
 /* Re-computes the lthash from the current slot */
 void
-fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
+fd_accounts_check_lthash( fd_funk_t     *  funk,
+                          fd_funk_txn_t *  funk_txn,
+                          fd_slot_bank_t * slot_bank,
+                          fd_valloc_t      valloc ) {
+
   fd_wksp_t *     wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
   fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
 
   // How many txns are we dealing with?
   ulong txn_cnt = 1;
-  fd_funk_txn_t * txn = slot_ctx->funk_txn;
+  fd_funk_txn_t * txn = funk_txn;
   while (NULL != txn) {
     txn_cnt++;
     txn = fd_funk_txn_parent( txn, txn_map );
@@ -985,7 +1152,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
 
   // Lay it flat to make it easier to walk backwards up the chain from
   // the root
-  txn = slot_ctx->funk_txn;
+  txn = funk_txn;
   ulong txn_idx = txn_cnt;
   while (1) {
     txns[--txn_idx] = txn;
@@ -1000,7 +1167,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
   int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
 
   FD_LOG_WARNING(("allocating memory for hash.  num_iter_accounts: %lu   slots: %d", num_iter_accounts, accounts_hash_slots));
-  void * hashmem = fd_valloc_malloc( slot_ctx->valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
+  void * hashmem = fd_valloc_malloc( valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
   FD_LOG_WARNING(("initializing memory for hash"));
   accounts_hash_t * hash_map = accounts_hash_join(accounts_hash_new(hashmem, accounts_hash_slots));
 
@@ -1050,7 +1217,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   // Compare the accumulator to the slot
-  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun_const( slot_ctx->slot_bank.lthash.lthash );
+  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun_const( slot_bank->lthash.lthash );
   if ( memcmp( acc, &acc_lthash, sizeof( fd_lthash_value_t ) ) == 0 ) {
     FD_LOG_NOTICE(("accounts_lthash %s == %s", FD_LTHASH_ENC_32_ALLOCA (acc), FD_LTHASH_ENC_32_ALLOCA (&acc_lthash)));
   } else {

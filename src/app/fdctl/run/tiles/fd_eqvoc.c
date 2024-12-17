@@ -178,6 +178,7 @@ after_frag( fd_eqvoc_tile_ctx_t * ctx,
     finalize_new_cluster_contact_info( ctx );
     return;
   } else if ( FD_UNLIKELY( in_idx == ctx->gossip_in_idx ) ) {
+    return;
     fd_gossip_duplicate_shred_t * chunk = &ctx->duplicate_shred;
     ulong slot = ctx->duplicate_shred.slot;
     fd_pubkey_t const * from = &chunk->from;

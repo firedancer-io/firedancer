@@ -245,6 +245,8 @@ typedef struct {
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
+      ulong full_interval;
+      ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
@@ -338,6 +340,17 @@ typedef struct {
       uint    tpu_ip_addr;
       char    identity_key_path[ PATH_MAX ];
     } rpcserv;
+
+    struct {
+      ulong full_interval;
+      ulong incremental_interval;
+      char  out_dir[ PATH_MAX ];
+      int   tmp_fd;
+      int   tmp_inc_fd;
+      int   full_snapshot_fd;
+      int   incremental_snapshot_fd;
+      ulong hash_tpool_thread_count;
+    } snaps;
 
   };
 } fd_topo_tile_t;

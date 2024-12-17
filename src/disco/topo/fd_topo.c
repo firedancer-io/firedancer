@@ -197,7 +197,13 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
        extra threads which also require stack space.  These huge
        pages need to be reserved as well. */
     extra_pages += tile->replay.tpool_thread_count*((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
+  } 
+  else if( FD_UNLIKELY ( !strcmp( tile->name, "snaps" ) ) ) {
+    /* Snapshot tile spawns a bunch of extra threads which also require
+       stack space.  These huge pages need to be reserved as well. */
+    extra_pages += tile->snaps.hash_tpool_thread_count *((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
   }
+
 
   return extra_pages;
 }

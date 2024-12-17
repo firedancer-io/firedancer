@@ -102,6 +102,7 @@
     {
       "name": "slot_pair",
       "type": "struct",
+      "archival": "true",
       "fields": [
         { "name": "slot", "type": "ulong" },
         { "name": "val", "type": "ulong" }
@@ -249,6 +250,22 @@
       ]
     },
     {
+      "name": "vote_accounts_pair_serializable",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "stake", "type": "ulong" },
+        { "name": "value", "type": "solana_account" }
+      ]
+    },
+    {
+      "name": "vote_accounts_serializable",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair_serializable", "key": "key", "minalloc":15000 }
+      ]
+    },
+    {
       "name": "vote_accounts",
       "type": "struct",
       "fields": [
@@ -328,6 +345,18 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
+        { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
+        { "name": "unused", "type": "ulong" },
+        { "name": "epoch", "type": "ulong" },
+        { "name": "stake_history", "type": "stake_history" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
+    },
+    {
+      "name": "stakes_serializable",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "vote_accounts_serializable" },
         { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
@@ -458,6 +487,46 @@
       "comment": "https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967"
     },
     {
+      "name": "serializable_versioned_bank",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "blockhash_queue",       "type": "block_hash_vec" },
+        { "name": "ancestors",             "type": "vector", "element": "slot_pair" },
+        { "name": "hash",                  "type": "hash" },
+        { "name": "parent_hash",           "type": "hash" },
+        { "name": "parent_slot",           "type": "ulong" },
+        { "name": "hard_forks",            "type": "hard_forks" },
+        { "name": "transaction_count",     "type": "ulong" },
+        { "name": "tick_height",           "type": "ulong" },
+        { "name": "signature_count",       "type": "ulong" },
+        { "name": "capitalization",        "type": "ulong" },
+        { "name": "max_tick_height",       "type": "ulong" },
+        { "name": "hashes_per_tick",       "type": "option", "element": "ulong" },
+        { "name": "ticks_per_slot",        "type": "ulong" },
+        { "name": "ns_per_slot",           "type": "uint128" },
+        { "name": "genesis_creation_time", "type": "ulong" },
+        { "name": "slots_per_year",        "type": "double" },
+        { "name": "accounts_data_len",     "type": "ulong" },
+        { "name": "slot",                  "type": "ulong" },
+        { "name": "epoch",                 "type": "ulong" },
+        { "name": "block_height",          "type": "ulong" },
+        { "name": "collector_id",          "type": "pubkey" },
+        { "name": "collector_fees",        "type": "ulong" },
+        { "name": "fee_calculator",        "type": "fee_calculator" },
+        { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
+        { "name": "collected_rent",        "type": "ulong" },
+        { "name": "rent_collector",        "type": "rent_collector" },
+        { "name": "epoch_schedule",        "type": "epoch_schedule" },
+        { "name": "inflation",             "type": "inflation" },
+        { "name": "stakes",                "type": "stakes_serializable" },
+        { "name": "unused_accounts",       "type": "unused_accounts" },
+        { "name": "epoch_stakes",          "type": "vector", "element": "epoch_epoch_stakes_pair" },
+        { "name": "is_delta",              "type": "bool" }
+      ],
+      "comment": "This is the serializable version of deserializable_versioned_bank."
+    },
+    {
       "name": "bank_hash_stats",
       "type": "struct",
       "fields": [
@@ -472,8 +541,8 @@
       "name": "bank_hash_info",
       "type": "struct",
       "fields": [
-        { "name": "hash", "type": "hash" },
-        { "name": "snapshot_hash", "type": "hash" },
+        { "name": "accounts_delta_hash", "type": "hash" },
+        { "name": "accounts_hash", "type": "hash" },
         { "name": "stats", "type": "bank_hash_stats" }
       ]
     },
@@ -583,6 +652,19 @@
         { "name": "epoch_account_hash",                    "type": "option", "element": "hash",                                  "ignore_underflow": true },
         { "name": "versioned_epoch_stakes",                "type": "vector", "element": "versioned_epoch_stakes_pair",           "ignore_underflow": true },
         { "name": "lthash",                                "type": "option", "element": "slot_lthash",                           "ignore_underflow": true }
+      ]
+    },
+    {
+      "name": "solana_manifest_serializable",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "bank",                                  "type": "serializable_versioned_bank" },
+        { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
+        { "name": "lamports_per_signature",                "type": "ulong" },
+        { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence", "ignore_underflow": true },
+        { "name": "epoch_account_hash",                    "type": "option", "element": "hash",                                  "ignore_underflow": true },
+        { "name": "versioned_epoch_stakes",                "type": "vector", "element": "versioned_epoch_stakes_pair",           "ignore_underflow": true }
       ]
     },
     {
@@ -1117,7 +1199,11 @@
         { "name": "transaction_count",           "type": "ulong" },
         { "name": "lthash",                      "type": "slot_lthash" },
         { "name": "block_hash_queue",            "type": "block_hash_queue" },
-        { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." }
+        { "name": "prev_banks_hash",             "type": "hash" },
+        { "name": "parent_signature_cnt",        "type": "ulong" },
+        { "name": "tick_height",                 "type": "ulong" },
+        { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." },
+        { "name": "hard_forks",                  "type": "hard_forks" }
       ]
     },
     {

@@ -304,6 +304,13 @@ typedef struct {
       char  shred_cap_replay[ PATH_MAX ];
     } store_int;
 
+    struct {
+      ulong full_interval;
+      ulong incremental_interval;
+      char  out_dir[ PATH_MAX ];
+      ulong hash_tpool_thread_count;
+    } snaps;
+
   } tiles;
 } config_t;
 

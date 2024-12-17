@@ -71,6 +71,7 @@ fd_topo_initialize( config_t * config ) {
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
 
   ulong replay_tpool_thread_count = config->tiles.replay.tpool_thread_count;
+  ulong snaps_tpool_thread_count  = config->tiles.snaps.hash_tpool_thread_count;
 
   int enable_rpc = ( config->rpc.port != 0 );
 
@@ -140,7 +141,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip"     );
   fd_topob_wksp( topo, "metric"     );
   fd_topob_wksp( topo, "replay"     );
-  fd_topob_wksp( topo, "thread"     );
+  fd_topob_wksp( topo, "rtpool"     );
   fd_topob_wksp( topo, "bhole"      );
   fd_topob_wksp( topo, "bstore"     );
   fd_topob_wksp( topo, "tcache"     );
@@ -148,6 +149,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "voter"      );
   fd_topob_wksp( topo, "poh_slot"   );
   fd_topob_wksp( topo, "eqvoc"      );
+  fd_topob_wksp( topo, "snaps"      );
+  fd_topob_wksp( topo, "stpool"     );
+  fd_topob_wksp( topo, "constipate" );
+
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -249,12 +254,17 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
-  FOR(replay_tpool_thread_count-1) fd_topob_tile( topo, "thread",  "thread",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  FOR(replay_tpool_thread_count-1) fd_topob_tile( topo, "rtpool", "rtpool", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0 );
+  /**/                             fd_topob_tile( topo, "snaps",   "snaps",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  /* These thread tiles must be defined immediately after the snapshot tile. */
+  FOR(snaps_tpool_thread_count)   fd_topob_tile( topo, "stpool",  "stpool",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+
   if( enable_rpc )                 fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
 
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei", 0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
+  fd_topo_tile_t * snaps_tile  = &topo->tiles[ fd_topo_find_tile( topo, "snaps",  0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
@@ -277,6 +287,7 @@ fd_topo_initialize( config_t * config ) {
   /* Create a txncache to be used by replay. */
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache", FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snaps_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
@@ -295,7 +306,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, store_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
-  /* This fseq maintains the node's currernt root slot for the purposes of
+  /* This fseq maintains the node's current root slot for the purposes of
      syncing across tiles and shared data structures. */
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -314,6 +325,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, sender_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, replay_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_slot_obj->id, "poh_slot" ) );
+
+  fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
+  fd_topob_tile_uses( topo, replay_tile, constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snaps_tile,  constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, constipated_obj->id, "constipate" ) );
 
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
@@ -619,6 +635,8 @@ fd_topo_initialize( config_t * config ) {
       memcpy( tile->replay.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       tile->replay.vote = config->consensus.vote;
       strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
+      tile->replay.full_interval        = config->tiles.snaps.full_interval;
+      tile->replay.incremental_interval = config->tiles.snaps.incremental_interval;
 
       FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
       FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));
@@ -633,7 +651,7 @@ fd_topo_initialize( config_t * config ) {
         FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "thread" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "rtpool" ) ) ) {
       /* Nothing for now */
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
       strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
@@ -666,6 +684,14 @@ fd_topo_initialize( config_t * config ) {
       tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
       tile->rpcserv.tpu_ip_addr = config->tiles.net.ip_addr;
       strncpy( tile->rpcserv.identity_key_path, config->consensus.identity_path, sizeof(tile->rpcserv.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "snaps" ) ) ) {
+      tile->snaps.full_interval        = config->tiles.snaps.full_interval;
+      tile->snaps.incremental_interval = config->tiles.snaps.incremental_interval;
+      strncpy( tile->snaps.out_dir, config->tiles.snaps.out_dir, sizeof(tile->snaps.out_dir) );
+      tile->snaps.hash_tpool_thread_count = config->tiles.snaps.hash_tpool_thread_count;
+      strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "stpool" ) ) ) {
+      /* Nothing for now */
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
         FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));

@@ -118,7 +118,8 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
        n;
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
-    /* Extract vote timestamp of account */
+
+   /* Extract vote timestamp of account */
 
     fd_vote_block_timestamp_t vote_state_timestamp = {
       .timestamp = n->elem.value.last_timestamp_ts,
@@ -245,15 +246,19 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Copy over fields */
 
+  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
+  slot_ctx->slot_bank.tick_height          = oldbank->tick_height;
+
   if( oldbank->blockhash_queue.last_hash )
     slot_bank->poh = *oldbank->blockhash_queue.last_hash;
   slot_bank->slot = oldbank->slot;
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
+  fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
   fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   slot_bank->lamports_per_signature = manifest->lamports_per_signature;
   slot_ctx->prev_lamports_per_signature = manifest->lamports_per_signature;
-  slot_ctx->parent_signature_cnt = oldbank->signature_count;
+  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
   if( oldbank->hashes_per_tick )
     epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
   else
@@ -297,6 +302,17 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   recover_clock( slot_ctx );
+
+  /* Pass in the hard forks */
+
+  /* The hard forks should be deep copied over.
+     TODO:This should be in the epoch bank and not the slot bank. */
+  slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
+  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc, 
+                                                            FD_SLOT_PAIR_ALIGN, 
+                                                            oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
+  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks, 
+          oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -461,6 +477,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
                                        fd_bank_slot_deltas_t * slot_deltas ) {
+
   fd_txncache_t * status_cache = ctx->status_cache;
   if( !status_cache ) {
     FD_LOG_WARNING(("No status cache in slot ctx"));

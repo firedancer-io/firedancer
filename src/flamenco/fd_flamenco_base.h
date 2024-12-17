@@ -15,6 +15,7 @@
 
 #define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
+#define FD_FUNK_KEY_TYPE_TOMBSTONES ((uchar)3)
 
 /* CLUSTER_VERSION is the default value for the cluster version
    in the epoch context. This value will foll forward to the
