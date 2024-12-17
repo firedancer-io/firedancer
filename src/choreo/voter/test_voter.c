@@ -30,7 +30,7 @@ main( int argc, char ** argv ) {
   fd_pubkey_t vote_acct_addr;
   FD_TEST( 64UL == getrandom( validator_identity_keypair, 64UL, 0 ) );
   FD_TEST( 32UL == getrandom( vote_acct_addr.key, 32UL, 0 ) );
-  fd_pubkey_t * validator_identity = (fd_pubkey_t *)fd_type_pun_const( validator_identity_keypair +
+  FD_PARAM_UNUSED fd_pubkey_t * validator_identity = (fd_pubkey_t *)fd_type_pun_const( validator_identity_keypair +
                                                                        32 );
 
   /* workspace */
@@ -66,19 +66,8 @@ main( int argc, char ** argv ) {
   FD_TEST( 32UL == getrandom( &recent_blockhash.uc, 32UL, 0 ) );
 
   /* create the vote transaction */
-  uchar txn_meta_buf[FD_TXN_MAX_SZ];
-  uchar txn_buf[FD_TXN_MTU];
-
-  fd_voter_t voter = { .vote_acc_addr      = vote_acct_addr,
-                       .validator_identity = *validator_identity,
-                       .vote_authority     = *validator_identity };
-
-  ulong txn_sz = fd_voter_txn_generate( &voter,
-                                        &compact_vote_update,
-                                        &recent_blockhash,
-                                        txn_meta_buf,
-                                        txn_buf );
-  FD_LOG_NOTICE( ( "fd_vote_txn_generate: vote txn has %lu bytes", txn_sz ) );
+  // uchar txn_meta_buf[FD_TXN_MAX_SZ];
+  // uchar txn_buf[FD_TXN_MTU];
 
   // /* parse the transaction back */
   // ushort                         parsed_recent_blockhash_off;

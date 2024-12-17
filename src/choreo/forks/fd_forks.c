@@ -1,4 +1,5 @@
 #include "fd_forks.h"
+
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/fd_borrowed_account.h"
@@ -10,18 +11,18 @@ void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
+    FD_LOG_WARNING( ( "NULL mem" ) );
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_forks_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
+    FD_LOG_WARNING( ( "misaligned mem" ) );
     return NULL;
   }
 
   ulong footprint = fd_forks_footprint( max );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad mem" ));
+    FD_LOG_WARNING( ( "bad mem" ) );
     return NULL;
   }
 
@@ -46,12 +47,12 @@ fd_forks_t *
 fd_forks_join( void * shforks ) {
 
   if( FD_UNLIKELY( !shforks ) ) {
-    FD_LOG_WARNING(( "NULL forks" ));
+    FD_LOG_WARNING( ( "NULL forks" ) );
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shforks, fd_forks_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned forks" ));
+    FD_LOG_WARNING( ( "misaligned forks" ) );
     return NULL;
   }
 
@@ -77,7 +78,7 @@ void *
 fd_forks_leave( fd_forks_t const * forks ) {
 
   if( FD_UNLIKELY( !forks ) ) {
-    FD_LOG_WARNING(( "NULL forks" ));
+    FD_LOG_WARNING( ( "NULL forks" ) );
     return NULL;
   }
 
@@ -88,12 +89,12 @@ void *
 fd_forks_delete( void * forks ) {
 
   if( FD_UNLIKELY( !forks ) ) {
-    FD_LOG_WARNING(( "NULL forks" ));
+    FD_LOG_WARNING( ( "NULL forks" ) );
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)forks, fd_forks_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned forks" ));
+    FD_LOG_WARNING( ( "misaligned forks" ) );
     return NULL;
   }
 
@@ -104,12 +105,12 @@ fd_fork_t *
 fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
 
   if( FD_UNLIKELY( !forks ) ) {
-    FD_LOG_WARNING(( "NULL forks" ));
+    FD_LOG_WARNING( ( "NULL forks" ) );
     return NULL;
   }
 
   if( FD_UNLIKELY( !slot_ctx ) ) {
-    FD_LOG_WARNING(( "NULL slot_ctx" ));
+    FD_LOG_WARNING( ( "NULL slot_ctx" ) );
     return NULL;
   }
 
@@ -121,7 +122,7 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
                                    the lifetimes of slot_ctx's pointers
                                    are as long as fork */
   if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) {
-    FD_LOG_WARNING(( "Failed to insert fork into frontier" ));
+    FD_LOG_WARNING( ( "Failed to insert fork into frontier" ) );
   }
 
   return fork;
@@ -192,28 +193,29 @@ slot_ctx_restore( ulong                 slot,
                   fd_funk_t *           funk,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
-  fd_funk_txn_t *   txn_map    = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  fd_block_map_t *  block = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
-  FD_LOG_DEBUG(( "Current slot %lu", slot ));
-  if( !block || !block->block_gaddr ) FD_LOG_ERR(( "missing block at slot we're trying to restore" ));
+  fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_block_map_t * block = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+  FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
+  if( !block || !block->block_gaddr )
+    FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, block->block_hash.uc, sizeof(fd_funk_txn_xid_t) );
+  memcpy( xid.uc, block->block_hash.uc, sizeof( fd_funk_txn_xid_t ) );
   xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
   if( !txn ) {
-    memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
-    xid.ul[0]             = slot;
-    txn = fd_funk_txn_query( &xid, txn_map );
+    memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
+    xid.ul[0] = slot;
+    txn       = fd_funk_txn_query( &xid, txn_map );
     if( !txn ) {
-      FD_LOG_ERR(( "missing txn, parent slot %lu", slot ));
+      FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
     }
   }
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
-  if( rec == NULL ) FD_LOG_ERR(( "failed to read banks record" ));
+  if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
-  uint magic = *(uint*)val;
+  uint magic = *(uint *)val;
 
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data    = (uchar *)val + sizeof( uint );
@@ -237,9 +239,10 @@ slot_ctx_restore( ulong                 slot,
   if( magic == FD_RUNTIME_ENC_BINCODE ) {
     FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
   } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-    FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx )==FD_BINCODE_SUCCESS );
+    FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx ) ==
+             FD_BINCODE_SUCCESS );
   } else {
-    FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
+    FD_LOG_ERR( ( "failed to read banks record: invalid magic number" ) );
   }
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out ) );
 
@@ -249,10 +252,10 @@ slot_ctx_restore( ulong                 slot,
   // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
   // hash calculation and not needed when restoring parent
 
-  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%s poh_hash %s",
+  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%lu banks_hash=%s poh_hash %s",
                    slot_ctx_out->slot_bank.slot,
                    FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.banks_hash.hash ),
-                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.poh.hash ) ));
+                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.poh.hash ) ) );
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot_bank.slot                     = slot;
@@ -281,7 +284,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
   fd_block_t * block = fd_blockstore_block_query( blockstore, parent_slot );
   fd_blockstore_end_read( blockstore );
   if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_WARNING(( "fd_forks_prepare missing parent_slot %lu", parent_slot ));
+    FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
   }
 
   /* Query for parent_slot in the frontier. */
@@ -297,17 +300,17 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Alloc a new slot_ctx */
 
-    fork         = fd_fork_pool_ele_acquire( forks->pool );
-    fork->prev   = fd_fork_pool_idx_null( forks->pool );
-    fork->slot   = parent_slot;
+    fork       = fd_fork_pool_ele_acquire( forks->pool );
+    fork->prev = fd_fork_pool_idx_null( forks->pool );
+    fork->slot = parent_slot;
     fork->lock = 1;
 
     /* Format and join the slot_ctx */
 
-    fd_exec_slot_ctx_t * slot_ctx =
-        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, valloc ) );
+    fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx,
+                                                                                 valloc ) );
     if( FD_UNLIKELY( !slot_ctx ) ) {
-      FD_LOG_ERR(( "failed to new and join slot_ctx" ));
+      FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
     }
 
     /* Restore and decode w/ funk */
@@ -320,6 +323,108 @@ fd_forks_prepare( fd_forks_t const *    forks,
   }
 
   return fork;
+}
+
+void
+fd_forks_update( fd_forks_t *      forks,
+                 fd_blockstore_t * blockstore,
+                 fd_epoch_t *      epoch,
+                 fd_funk_t *       funk,
+                 fd_ghost_t *      ghost,
+                 ulong             slot ) {
+  fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
+  fd_funk_txn_t * txn  = fork->slot_ctx.funk_txn;
+
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+  for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
+    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+
+    /* TODO we can optimize this funk query to only check through the
+       last slot on this fork this function was called on. currently
+       rec_query_global traverses all the way back to the root. */
+
+    fd_voter_t *             voter = &epoch_voters[i];
+    fd_voter_state_t const * state = fd_voter_state( funk, txn, &voter->rec );
+    ulong                    vote  = fd_voter_state_vote( state );
+
+    /* Only process votes for slots >= root. Ghost requires vote slot
+        to already exist in the ghost tree. */
+
+    if( FD_UNLIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
+      fd_ghost_replay_vote( ghost, voter, vote );
+
+      /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
+
+      fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
+
+      fd_blockstore_start_write( blockstore );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
+
+      int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+      if( FD_UNLIKELY( !eqvocsafe ) ) {
+        double pct = (double)node->replay_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
+          FD_LOG_DEBUG( ( "eqvocsafe %lu", block_map_entry->slot ) );
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags,
+                                                     FD_BLOCK_FLAG_EQVOCSAFE );
+          blockstore->hcs        = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+        }
+      }
+
+      int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+      if( FD_UNLIKELY( !confirmed ) ) {
+        double pct = (double)node->replay_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
+          FD_LOG_DEBUG( ( "confirmed %lu", block_map_entry->slot ) );
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags,
+                                                     FD_BLOCK_FLAG_CONFIRMED );
+          blockstore->hcs        = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+        }
+      }
+
+      fd_blockstore_end_write( blockstore );
+    }
+
+    ulong root = fd_voter_state_root( state );
+
+    /* Check if this voter's root >= ghost root. We can't process
+        other voters' roots that precede the ghost root. */
+
+    if( FD_UNLIKELY( root >= fd_ghost_root( ghost )->slot ) ) {
+      fd_ghost_node_t const * node = fd_ghost_query( ghost, root );
+      if( FD_UNLIKELY( !node ) ) {
+
+        /* Error if the node's root is not in ghost. This is an
+           invariant violation because a node cannot have possibly
+           rooted something that on the current fork that isn't in
+           ghost. */
+
+        FD_LOG_ERR(( "[%s] node %s's root %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
+      }
+
+      fd_ghost_rooted_vote( ghost, voter, root );
+
+      /* Check if it has crossed finalized threshold. */
+
+      fd_blockstore_start_write( blockstore );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
+      int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+      if( FD_UNLIKELY( !finalized ) ) {
+        double pct = (double)node->rooted_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
+          ulong smr       = block_map_entry->slot;
+          blockstore->smr = fd_ulong_max( blockstore->smr, smr );
+          FD_LOG_DEBUG( ( "finalized %lu", block_map_entry->slot ) );
+          fd_block_map_t * ancestor = block_map_entry;
+          while( ancestor ) {
+            ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
+            ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+          }
+        }
+      }
+      fd_blockstore_end_write( blockstore );
+    }
+  }
 }
 
 void
@@ -336,9 +441,9 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
 
        Optimize for unlikely because there is usually just one fork. */
 
-    int stale = fork->slot < slot || !fd_ghost_is_descendant( ghost, fork->slot, slot );
+    int stale = fork->slot < slot || !fd_ghost_is_ancestor( ghost, slot, fork->slot );
     if( FD_UNLIKELY( !fork->lock && stale ) ) {
-      FD_LOG_NOTICE(( "adding %lu to prune. root %lu", fork->slot, slot ));
+      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, slot ) );
       if( FD_LIKELY( !curr ) ) {
         tail = fork;
         curr = fork;
@@ -355,7 +460,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
                                                    NULL,
                                                    forks->pool );
     if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) ) ) ) {
-      FD_LOG_ERR(( "could not delete fork slot ctx" ));
+      FD_LOG_ERR( ( "could not delete fork slot ctx" ) );
     }
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,
                                                 &tail->slot,
@@ -363,7 +468,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
                                                 forks->pool );
 #if FD_FORKS_USE_HANDHOLDING
     if( FD_UNLIKELY( remove == fd_fork_pool_idx_null( forks->pool ) ) ) {
-      FD_LOG_ERR(( "failed to remove fork we added to prune." ));
+      FD_LOG_ERR( ( "failed to remove fork we added to prune." ) );
     }
 #endif
 
@@ -374,4 +479,17 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
                       fd_fork_pool_ele( forks->pool, tail->prev ),
                       NULL );
   }
+}
+
+#include <stdio.h>
+
+void
+fd_forks_print( fd_forks_t const * forks ) {
+  FD_LOG_NOTICE( ( "\n\n[Forks]" ) );
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
+       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
+       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
+    printf( "%lu\n", fd_fork_frontier_iter_ele_const( iter, forks->frontier, forks->pool )->slot );
+  }
+  printf( "\n" );
 }
