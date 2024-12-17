@@ -110,19 +110,28 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
   INSERT( 5, 3 );
   INSERT( 6, 5 );
 
+  FD_TEST( fd_ghost_verify( ghost ) );
+
   fd_pubkey_t pk1  = { .key = { 1 } };
   ulong       key2 = 2;
   fd_ghost_replay_vote( ghost, key2, &pk1, 1 );
+
+  fd_ghost_print( ghost );
+
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
   fd_ghost_node_t const * node2 = fd_ghost_query( ghost, key2 );
   FD_TEST( node2 );
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   fd_ghost_print( ghost );
   fd_ghost_publish( ghost, key2 );
   fd_ghost_node_t * root = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
   FD_TEST( root->slot == 2 );
+  FD_TEST( fd_ghost_verify( ghost ) );
+
   FD_TEST( fd_ghost_node_pool_ele( node_pool, root->child_idx )->slot == 4 );
   FD_TEST( fd_ghost_node_pool_free( node_pool ) == node_max - 2 );
   fd_ghost_print( ghost );
@@ -173,18 +182,22 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   INSERT( 4, 2 );
   INSERT( 5, 3 );
   INSERT( 6, 5 );
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   fd_pubkey_t pk1  = { .key = { 1 } };
   ulong       key2 = 2;
   fd_ghost_replay_vote( ghost, key2, &pk1, 1 );
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
+  FD_TEST( fd_ghost_verify( ghost ) );
   fd_ghost_node_t const * node3 = fd_ghost_query( ghost, key3 );
   FD_TEST( node3 );
 
   fd_ghost_print( ghost );
   fd_ghost_publish( ghost, key3 );
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   fd_ghost_node_t * root = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
   FD_TEST( root->slot == 3 );
@@ -219,6 +232,7 @@ test_ghost_gca( fd_wksp_t * wksp ) {
   INSERT( 4, 2 );
   INSERT( 5, 3 );
   INSERT( 6, 5 );
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   fd_ghost_print( ghost );
 
@@ -296,11 +310,91 @@ test_ghost_print( fd_wksp_t * wksp ) {
   query        = 268538761;
   node         = query_mut( ghost, query );
   node->weight = 10;
+  FD_TEST( fd_ghost_verify( ghost ) );
 
   fd_ghost_slot_print( ghost, query, 8 );
   fd_ghost_print( ghost );
 
   fd_wksp_free_laddr( mem );
+}
+
+
+/*
+         slot 10
+         /    \
+    slot 11    |
+       |    slot 12
+    slot 13    
+            
+*/
+
+void
+test_ghost_head( fd_wksp_t * wksp ){
+  ulong  node_max = 16;
+  ulong  vote_max = 16;
+  void * mem      = fd_wksp_alloc_laddr( wksp,
+                                    fd_ghost_align(),
+                                    fd_ghost_footprint( node_max, vote_max ),
+                                    1UL );
+  FD_TEST( mem );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, vote_max, 0UL ) );
+
+  ulong slots[node_max];
+  ulong parent_slots[node_max];
+  ulong i = 0;
+
+  fd_ghost_init( ghost, 10, 100 );
+  INSERT( 11, 10 );
+  INSERT( 12, 10 );
+  INSERT( 13, 11 );
+
+  fd_pubkey_t pk1  = { .key = { 1 } };
+  ulong       key11 = 11;
+  fd_ghost_replay_vote( ghost, key11, &pk1, 50 );
+  FD_TEST( fd_ghost_verify( ghost ) );
+
+  fd_pubkey_t pk2  = { .key = { 2 } };
+  ulong       key12 = 12;
+  fd_ghost_replay_vote( ghost, key12, &pk2, 100);
+  FD_TEST( fd_ghost_verify( ghost ) );
+
+  fd_ghost_node_t const * head = fd_ghost_head( ghost );
+  FD_TEST( head->slot == 12 );
+
+  ulong key13 = 13;
+  fd_ghost_replay_vote( ghost, key13, &pk1, 75);
+  FD_TEST( fd_ghost_verify( ghost ) );
+
+  fd_ghost_node_t const * head2 = fd_ghost_head( ghost );
+  FD_TEST( head2->slot == 12 );
+
+  fd_ghost_print( ghost );
+
+  fd_wksp_free_laddr( mem );
+}
+
+void
+test_ghost_head_bst( fd_wksp_t * wksp ){
+  ulong  node_max = 16;
+  ulong  vote_max = 16;
+  void * mem      = fd_wksp_alloc_laddr( wksp,
+                                    fd_ghost_align(),
+                                    fd_ghost_footprint( node_max, vote_max ),
+                                    1UL );
+  FD_TEST( mem );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, vote_max, 0UL ) );
+
+  ulong slots[node_max];
+  ulong parent_slots[node_max];
+  ulong i = 0;
+
+  fd_ghost_init( ghost, 1, 100 );
+  INSERT( 11, 10 );
+  INSERT( 12, 10 );
+  INSERT( 13, 11 );
+
+
+
 }
 
 int
@@ -321,6 +415,7 @@ main( int argc, char ** argv ) {
                                             0UL );
   FD_TEST( wksp );
 
+  test_ghost_head( wksp );
   test_ghost_print( wksp );
   test_ghost_simple( wksp );
   test_ghost_publish_left( wksp );

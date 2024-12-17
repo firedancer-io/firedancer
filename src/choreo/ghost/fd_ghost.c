@@ -140,6 +140,52 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
 }
 
 /* clang-format on */
+bool
+fd_ghost_verify(fd_ghost_t const * ghost){
+  if( FD_UNLIKELY( !ghost ) ) {
+    FD_LOG_WARNING(( "NULL ghost" ));
+    return false;
+  }
+
+  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
+  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
+
+  /* every map element exists in pool and vice versa */
+
+  /* can't directly use map_verify since we don't maintain a count of elements */
+
+  for ( ulong idx = ghost->root_idx; idx != fd_ghost_node_pool_idx_null( node_pool ); ) {
+    fd_ghost_node_t * node = fd_ghost_node_pool_ele( node_pool, idx );
+    ulong map_idx = fd_ghost_node_map_idx_query( node_map, &node->slot, fd_ghost_node_pool_idx_null( node_pool ), node_pool );
+    if( FD_UNLIKELY( map_idx != idx ) ) {
+      FD_LOG_WARNING(( "map and node pool idx mismatch: %lu != %lu", map_idx, idx ));
+      return false;
+    }
+    idx = node->next;
+  }
+
+  /* check invariant that each parent stake is >= sum of children */
+  fd_ghost_node_t const * parent = fd_ghost_root_node( ghost );
+
+  while( parent ) {
+    ulong child_idx = parent->child_idx;
+    ulong total_stake = 0;
+    while( child_idx != fd_ghost_node_pool_idx_null( node_pool ) ) {
+      fd_ghost_node_t const * child = fd_ghost_node_pool_ele( node_pool, child_idx );
+      total_stake += child->weight;
+      child_idx = child->sibling_idx;
+    }
+    if( FD_UNLIKELY( total_stake > parent->weight ) ) {
+      FD_LOG_WARNING(( "root %lu has total stake %lu but sum of children is %lu", parent->slot, parent->weight, total_stake ));
+      return false;
+    }
+    
+    fd_ghost_node_t * next = fd_ghost_node_pool_ele( node_pool, parent->next );
+    parent = next;
+  }
+
+  return true;
+}
 
 fd_ghost_node_t *
 fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
@@ -273,7 +319,6 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * root   = fd_ghost_root_node( ghost );
-  ulong null_idx                 = fd_ghost_node_pool_idx_null( node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( slot < root->slot ) ) {
@@ -342,16 +387,8 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
                       latest_vote->stake,
                       latest_vote->slot ));
 
-      int cf = __builtin_usubl_overflow( node->stake, latest_vote->stake, &node->stake );
-      if( FD_UNLIKELY( cf ) ) {
-        FD_LOG_WARNING(( "[%s] sub overflow. node->stake %lu latest_vote->stake %lu",
-                         __func__,
-                         node->stake,
-                         latest_vote->stake ));
-        node->stake = 0;
-      }
       fd_ghost_node_t * ancestor = node;
-      while( ancestor->parent_idx != null_idx ) {
+      while( ancestor ) {
         int cf = __builtin_usubl_overflow( ancestor->weight,
                                            latest_vote->stake,
                                            &ancestor->weight );
@@ -390,16 +427,9 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
   /* Propagate the vote stake up the ancestry, including updating the
      head. */
 
-  FD_LOG_DEBUG(( "[ghost] adding (%s, %lu, %lu)", FD_BASE58_ENC_32_ALLOCA( pubkey ), stake, latest_vote->slot ));
-  int cf = __builtin_uaddl_overflow( node->stake, latest_vote->stake, &node->stake );
-  if( FD_UNLIKELY( cf ) ) {
-    FD_LOG_ERR(( "[%s] add overflow. node->stake %lu latest_vote->stake %lu",
-                 __func__,
-                 node->stake,
-                 latest_vote->stake ));
-  }
   fd_ghost_node_t * ancestor = node;
-  while( ancestor->parent_idx != null_idx ) {
+  while( ancestor ) {
+    FD_LOG_NOTICE(("adding %lu to ancestor %lu", latest_vote->stake, ancestor->slot));
     int cf = __builtin_uaddl_overflow( ancestor->weight, latest_vote->stake, &ancestor->weight );
     if( FD_UNLIKELY( cf ) ) {
       FD_LOG_ERR(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu",
