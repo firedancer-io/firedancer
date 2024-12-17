@@ -148,6 +148,11 @@ do{
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
 
+  /* Enable direct_mapping for SBPF version >= v1 */
+  if( input->vm_ctx.sbpf_version >= FD_SBPF_V1 ) {
+    ((fd_exec_epoch_ctx_t *)(instr_ctx->epoch_ctx))->features.bpf_account_data_direct_mapping = 0UL;
+  }
+
   fd_vm_init(
     vm,
     instr_ctx,
