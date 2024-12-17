@@ -58,10 +58,12 @@ extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_store_int;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_replay_thread;
+extern fd_topo_run_tile_t fd_tile_snaps_thread;
 extern fd_topo_run_tile_t fd_tile_poh_int;
 extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
+extern fd_topo_run_tile_t fd_tile_snaps;
 #endif
 
 fd_topo_run_tile_t * TILES[] = {
@@ -90,10 +92,12 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_store_int,
   &fd_tile_replay,
   &fd_tile_replay_thread,
+  &fd_tile_snaps_thread,
   &fd_tile_poh_int,
   &fd_tile_sender,
   &fd_tile_eqvoc,
   &fd_tile_rpcserv,
+  &fd_tile_snaps,
 #endif
   NULL,
 };

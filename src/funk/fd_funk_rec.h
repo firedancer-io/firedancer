@@ -426,7 +426,8 @@ fd_funk_rec_insert( fd_funk_t *               funk,
    transaction's subsequently created descendants (again, assuming no
    subsequent insert of key).  This type of remove can be done on a
    published record (assuming the last published transaction is
-   unfrozen).
+   unfrozen). A tombstone is left in funk to track removals as they
+   are published or cancelled.
 
    Any information in an erased record is lost.
 
@@ -460,6 +461,22 @@ fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
 
 ulong
 fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
+
+/* Remove a list of tombstones from funk, thereby freeing up space in
+   the main index. All the records must be removed and published
+   beforehand. Reasons for failure include:
+
+     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
+       obviously not from funk, etc)
+
+     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
+       Specifically, a record query of funk for rec's (xid,key) pair did
+       not return rec. Also, the record was never published.
+*/
+int
+fd_funk_rec_forget( fd_funk_t *      funk,
+                    fd_funk_rec_t ** recs,
+                    ulong recs_cnt );
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:
