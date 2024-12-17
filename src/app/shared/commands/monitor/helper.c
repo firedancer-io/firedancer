@@ -1,8 +1,12 @@
 #include "helper.h"
-
+#include "../../fd_sys_util.h"
 #include "../../../../tango/cnc/fd_cnc.h"
-
+#include <sys/time.h>
+#include <sys/select.h>
+#include <termios.h>
 #include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
 
 #define PRINT( ... ) do {                                                        \
     int n = snprintf( *buf, *buf_sz, __VA_ARGS__ );                              \
@@ -175,4 +179,52 @@ printf_pct( char ** buf,
 
   if( pct<=999.999 ) { PRINT( " %7.3f", pct ); return; }
   /**/                 PRINT( ">999.999" );
+}
+
+int
+fd_getchar( void ) {
+
+  struct termios term_old, term_new;
+  int ch[1] = {0};
+
+  /* Disables character echo and canonical mode since we want the input to be processes immediately.*/
+  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &term_old ) ) ) {
+    if( FD_UNLIKELY( errno==ENOTTY ) ) fd_sys_util_exit_group( 0 );
+    FD_LOG_ERR(( "tcgetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  term_new = term_old;
+  term_new.c_lflag &= (tcflag_t)~(ICANON | ECHO); 
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_new ) ) ) {
+    if( FD_UNLIKELY( errno==ENOTTY ) ) fd_sys_util_exit_group( 0 );
+    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  
+  fd_set stdin_status;
+  FD_ZERO( &stdin_status );
+  FD_SET( STDIN_FILENO, &stdin_status );
+
+  struct timeval timeout;
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 0;
+
+  if( FD_UNLIKELY( -1==select( 1, &stdin_status, NULL, NULL,  &timeout ) ) ) {
+    FD_LOG_ERR(( "select(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( FD_ISSET( STDIN_FILENO, &stdin_status ) ) ) {
+    long read_ret = read( STDIN_FILENO, ch, 1 );
+    if( FD_UNLIKELY( read_ret<0 ) ) {
+      FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else if( FD_UNLIKELY( !read_ret ) ) {
+      fd_sys_util_exit_group( 0 );
+    }
+  }
+  /* Set the terminal back to the original configuration */
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_old ) ) ) {
+    if( FD_UNLIKELY( errno==ENOTTY ) ) fd_sys_util_exit_group( 0 );
+    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  
+  return (int)*ch;
 }
