@@ -115,10 +115,10 @@ do{
     ulong mask = (1UL << (max_pc % 64)) - 1UL;
     calldests[ max_pc / 64 ] &= mask;
   }
-  ulong entry_pc = fd_ulong_min( input->vm_ctx.entry_pc, rodata_sz / 8 - 1 );
+  ulong entry_pc = fd_ulong_min( input->vm_ctx.entry_pc, rodata_sz / 8UL - 1UL );
   if( input->vm_ctx.sbpf_version >= FD_SBPF_V3 ) {
     /* in v3 we have to enable the entrypoint */
-    calldests[ entry_pc / 64 ] |= ( 1 << ( entry_pc % 64 ) );
+    calldests[ entry_pc / 64UL ] |= ( 1UL << ( entry_pc % 64UL ) );
   }
 
   /* Setup syscalls. Have them all be no-ops */
