@@ -8,6 +8,9 @@
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../disco/metrics/generated/fd_metrics_bank.h"
 
+#define FD_BANK_TRANSACTION_LANDED    1
+#define FD_BANK_TRANSACTION_EXECUTED  2
+
 typedef struct {
   ulong kind_id;
 
@@ -35,9 +38,11 @@ typedef struct {
     ulong slot_acquire[ 3 ];
 
     ulong txn_load_address_lookup_tables[ 6 ];
-    ulong txn_load[ 39 ];
-    ulong txn_executing[ 39 ];
-    ulong txn_executed[ 39 ];
+    ulong transaction_result[ 39 ];
+    ulong processing_failed;
+    ulong fee_only;
+    ulong exec_failed;
+    ulong success;
   } metrics;
 } fd_bank_ctx_t;
 
@@ -63,10 +68,12 @@ metrics_write( fd_bank_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( BANK, SLOT_ACQUIRE,  ctx->metrics.slot_acquire );
 
   FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD,  ctx->metrics.txn_load );
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_EXECUTING,  ctx->metrics.txn_executing );
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_EXECUTED,  ctx->metrics.txn_executed );
+  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_RESULT,  ctx->metrics.transaction_result );
 
+  FD_MCNT_SET( BANK, PROCESSING_FAILED,            ctx->metrics.processing_failed );
+  FD_MCNT_SET( BANK, FEE_ONLY_TRANSACTIONS,        ctx->metrics.fee_only          );
+  FD_MCNT_SET( BANK, EXECUTED_FAILED_TRANSACTIONS, ctx->metrics.exec_failed       );
+  FD_MCNT_SET( BANK, SUCCESSFUL_TRANSACTIONS,      ctx->metrics.success           );
 }
 
 static int
@@ -87,7 +94,7 @@ before_frag( fd_bank_ctx_t * ctx,
 }
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_load_results, int * out_executing_results, int * out_executed_results, uint * out_consumed_cus );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_cus );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
@@ -181,19 +188,17 @@ after_frag( fd_bank_ctx_t *     ctx,
 
   /* Just because a transaction was executed doesn't mean it succeeded,
      but all executed transactions get committed. */
-  int  load_results     [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  int  executing_results[ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  int  executed_results [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  uint consumed_cus     [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int  processing_results[ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  int  transaction_err   [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  uint consumed_cus      [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   void * pre_balance_info = fd_ext_bank_pre_balance_info( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt );
 
   void * load_and_execute_output = fd_ext_bank_load_and_execute_txns( ctx->_bank,
                                                                       ctx->txn_abi_mem,
                                                                       sanitized_txn_cnt,
-                                                                      load_results,
-                                                                      executing_results,
-                                                                      executed_results,
+                                                                      processing_results,
+                                                                      transaction_err,
                                                                       consumed_cus     );
 
   ulong sanitized_idx = 0UL;
@@ -208,25 +213,29 @@ after_frag( fd_bank_ctx_t *     ctx,
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
-    /* Stash the result in the flags value so that pack can inspect it.
-       We actually have enough bits to store all the results, but just
-       one is fine.  We or in at most one that's non-zero, since the
-       rest will trigger a break. */
-    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)load_results[ sanitized_idx ]<<24);
-
     sanitized_idx++;
-    ctx->metrics.txn_load[ load_results[ sanitized_idx-1 ] ]++;
-    if( FD_UNLIKELY( load_results[ sanitized_idx-1 ] ) ) continue;
 
-    txn->flags |= (uint)executing_results[ sanitized_idx-1 ]<<24;
+    /* Stash the result in the flags value so that pack can inspect it.
+     */
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)transaction_err[ sanitized_idx-1UL ]<<24);
 
-    ctx->metrics.txn_executing[ executing_results[ sanitized_idx-1 ] ]++;
-    if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
+    ctx->metrics.transaction_result[ transaction_err   [ sanitized_idx-1UL ] ]++;
 
-    txn->flags |= (uint)executed_results[ sanitized_idx-1 ]<<24;
+    ctx->metrics.processing_failed += (ulong)(processing_results[ sanitized_idx-1UL ]==0                         );
+    ctx->metrics.fee_only          += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
 
-    ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
+    if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_LANDED) ) ) continue;
+
+    /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
+       the block.  It's a bit of a misnomer now that there are fee-only
+       transactions. */
     txn->flags                      |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+    if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_EXECUTED) ) ) continue;
+
+    if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
+    else                                       ctx->metrics.success++;
+
     uint executed_cus                = consumed_cus[ sanitized_idx-1UL ];
     txn->bank_cu.actual_consumed_cus = non_execution_cus + executed_cus;
     if( FD_UNLIKELY( executed_cus>requested_cus ) ) {

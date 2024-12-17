@@ -359,9 +359,11 @@ metric introduced.
     <counter name="SlotAcquire" enum="BankSlotAcquire" summary="Result of acquiring a slot." />
 
     <counter name="TransactionLoadAddressTables" enum="BankLoadAddressLookupTable" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
-    <counter name="TransactionLoad" enum="TransactionError" summary="Result of loading a transaction." />
-    <counter name="TransactionExecuting" enum="TransactionError" summary="Result of executing a transaction. Could be a failure or success." />
-    <counter name="TransactionExecuted" enum="TransactionError" summary="When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail." />
+    <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction." />
+    <counter name="ProcessingFailed" summary="Count of transactions for which the processing stage failed and won't land on chain" />
+    <counter name="FeeOnlyTransactions" summary="Count of transactions that will land on chain but without executing" />
+    <counter name="ExecutedFailedTransactions" summary="Count of transactions that execute on chain but failed" />
+    <counter name="SuccessfulTransactions" summary="Count of transactions that execute on chain and succeed" />
     <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
 </tile>
 
