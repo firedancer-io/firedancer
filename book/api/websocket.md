@@ -426,6 +426,21 @@ slots_processed==0, skip_rate should default to 0.
 | slots_processed | `number` | The latest number of slots processed in the provided epoch since boot |
 | slots_skipped   | `number` | The latest number of slots skipped in the provided epoch since boot |
 
+#### `summary.first_processed_slot`
+| frequency       | type                 | example |
+|-----------------|----------------------|---------|
+| *Once* + *Live* | `FirstProcessedSlot` | `{"epoch": 713, "slot": 308016520}` |
+
+The first slot that the validator processed in an epoch since boot.  We
+do not consider slots from before boot.  If no slot has been processed
+in the given epoch since boot, slot number will be null.
+
+**`FirstProcessedSlot`**
+| Field     | Type           | Description |
+|-----------|----------------|-------------|
+| epoch     | `number`       | The epoch that the slot number is being published for |
+| slot      | `number\|null` | The first slot that the validator processed in the provided epoch |
+
 #### `summary.tps_history`
 | frequency | type         | example |
 |-----------|--------------|---------|

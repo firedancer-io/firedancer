@@ -278,6 +278,7 @@ struct fd_gui {
 
       ulong my_total_slots;
       ulong my_skipped_slots;
+      ulong my_first_processed_slot;
 
       ulong start_slot;
       ulong end_slot;

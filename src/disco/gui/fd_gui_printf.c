@@ -441,6 +441,18 @@ fd_gui_printf_skip_rate( fd_gui_t * gui,
 }
 
 void
+fd_gui_printf_first_processed_slot( fd_gui_t * gui,
+                                    ulong      epoch_idx ) {
+  jsonp_open_envelope( gui, "summary", "first_processed_slot" );
+    jsonp_open_object( gui, "value" );
+      jsonp_ulong( gui, "epoch", gui->epoch.epochs[ epoch_idx ].epoch );
+      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].my_first_processed_slot!=ULONG_MAX ) ) jsonp_ulong( gui, "slot",  gui->epoch.epochs[ epoch_idx ].my_first_processed_slot );
+      else                                                                                  jsonp_null( gui, "slot" );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx ) {
   jsonp_open_envelope( gui, "epoch", "new" );
