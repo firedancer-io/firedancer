@@ -24,6 +24,7 @@
 #include "../../../../util/net/fd_udp.h"
 #include "../../../../util/net/fd_net_headers.h"
 #include "../../../../disco/plugin/fd_plugin.h"
+#include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 
 #include "generated/gossip_seccomp.h"
 

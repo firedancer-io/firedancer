@@ -1,11 +1,9 @@
 #include "fd_ghost.h"
-#include <math.h>
-#include <stdlib.h>
 
 #define INSERT( c, p )                                                                             \
   slots[i]        = c;                                                                             \
   parent_slots[i] = p;                                                                             \
-  fd_ghost_insert( ghost, slots[i], parent_slots[i] );                                             \
+  fd_ghost_insert( ghost, parent_slots[i], slots[i] );                                             \
   i++;
 
 fd_ghost_node_t *
@@ -53,18 +51,18 @@ test_ghost_simple( fd_wksp_t * wksp ) {
   INSERT( 5, 3 );
   INSERT( 6, 5 );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   fd_pubkey_t pk1  = { .key = { 1 } };
   ulong       key2 = 2;
   fd_ghost_replay_vote( ghost, key2, &pk1, 1 );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   fd_wksp_free_laddr( mem );
 }
@@ -111,31 +109,40 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
   INSERT( 5, 3 );
   INSERT( 6, 5 );
 
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_pubkey_t pk1  = { .key = { 1 } };
   ulong       key2 = 2;
   fd_ghost_replay_vote( ghost, key2, &pk1, 1 );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
   fd_ghost_node_t const * node2 = fd_ghost_query( ghost, key2 );
   FD_TEST( node2 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
   fd_ghost_publish( ghost, key2 );
-  fd_ghost_node_t * root = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
+  fd_ghost_node_t const * root = fd_ghost_root( ghost );
   FD_TEST( root->slot == 2 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+
+  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
+  for( fd_ghost_node_map_iter_t iter = fd_ghost_node_map_iter_init( node_map, node_pool );
+       !fd_ghost_node_map_iter_done( iter, node_map, node_pool );
+       iter = fd_ghost_node_map_iter_next( iter, node_map, node_pool ) ) {
+    fd_ghost_node_t const * node = fd_ghost_node_map_iter_ele( iter, node_map, node_pool );
+    FD_LOG_NOTICE(("slot: %lu", node->slot));
+  }
+
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   FD_TEST( fd_ghost_node_pool_ele( node_pool, root->child_idx )->slot == 4 );
   FD_TEST( fd_ghost_node_pool_free( node_pool ) == node_max - 2 );
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   fd_wksp_free_laddr( mem );
 }
@@ -183,29 +190,29 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   INSERT( 4, 2 );
   INSERT( 5, 3 );
   INSERT( 6, 5 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_pubkey_t pk1  = { .key = { 1 } };
   ulong       key2 = 2;
   fd_ghost_replay_vote( ghost, key2, &pk1, 1 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
   fd_ghost_node_t const * node3 = fd_ghost_query( ghost, key3 );
   FD_TEST( node3 );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
   fd_ghost_publish( ghost, key3 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_ghost_node_t * root = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
   FD_TEST( root->slot == 3 );
   FD_TEST( fd_ghost_node_pool_ele( node_pool, root->child_idx )->slot == 5 );
-  FD_TEST( fd_ghost_child_node( ghost, fd_ghost_child_node( ghost, root ) )->slot == 6 );
+  FD_TEST( fd_ghost_child( ghost, fd_ghost_child( ghost, root ) )->slot == 6 );
   FD_TEST( fd_ghost_node_pool_free( node_pool ) == node_max - 3 );
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   fd_wksp_free_laddr( mem );
 }
@@ -233,9 +240,9 @@ test_ghost_gca( fd_wksp_t * wksp ) {
   INSERT( 4, 2 );
   INSERT( 5, 3 );
   INSERT( 6, 5 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   FD_TEST( fd_ghost_gca( ghost, 0, 0 )->slot == 0 );
 
@@ -311,10 +318,10 @@ test_ghost_print( fd_wksp_t * wksp ) {
   query        = 268538761;
   node         = query_mut( ghost, query );
   node->weight = 10;
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_slot_print( ghost, query, 8 );
-  fd_ghost_print( ghost );
+  fd_ghost_node_t const * grandparent = fd_ghost_parent( ghost, fd_ghost_parent( ghost, fd_ghost_query( ghost, 268538760 ) ) );
+  fd_ghost_print( ghost, grandparent );
 
   fd_wksp_free_laddr( mem );
 }
@@ -351,24 +358,24 @@ test_ghost_head( fd_wksp_t * wksp ){
   fd_pubkey_t pk1  = { .key = { 1 } };
   ulong       key11 = 11;
   fd_ghost_replay_vote( ghost, key11, &pk1, 50 );
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_pubkey_t pk2  = { .key = { 2 } };
   ulong       key12 = 12;
   fd_ghost_replay_vote( ghost, key12, &pk2, 100);
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_node_t const * head = fd_ghost_head( ghost );
+  fd_ghost_node_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head->slot == 12 );
 
   ulong key13 = 13;
   fd_ghost_replay_vote( ghost, key13, &pk1, 75); // different stake than it was inserted with...
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_node_t const * head2 = fd_ghost_head( ghost );
+  fd_ghost_node_t const * head2 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head2->slot == 12 );
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
   fd_wksp_free_laddr( mem );
 }
@@ -376,7 +383,7 @@ test_ghost_head( fd_wksp_t * wksp ){
 void test_ghost_vote_leaves( fd_wksp_t * wksp ){
   ulong node_max = 8;
   ulong vote_max = 8;
-  int depth = 3;
+  int d = 3;
 
   void * mem = fd_wksp_alloc_laddr( wksp,
                                     fd_ghost_align(),
@@ -390,20 +397,20 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
 
   /* make a full binary tree */
   for( ulong i = 1; i < node_max - 1; i++){
-    fd_ghost_insert( ghost, i, (i - 1) / 2 );
+    fd_ghost_insert( ghost, (i-1)/2, i );
   }
 
   /* one validator changes votes along leaves */
-  ulong first_leaf = (ulong) (pow(2, (depth - 1)) - 1);
+  ulong first_leaf = fd_ulong_pow2(d-1) - 1;
   for( ulong i = first_leaf; i < node_max - 1; i++){
     fd_ghost_replay_vote( ghost, i, &pk, 10);
   }
 
-  fd_ghost_print( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 
-  ulong path[depth];
+  ulong path[d];
   ulong leaf = node_max - 2;
-  for( int i = depth - 1; i >= 0; i--){
+  for( int i = d - 1; i >= 0; i--){
     path[i] = leaf;
     leaf = (leaf - 1) / 2;
   }
@@ -412,8 +419,8 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
   int j = 0;
   for( ulong i = 0; i < node_max - 1; i++){
     fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
-    if ( i == node_max - 2) FD_TEST( node->stake == 10 );
-    else  FD_TEST( node->stake == 0 );
+    if ( i == node_max - 2) FD_TEST( node->replay_stake == 10 );
+    else  FD_TEST( node->replay_stake == 0 );
 
     if ( i == path[j] ){ // if on fork
       FD_TEST( node->weight == 10 );
@@ -433,16 +440,16 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
   for( ulong i = 0; i < node_max - 1; i++){
     fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
     if ( i >= first_leaf){
-      FD_TEST( node->stake == 10 );
+      FD_TEST( node->replay_stake == 10 );
       FD_TEST( node->weight == 10 );
     } else {
-      FD_TEST( node->stake == 0 );
+      FD_TEST( node->replay_stake == 0 );
       FD_TEST( node->weight > 10);
     }
   }
 
-  FD_TEST( fd_ghost_verify( ghost ) );
-  fd_ghost_print( ghost );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
 }
 
 void
@@ -460,20 +467,20 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
   FD_LOG_NOTICE(( "ghost node max: %lu", fd_ghost_node_pool_max( fd_ghost_node_pool( ghost ) ) ));
 
   for ( ulong i = 1; i < node_max - 1; i++ ) {
-    fd_ghost_insert( ghost, i,  (i - 1)/2);
+    fd_ghost_insert( ghost, (i-1)/2, i );
     fd_pubkey_t pk = { .key = { ( uchar )i } };
     fd_ghost_replay_vote( ghost, i, &pk, i);
   }
 
   for ( ulong i = 0; i < node_max - 1; i++ ) {
     fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
-    FD_TEST( node->stake == i );
+    FD_TEST( node->replay_stake == i );
   }
 
-  FD_TEST( fd_ghost_verify( ghost ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_print( ghost );
-  fd_ghost_node_t const * head = fd_ghost_head( ghost );
+  fd_ghost_print( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_node_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
 
   FD_LOG_NOTICE(( "head slot %lu", head->slot ));
 
@@ -483,12 +490,12 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
 
   // add one more node
 
-  fd_ghost_insert( ghost, node_max - 1, (node_max - 2)/2 );
+  fd_ghost_insert( ghost, (node_max-2)/2, node_max - 1 );
   fd_pubkey_t pk = { .key = { (uchar)(node_max - 1) } };
   fd_ghost_replay_vote( ghost, node_max - 1, &pk, node_max - 1);
 
-  FD_TEST( fd_ghost_verify( ghost ) );
-  head = fd_ghost_head( ghost );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+  head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head->slot == 14 );
 
   // adding one more node would fail.
@@ -507,7 +514,7 @@ test_rooted_vote( fd_wksp_t * wksp ){
 
   fd_ghost_init( ghost, 0, 120 );
 
-  fd_ghost_insert( ghost, 1, 0);
+  fd_ghost_insert( ghost, 0, 1);
   fd_pubkey_t pk = { .key = { 1 } };
   fd_ghost_replay_vote( ghost, 1, &pk, 20);
 
@@ -515,11 +522,11 @@ test_rooted_vote( fd_wksp_t * wksp ){
   fd_ghost_rooted_vote( ghost, 1, &pk2, 10 );
 
   fd_ghost_node_t const * node = fd_ghost_query( ghost, 1 );
-  FD_TEST( node->stake == 20 );
+  FD_TEST( node->replay_stake == 20 );
   FD_TEST( node->weight == 20 );
   FD_TEST( node->rooted_stake == 10 );
 
-  fd_ghost_verify( ghost );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 }
 
 int

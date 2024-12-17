@@ -323,6 +323,95 @@ fd_forks_prepare( fd_forks_t const *    forks,
 }
 
 void
+fd_forks_update( fd_forks_t *          forks,
+                 fd_blockstore_t *     blockstore,
+                 fd_epoch_t *          epoch,
+                 fd_funk_t *           funk,
+                 fd_ghost_t *          ghost,
+                 ulong                 slot ) {
+  fd_fork_t *        fork = fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
+  fd_funk_txn_t *    txn  = fork->slot_ctx.funk_txn;
+
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+  for (ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
+    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+
+    /* TODO we can optimize this funk query to only check through the
+       last slot on this fork this function was called on. currently 
+       rec_query_global traverses all the way back to the root. */
+
+    fd_voter_t *             voter = &epoch_voters[i];
+    fd_voter_state_t const * state = fd_voter_state( funk, txn, &voter->rec );
+    ulong                    vote  = fd_voter_state_vote( state );
+
+    /* Only process votes for slots >= root. Ghost requires vote slot
+        to already exist in the ghost tree. */
+
+    if( FD_UNLIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
+      fd_ghost_replay_vote( ghost, voter, vote );
+
+      /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
+
+      fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
+
+      fd_blockstore_start_write( blockstore );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
+
+      int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+      if( FD_UNLIKELY( !eqvocsafe ) ) {
+        double pct = (double)node->replay_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
+          FD_LOG_DEBUG( ( "eqvocsafe %lu", block_map_entry->slot ) );
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+          blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+        }
+      }
+
+      int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+      if( FD_UNLIKELY( !confirmed ) ) {
+        double pct = (double)node->replay_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
+          FD_LOG_DEBUG( ( "confirmed %lu", block_map_entry->slot ) );
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+          blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+        }
+      }
+
+      fd_blockstore_end_write( blockstore );
+    }
+
+    ulong root = fd_voter_state_root( state );
+
+    /* Check if this voter's root >= ghost root. We can't process
+        other voters' roots that precede the ghost root. */
+
+    if( FD_UNLIKELY( root >= fd_ghost_root( ghost )->slot ) ) {
+      fd_ghost_node_t const * node = fd_ghost_rooted_vote( ghost, root, &voter->key, voter->stake );
+
+      /* Check if it has crossed finalized threshold. */
+
+      fd_blockstore_start_write( blockstore );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
+      int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+      if( FD_UNLIKELY( !finalized ) ) {
+        double pct = (double)node->rooted_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
+          ulong smr       = block_map_entry->slot;
+          blockstore->smr = fd_ulong_max( blockstore->smr, smr );
+          FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
+          fd_block_map_t * ancestor = block_map_entry;
+          while( ancestor ) {
+            ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
+            ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+          }
+        }
+      }
+      fd_blockstore_end_write( blockstore );
+    }
+  }
+}
+
+void
 fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
@@ -336,7 +425,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
 
        Optimize for unlikely because there is usually just one fork. */
 
-    int stale = fork->slot < slot || !fd_ghost_is_descendant( ghost, fork->slot, slot );
+    int stale = fork->slot < slot || !fd_ghost_is_ancestor( ghost, slot, fork->slot );
     if( FD_UNLIKELY( !fork->lock && stale ) ) {
       FD_LOG_NOTICE(( "adding %lu to prune. root %lu", fork->slot, slot ));
       if( FD_LIKELY( !curr ) ) {
