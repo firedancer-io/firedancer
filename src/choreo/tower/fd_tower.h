@@ -337,16 +337,14 @@
 #include "../forks/fd_forks.h"
 #include "../ghost/fd_ghost.h"
 
-#define FD_TOWER_EQV_SAFE ( 0.52 )
-#define FD_TOWER_OPT_CONF ( 2.0 / 3.0 )
-#define FD_TOWER_VOTE_MAX ( 32UL )
-
 /* FD_TOWER_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
 
 #ifndef FD_TOWER_USE_HANDHOLDING
 #define FD_TOWER_USE_HANDHOLDING 1
 #endif
+
+#define FD_TOWER_VOTE_MAX (32UL)
 
 struct fd_tower_vote {
   ulong slot; /* vote slot */
@@ -375,6 +373,8 @@ typedef struct fd_tower_vote_acc fd_tower_vote_acc_t;
 
 /* clang-format off */
 struct __attribute__((aligned(128UL))) fd_tower {
+
+  /* Owned memory */
 
   /* The votes currently in the tower, ordered from latest to earliest
      vote slot (lowest to highest confirmation count). */
@@ -569,9 +569,8 @@ fd_tower_lockout_check( fd_tower_t const * tower,
    return switch stake >= FD_TOWER_SWITCH_PCT
    ```
 
-
    The switch check is used to safeguard optimistic confirmation.
-   Invariant: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
+   Specifically: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
 
 int
 fd_tower_switch_check( fd_tower_t const * tower, fd_fork_t const * fork, fd_ghost_t const * ghost );
@@ -629,9 +628,9 @@ fd_tower_best_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost
 fd_fork_t const *
 fd_tower_reset_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost_t const * ghost );
 
-/* fd_tower_vote_fork picks which frontier fork to vote on. Returns NULL
-   if we cannot vote because we are locked out, do not meet switch
-   threshold, or fail the threshold check.
+/* fd_tower_vote_fork picks which fork in the frontier in `forks` to
+   vote on.  Returns NULL if we cannot vote because we are locked out,
+   do not meet switch threshold, or fail the threshold check.
 
    Modifies the tower to record the vote slot of the fork we select. */
 
@@ -655,18 +654,11 @@ fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx
    fork->slot, not before. */
 
 void
-fd_tower_fork_update( fd_tower_t const * tower,
-                      fd_fork_t const *  fork,
-                      fd_acc_mgr_t *     acc_mgr,
-                      fd_blockstore_t *  blockstore,
-                      fd_ghost_t *       ghost );
-
-/* fd_tower_simulate_vote simulates a vote on the vote tower for slot,
-   returning the new height (cnt) for all the votes that would have been
-   popped. */
-
-ulong
-fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot );
+fd_tower_fork_update( fd_tower_t const *      tower,
+                      fd_blockstore_t *       blockstore,
+                      fd_ghost_t *            ghost,
+                      fd_funk_t *             funk,
+                      fd_funk_txn_t const *   txn );
 
 /* fd_tower_vote votes for slot.  Assumes caller has already performed
    all the tower checks to ensure this is a valid vote. */
@@ -686,8 +678,14 @@ fd_tower_is_max_lockout( fd_tower_t const * tower ) {
 }
 
 /* fd_tower_publish publishes the tower.  Returns the new root.  Assumes
-   caller has already checked that tower has reached max lockout (see
-   fd_tower_is_max_lockout). */
+   caller has already checked that tower is at max lockout (see
+   fd_tower_is_max_lockout).
+
+   smr is a non-NULL pointer to an fseq that always contains the highest
+   observed smr.
+
+   IMPORTANT! Caller should not read or modify this value outside the
+   fseq API. */
 
 static inline ulong
 fd_tower_publish( fd_tower_t * tower ) {
@@ -696,7 +694,7 @@ fd_tower_publish( fd_tower_t * tower ) {
 #endif
 
   ulong root = fd_tower_votes_pop_head( tower->votes ).slot;
-  FD_LOG_NOTICE( ( "[%s] root %lu", __func__, tower->root ) );
+  FD_LOG_DEBUG( ( "[%s] root %lu", __func__, tower->root ) );
   tower->root = root;
   return root;
 }
@@ -746,6 +744,9 @@ fd_tower_print( fd_tower_t const * tower );
 
 int
 fd_tower_vote_state_cmp( fd_tower_t const * tower, fd_vote_state_t * vote_state );
+
+fd_tower_t *
+fd_tower_funk_query( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t const * vote_acc_key );
 
 /* fd_tower_vote_state_query queries for vote_acc_addr's vote state
    which is effectively the cluster view of the tower as of fork->slot.
