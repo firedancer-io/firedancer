@@ -420,7 +420,6 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   }
   txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
 
-  uchar accounts_found[txn_ctx->accounts_cnt];
   for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_borrowed_account_t * acct = &txn_ctx->borrowed_accounts[i];
 
@@ -429,7 +428,6 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     uchar is_writable            = !!( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L417 */
-    accounts_found[i] = 1;
 
     int   err      = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
     ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
@@ -440,8 +438,8 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* First case: checking if the account is the instructions sysvar
        https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L422-L429 */
     if( FD_UNLIKELY( !memcmp( acct->pubkey->key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      acct->account_found = 1;
       fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr_infos, txn_ctx->txn_descriptor->instr_cnt );
-      
       /* Continue because this should not be counted towards the total loaded account size.
          https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L426 */
       continue;
@@ -462,18 +460,17 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_borrowed_account_make_readonly_copy( acct, borrowed_account_data );
       fd_account_meta_t * meta = (fd_account_meta_t *)acct->const_meta;
       meta->info.executable = 1;
+      acct->account_found = 1;
     }
     /* Third case: Default case 
        https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L452-L494 */
     else {
       /* If the account exists and is writable, collect rent from it. */
-      if( FD_LIKELY( fd_acc_exists( acct->const_meta ) ) ) {
+      if( FD_LIKELY( acct->account_found ) ) {
         if( is_writable ) {
           txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
           acct->starting_lamports = acct->meta->info.lamports;
         }
-      } else {
-        accounts_found[i] = 0;
       }
     }
 
@@ -508,7 +505,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L311-L314 */
-    if( FD_UNLIKELY( !accounts_found[instr->program_id] ) ) {
+    if( FD_UNLIKELY( !program_account->account_found ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
@@ -1307,6 +1304,9 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
     uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     memcpy( borrowed_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
+    if ( FD_UNLIKELY( is_unknown_account ) ) {
+      borrowed_account->account_found = 0;
+    }
 
     /* Create a borrowed account for all writable accounts and the fee payer
        account which is almost always writable, but doesn't have to be.
