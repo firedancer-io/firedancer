@@ -210,7 +210,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
       }
-      
+
       fd_blockstore_start_write( blockstore );
 
       /* Remove the previous block from the blockstore */
@@ -1217,7 +1217,7 @@ prune( fd_ledger_args_t * args ) {
                         fd_funk_val_sz( original_rec ) ) == 0 ));
     } else {
       fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
-      int res = fd_funk_rec_remove( pruned_funk, mod_rec, 1 );
+      int res = fd_funk_rec_remove( pruned_funk, mod_rec );
       FD_TEST(( res == 0 ));
     }
   }

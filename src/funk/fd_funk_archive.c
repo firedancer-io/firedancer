@@ -56,6 +56,7 @@ fd_funk_archive( fd_funk_t *  funk,
       ARCH_WRITE( rec->pair.key, sizeof(rec->pair.key) );
       ARCH_WRITE( &rec->part, sizeof(rec->part) );
       ARCH_WRITE( &rec->val_sz, sizeof(rec->val_sz) );
+      ARCH_WRITE( &rec->flags, sizeof(rec->flags) );
       if( rec->val_sz ) {
         ARCH_WRITE( fd_wksp_laddr_fast( wksp, rec->val_gaddr ), rec->val_sz );
       }
@@ -128,6 +129,7 @@ fd_funk_unarchive( fd_funk_t *  funk,
   fd_memset( &pair, 0, sizeof(pair) );
   uint part;
   uint val_sz;
+  ulong flags;
 
   for(;;) {
     ARCH_READ( &type, sizeof(type) );
@@ -138,6 +140,7 @@ fd_funk_unarchive( fd_funk_t *  funk,
       ARCH_READ( pair.key, sizeof(pair.key) );
       ARCH_READ( &part, sizeof(part) );
       ARCH_READ( &val_sz, sizeof(val_sz) );
+      ARCH_READ( &flags, sizeof(flags) );
 
       if( FD_UNLIKELY( fd_funk_rec_map_is_full( rec_map ) ) ) {
         FD_LOG_WARNING(( "archive %s has too many records to fit in given funk", filename ));
@@ -155,7 +158,7 @@ fd_funk_unarchive( fd_funk_t *  funk,
       rec->next_idx = FD_FUNK_REC_IDX_NULL;
       rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
       rec->tag      = 0U;
-      rec->flags    = 0UL;
+      rec->flags    = flags;
 
       int first_born = fd_funk_rec_idx_is_null( rec_prev_idx );
       if( first_born ) funk->rec_head_idx               = rec_idx;

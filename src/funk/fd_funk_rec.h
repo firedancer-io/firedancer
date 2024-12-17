@@ -418,46 +418,13 @@ fd_funk_rec_insert( fd_funk_t *               funk,
        Specifically, a record query of funk for rec's (xid,key) pair did
        not return rec.
 
-     FD_FUNK_ERR_XID - the record to remove is published but erase was
-       not specified.
-
-     FD_FUNK_ERR_FROZEN - rec is part of a transaction that is frozen.
-
-   All changes to the record in that transaction will be undone.
-
-   Further, if erase is zero, if and when the transaction is published
-   (assuming no subsequent insert of key into that transaction), no
-   changes will be made to the published record.  This type of remove
-   cannot be done on a published record.
-
-   However, if erase is non-zero, the record will cease to exist in that
-   transaction and any of transaction's subsequently created descendants
-   (again, assuming no subsequent insert of key).  This type of remove
-   can be done on a published record (assuming the last published
-   transaction is unfrozen).
+   The record will cease to exist in that transaction and any of
+   transaction's subsequently created descendants (again, assuming no
+   subsequent insert of key).  This type of remove can be done on a
+   published record (assuming the last published transaction is
+   unfrozen).
 
    Any information in an erased record is lost.
-
-   Detailed record erasure handling:
-
-     rec's  | erase | rec's     | rec's | return     | info
-     txn    | req   | txn       | erase |            |
-     frozen |       | published |       |            |
-     -------+-------+-----------+-------+------------+-----
-     no     | no    | no        | clear | SUCCESS    | discards updates to a record, rec dead on return
-     no     | no    | no        | set   | SUCCESS    | discards erase of most recent ancestor, rec dead on return
-     no     | no    | yes       | clear | ERR_XID    | can't revert published record to an older version, rec live on return
-     no     | no    | yes       | set   | *LOG_CRIT* | detected corruption, repurpose to allow for unerasable recs?
-     no     | yes   | no        | clear | SUCCESS    | erase the most recent ancestor version of rec, if no such ancestor version,
-            |       |           |       |            | rec dead on return, otherwise, rec live on return and rec's erase will be
-            |       |           |       |            | set, O(ancestor_hops_to_last_publish) worst case
-     no     | yes   | no        | set   | SUCCESS    | no-op, previously marked erase, rec live on return
-     no     | yes   | yes       | clear | SUCCESS    | erases published record, rec dead on return
-     no     | yes   | yes       | set   | *LOG_CRIT* | detected corruption, repurpose to allow for unerasable recs?
-     yes    | -     | -         | -     | ERR_FROZEN | can't remove rec because rec's txn is frozen, rec live on return
-
-   On ERR_INVAL and ERR_KEY, rec didn't seem to point to a live record
-   on entry with and still doesn't on return.
 
    Assumes funk is a current local join (NULL returns ERR_INVAL) and rec
    points to a record in the caller's address space (NULL returns
@@ -465,8 +432,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
    the call if live, the user doesn't need to, for example, match
    inserts with removes.
 
-   This is a reasonably fast O(1) except in the case noted above and
-   fortified against memory corruption.
+   This is a reasonably fast O(1) and fortified against memory corruption.
 
    IMPORTANT SAFETY TIP!  DO NOT CAST AWAY CONST FROM A FD_FUNK_REC_T TO
    USE THIS FUNCTION (E.G. PASS A RESULT DIRECTLY FROM QUERY).  USE A
@@ -474,8 +440,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 
 int
 fd_funk_rec_remove( fd_funk_t *     funk,
-                    fd_funk_rec_t * rec,
-                    int             erase );
+                    fd_funk_rec_t * rec );
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:

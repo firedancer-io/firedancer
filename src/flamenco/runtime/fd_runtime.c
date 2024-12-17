@@ -3694,7 +3694,7 @@ fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_rec_t const * rec = fd_funk_rec_query( funk, slot_ctx->funk_txn, &id );
   if( rec )
-    fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, rec ), 1 );
+    fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, rec ));
 }
 
 void
