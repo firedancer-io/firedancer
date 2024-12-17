@@ -525,7 +525,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec), 1);
+    fd_funk_rec_remove(funk, fd_funk_rec_modify(funk, task_info->rec));
   }
 
   // Sanity-check LT Hash

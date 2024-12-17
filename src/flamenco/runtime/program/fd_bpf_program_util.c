@@ -53,7 +53,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   return id;
 }
 
-/* Similar to the below function, but gets the executable program content for the v4 loader. 
+/* Similar to the below function, but gets the executable program content for the v4 loader.
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
    NOT be retracted to be added to the cache. */
 static int
@@ -62,7 +62,7 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_borrowed_account_t * pro
                                                      ulong                 * program_data_len ) {
   int err;
   fd_loader_v4_state_t state = {0};
-  
+
   /* Get the current loader v4 state. This implicitly also checks the dlen. */
   err = fd_loader_v4_get_state( program_acc, &state );
   if( FD_UNLIKELY( err ) ) {
@@ -73,7 +73,7 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_borrowed_account_t * pro
   if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state ) ) ) {
     return -1;
   }
-  
+
   *program_data     = program_acc->const_data + LOADER_V4_PROGRAM_DATA_OFFSET;
   *program_data_len = program_acc->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET;
   return 0;
@@ -224,7 +224,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_remove( funk, rec, 0 );
+      fd_funk_rec_remove( funk, rec );
       return -1;
     }
 
@@ -267,7 +267,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_remove( funk, rec, 0 );
+      fd_funk_rec_remove( funk, rec );
       return -1;
     }
 

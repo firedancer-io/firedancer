@@ -543,142 +543,62 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
     fd_funk_rec_t * dst_rec = fd_funk_rec_map_query( rec_map, dst_pair, NULL );
 
-    if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
+    /* At this point, we are either creating a new record or updating
+       an existing one.  In either case, we are going to be keeping
+       around the src's value for later use and for speed, we do this
+       zero-copy / in-place.  So we stash record value in stack
+       temporaries and unmap (xid,key).  Note this strictly frees 1
+       record from the rec_map, guaranteeing at least 1 record free in
+       the record map below.  Note that we can't just reuse rec_idx in
+       the update case because that could break map queries. */
 
-      /* Remove from partition */
-      fd_funk_part_set_intern( partvec, rec_map, &rec_map[rec_idx], FD_FUNK_PART_NULL );
+    ulong val_sz    = (ulong)rec_map[ rec_idx ].val_sz;
+    ulong val_max   = (ulong)rec_map[ rec_idx ].val_max;
+    ulong val_gaddr = rec_map[ rec_idx ].val_gaddr;
+    int val_no_free = rec_map[ rec_idx ].val_no_free;
+    uint part       = rec_map[ rec_idx ].part;
+    int erase       = rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE;
 
-      if( FD_UNLIKELY( !dst_rec ) ) {
+    fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
+    fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
-        /* Note that we only set the erase flag if there is was ancestor
-           to this transaction with the key in it.  So if are merging
-           into the last published transaction and we didn't find a
-           record there, we have a memory corruption problem. */
+    if( FD_UNLIKELY( !dst_rec ) ) { /* Create a published key */
 
-        if( FD_UNLIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
-          FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
-        }
+      dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
 
-        /* Otherwise, txn is an erase of this record from one of
-           dst's ancestors.  So we move the erase from (src_xid,key) and
-           to (dst_xid,key).  We need to do this by a map remove / map
-           insert to keep map queries working correctly.  Note that
-           value metadata was flushed when erase was first set on
-           (src_xid,key). */
+      ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
+      ulong dst_prev_idx = *_dst_rec_tail_idx;
 
-        fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+      dst_rec->prev_idx         = dst_prev_idx;
+      dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
+      dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
+      dst_rec->tag              = 0U;
 
-        if( !fd_funk_txn_xid_eq_root( dst_xid ) ) {
-          dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
+      fd_funk_part_init( dst_rec );
 
-          ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
+      if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
+      else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
 
-          ulong dst_prev_idx = *_dst_rec_tail_idx;
+      *_dst_rec_tail_idx = dst_rec_idx;
 
-          dst_rec->prev_idx         = dst_prev_idx;
-          dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
-          dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
-          dst_rec->tag              = 0U;
+    } else { /* Update a published key */
 
-          if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
-          else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
+      fd_funk_val_flush( dst_rec, alloc, wksp ); /* Free up any preexisting value resources */
+      fd_funk_part_set_intern( partvec, rec_map, dst_rec, FD_FUNK_PART_NULL );
 
-          *_dst_rec_tail_idx = dst_rec_idx;
-
-          fd_funk_val_init( dst_rec );
-          fd_funk_part_init( dst_rec );
-          dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
-        }
-
-      } else {
-
-        /* The erase in rec_idx erases this transaction.  Unmap
-           (src_xid,key) (note that value was flushed when erase was
-           first set), flush dst xid's value, remove dst it from the dst
-           sequence and unmap (dst_xid,key) */
-
-        fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
-
-        fd_funk_val_flush( dst_rec, alloc, wksp );
-        fd_funk_part_set_intern( partvec, rec_map, dst_rec, FD_FUNK_PART_NULL );
-
-        if( fd_funk_txn_xid_eq_root( dst_xid ) ) {
-          ulong prev_idx = dst_rec->prev_idx;
-          ulong next_idx = dst_rec->next_idx;
-
-          if( FD_UNLIKELY( fd_funk_rec_idx_is_null( prev_idx ) ) ) *_dst_rec_head_idx           = next_idx;
-          else                                                     rec_map[ prev_idx ].next_idx = next_idx;
-
-          if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) *_dst_rec_tail_idx           = prev_idx;
-          else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
-
-          fd_funk_rec_map_remove( rec_map, dst_pair );
-
-        } else {
-          /* Leave a new erase record */
-          fd_funk_val_init( dst_rec );
-          fd_funk_part_init( dst_rec );
-          dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
-        }
-      }
-
-    } else {
-
-      /* At this point, we are either creating a new record or updating
-         an existing one.  In either case, we are going to be keeping
-         around the src's value for later use and for speed, we do this
-         zero-copy / in-place.  So we stash record value in stack
-         temporaries and unmap (xid,key).  Note this strictly frees 1
-         record from the rec_map, guaranteeing at least 1 record free in
-         the record map below.  Note that we can't just reuse rec_idx in
-         the update case because that could break map queries. */
-
-      ulong val_sz    = (ulong)rec_map[ rec_idx ].val_sz;
-      ulong val_max   = (ulong)rec_map[ rec_idx ].val_max;
-      ulong val_gaddr = rec_map[ rec_idx ].val_gaddr;
-      int val_no_free = rec_map[ rec_idx ].val_no_free;
-      uint part       = rec_map[ rec_idx ].part;
-
-      fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
-      fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
-
-      if( FD_UNLIKELY( !dst_rec ) ) { /* Create a published key */
-
-        dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
-
-        ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
-        ulong dst_prev_idx = *_dst_rec_tail_idx;
-
-        dst_rec->prev_idx         = dst_prev_idx;
-        dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
-        dst_rec->tag              = 0U;
-
-        fd_funk_part_init( dst_rec );
-
-        if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
-        else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
-
-        *_dst_rec_tail_idx = dst_rec_idx;
-
-      } else { /* Update a published key */
-
-        fd_funk_val_flush( dst_rec, alloc, wksp ); /* Free up any preexisting value resources */
-
-      }
-
-      /* Unstash value metadata from stack temporaries into dst_rec */
-
-      dst_rec->val_sz    = (uint)val_sz;
-      dst_rec->val_max   = (uint)val_max;
-      dst_rec->val_gaddr = val_gaddr;
-      dst_rec->val_no_free = val_no_free;
-      dst_rec->flags    &= ~FD_FUNK_REC_FLAG_ERASE;
-
-      /* Use the new partition */
-
-      fd_funk_part_set_intern( partvec, rec_map, dst_rec, part );
     }
+
+    /* Unstash value metadata from stack temporaries into dst_rec */
+
+    dst_rec->val_sz    = (uint)val_sz;
+    dst_rec->val_max   = (uint)val_max;
+    dst_rec->val_gaddr = val_gaddr;
+    dst_rec->val_no_free = val_no_free;
+    dst_rec->flags     = ( erase ? FD_FUNK_REC_FLAG_ERASE : 0 );
+
+    /* Use the new partition */
+
+    fd_funk_part_set_intern( partvec, rec_map, dst_rec, part );
 
     /* Advance to the next record */
 
