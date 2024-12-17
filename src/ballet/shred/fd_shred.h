@@ -235,9 +235,9 @@ struct __attribute__((packed)) fd_shred {
     } code;
   };
 };
-typedef struct fd_shred fd_shred_t;
 typedef struct fd_shred_data fd_shred_data_t;
 typedef struct fd_shred_code fd_shred_code_t;
+typedef struct fd_shred fd_shred_t;
 
 FD_PROTOTYPES_BEGIN
 

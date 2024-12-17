@@ -196,7 +196,7 @@ struct fd_replay_tile_ctx {
   fd_forks_t *          forks;
   fd_ghost_t *          ghost;
   fd_tower_t *          tower;
-  fd_voter_t *          voter;
+  fd_voter_t            voter[1];
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
   /* Tpool */
@@ -288,7 +288,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_voter_align(), fd_voter_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
@@ -1105,7 +1104,14 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       /* Consensus */
 
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
-      fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
+      fd_ghost_node_t const * ghost_node = fd_ghost_insert( ctx->ghost, curr_slot, parent_slot );
+      #if FD_GHOST_USE_HANDHOLDING
+        if( FD_UNLIKELY( !ghost_node ) ) {
+          FD_LOG_ERR(( "failed to insert ghost node %lu", fork->slot ));
+        }
+      #endif
+      // fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
+      fd_tower_fork_update( ctx->tower, ctx->blockstore, ctx->ghost, ctx->funk, fork->slot_ctx.funk_txn );
 
       /* Check which fork to reset to for pack. */
 
@@ -1165,6 +1171,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       fd_forks_print( ctx->forks );
       fd_ghost_print( ctx->ghost );
       fd_tower_print( ctx->tower );
+
       fd_fork_t const * vote_fork = fd_tower_vote_fork( ctx->tower,
                                                         ctx->forks,
                                                         ctx->acc_mgr,
@@ -1456,12 +1463,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_fork_t * snapshot_fork = fd_forks_init( ctx->forks, ctx->slot_ctx );
   FD_TEST( snapshot_fork );
-  fd_tower_init( ctx->tower,
-                 &ctx->voter->vote_acc_addr,
-                 ctx->acc_mgr,
-                 ctx->epoch_ctx,
-                 snapshot_fork,
-                 ctx->smr );
+  fd_tower_init( ctx->tower, &ctx->voter->addr, ctx->funk, snapshot_fork->slot_ctx.funk_txn, ctx->smr );
+  fd_tower_epoch_update( ctx->tower, ctx->epoch_ctx );
   fd_ghost_init( ctx->ghost, snapshot_slot, ctx->tower->total_stake );
   fd_tower_print( ctx->tower );
 
@@ -1718,7 +1721,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  void * voter_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_voter_align(), fd_voter_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
@@ -1908,8 +1910,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* voter                                                              */
   /**********************************************************************/
 
-  ctx->voter = fd_voter_join( fd_voter_new( voter_mem ) );
-  memcpy( &ctx->voter->vote_acc_addr.uc,
+  memcpy( &ctx->voter->addr.uc,
           fd_keyload_load( tile->replay.vote_account_path, 1 ),
           sizeof( fd_pubkey_t ) );
   memcpy( &ctx->voter->validator_identity.uc,

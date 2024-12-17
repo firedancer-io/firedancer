@@ -1,4 +1,5 @@
 #include "fd_tower.h"
+#include "../voter/fd_voter.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
 #define THRESHOLD_DEPTH         ( 8 )
@@ -66,41 +67,8 @@ print( fd_tower_vote_t * tower_votes, ulong root ) {
   printf( "\n" );
 }
 
-static inline ulong
-simulate_vote( fd_tower_vote_t const * votes, ulong slot ) {
-  ulong cnt = fd_tower_votes_cnt( votes );
-  while( cnt ) {
+/* Constructors */
 
-    /* Return early if we can't pop the top tower vote, even if votes
-       below it are expired. */
-
-    if( FD_LIKELY( lockout_expiration_slot( fd_tower_votes_peek_index_const( votes, cnt - 1 ) ) >=
-                   slot ) ) {
-      break;
-    }
-    cnt--;
-  }
-  return cnt;
-}
-
-static void
-tower_votes_from_landed_votes( fd_tower_vote_t *        tower_votes,
-                               fd_landed_vote_t const * landed_votes ) {
-  for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( landed_votes );
-       !deq_fd_landed_vote_t_iter_done( landed_votes, iter );
-       iter = deq_fd_landed_vote_t_iter_next( landed_votes, iter ) ) {
-    fd_landed_vote_t const * landed_vote = deq_fd_landed_vote_t_iter_ele_const( landed_votes,
-                                                                                iter );
-    fd_tower_votes_push_tail( tower_votes,
-                              ( fd_tower_vote_t ){
-                                  .slot = landed_vote->lockout.slot,
-                                  .conf = landed_vote->lockout.confirmation_count } );
-  }
-}
-
-/* Public API */
-
-/* clang-format off */
 void *
 fd_tower_new( void * shmem ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -122,6 +90,7 @@ fd_tower_new( void * shmem ) {
   fd_memset( shmem, 0, footprint );
   ulong        laddr = (ulong)shmem;
   fd_tower_t * tower = (void *)laddr;
+  tower->root        = FD_SLOT_NULL;
   laddr             += sizeof( fd_tower_t );
 
   laddr        = fd_ulong_align_up( laddr, fd_tower_votes_align() );
@@ -134,9 +103,7 @@ fd_tower_new( void * shmem ) {
 
   return shmem;
 }
-/* clang-format on */
 
-/* clang-format off */
 fd_tower_t *
 fd_tower_join( void * shtower ) {
 
@@ -164,7 +131,6 @@ fd_tower_join( void * shtower ) {
 
   return (fd_tower_t *)shtower;
 }
-/* clang-format on */
 
 void *
 fd_tower_leave( fd_tower_t const * tower ) {
@@ -194,12 +160,11 @@ fd_tower_delete( void * tower ) {
 }
 
 void
-fd_tower_init( fd_tower_t *                tower,
-               fd_pubkey_t const *         vote_acc_addr,
-               fd_acc_mgr_t *              acc_mgr,
-               fd_exec_epoch_ctx_t const * epoch_ctx,
-               fd_fork_t const *           fork,
-               ulong *                     smr ) {
+fd_tower_init( fd_tower_t *          tower,
+               fd_pubkey_t const *   vote_acc_addr,
+               fd_funk_t *           funk,
+               fd_funk_txn_t const * txn,
+               ulong *               smr ) {
 
   if( FD_UNLIKELY( !tower ) ) {
     FD_LOG_WARNING(( "NULL tower" ));
@@ -208,33 +173,40 @@ fd_tower_init( fd_tower_t *                tower,
 
   /* Restore our tower using the vote account state. */
 
-  FD_SCRATCH_SCOPE_BEGIN {
-    fd_vote_state_versioned_t vote_state_versioned = { 0 };
-
-    fd_vote_state_t * vote_state = fd_tower_vote_state_query( tower,
-                                                              vote_acc_addr,
-                                                              acc_mgr,
-                                                              fork,
-                                                              fd_scratch_virtual(),
-                                                              &vote_state_versioned );
-    if( FD_LIKELY( vote_state ) ) {
-      fd_tower_from_vote_state( tower, vote_state );
-      FD_LOG_NOTICE(( "[%s] loading vote state for vote acc: %s", __func__, FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ) ));
-    } else {
-      FD_LOG_WARNING(( "[%s] didn't find existing vote state for vote acc: %s",
-                       __func__,
-                       FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ) ));
-    }
+  fd_funk_rec_key_t key = { 0 };
+  fd_memcpy( key.c, vote_acc_addr, sizeof( fd_pubkey_t ) );
+  key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+  fd_voter_state_t const * state = fd_voter_state( funk, txn, &key );
+  if ( FD_UNLIKELY( !state ) ) {
+    FD_LOG_WARNING(( "[%s] didn't find existing vote state for vote acc: %s",
+                      __func__,
+                      FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ) ));
   }
-  FD_SCRATCH_SCOPE_END;
+  fd_voter_state_tower( state, tower );
 
-  /* Init vote_accs and total_stake. */
-
-  fd_tower_epoch_update( tower, epoch_ctx );
-
-  /* Init the smr. */
+  /* Set the SMR pointer. */
 
   tower->smr = smr;
+}
+
+/* simulate_vote simulates a vote on the vote tower for slot,
+   returning the new height (cnt) for all the votes that would have been
+   popped. */
+
+static inline ulong
+simulate_vote( fd_tower_vote_t const * votes, ulong slot ) {
+  ulong cnt = fd_tower_votes_cnt( votes );
+  while( cnt ) {
+
+    /* Return early if we can't pop the top tower vote, even if votes
+       below it are expired. */
+
+    if( FD_LIKELY( lockout_expiration_slot( fd_tower_votes_peek_index_const( votes, cnt - 1 ) ) >= slot ) ) {
+      break;
+    }
+    cnt--;
+  }
+  return cnt;
 }
 
 int
@@ -286,10 +258,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
     return 1;
   }
 
-  /* Assumption: fd_tower_switch_check is only called if
-     latest_vote->slot and fork->slot are on different forks (determined
-     by is_descendant), so they must not fall on the same ancestry path
-     back to the gca.
+  /* fd_tower_switch_check is only called if latest_vote->slot and
+     fork->slot are on different forks (determined by is_descendant), so
+     they must not fall on the same ancestry path back to the gca.
 
      INVALID:
 
@@ -308,6 +279,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
      a   b
 
   */
+
+  FD_TEST( !fd_ghost_is_descendant( ghost, latest_vote->slot, fork->slot ) );
+
   fd_ghost_node_t * node_pool = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * gca = fd_ghost_gca( ghost, latest_vote->slot, fork->slot );
   ulong gca_idx = fd_ghost_node_map_idx_query( fd_ghost_node_map( ghost ), &gca->slot, ULONG_MAX, fd_ghost_node_pool( ghost ) );
@@ -341,8 +315,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
 
 int
 fd_tower_threshold_check( fd_tower_t const * tower,
-                          fd_fork_t const *  fork,
-                          fd_acc_mgr_t *     acc_mgr ) {
+                          fd_fork_t const * fork,
+                          fd_funk_t * funk,
+                          fd_funk_txn_t const * txn ) {
 
   /* First, simulate a vote, popping off everything that would be
      expired by voting for the current slot. */
@@ -372,63 +347,54 @@ fd_tower_threshold_check( fd_tower_t const * tower,
        iter = fd_tower_vote_accs_iter_next( tower->vote_accs, iter ) ) {
 
     fd_tower_vote_acc_t * vote_acc = fd_tower_vote_accs_iter_ele( tower->vote_accs, iter );
+    fd_funk_rec_key_t key = { 0 };
+    fd_memcpy( key.c, vote_acc->addr, sizeof( fd_pubkey_t ) );
+    key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+    fd_voter_state_t const * state = fd_voter_state( funk, txn, &key );
+    if( FD_UNLIKELY( !state ) ) {
+      FD_LOG_WARNING(( "[%s] failed to load vote acc addr %s. skipping.",
+                        __func__,
+                        FD_BASE58_ENC_32_ALLOCA( vote_acc->addr ) ));
+      continue;
+    }
+
+    ulong vote = fd_voter_state_vote( state );
+
+    /* If this voter has not voted, continue. */
+
+    if( FD_UNLIKELY( vote == FD_SLOT_NULL ) ) continue;
+
+    /* Convert the landed_votes into tower's vote_slots interface. */
 
     FD_SCRATCH_SCOPE_BEGIN {
-
-      /* FIXME */
-      fd_vote_state_versioned_t vote_state_versioned = { 0 };
-
-      fd_vote_state_t * vote_state = fd_tower_vote_state_query( tower,
-                                                                vote_acc->addr,
-                                                                acc_mgr,
-                                                                fork,
-                                                                fd_scratch_virtual(),
-                                                                &vote_state_versioned );
-      if( FD_UNLIKELY( !vote_state ) ) {
-        FD_LOG_WARNING(( "[%s] failed to load vote acc addr %s. skipping.",
-                         __func__,
-                         FD_BASE58_ENC_32_ALLOCA( vote_acc->addr ) ));
-        continue;
-      }
-
-      fd_landed_vote_t * landed_votes = vote_state->votes;
-
-      /* If the vote account has an empty tower, continue. */
-
-      if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) continue;
-
-      /* Convert the landed_votes into tower's vote_slots interface. */
-
-      void * mem = fd_scratch_alloc( fd_tower_votes_align(), fd_tower_votes_footprint() );
-      fd_tower_vote_t * their_tower_votes = fd_tower_votes_join( fd_tower_votes_new( mem ) );
-      tower_votes_from_landed_votes( their_tower_votes, landed_votes );
-
-      ulong cnt = simulate_vote( their_tower_votes, fork->slot );
+      void * mem = fd_scratch_alloc( fd_tower_align(), fd_tower_footprint() );
+      fd_tower_t * their_tower = fd_tower_join( fd_tower_new( mem ) );
+      fd_voter_state_tower( state, their_tower );
+      ulong cnt = simulate_vote( their_tower->votes, fork->slot );
 
       /* Continue if their tower is empty after simulating. */
 
       if( FD_UNLIKELY( !cnt ) ) continue;
 
-      /* Get their latest vote slot.*/
+      /* Get their latest vote slot. */
 
-      fd_tower_vote_t const * vote_slot = fd_tower_votes_peek_index( their_tower_votes, cnt - 1 );
+      fd_tower_vote_t const * vote_slot = fd_tower_votes_peek_index( their_tower->votes, cnt - 1 );
 
       /* Count their stake towards the threshold check if their latest
-         vote slot >= our threshold slot.
+        vote slot >= our threshold slot.
 
-         Because we are iterating vote accounts on the same fork that we
-         we want to vote for, we know these slots must all occur along
-         the same fork ancestry.
+        Because we are iterating vote accounts on the same fork that we
+        we want to vote for, we know these slots must all occur along
+        the same fork ancestry.
 
-         Therefore, if their latest vote slot >= our threshold slot, we
-         know that vote must be for the threshold slot itself or one of
-         threshold slot's descendants. */
+        Therefore, if their latest vote slot >= our threshold slot, we
+        know that vote must be for the threshold slot itself or one of
+        threshold slot's descendants. */
 
       if( FD_LIKELY( vote_slot->slot >= threshold_slot ) ) {
         threshold_stake += vote_acc->stake;
       }
-    }
-    FD_SCRATCH_SCOPE_END;
+    } FD_SCRATCH_SCOPE_END;
   }
 
   double threshold_pct = (double)threshold_stake / (double)tower->total_stake;
@@ -517,8 +483,7 @@ fd_tower_reset_fork( fd_tower_t const * tower,
     fd_fork_t const * fork = fd_fork_frontier_iter_ele_const( iter, frontier, pool );
     ulong slot = fd_ulong_if( fork->lock, fork->slot_ctx.slot_bank.prev_slot, fork->slot );
 
-    FD_LOG_WARNING(( "\n\n[%s] unable to find altest vote slot in frontier!\nfork lock? %d\nfork slot %lu\nfork prev slot %lu\nlatest vote slot %lu\n"
-                    "descendant slot %lu\ndescends? %d",
+    FD_LOG_WARNING(( "\n\n[%s] unable to find altest vote slot in frontier!\nfork lock? %d\nfork slot %lu\nfork prev slot %lu\nlatest vote slot %lu\n descendant slot %lu\ndescends? %d",
                     __func__,
                     fork->lock,
                     fork->slot,
@@ -574,7 +539,7 @@ fd_tower_vote_fork( fd_tower_t *       tower,
     /* The best fork is on the same fork and we can vote for
        best_fork->slot if we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, best, acc_mgr ) ) ) {
+    if( FD_LIKELY( fd_tower_threshold_check( tower, best, acc_mgr->funk, best->slot_ctx.funk_txn ) ) ) {
       FD_LOG_NOTICE(( "[fd_tower_vote_fork_select] success (threshold). best: %lu. vote: "
                       "(slot: %lu conf: %lu)",
                       best->slot,
@@ -682,151 +647,106 @@ fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx
 }
 
 void
-fd_tower_fork_update( fd_tower_t const * tower,
-                      fd_fork_t const *  fork,
-                      fd_acc_mgr_t *     acc_mgr,
-                      fd_blockstore_t *  blockstore,
-                      fd_ghost_t *       ghost ) {
-
-  /* Get the parent key. Every slot except the root must have a parent. */
-
-  fd_blockstore_start_read( blockstore );
-  ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, fork->slot );
-#if FD_TOWER_USE_HANDHOLDING
-  /* we must have a parent slot and bank hash, given we just executed
-     its child. if not, likely a bug in blockstore pruning. */
-  if( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) {
-    FD_LOG_ERR(( "missing parent slot for curr slot %lu", fork->slot ));
-  };
-#endif
-  fd_blockstore_end_read( blockstore );
-
-  /* Insert the new fork head into ghost. */
-
-  fd_ghost_node_t * ghost_node = fd_ghost_insert( ghost, fork->slot, parent_slot );
-  fd_ghost_node_t const * root = fd_ghost_root_node( ghost );
-
-#if FD_TOWER_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ghost_node ) ) {
-    FD_LOG_ERR(( "failed to insert ghost node %lu", fork->slot ));
-  }
-#endif
+fd_tower_fork_update( fd_tower_t const *      tower,
+                      fd_blockstore_t *       blockstore,
+                      fd_ghost_t *            ghost,
+                      fd_funk_t *             funk,
+                      fd_funk_txn_t const *   txn ) {
+  
   for( fd_tower_vote_accs_iter_t iter = fd_tower_vote_accs_iter_init_rev( tower->vote_accs );
        !fd_tower_vote_accs_iter_done_rev( tower->vote_accs, iter );
        iter = fd_tower_vote_accs_iter_prev( tower->vote_accs, iter ) ) {
 
     fd_tower_vote_acc_t * vote_acc = fd_tower_vote_accs_iter_ele( tower->vote_accs, iter );
 
-    FD_SCRATCH_SCOPE_BEGIN {
+    /* TODO we can optimize this funk query to only check through the
+       last slot on this fork this function was called on. currently 
+       rec_query_global traverses all the way back to the root. */
 
-      /* FIXME */
-      fd_vote_state_versioned_t vote_state_versioned = { 0 };
+    fd_funk_rec_key_t key = { 0 };
+    fd_memcpy( key.c, vote_acc->addr, sizeof( fd_pubkey_t ) );
+    key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
-      fd_vote_state_t * vote_state = fd_tower_vote_state_query( tower,
-                                                                vote_acc->addr,
-                                                                acc_mgr,
-                                                                fork,
-                                                                fd_scratch_virtual(),
-                                                                &vote_state_versioned );
-      if( FD_UNLIKELY( !vote_state ) ) {
-        FD_LOG_WARNING(( "[%s] failed to load vote acc addr %s. skipping.",
-                         __func__,
-                         FD_BASE58_ENC_32_ALLOCA( vote_acc->addr ) ));
-        continue;
+    fd_voter_state_t const * state = fd_voter_state( funk, txn, &key );
+
+    ulong vote = fd_voter_state_vote( state );
+
+    /* Only process votes for slots >= root. Ghost requires vote slot
+        to already exist in the ghost tree. */
+
+    if( FD_UNLIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root_node( ghost )->slot ) ) {
+      FD_LOG_NOTICE(("voting for %lu", vote));
+      fd_ghost_node_t const * node = fd_ghost_replay_vote( ghost, vote, vote_acc->addr, vote_acc->stake );
+
+      /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
+
+      fd_blockstore_start_write( blockstore );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
+
+      int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+      if( FD_UNLIKELY( !eqvocsafe ) ) {
+        double pct = (double)node->stake / (double)ghost->total_stake;
+        if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
+          FD_LOG_NOTICE( ( "eqvocsafe %lu", block_map_entry->slot ) );
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+          blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+        }
       }
 
-      fd_landed_vote_t * landed_votes = vote_state->votes;
-
-      /* If the vote account has an empty tower, continue. */
-
-      if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) continue;
-
-      /* Get the vote account's latest vote. */
-
-      ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
-
-      if( FD_UNLIKELY( vote_slot < root->slot ) ) continue;
-
-      /* Only process votes for slots >= root. Ghost requires vote slot
-         to already exist in the ghost tree. */
-
-      if( FD_UNLIKELY( vote_slot >= root->slot ) ) {
-        fd_ghost_node_t const * node = fd_ghost_replay_vote( ghost, vote_slot, &vote_state->node_pubkey, vote_acc->stake );
-
-        /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
-
-        fd_blockstore_start_write( blockstore );
-        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote_slot );
-
-        int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-        if( FD_UNLIKELY( !eqvocsafe ) ) {
-          double pct = (double)node->stake / (double)ghost->total_stake;
-          if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-            FD_LOG_NOTICE( ( "equivocation safe %lu", block_map_entry->slot ) );
-            block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-            blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
-          }
+      int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+      if( FD_UNLIKELY( !confirmed ) ) {
+        double pct = (double)node->stake / (double)ghost->total_stake;
+        if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
+          FD_LOG_NOTICE( ( "confirming %lu", block_map_entry->slot ) );
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+          blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
         }
-
-        int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-        if( FD_UNLIKELY( !confirmed ) ) {
-          double pct = (double)node->stake / (double)ghost->total_stake;
-          if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
-            FD_LOG_NOTICE( ( "confirming %lu", block_map_entry->slot ) );
-            block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-            blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
-          }
-        }
-
-        fd_blockstore_end_write( blockstore );
       }
 
-      /* Check if this voter's root >= ghost root. We can't process
-         other voters' roots that precede the ghost root. */
-
-      if( FD_UNLIKELY( vote_state->root_slot >= root->slot ) ) {
-        fd_ghost_node_t const * node = fd_ghost_rooted_vote( ghost, vote_state->root_slot, &vote_state->node_pubkey, vote_acc->stake );
-
-        /* Check if it has crossed finalized threshold. */
-
-        fd_blockstore_start_write( blockstore );
-        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote_state->root_slot );
-        int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
-        if( FD_UNLIKELY( !finalized ) ) {
-          double pct = (double)node->rooted_stake / (double)ghost->total_stake;
-          if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
-            ulong smr = block_map_entry->slot;
-            FD_LOG_NOTICE(( "finalizing %lu", block_map_entry->slot ));
-            fd_block_map_t * ancestor = block_map_entry;
-            while( ancestor ) {
-              ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
-              ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
-            }
-#if FD_TOWER_USE_HANDHOLDING
-            if( FD_UNLIKELY( smr <= fd_fseq_query( tower->smr ) ) ) {
-              FD_LOG_ERR(( "invariant violation. newly observed SMR %lu <= existing fseq SMR %lu.",
-                           smr,
-                           fd_fseq_query( tower->smr ) ));
-            }
-#endif
-            fd_fseq_update( tower->smr, smr );
-          }
-        }
-        fd_blockstore_end_write( blockstore );
-      }
+      fd_blockstore_end_write( blockstore );
     }
-    FD_SCRATCH_SCOPE_END;
-  }
-}
 
-ulong
-fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot ) {
-  return simulate_vote( tower->votes, slot );
+    ulong root = fd_voter_state_root( state );
+
+    /* Check if this voter's root >= ghost root. We can't process
+        other voters' roots that precede the ghost root. */
+
+    if( FD_UNLIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root_node( ghost )->slot ) ) {
+      fd_ghost_node_t const * node = fd_ghost_rooted_vote( ghost, root, vote_acc->addr, vote_acc->stake );
+
+      /* Check if it has crossed finalized threshold. */
+
+      fd_blockstore_start_write( blockstore );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
+      int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+      if( FD_UNLIKELY( !finalized ) ) {
+        double pct = (double)node->rooted_stake / (double)ghost->total_stake;
+        if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
+          ulong smr = block_map_entry->slot;
+          FD_LOG_NOTICE(( "finalizing %lu", block_map_entry->slot ));
+          fd_block_map_t * ancestor = block_map_entry;
+          while( ancestor ) {
+            ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
+            ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+          }
+#if FD_TOWER_USE_HANDHOLDING
+          if( FD_UNLIKELY( smr <= fd_fseq_query( tower->smr ) ) ) {
+            FD_LOG_ERR(( "invariant violation. newly observed SMR %lu <= existing fseq SMR %lu.",
+                          smr,
+                          fd_fseq_query( tower->smr ) ));
+          }
+#endif
+          fd_fseq_update( tower->smr, smr );
+        }
+      }
+      fd_blockstore_end_write( blockstore );
+    }
+  }
 }
 
 void
 fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
-  FD_LOG_NOTICE(( "[fd_tower_vote] voting for slot %lu", slot ));
+  FD_LOG_DEBUG(( "[fd_tower_vote] voting for slot %lu", slot ));
 
   /* Check we're not voting for the exact same slot as our latest tower
      vote. This can happen when there are forks. */
@@ -857,12 +777,7 @@ fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
 
 #endif
 
-  /* First, simulate a vote for slot. We do this purely for
-     implementation convenience and code reuse.
-
-     As the name of this function indicates, we are not just
-     simulating and in fact voting for this fork by pushing this a new
-     vote onto the tower. */
+  /* Use simulate_vote to determine how many expired votes to pop. */
 
   ulong cnt = simulate_vote( tower->votes, slot );
 
@@ -872,7 +787,8 @@ fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
     fd_tower_votes_pop_tail( tower->votes );
   }
 
-  /* Increase confirmations (double lockouts) in consecutive votes. */
+  /* Increment confirmations (double lockouts) for consecutive
+     confirmations in prior votes. */
 
   ulong prev_conf = 0;
   for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower->votes );
@@ -888,6 +804,11 @@ fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
   /* Add the new vote to the tower. */
 
   fd_tower_votes_push_tail( tower->votes, ( fd_tower_vote_t ){ .slot = slot, .conf = 1 } );
+}
+
+ulong
+fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot ) {
+  return simulate_vote( tower->votes, slot );
 }
 
 void
@@ -919,118 +840,6 @@ fd_tower_vote_state_cmp( fd_tower_t const * tower, fd_vote_state_t * vote_state 
   ulong cluster = deq_fd_landed_vote_t_peek_tail_const( vote_state->votes )->lockout.slot;
   return fd_int_if( local == cluster, 0, fd_int_if( local > cluster, 1, -1 ) );
 }
-
-fd_vote_state_t *
-fd_tower_vote_state_query( FD_PARAM_UNUSED fd_tower_t const * tower,
-                           fd_pubkey_t const *                vote_acc_addr,
-                           fd_acc_mgr_t *                     acc_mgr,
-                           fd_fork_t const *                  fork,
-                           fd_valloc_t                        valloc,
-                           fd_vote_state_versioned_t *        versioned ) {
-  int rc;
-
-  FD_BORROWED_ACCOUNT_DECL( vote_acc );
-  rc = fd_acc_mgr_view( acc_mgr, fork->slot_ctx.funk_txn, vote_acc_addr, vote_acc );
-  if( FD_UNLIKELY( rc == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-    FD_LOG_WARNING(( "[%s] fd_acc_mgr_view could not find vote account %s. error: %d",
-                     __func__,
-                     FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ),
-                     rc ));
-    return NULL;
-  } else if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "[%s] fd_acc_mgr_view failed on vote account %s. error: %d",
-                 __func__,
-                 FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ),
-                 rc ));
-  }
-
-  rc = fd_vote_get_state( vote_acc, valloc, versioned );
-  if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "[%s] fd_vote_get_state failed on vote account %s. error: %d",
-                 __func__,
-                 FD_BASE58_ENC_32_ALLOCA( vote_acc_addr ),
-                 rc ));
-  }
-
-  fd_vote_convert_to_current( versioned, valloc );
-
-  return &versioned->inner.current;
-}
-
-void
-fd_tower_from_vote_state( fd_tower_t * tower, fd_vote_state_t * vote_state ) {
-#if FD_TOWER_USE_HANDHOLDING
-  if( FD_UNLIKELY( tower->root ) ) {
-    FD_LOG_WARNING(( "[%s] overwriting existing tower root %lu.", __func__, tower->root ));
-  }
-
-  if( FD_UNLIKELY( !fd_tower_votes_empty( tower->votes ) ) ) {
-    FD_LOG_WARNING(( "[%s] overwriting existing tower votes.", __func__ ));
-  }
-
-  if( FD_UNLIKELY( !vote_state->has_root_slot ) ) {
-    FD_LOG_WARNING(( "[%s] vote_state is missing root.", __func__ ));
-  }
-
-  if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( vote_state->votes ) ) ) {
-    FD_LOG_WARNING(( "[%s] vote_state is empty.", __func__ ));
-  }
-
-#endif
-
-  tower_votes_from_landed_votes( tower->votes, vote_state->votes );
-  tower->root = vote_state->root_slot;
-}
-
-// ulong i = fd_tower_votes_cnt( tower->votes );
-// while ( fd_tower_vote(const fd_tower_t *tower, ulong slot) )
-
-// /* If the local view of our tower is a strict subset or divergent from
-//    the cluster view, then we need to sync with the cluster ie. replace
-//    our local state with the cluster state. */
-
-// int   sync = 0;
-// ulong i    = 0;
-// for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
-//      !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
-//      iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
-//   fd_landed_vote_t const * landed_vote =
-//       deq_fd_landed_vote_t_iter_ele_const( vote_state->votes, iter );
-//   fd_tower_vote_t const * tower_vote = fd_tower_votes_peek_index_const( tower->votes, i++ );
-
-//   if( FD_UNLIKELY( !tower_vote ) ) {
-
-//     /* Local tower is shorter, need sync*/
-
-//     sync = 1;
-//   }
-
-//   if( FD_UNLIKELY( tower_vote->slot != landed_vote->lockout.slot ||
-//                    tower_vote->conf != landed_vote->lockout.confirmation_count ) ) {
-
-//     /* Local tower diverges, need sync */
-
-//     sync = 1;
-//   }
-// }
-
-// /* Note we don't sync if the local view of the tower is taller.
-//    Syncing can lead to a problem where we can otherwise get "stuck" in
-//    a cluster-sync loop when our votes don't land.  For example, if our
-//    tower is currently [1 3 5], and we vote [1 3 5 7].  That vote
-//    doesn't land, so we re-sync and as a result vote [1 3 5 9].
-//    Instead we would prefer [1 3 5 7 9] for the second vote. */
-
-// if( FD_UNLIKELY( sync ) ) {
-
-//   FD_LOG_WARNING(("syncing with cluster"));
-
-//   /* Sync local with cluster.  */
-
-//   fd_tower_votes_remove_all( tower->votes );
-//   tower_votes_from_landed_votes( tower->votes, vote_state->votes );
-//   tower->root = vote_state->root_slot;
-// }
 
 void
 fd_tower_to_tower_sync( fd_tower_t const *               tower,

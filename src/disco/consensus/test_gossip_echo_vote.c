@@ -308,7 +308,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           fd_pubkey_t const * vote_authority_pubkey     = (fd_pubkey_t const *)fd_type_pun_const( arg_->vote_authority_keypair + 32UL );
           fd_pubkey_t const * validator_identity_pubkey = (fd_pubkey_t const *)fd_type_pun_const( arg_->validator_identity_keypair + 32UL );
           fd_voter_t voter = {
-            .vote_acc_addr              = *arg_->vote_acct_addr,
+            .addr                 = *arg_->vote_acct_addr,
             .vote_authority       = *vote_authority_pubkey,
             .validator_identity   = *validator_identity_pubkey
           };

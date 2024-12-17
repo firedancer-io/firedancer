@@ -39,7 +39,7 @@ fd_funk_val_max( fd_funk_rec_t const * rec ) { /* Assumes pointer in caller's ad
    covers the case where rec has been marked ERASE).  max 0 implies val
    NULL and vice versa.  Assumes no concurrent operations on rec. */
 
-FD_FN_PURE static inline void *         /* Lifetime is the lesser of rec or the value size is modified */
+FD_FN_PURE static inline void *             /* Lifetime is the lesser of rec or the value size is modified */
 fd_funk_val( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
              fd_wksp_t const *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;

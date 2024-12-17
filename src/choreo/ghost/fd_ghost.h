@@ -325,9 +325,9 @@ fd_ghost_init and that the ghost is non-empty, ie. has a root. */
 FD_FN_PURE fd_ghost_node_t const *
 fd_ghost_head( fd_ghost_t const * ghost );
 
-/* fd_ghost_is_descendant returns 1 if slot descends from ancestor_slot,
-   0 otherwise.  Assumes slot is present in ghost (warns and returns 0
-   early if handholding is on).  Does not assume the same of
+/* fd_ghost_is_descendant returns 1 if `ancestor_slot` is an ancestor of
+   `slot`, 0 otherwise.  Assumes slot is present in ghost (warns and
+   returns 0 early if handholding is on).  Does not assume the same of
    ancestor_slot. */
 
 FD_FN_PURE int

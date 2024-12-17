@@ -69,7 +69,7 @@ main( int argc, char ** argv ) {
   uchar txn_meta_buf[FD_TXN_MAX_SZ];
   uchar txn_buf[FD_TXN_MTU];
 
-  fd_voter_t voter = { .vote_acc_addr      = vote_acct_addr,
+  fd_voter_t voter = { .addr               = vote_acct_addr,
                        .validator_identity = *validator_identity,
                        .vote_authority     = *validator_identity };
 
