@@ -85,6 +85,12 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   };
   fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
 
+  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
+                                 state->now,
+                                 data,
+                                 data_sz - FD_QUIC_CRYPTO_TAG_SZ,
+                                 "inress" );
+
   (void)ip4_saddr; (void)conn;
 }
 

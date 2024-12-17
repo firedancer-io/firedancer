@@ -9,4 +9,11 @@ struct fd_quic_pretty_print {
 };
 typedef struct fd_quic_pretty_print fd_quic_pretty_print_t;
 
+ulong
+fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
+                               ulong             now,
+                               uchar const *     buf,
+                               ulong             buf_sz,
+                               char const *      flow );
+
 #endif

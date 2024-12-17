@@ -465,24 +465,12 @@ fd_quic_pretty_print_quic_hdr( char **        out_buf,
 
 ulong
 fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
-                        ulong             now,
-                        uchar const *     buf,
-                        ulong             buf_sz,
-                        char const *      flow ) {
-  /* update the leaky bucket */
-  float time_since_update = (float)( now - pretty_print->last_update_time );
-  float update_delta      = pretty_print->rate * time_since_update;
-
-  if( update_delta >= 1.0f ) {
-    pretty_print->current_value    = (ulong)fd_long_max( 0L, (long)pretty_print->current_value - (long)update_delta );
-    pretty_print->last_update_time = now;
-  }
-
-  /* over rate */
-  if( pretty_print->current_value >= pretty_print->capacity ) return FD_QUIC_PARSE_FAIL;
-
-  /* tracing, so update current_value */
-  pretty_print->current_value++;
+                               ulong                    now,
+                               uchar const *            buf,
+                               ulong                    buf_sz,
+                               char const *             flow ) {
+  (void)pretty_print;
+  (void)now;
 
   static FD_TL char pretty_print_buf[16384];
 
