@@ -39,7 +39,7 @@ ways at any time.
 There are three metric types reported by Firedancer, following the
 [Prometheus data model](https://prometheus.io/docs/concepts/metric_types/):
 
- - `counter` &mdash; A cumulative metric repesenting a monotonically increasing counter.
+ - `counter` &mdash; A cumulative metric representing a monotonically increasing counter.
  - `gauge` &mdash; A single numerical value that can go arbitrarily up or down.
  - `histogram` &mdash; Samples observations like packet sizes and counts them in buckets.
 
