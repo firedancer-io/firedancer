@@ -97,11 +97,11 @@ fd_ghost_delete( void * ghost ) {
   return ghost;
 }
 
-#define INIT_GHOST_RELATIONS( node, node_pool )                     \
-  do {                                                              \
-    node->parent_idx  = fd_ghost_node_pool_idx_null( node_pool );   \
-    node->child_idx   = fd_ghost_node_pool_idx_null( node_pool );   \
-    node->sibling_idx = fd_ghost_node_pool_idx_null( node_pool );   \
+#define INIT_GHOST_FAMILY( node, node_pool )                      \
+  do {                                                            \
+    node->parent_idx  = fd_ghost_node_pool_idx_null( node_pool ); \
+    node->child_idx   = fd_ghost_node_pool_idx_null( node_pool ); \
+    node->sibling_idx = fd_ghost_node_pool_idx_null( node_pool ); \
   } while(0)
 
 void
@@ -129,7 +129,7 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( node_pool );
   memset( node, 0, sizeof( fd_ghost_node_t ) );
   node->slot = root;
-  INIT_GHOST_RELATIONS( node, node_pool );
+  INIT_GHOST_FAMILY( node, node_pool );
 
   fd_ghost_node_map_ele_insert( node_map, node, node_pool );
   // TODO: or use ghost->root_idx    = (ulong)(node - node_pool_join);
@@ -193,7 +193,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( node_pool );
   memset( node, 0, sizeof( fd_ghost_node_t ) );
   node->slot = slot;
-  INIT_GHOST_RELATIONS( node, node_pool );
+  INIT_GHOST_FAMILY( node, node_pool );
 
   /* Insert into the map for O(1) random access. */
 
