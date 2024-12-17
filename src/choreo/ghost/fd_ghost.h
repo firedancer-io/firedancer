@@ -31,6 +31,7 @@
    not prerequisite reading for understanding this implementation. */
 
 #include "../fd_choreo_base.h"
+#include <stdbool.h>
 
 /* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -245,6 +246,9 @@ fd_ghost_vote_map( fd_ghost_t const * ghost ) {
 }
 
 /* Operations */
+
+bool
+fd_ghost_verify( fd_ghost_t const * ghost );
 
 /* fd_ghost_node_insert inserts a new node with slot as the key into the
    ghost.  Assumes slot >= ghost->smr, slot is not already in ghost,
