@@ -124,6 +124,7 @@ struct __attribute__((aligned(128UL))) fd_ghost {
 
   ulong                 root_idx;
   ulong                 total_stake;
+  ulong                 ghost_gaddr;
 
   /* Inline data structures */
 
@@ -213,7 +214,7 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake );
 
 FD_FN_PURE static inline fd_wksp_t *
 fd_ghost_wksp( fd_ghost_t const * ghost ) {
-  return fd_wksp_containing( ghost );
+  return (fd_wksp_t *)( ( (ulong)ghost ) - ghost->ghost_gaddr );
 }
 
 FD_FN_PURE static inline fd_ghost_node_t *

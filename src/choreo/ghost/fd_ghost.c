@@ -45,6 +45,7 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
   ghost->vote_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_vote_pool_join(fd_ghost_vote_pool_new( vote_pool, vote_max ) ));
   ghost->vote_map_gaddr  = fd_wksp_gaddr_fast( wksp, fd_ghost_vote_map_join(fd_ghost_vote_map_new( vote_map, vote_max, seed ) ));
 
+  ghost->ghost_gaddr     = fd_wksp_gaddr_fast( wksp, ghost );
   ghost->root_idx        = fd_ghost_node_pool_idx_null( fd_ghost_node_pool( ghost ) );
 
   return shmem;
@@ -132,7 +133,6 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
   INIT_GHOST_FAMILY( node, node_pool );
 
   fd_ghost_node_map_ele_insert( node_map, node, node_pool );
-  // TODO: or use ghost->root_idx    = (ulong)(node - node_pool_join);
   ghost->root_idx = fd_ghost_node_map_idx_query( node_map, &root, null_idx, node_pool );
   ghost->total_stake = total_stake;
 
