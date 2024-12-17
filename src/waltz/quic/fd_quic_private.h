@@ -134,6 +134,9 @@ struct fd_quic_pkt {
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
+
+  uchar const *      cur_quic_pkt;    /* pointer to the current QUIC packet */
+  ulong              cur_quic_pkt_sz; /* bound on the max size of the QUIC packet */
 };
 
 FD_PROTOTYPES_BEGIN

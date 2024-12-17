@@ -10,7 +10,7 @@
 /* Generate frame pretty-print */
 
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                    \
-  static ulong fd_quic_pretty_print_frame_##NAME(                                 \
+  static ulong fd_quic_pretty_print_frame_##NAME(                          \
       fd_quic_##NAME##_t * frame,                                          \
       char **              out_buf,                                        \
       ulong *              out_buf_sz,                                     \
@@ -25,7 +25,7 @@
     if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL; \
     p0 += rc;                                                              \
                                                                            \
-    fd_quic_pretty_print_struct_##NAME( out_buf, out_buf_sz, frame );             \
+    fd_quic_pretty_print_struct_##NAME( out_buf, out_buf_sz, frame );      \
                                                                            \
     return (ulong)(p0-buf);                                                \
   }
@@ -45,9 +45,9 @@
 
 ulong
 fd_quic_pretty_print_frame( char **           out_buf,
-                     ulong *           out_buf_sz,
-                     uchar const *     buf,
-                     ulong             buf_sz ) {
+                            ulong *           out_buf_sz,
+                            uchar const *     buf,
+                            ulong             buf_sz ) {
   if( FD_UNLIKELY( buf_sz<1UL ) ) return FD_QUIC_PARSE_FAIL;
 
   uchar const * cur_buf = buf;
@@ -282,18 +282,18 @@ fd_quic_pretty_print_frame( char **           out_buf,
 
 ulong
 fd_quic_pretty_print_frames( char **           out_buf,
-                      ulong *           out_buf_sz,
-                      uchar const *     buf,
-                      ulong             buf_sz );
+                             ulong *           out_buf_sz,
+                             uchar const *     buf,
+                             ulong             buf_sz );
 
 
 ulong
 fd_quic_pretty_print_quic_hdr_initial( char **        out_buf,
-                                ulong *        out_buf_sz,
-                                uchar const ** frame_ptr,
-                                ulong *        frame_sz,
-                                uchar const *  buf,
-                                ulong          buf_sz ) {
+                                       ulong *        out_buf_sz,
+                                       uchar const ** frame_ptr,
+                                       ulong *        frame_sz,
+                                       uchar const *  buf,
+                                       ulong          buf_sz ) {
   ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"hdr_type\": \"initial\", " );
   *out_buf    += sz;
   *out_buf_sz -= sz;
@@ -333,11 +333,11 @@ fd_quic_pretty_print_quic_hdr_initial( char **        out_buf,
 
 ulong
 fd_quic_pretty_print_quic_hdr_handshake( char **        out_buf,
-                                  ulong *        out_buf_sz,
-                                  uchar const ** frame_ptr,
-                                  ulong *        frame_sz,
-                                  uchar const *  buf,
-                                  ulong          buf_sz ) {
+                                         ulong *        out_buf_sz,
+                                         uchar const ** frame_ptr,
+                                         ulong *        frame_sz,
+                                         uchar const *  buf,
+                                         ulong          buf_sz ) {
   ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"hdr_type\": \"handshake\", " );
   *out_buf    += sz;
   *out_buf_sz -= sz;
@@ -377,11 +377,11 @@ fd_quic_pretty_print_quic_hdr_handshake( char **        out_buf,
 
 ulong
 fd_quic_pretty_print_quic_hdr_one_rtt( char **        out_buf,
-                                ulong *        out_buf_sz,
-                                uchar const ** frame_ptr,
-                                ulong *        frame_sz,
-                                uchar const *  buf,
-                                ulong          buf_sz ) {
+                                       ulong *        out_buf_sz,
+                                       uchar const ** frame_ptr,
+                                       ulong *        frame_sz,
+                                       uchar const *  buf,
+                                       ulong          buf_sz ) {
   ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"hdr_type\": \"1-rtt\", " );
   *out_buf    += sz;
   *out_buf_sz -= sz;
@@ -425,11 +425,11 @@ fd_quic_pretty_print_quic_hdr_one_rtt( char **        out_buf,
 
 ulong
 fd_quic_pretty_print_quic_hdr( char **        out_buf,
-                        ulong *        out_buf_sz,
-                        uchar const ** frame_ptr,
-                        ulong *        frame_sz,
-                        uchar const *  buf,
-                        ulong          buf_sz ) {
+                               ulong *        out_buf_sz,
+                               uchar const ** frame_ptr,
+                               ulong *        frame_sz,
+                               uchar const *  buf,
+                               ulong          buf_sz ) {
   ulong sz;
 
   uint first   = (uint)buf[0];
@@ -487,11 +487,11 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
   out_buf_sz -= sz;
 
   ulong hdr_rc = fd_quic_pretty_print_quic_hdr( &out_buf,
-                                         &out_buf_sz,
-                                         &frame_ptr,
-                                         &frame_sz,
-                                         buf,
-                                         buf_sz );
+                                                &out_buf_sz,
+                                                &frame_ptr,
+                                                &frame_sz,
+                                                buf,
+                                                buf_sz );
   if( hdr_rc == FD_QUIC_PARSE_FAIL ) {
     sz = safe_snprintf( out_buf, out_buf_sz, "\"err\": \"parse_fail\" } " );
     out_buf    += sz;
@@ -505,9 +505,9 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
   out_buf_sz -= sz;
 
   ulong rc = fd_quic_pretty_print_frames( &out_buf,
-                                   &out_buf_sz,
-                                   frame_ptr,
-                                   frame_sz );
+                                          &out_buf_sz,
+                                          frame_ptr,
+                                          frame_sz );
   if( rc == FD_QUIC_PARSE_FAIL ) {
     sz = safe_snprintf( out_buf, out_buf_sz, "], \"err\": \"parse_fail\" }, " );
     out_buf    += sz;
@@ -525,16 +525,17 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
     if( pretty_print_buf[j] == '\0' ) pretty_print_buf[j] = '*';
   }
 
-  FD_LOG_NOTICE(( "TRACE: [ %s ]", pretty_print_buf ));
+  //FD_LOG_NOTICE(( "TRACE: [ %s ]", pretty_print_buf ));
+  printf( "TRACE: [ %s ]\n", pretty_print_buf );
 
   return rc;
 }
 
 ulong
 fd_quic_pretty_print_frames( char **           out_buf,
-                      ulong *           out_buf_sz,
-                      uchar const *     buf,
-                      ulong             buf_sz ) {
+                             ulong *           out_buf_sz,
+                             uchar const *     buf,
+                             ulong             buf_sz ) {
   uchar const * orig_buf = buf;
   ulong sz;
 

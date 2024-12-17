@@ -1708,6 +1708,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* update pkt with QUIC packet info */
+  pkt->cur_quic_pkt    = cur_ptr;
+  pkt->cur_quic_pkt_sz = tot_sz;
+
   /* check if reply conn id needs to change */
   if( FD_UNLIKELY( !( conn->server | conn->established ) ) ) {
     /* switch to the source connection id for future replies */
@@ -1876,6 +1880,10 @@ fd_quic_handle_v1_handshake(
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* update pkt with QUIC packet info */
+  pkt->cur_quic_pkt    = cur_ptr;
+  pkt->cur_quic_pkt_sz = tot_sz;
 
   /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
      > A server stops sending and processing Initial packets when it
@@ -2136,6 +2144,10 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
       return FD_QUIC_PARSE_FAIL;
     }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
+
+  /* update pkt with QUIC packet info */
+  pkt->cur_quic_pkt    = cur_ptr;
+  pkt->cur_quic_pkt_sz = tot_sz;
 
   if( !current_key_phase ) {
     /* Decryption succeeded.  Commit the key phase update and throw
