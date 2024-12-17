@@ -17,26 +17,6 @@ fd_voter_state( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t c
   return state;
 }
 
-void
-fd_voter_state_tower( fd_voter_state_t const * state, fd_tower_t * tower ) {
-  #if FD_TOWER_USE_HANDHOLDING
-  if( FD_UNLIKELY( fd_tower_votes_cnt( tower->votes ) ) ) FD_LOG_ERR(( "[%s] cannot write to non-empty tower", __func__ ));
-  if( FD_UNLIKELY( tower->root != 0 && tower->root != FD_SLOT_NULL ) ) FD_LOG_ERR(( "[%s] cannot write to tower with a root", __func__ ));
-  #endif
-
-  fd_tower_vote_t vote = { 0 };
-  ulong vote_sz = sizeof(ulong) /* slot */ + sizeof(uint); /* conf */
-  for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
-    if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-      memcpy( (uchar *)&vote, (uchar *)&state->v0_23_5.tower.votes[i], vote_sz );
-    } else {
-      memcpy( (uchar *)&vote, (uchar *)&state->tower.votes[i] + sizeof(uchar) /* latency */, vote_sz );
-    }
-    fd_tower_votes_push_tail( tower->votes, vote );
-  }
-  tower->root = fd_voter_state_root( state );
-}
-
 ulong
 fd_voter_txn_generate( fd_voter_t const *                     voter,
                        fd_compact_vote_state_update_t const * tower_sync,

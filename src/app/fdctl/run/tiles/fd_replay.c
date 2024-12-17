@@ -1463,8 +1463,12 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_fork_t * snapshot_fork = fd_forks_init( ctx->forks, ctx->slot_ctx );
   FD_TEST( snapshot_fork );
-  fd_tower_init( ctx->tower, &ctx->voter->addr, ctx->funk, snapshot_fork->slot_ctx.funk_txn, ctx->smr );
-  fd_tower_epoch_update( ctx->tower, ctx->epoch_ctx );
+  fd_tower_init( ctx->tower,
+                 &ctx->voter->addr,
+                 ctx->acc_mgr,
+                 ctx->epoch_ctx,
+                 snapshot_fork,
+                 ctx->smr );
   fd_ghost_init( ctx->ghost, snapshot_slot, ctx->tower->total_stake );
   fd_tower_print( ctx->tower );
 

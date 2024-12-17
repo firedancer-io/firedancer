@@ -470,11 +470,12 @@ fd_tower_delete( void * tower );
    In general, this should be called by the same process that formatted
    tower's memory, ie. the caller of fd_tower_new. */
 void
-fd_tower_init( fd_tower_t *          tower,
-               fd_pubkey_t const *   vote_acc_addr,
-               fd_funk_t *           funk,
-               fd_funk_txn_t const * txn,
-               ulong *               smr );
+fd_tower_init( fd_tower_t *                tower,
+               fd_pubkey_t const *         vote_acc_addr,
+               fd_acc_mgr_t *              acc_mgr,
+               fd_exec_epoch_ctx_t const * epoch_ctx,
+               fd_fork_t const *           fork,
+               ulong *                     smr );
 
 /* fd_tower_lockout_check checks if we are locked out from voting for
    fork.  Returns 1 if we can vote for fork without violating lockout, 0
@@ -603,9 +604,8 @@ fd_tower_switch_check( fd_tower_t const * tower, fd_fork_t const * fork, fd_ghos
 
 int
 fd_tower_threshold_check( fd_tower_t const * tower,
-                          fd_fork_t const * fork,
-                          fd_funk_t * funk,
-                          fd_funk_txn_t const * txn );
+                          fd_fork_t const *  fork,
+                          fd_acc_mgr_t *     acc_mgr );
 
 /* fd_tower_best_fork picks the best fork, where best is defined as the
    fork head containing the highest stake-weight in its ancestry.
@@ -665,13 +665,6 @@ fd_tower_fork_update( fd_tower_t const *      tower,
 
 void
 fd_tower_vote( fd_tower_t const * tower, ulong slot );
-
-/* fd_tower_simulate_vote simulates a vote on the vote tower for slot,
-   returning the new height (cnt) for all the votes that would have been
-   popped. */
-
-ulong
-fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot );
 
 /* fd_tower_is_max_lockout returns 1 if the bottom vote of the tower has
    reached max lockout, 0 otherwise.  Max lockout is equivalent to 1 <<
@@ -751,6 +744,9 @@ fd_tower_print( fd_tower_t const * tower );
 
 int
 fd_tower_vote_state_cmp( fd_tower_t const * tower, fd_vote_state_t * vote_state );
+
+fd_tower_t *
+fd_tower_funk_query( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t const * vote_acc_key );
 
 /* fd_tower_vote_state_query queries for vote_acc_addr's vote state
    which is effectively the cluster view of the tower as of fork->slot.

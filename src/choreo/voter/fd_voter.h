@@ -67,9 +67,9 @@ struct fd_voter_state {
       uchar prior_voters[ (32 * 56 + sizeof(ulong)) /* serialized bincode sz */ ];
       fd_pubkey_t authorized_withdrawer;
       uchar commission;
-      struct __attribute__((packed)) fd_voter_state_tower_v0_23_5 {
+      struct __attribute__((packed)) {
       ulong cnt;
-        struct __attribute__((packed)) fd_voter_state_tower_vote_v0_23_5 {
+        struct __attribute__((packed)) fd_voter_state_vote_v0_23_5 {
           ulong slot;
           uint  conf;
         } votes[32]; /* only first `cnt` elements are valid */
@@ -80,9 +80,9 @@ struct fd_voter_state {
       fd_pubkey_t node_pubkey;
       fd_pubkey_t authorized_withdrawer;
       uchar commission;
-      struct __attribute__((packed)) fd_voter_state_tower {
+      struct __attribute__((packed)) {
         ulong cnt;
-        struct __attribute__((packed)) fd_voter_state_tower_vote {
+        struct __attribute__((packed)) fd_voter_state_vote {
           uchar latency;
           ulong slot;
           uint  conf;
@@ -96,10 +96,8 @@ struct fd_voter_state {
       struct. */
   };
 };
-typedef struct fd_voter_state_tower_vote_v0_23_5 fd_voter_state_tower_vote_v0_23_5_t;
-typedef struct fd_voter_state_tower_vote fd_voter_state_tower_vote_t;
-typedef struct fd_voter_state_tower_v0_23_5 fd_voter_state_tower_v0_23_5_t;
-typedef struct fd_voter_state_tower fd_voter_state_tower_t;
+typedef struct fd_voter_state_vote_v0_23_5 fd_voter_state_vote_v0_23_5_t;
+typedef struct fd_voter_state_vote fd_voter_state_vote_t;
 typedef struct fd_voter_state fd_voter_state_t;
 
 /* fd_voter_state queries funk for the record in the provided `txn` and
@@ -142,20 +140,13 @@ FD_FN_PURE static inline ulong
 fd_voter_state_root( fd_voter_state_t const * state ) {
   uchar * root = fd_ptr_if(
     state->discriminant == fd_vote_state_versioned_enum_v0_23_5,
-    (uchar *)&state->v0_23_5.tower.votes + sizeof(fd_voter_state_tower_vote_v0_23_5_t) * state->v0_23_5.tower.cnt,
-    (uchar *)&state->tower.votes         + sizeof(fd_voter_state_tower_vote_t)         * state->tower.cnt
+    (uchar *)&state->v0_23_5.tower.votes + sizeof(fd_voter_state_vote_v0_23_5_t) * state->v0_23_5.tower.cnt,
+    (uchar *)&state->tower.votes         + sizeof(fd_voter_state_vote_t)         * state->tower.cnt
   );
   uchar is_some = *(uchar *)root; /* whether the Option is a Some type */
   if( FD_UNLIKELY( !is_some ) ) return FD_SLOT_NULL;
   return *(ulong *)(root+sizeof(uchar));
 }
-
-/* fd_voter_state_tower writes the saved tower inside `state` to the
-   caller-provided `tower`.  Assumes `tower` is a valid join of an
-   fd_tower that is currently empty. */
-
-void
-fd_voter_state_tower( fd_voter_state_t const * state, fd_tower_t * tower );
 
 /* fd_voter_txn_generate generates a vote txn using the TowerSync ix. */
 
