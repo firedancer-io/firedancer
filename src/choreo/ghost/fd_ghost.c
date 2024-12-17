@@ -140,6 +140,45 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
 }
 
 /* clang-format on */
+bool
+fd_ghost_verify(fd_ghost_t const * ghost){
+  if( FD_UNLIKELY( !ghost ) ) {
+    FD_LOG_WARNING(( "NULL ghost" ));
+    return false;
+  }
+
+  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
+  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
+
+  /* every element that exists in pool exists in map  */
+
+  if(!fd_ghost_node_map_verify( node_map, 
+                                fd_ghost_node_pool_used( node_pool), 
+                                node_pool )) {
+    return false;
+  }
+
+  /* check invariant that each parent weight is >= sum of children weights */
+  fd_ghost_node_t const * parent = fd_ghost_root_node( ghost );
+
+  while( parent ) {
+    ulong child_idx = parent->child_idx;
+    ulong total_weight = 0;
+    while( child_idx != fd_ghost_node_pool_idx_null( node_pool ) ) {
+      fd_ghost_node_t const * child = fd_ghost_node_pool_ele( node_pool, child_idx );
+      total_weight += child->weight;
+      child_idx = child->sibling_idx;
+    }
+    if( FD_UNLIKELY( total_weight > parent->weight ) ) {
+      FD_LOG_WARNING(( "root %lu has total stake %lu but sum of children is %lu", parent->slot, parent->weight, total_weight ));
+      return false;
+    }
+    
+    parent = fd_ghost_node_pool_ele( node_pool, parent->next );
+  }
+
+  return true;
+}
 
 fd_ghost_node_t *
 fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
@@ -273,7 +312,6 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
   fd_ghost_node_t const * root   = fd_ghost_root_node( ghost );
-  ulong null_idx                 = fd_ghost_node_pool_idx_null( node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( slot < root->slot ) ) {
@@ -350,8 +388,9 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
                          latest_vote->stake ));
         node->stake = 0;
       }
+
       fd_ghost_node_t * ancestor = node;
-      while( ancestor->parent_idx != null_idx ) {
+      while( ancestor ) {
         int cf = __builtin_usubl_overflow( ancestor->weight,
                                            latest_vote->stake,
                                            &ancestor->weight );
@@ -389,7 +428,6 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
 
   /* Propagate the vote stake up the ancestry, including updating the
      head. */
-
   FD_LOG_DEBUG(( "[ghost] adding (%s, %lu, %lu)", FD_BASE58_ENC_32_ALLOCA( pubkey ), stake, latest_vote->slot ));
   int cf = __builtin_uaddl_overflow( node->stake, latest_vote->stake, &node->stake );
   if( FD_UNLIKELY( cf ) ) {
@@ -398,8 +436,9 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
                  node->stake,
                  latest_vote->stake ));
   }
+
   fd_ghost_node_t * ancestor = node;
-  while( ancestor->parent_idx != null_idx ) {
+  while( ancestor ) {
     int cf = __builtin_uaddl_overflow( ancestor->weight, latest_vote->stake, &ancestor->weight );
     if( FD_UNLIKELY( cf ) ) {
       FD_LOG_ERR(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu",
