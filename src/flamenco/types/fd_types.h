@@ -1102,7 +1102,7 @@ typedef struct fd_deserializable_versioned_bank_off fd_deserializable_versioned_
 #define FD_DESERIALIZABLE_VERSIONED_BANK_OFF_FOOTPRINT sizeof(fd_deserializable_versioned_bank_off_t)
 #define FD_DESERIALIZABLE_VERSIONED_BANK_OFF_ALIGN (16UL)
 
-/* This is the serializable version of deserializable_versioned_bank. */
+/* TODO: This should replace the deserializable_versioned_bank */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(16UL))) fd_serializable_versioned_bank {
   fd_block_hash_vec_t blockhash_queue;

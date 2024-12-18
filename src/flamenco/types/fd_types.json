@@ -524,7 +524,7 @@
         { "name": "epoch_stakes",          "type": "vector", "element": "epoch_epoch_stakes_pair" },
         { "name": "is_delta",              "type": "bool" }
       ],
-      "comment": "This is the serializable version of deserializable_versioned_bank."
+      "comment": "TODO: This should replace the deserializable_versioned_bank"
     },
     {
       "name": "bank_hash_stats",
