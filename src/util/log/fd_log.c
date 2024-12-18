@@ -502,6 +502,7 @@ static int fd_log_private_level_logfile; /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_stderr;  /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_flush;   /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_core;    /* 0 outside boot/halt, init at boot */
+static int fd_log_private_unclean_exit;
 
 int fd_log_colorize     ( void ) { return FD_VOLATILE_CONST( fd_log_private_colorize      ); }
 int fd_log_level_logfile( void ) { return FD_VOLATILE_CONST( fd_log_private_level_logfile ); }
@@ -516,6 +517,8 @@ void fd_log_level_flush_set  ( int level ) { FD_VOLATILE( fd_log_private_level_f
 void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_core    ) = level; }
 
 int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private_fileno ); }
+
+void fd_log_enable_unclean_exit( void ) { fd_log_private_unclean_exit = 1; }
 
 /* Buffer size used for vsnprintf calls (this is also one more than the
    maximum size that this can passed to fd_io_write) */
@@ -876,11 +879,14 @@ fd_log_private_2( int          level,
                   char const * msg ) {
   fd_log_private_1( level, now, file, line, func, msg );
 
-# if FD_LOG_UNCLEAN_EXIT && defined(__linux__)
-  if( level<fd_log_level_core() ) syscall(SYS_exit_group, 1);
-# else
-  if( level<fd_log_level_core() ) exit(1); /* atexit will call fd_log_private_cleanup implicitly */
-# endif
+  if( level<fd_log_level_core() ) {
+#   if defined(__linux__)
+    if( fd_log_private_unclean_exit ) {
+      syscall( SYS_exit_group, 1 );
+    }
+#   endif /* defined(__linux__) */
+    exit(1); /* atexit will call fd_log_private_cleanup implicitly */
+  }
 
   abort();
 }
@@ -957,7 +963,6 @@ fd_log_private_cleanup( void ) {
   } FD_ONCE_END;
 }
 
-#ifndef FD_LOG_UNCLEAN_EXIT
 static void
 fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
@@ -1011,7 +1016,6 @@ fd_log_private_sig_trap( int sig ) {
   act->sa_flags = (int)(SA_SIGINFO | SA_RESETHAND);
   if( sigaction( sig, act, NULL ) ) FD_LOG_ERR(( "unable to override signal %i", sig ));
 }
-#endif
 
 static int
 fd_log_private_open_path( int          cmdline,
@@ -1183,37 +1187,37 @@ fd_log_private_boot( int  *   pargc,
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
        default behavior. */
-#ifndef FD_LOG_UNCLEAN_EXIT
-    fd_log_private_sig_trap( SIGABRT   );
-    fd_log_private_sig_trap( SIGALRM   );
-    fd_log_private_sig_trap( SIGFPE    );
-    fd_log_private_sig_trap( SIGHUP    );
-    fd_log_private_sig_trap( SIGILL    );
-    fd_log_private_sig_trap( SIGINT    );
-    fd_log_private_sig_trap( SIGQUIT   );
-    fd_log_private_sig_trap( SIGPIPE   );
-    fd_log_private_sig_trap( SIGSEGV   );
-    fd_log_private_sig_trap( SIGTERM   );
-    fd_log_private_sig_trap( SIGUSR1   );
-    fd_log_private_sig_trap( SIGUSR2   );
-    fd_log_private_sig_trap( SIGBUS    );
-    fd_log_private_sig_trap( SIGPOLL   );
-    fd_log_private_sig_trap( SIGPROF   );
-    fd_log_private_sig_trap( SIGSYS    );
-    fd_log_private_sig_trap( SIGTRAP   );
-    fd_log_private_sig_trap( SIGVTALRM );
-    fd_log_private_sig_trap( SIGXCPU   );
-    fd_log_private_sig_trap( SIGXFSZ   );
-#endif
+    if( !fd_log_private_unclean_exit ) {
+      fd_log_private_sig_trap( SIGABRT   );
+      fd_log_private_sig_trap( SIGALRM   );
+      fd_log_private_sig_trap( SIGFPE    );
+      fd_log_private_sig_trap( SIGHUP    );
+      fd_log_private_sig_trap( SIGILL    );
+      fd_log_private_sig_trap( SIGINT    );
+      fd_log_private_sig_trap( SIGQUIT   );
+      fd_log_private_sig_trap( SIGPIPE   );
+      fd_log_private_sig_trap( SIGSEGV   );
+      fd_log_private_sig_trap( SIGTERM   );
+      fd_log_private_sig_trap( SIGUSR1   );
+      fd_log_private_sig_trap( SIGUSR2   );
+      fd_log_private_sig_trap( SIGBUS    );
+      fd_log_private_sig_trap( SIGPOLL   );
+      fd_log_private_sig_trap( SIGPROF   );
+      fd_log_private_sig_trap( SIGSYS    );
+      fd_log_private_sig_trap( SIGTRAP   );
+      fd_log_private_sig_trap( SIGVTALRM );
+      fd_log_private_sig_trap( SIGXCPU   );
+      fd_log_private_sig_trap( SIGXFSZ   );
+    }
   }
 
   /* Hook up the permanent log */
   char const * log_path = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-path", "FD_LOG_PATH", NULL );
   FD_VOLATILE( fd_log_private_fileno ) = fd_log_private_open_path( 1, log_path );
 
-#if !FD_LOG_UNCLEAN_EXIT
-  if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
-#endif
+  if( !fd_log_private_unclean_exit ) {
+    if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
+  }
 
   /* At this point, logging online */
   if( fd_log_build_info_sz>1UL ) FD_LOG_INFO(( "fd_log: build info:\n%s", fd_log_build_info ));
