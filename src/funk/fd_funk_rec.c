@@ -517,7 +517,7 @@ fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
 }
 
 ulong
-fd_funk_rec_get_erase_data( fd_funk_rec_t * rec ) {
+fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
   return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
 }
 

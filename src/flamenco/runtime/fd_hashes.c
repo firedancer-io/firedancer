@@ -519,15 +519,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
-  /* The max size of the tombstone record is bounded by the max number of 
-     accounts that can be changed in a given slot. */
-  fd_funk_rec_key_t key            = fd_acc_mgr_tombstone_key();
-  fd_funk_rec_t *   tombstones     = fd_funk_rec_write_prepare( funk, txn, &key, FD_WRITABLE_ACCS_IN_SLOT * sizeof(fd_pubkey_t), 1, NULL, NULL );
-  uchar *           tombstone_rec  = fd_funk_val( tombstones, fd_funk_wksp( funk ) );
-  ulong *           tombestone_cnt = (ulong *)tombstone_rec;
-  uchar *           tombstone_data = tombstone_rec + sizeof(ulong);
-  *tombestone_cnt = 0;
-
   for( ulong i = 0; i < task_data.info_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
     /* Upgrade to writable record */
@@ -535,8 +526,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    fd_memcpy( tombstone_data + *tombestone_cnt * sizeof(fd_pubkey_t), task_info->acc_pubkey, sizeof(fd_pubkey_t) );
-    *tombestone_cnt += 1UL;
+    /* All removed recs should be stored with the slot from the funk txn. */
     fd_funk_rec_remove( funk, fd_funk_rec_modify(funk, task_info->rec), task_info->rec->pair.xid->ul[0] );
   }
 
@@ -1002,7 +992,7 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
     fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, pubkeys[i] );
 
     fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    int is_empty = (metadata->info.lamports == 0);
+    int is_empty = (!metadata || metadata->info.lamports == 0);
 
     if( is_empty ) {
       pairs[num_pairs].rec = rec;

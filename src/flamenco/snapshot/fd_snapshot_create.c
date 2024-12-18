@@ -9,7 +9,14 @@
 #include <sys/stat.h>
 #include <zstd.h>
 
-static uchar padding [ FD_SNAPSHOT_ACC_ALIGN ] = {0};
+static uchar             padding[ FD_SNAPSHOT_ACC_ALIGN ] = {0};
+static fd_account_meta_t default_meta = { .magic = FD_ACCOUNT_META_MAGIC };
+
+static inline fd_account_meta_t *
+fd_snapshot_create_get_default_meta( ulong slot ) {
+  default_meta.slot = slot;
+  return &default_meta;
+}
 
 static inline int
 fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapshot_ctx,
@@ -63,8 +70,10 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       continue;
     }
 
-    uchar             const * raw      = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;                     
+    uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+                                                      (fd_account_meta_t*)raw;
 
     if( !metadata ) {
       continue;
@@ -268,9 +277,11 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       continue;
     }
 
-    fd_pubkey_t       const * pubkey   = fd_type_pun_const( rec->pair.key[0].uc );
-    uchar             const * raw      = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+    fd_pubkey_t const * pubkey       = fd_type_pun_const( rec->pair.key[0].uc );
+    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;                     
+    uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+                                                      (fd_account_meta_t*)raw;
 
     if( !metadata ) {
       continue;
@@ -294,6 +305,12 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     if( metadata->slot==snapshot_ctx->slot ) {
       snapshot_slot_keys[ snapshot_slot_key_cnt++ ] = (fd_pubkey_t*)pubkey;
+      continue;
+    }
+
+    /* We don't want to iterate over tombstones if the snapshot is not
+       incremental */
+    if( !snapshot_ctx->is_incremental && is_tombstone ) {
       continue;
     }
 
@@ -378,8 +395,11 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     if( FD_UNLIKELY( !rec ) ) {
       FD_LOG_ERR(( "Previously found record can no longer be found" ));
     }
-    uchar             const * raw      = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+
+    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
+    uchar       const * raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+                                                      (fd_account_meta_t*)raw;
 
     if( FD_UNLIKELY( !metadata ) ) {
       FD_LOG_ERR(( "Record should have non-NULL metadata" ));
@@ -387,10 +407,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     if( FD_UNLIKELY( metadata->magic!=FD_ACCOUNT_META_MAGIC ) ) {
       FD_LOG_ERR(( "Record should have valid magic" ));
-    }
-
-    if( !metadata->info.lamports ) {
-      continue;
     }
 
     uchar const * acc_data = raw + metadata->hlen;
@@ -428,28 +444,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       FD_LOG_WARNING(( "Unable to stream out account padding to tar archive" ));
       return -1;
     }
-  }
-
-  fd_funk_rec_key_t     key           = fd_acc_mgr_tombstone_key();
-  fd_funk_rec_t const * rec           = fd_funk_rec_query( funk, NULL, &key );
-  uchar const *         rec_val       = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
-  ulong                 tombstone_cnt = *(ulong*)rec_val;
-
-  for( ulong i=0UL; i<tombstone_cnt; i++ ) {
-    /* All we need to do for tombstones is to copy over the pubkey, and 
-       account for the size of the account header.  */
-
-    curr_accs->file_sz += sizeof(fd_solana_account_hdr_t);
-
-    fd_pubkey_t const *     pubkey = (fd_pubkey_t*)(rec_val + sizeof(ulong) + i * sizeof(fd_pubkey_t));
-    fd_solana_account_hdr_t header = {0};
-    fd_memcpy( header.meta.pubkey, pubkey, sizeof(fd_pubkey_t) );
-    err = fd_tar_writer_write_file_data( writer, &header, sizeof(fd_solana_account_hdr_t) );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "Unable to stream out account header to tar archive" ));
-      return -1;
-    }
-    FD_LOG_WARNING(("PUBKEY %s", FD_BASE58_ENC_32_ALLOCA(pubkey)));
   }
 
   err = fd_tar_writer_fini_file( writer );
