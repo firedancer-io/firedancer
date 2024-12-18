@@ -12,7 +12,7 @@ abbreviated log output to `stderr` and nothing will be written to
 
 | Arguments | Description |
 |----------|-------------|
-| `--config` | Path to a configuation TOML file to run the validator with |
+| `--config` | Path to a configuration TOML file to run the validator with |
 
 ::: details Capabilities
 
@@ -25,7 +25,7 @@ abbreviated log output to `stderr` and nothing will be written to
 | `CAP_SETGID` | call `setresgid(2)` to switch gid to the sandbox user. Not required if the GID is already the same as the sandbox GID |
 | `CAP_SYS_RESOURCE` | call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`. Not required if the process already has a high enough limit |
 | `CAP_SYS_RESOURCE` | call `setpriority(2)` to increase thread priorities. Not required if the process already has a nice value of -19 |
-| `CAP_SYS_RESOURCE` | call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave. Not reqired if the resource limit is already high enough |
+| `CAP_SYS_RESOURCE` | call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave. Not required if the resource limit is already high enough |
 | `CAP_NET_BIND_SERVICE` | call `bind(2)` to bind to a privileged port for serving metrics. Only required if the bind port is below 1024 |
 
 :::
@@ -41,7 +41,7 @@ monitor by sending Ctrl+C or `SIGINT`.
 
 | Arguments | Description |
 |----------|-------------|
-| `--config` | Path to a configuation TOML file to run the monitor with. This must be the same configuration file the validator was started with |
+| `--config` | Path to a configuration TOML file to run the monitor with. This must be the same configuration file the validator was started with |
 
 ::: details Capabilities
 
@@ -93,7 +93,7 @@ and configure the number of combined channels on the network device.
 
 | Capability | Reason |
 |------------|--------|
-| `root` | increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems. Only applies for the `hugetlbfs` stage |
+| `root` | increase `/proc/sys/vm/nr_hugepages` and mount hugetlbfs filesystems. Only applies for the `hugetlbfs` stage |
 | `root` | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
 | `root` | disable network device generic-receive-offload (gro) with `ethtool --set-offload generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
@@ -155,7 +155,7 @@ from the configuration TOML file
 
 | Arguments | Description |
 |----------|-------------|
-| `--config` | Path to a configuation TOML file which determines where the key is written. Either `[consensus.identity_path]` or `[consensus.vote_account_path]` for `identity` or `vote` arguments respectively
+| `--config` | Path to a configuration TOML file which determines where the key is written. Either `[consensus.identity_path]` or `[consensus.vote_account_path]` for `identity` or `vote` arguments respectively
 
 ::: code-group
 
@@ -180,7 +180,7 @@ use by Firedancer.
 
 | Arguments | Description |
 |----------|-------------|
-| `--config` | Path to a configuation TOML file to print memory usage information with |
+| `--config` | Path to a configuration TOML file to print memory usage information with |
 
 ```sh [bash]
 $ fdctl mem --config config.toml

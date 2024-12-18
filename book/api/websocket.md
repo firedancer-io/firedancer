@@ -541,7 +541,7 @@ reasons they didn't make it into the block. For example, if we received
 what happened to the other 94,000?
 
 The live waterfall is a special case: it's for the next slot of the
-validator, rather than one that is in the past. Becuase the slot hasn't
+validator, rather than one that is in the past. Because the slot hasn't
 happened yet, we know certain information: how many transactions we have
 received so far from users that we could pack into our next block, how
 many have expired, how many failed to verify, and so on, but we probably
@@ -611,7 +611,7 @@ potential underflow.
 Live tile timers is an array, one entry per tile, of how idle the tile
 was in the preceding 10 millisecond sampling window. A value of `-1`
 indicates no sample was taken in the window, typically because the tile
-was contet switched out by the kernel or it is hung.
+was context switched out by the kernel or it is hung.
 
 The tiles appear in the same order here that they are reported when you
 first connect by the `summary.tiles` message.
@@ -711,7 +711,7 @@ current epoch that the cluster is in, and the next epoch. From then on,
 new epochs are published live as they are calculated by the validator. For
 epoch T, it is published as `end_slot` in epoch T-2 is rooted. The
 epoch is speculatively known as soon as `end_slot` in epoch T-2 is
-compelted, rather than rooted, but no speculative epoch information is
+completed, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
 
 ### peers
@@ -1086,11 +1086,11 @@ are skipped on the currently active fork.
 **`TxnWaterfallOut`**
 | Field             | Type     | Description |
 |-------------------|----------|-------------|
-| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
-| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
+| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
+| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
 | quic_frag_drop    | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space. |
 | quic_abandoned    | `number` | Transactions were dropped because a connection closed before all bytes were received. |
-| tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per invalid packet |
+| tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
 | tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid. |
 | verify_overrun    | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
 | verify_parse      | `number` | Transactions were dropped because they were malformed and failed to parse |
