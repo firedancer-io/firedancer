@@ -116,14 +116,6 @@ struct fd_quic_conn {
   uint               hs_data_empty       : 1; /* has all hs_data been consumed? */
   fd_quic_tls_hs_t * tls_hs;
 
-  /* expected handshake data offset - one per encryption level
-     data received lower than this on a new packet is a protocol error
-       duplicate packets should already have been dropped
-     data received higher than this would be a gap
-       ignore at present, assuming will be resent in order */
-  ulong rx_crypto_offset[4]; /* expected handshake data (crypto) offset
-                                   one per encryption level */
-
   /* amount of handshake data already sent from head of queue */
   ulong hs_sent_bytes[4];
 

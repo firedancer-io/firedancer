@@ -2760,68 +2760,74 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                    fd_quic_crypto_frame_t * crypto,
                                    uchar const *            p,
                                    ulong                    p_sz ) {
-  /* copy the context locally */
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+  fd_quic_frame_context_t const * context = vp_context;
+  context->pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* determine whether any of the data was already provided */
-  fd_quic_conn_t * conn      = context.conn;
-  uint             enc_level = context.pkt->enc_level;
+  fd_quic_conn_t *   conn      = context->conn;
+  fd_quic_tls_hs_t * tls_hs    = conn->tls_hs;
+  uint               enc_level = context->pkt->enc_level;
 
   /* offset expected */
-  ulong           exp_offset = conn->rx_crypto_offset[enc_level];
-  ulong           rcv_offset = crypto->offset;
-  ulong           rcv_sz     = crypto->length;
+  ulong rcv_off = crypto->offset;    /* in [0,2^62-1] */
+  ulong rcv_sz  = crypto->length;    /* in [0,2^62-1] */
+  ulong rcv_hi  = rcv_off + rcv_sz;  /* in [0,2^63-1] */
 
-  if( FD_UNLIKELY( rcv_sz > p_sz ) ) return FD_QUIC_PARSE_FAIL;
-
-  if( !conn->tls_hs ) {
-    /* Handshake already completed. Ignore frame */
-    /* TODO consider aborting conn if too many unsolicited crypto frames arrive */
-  } else if( FD_UNLIKELY( rcv_offset > exp_offset ) ) {
-    /* if data arrived early, we could buffer, but for now we simply won't ack */
-    /* TODO buffer handshake data */
+  if( FD_UNLIKELY( rcv_sz > p_sz ) ) {
     return FD_QUIC_PARSE_FAIL;
-  } else if( FD_UNLIKELY( rcv_offset + rcv_sz <= exp_offset ) ) {
-    /* the full range of bytes has already been consumed, so just fall thru */
-  } else {
-    /* We have bytes that we can use */
-    ulong skip = 0;
-    if( rcv_offset < exp_offset ) skip = exp_offset - rcv_offset;
-
-    rcv_sz -= skip;
-    uchar const * crypto_data = p + skip;
-
-    int provide_rc = fd_quic_tls_provide_data( conn->tls_hs,
-                                               context.pkt->enc_level,
-                                               crypto_data,
-                                               rcv_sz );
-    if( provide_rc == FD_QUIC_FAILED ) {
-      /* if TLS fails, ABORT connection */
-
-      /* if TLS returns an error, we present that as reason:
-           FD_QUIC_CONN_REASON_CRYPTO_BASE + tls-alert
-         otherwise, send INTERNAL_ERROR */
-      uint alert = conn->tls_hs->alert;
-      if( alert == 0u ) {
-        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-      } else {
-        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
-      }
-
-      /* don't process any more frames on this connection */
-      return FD_QUIC_PARSE_FAIL;
-    }
-
-    /* successful, update rx_crypto_offset */
-    conn->rx_crypto_offset[enc_level] += rcv_sz;
   }
 
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
+  if( !tls_hs ) {
+    /* Handshake already completed. Ignore frame */
+    /* TODO consider aborting conn if too many unsolicited crypto frames arrive */
+    return rcv_sz;
+  }
 
-  (void)context; (void)p; (void)p_sz;
+  if( enc_level < tls_hs->rx_enc_level ) {
+    return rcv_sz;
+  }
 
-  /* no "additional" bytes - all already accounted for */
+  if( enc_level > tls_hs->rx_enc_level ) {
+    /* Discard data from any previous handshake level.  Currently only
+       happens at the Initial->Handshake encryption level change. */
+    tls_hs->rx_enc_level = (uchar)enc_level;
+    tls_hs->rx_off       = 0;
+    tls_hs->rx_sz        = 0;
+  }
+
+  if( rcv_off > tls_hs->rx_sz ) {
+    context->pkt->ack_flag |= ACK_FLAG_CANCEL;
+    return rcv_sz;
+  }
+
+  if( rcv_hi < tls_hs->rx_off ) {
+    return rcv_sz;
+  }
+
+  if( rcv_hi > FD_QUIC_TLS_RX_DATA_SZ ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BUFFER_EXCEEDED, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  tls_hs->rx_sz = (ushort)rcv_hi;
+  fd_memcpy( tls_hs->rx_hs_buf + rcv_off, p, rcv_sz );
+
+  int provide_rc = fd_quic_tls_process( conn->tls_hs );
+  if( provide_rc == FD_QUIC_FAILED ) {
+    /* if TLS fails, ABORT connection */
+
+    /* if TLS returns an error, we present that as reason:
+          FD_QUIC_CONN_REASON_CRYPTO_BASE + tls-alert
+        otherwise, send INTERNAL_ERROR */
+    uint alert = conn->tls_hs->alert;
+    if( alert == 0u ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
+    } else {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
+    }
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   return rcv_sz;
 }
 
@@ -4227,18 +4233,12 @@ fd_quic_connect( fd_quic_t *  quic,
       (void*)conn,
       0 /*is_server*/,
       tp );
-  quic->metrics.hs_created_cnt++;
-
-  /* Initiate the handshake */
-  int process_rc = fd_quic_tls_provide_data( tls_hs, FD_TLS_LEVEL_INITIAL, NULL, 0UL );
-  if( FD_UNLIKELY( process_rc == FD_QUIC_FAILED ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "Initial fd_quic_tls_provide_data failed" )) );
-
-    /* We haven't sent any data to the peer yet,
-       so simply clean up and fail */
+  if( FD_UNLIKELY( tls_hs->alert ) ) {
+    FD_LOG_WARNING(( "fd_quic_tls_hs_client_new failed" ));
     goto fail_tls_hs;
   }
 
+  quic->metrics.hs_created_cnt++;
   conn->tls_hs = tls_hs;
 
   fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id );
@@ -4256,7 +4256,7 @@ fail_tls_hs:
   /* shut down tls_hs */
   fd_quic_tls_hs_delete( tls_hs );
   fd_quic_tls_hs_pool_ele_release( state->hs_pool, tls_hs );
-
+  fd_quic_conn_free( quic, conn );
   return NULL;
 }
 
@@ -4364,9 +4364,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
   fd_memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );
   fd_memset( conn->pkt_number, 0, sizeof( conn->pkt_number ) );
-
-  /* crypto offset for first packet always starts at 0 */
-  fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->rx_crypto_offset ) );
 
   /* TODO lots of fd_memset calls that should really be builtin memset */
   fd_memset( conn->hs_sent_bytes, 0, sizeof( conn->hs_sent_bytes ) );
