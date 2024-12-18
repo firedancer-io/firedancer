@@ -113,7 +113,7 @@ main( int     argc,
       fd_funk_rec_key_t * key = &recs[i];
       fd_funk_rec_t * rec = fd_funk_rec_write_prepare(funk, txn, key, 0, 0, NULL, NULL);
       if (rec && !(rec->flags & FD_FUNK_REC_FLAG_ERASE)) {
-        int err = fd_funk_rec_remove(funk, rec);
+        int err = fd_funk_rec_remove(funk, rec, 0);
         FD_TEST(!err);
       }
       break;

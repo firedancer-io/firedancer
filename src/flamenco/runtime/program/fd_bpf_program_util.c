@@ -224,7 +224,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_remove( funk, rec );
+      fd_funk_rec_remove( funk, rec, funk_txn->xid.ul[0] );
       return -1;
     }
 
@@ -267,7 +267,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t    * slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_remove( funk, rec );
+      fd_funk_rec_remove( funk, rec, 0UL );
       return -1;
     }
 

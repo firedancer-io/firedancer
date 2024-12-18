@@ -1217,7 +1217,7 @@ prune( fd_ledger_args_t * args ) {
                         fd_funk_val_sz( original_rec ) ) == 0 ));
     } else {
       fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
-      int res = fd_funk_rec_remove( pruned_funk, mod_rec );
+      int res = fd_funk_rec_remove( pruned_funk, mod_rec, rec->pair.xid->ul[0] );
       FD_TEST(( res == 0 ));
     }
   }
