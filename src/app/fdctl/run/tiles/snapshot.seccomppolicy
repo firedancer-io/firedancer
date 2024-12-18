@@ -2,7 +2,7 @@
 #             will open a log file on boot and write all messages there.
 # tmp_fd: This is used to write out a tar archive file
 # full_snapshot_fd: This is used to create a final snapshot by compressing
-               the contents of tmp_fd
+#              the contents of tmp_fd
 unsigned int logfile_fd, unsigned int tmp_fd, unsigned int tmp_inc_fd, unsigned int full_snapshot_fd, unsigned int incremental_snapshot_fd
 
 # logging: all log messages are written to a file and/or pipe

@@ -1,8 +1,3 @@
-/* Gossip verify tile sits before the gossip (dedup?) tile to verify incoming
-   gossip packets */
-#include <unistd.h>
-#define _GNU_SOURCE
-
 #include "../../../../disco/tiles.h"
 
 #include "../../../../disco/topo/fd_pod_format.h"
@@ -12,7 +7,7 @@
 #include "../../../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../../../funk/fd_funk_filemap.h"
 
-#include "generated/snaps_seccomp.h"
+#include "generated/snapshot_seccomp.h"
 
 #define SCRATCH_MAX    (1024UL << 24 )  /* 24 MiB */
 #define SCRATCH_DEPTH  (256UL)          /* 256 scratch frames */
@@ -381,14 +376,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   (void)topo;
 
-  populate_sock_filter_policy_snaps( out_cnt, 
+  populate_sock_filter_policy_snapshot( out_cnt, 
                                      out,
                                      (uint)fd_log_private_logfile_fd(),
                                      (uint)tile->snaps.tmp_fd,
                                      (uint)tile->snaps.tmp_inc_fd,
                                      (uint)tile->snaps.full_snapshot_fd,
                                      (uint)tile->snaps.incremental_snapshot_fd );
-  return sock_filter_policy_snaps_instr_cnt;
+  return sock_filter_policy_snapshot_instr_cnt;
 }
 
 static ulong
