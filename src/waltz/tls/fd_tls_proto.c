@@ -6,6 +6,13 @@
 
 typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
+/* hello_retry_magic is the RFC 8446 hardcoded value of the 'random' field of a RetryHelloRequest */
+static uchar const hello_retry_magic[ 32 ] =
+  { 0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
+    0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
+    0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C };
+
 #define FD_TLS_ENCODE_EXT_BEGIN( type )                         \
   do {                                                          \
     int valid = 1;                                              \
@@ -282,14 +289,9 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
   if( FD_UNLIKELY( cipher_suite != FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 ) )
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
-  /* Middlebox compatibility for HelloRetryRequest */
+  /* Reject HelloRetryRequest (we only support X25519) */
 
-  static uchar const special_random[ 32 ] =
-    { 0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
-      0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
-      0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
-      0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C };
-  if( FD_UNLIKELY( 0==memcmp( out->random, special_random, 32 ) ) )
+  if( FD_UNLIKELY( 0==memcmp( out->random, hello_retry_magic, 32 ) ) )
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
   /* Read extensions */
@@ -401,6 +403,55 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
     FIELD( 5, &ext_key_share_group,               ushort, 1    ) \
     FIELD( 6, &ext_key_share_sz,                  ushort, 1    ) \
     FIELD( 7, &in->key_share.x25519[0],           uchar,  32UL )
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_encode_hello_retry_request( fd_tls_server_hello_t const * in,
+                                   uchar *                       wire,
+                                   ulong                         wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  ushort legacy_version            = FD_TLS_VERSION_TLS12;
+  uchar  legacy_session_id_sz      = (uchar)in->session_id.bufsz;
+  ushort cipher_suite              = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256;
+  uchar  legacy_compression_method = 0;
+
+# define FIELDS( FIELD )                                 \
+    FIELD( 0, &legacy_version,            ushort, 1    ) \
+    FIELD( 1, hello_retry_magic,          uchar,  32UL ) \
+    FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
+    FIELD( 3,  in->session_id.buf,        uchar,  legacy_session_id_sz ) \
+    FIELD( 4, &cipher_suite,              ushort, 1    ) \
+    FIELD( 5, &legacy_compression_method, uchar,  1    )
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  /* Encode extensions */
+
+  ushort * extension_tot_sz = FD_TLS_SKIP_FIELD( ushort );
+  ulong    extension_start  = wire_laddr;
+
+  ushort ext_supported_versions_ext_type = FD_TLS_EXT_SUPPORTED_VERSIONS;
+  ushort ext_supported_versions[1]       = { FD_TLS_VERSION_TLS13 };
+  ushort ext_supported_versions_ext_sz   = sizeof(ext_supported_versions);
+
+  ushort ext_key_share_ext_type = FD_TLS_EXT_KEY_SHARE;
+  ushort ext_key_share_ext_sz   = sizeof(ushort);
+  ushort ext_key_share_group    = FD_TLS_GROUP_X25519;
+
+# define FIELDS( FIELD )                                         \
+    FIELD( 0, &ext_supported_versions_ext_type,   ushort, 1    ) \
+    FIELD( 1, &ext_supported_versions_ext_sz,     ushort, 1    ) \
+    FIELD( 2,  ext_supported_versions,            ushort, 1    ) \
+    FIELD( 3, &ext_key_share_ext_type,            ushort, 1    ) \
+    FIELD( 4, &ext_key_share_ext_sz,              ushort, 1    ) \
+    FIELD( 5, &ext_key_share_group,               ushort, 1    )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 

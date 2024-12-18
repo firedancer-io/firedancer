@@ -308,6 +308,7 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_CH_ENCODE      (104)  /* failed to encode ClientHello */
 #define FD_TLS_REASON_CH_CRYPTO_NEG  (105)  /* ClientHello crypto negotiation failed */
 #define FD_TLS_REASON_CH_NO_QUIC     (106)  /* Missing QUIC transport params in ClientHello */
+#define FD_TLS_REASON_CH_RETRY_KS    (107)  /* ClientHello still missing key share after a retry */
 
 #define FD_TLS_REASON_SH_EXPECTED    (201)  /* wanted ServerHello, got another msg type */
 #define FD_TLS_REASON_SH_PARSE       (203)  /* failed to parse ServerHello */
