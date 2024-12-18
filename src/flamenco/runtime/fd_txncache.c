@@ -1110,7 +1110,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
       status_pair->value.txn_idx = slotblockcache->txnhash_offset;
 
       /* First count through the number of etnries you expect to encounter
-         and size out the data structure to store them.*/
+         and size out the data structure to store them. */
 
       ulong num_statuses = 0UL;
       for( ulong k=0UL; k<FD_TXNCACHE_SLOTCACHE_MAP_CNT; k++ ) {
