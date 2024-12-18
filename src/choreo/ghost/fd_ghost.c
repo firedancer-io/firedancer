@@ -150,9 +150,8 @@ fd_ghost_verify(fd_ghost_t const * ghost){
   fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
   fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
 
-  /* every map element exists in pool and vice versa */
-
-  /* can't directly use map_verify since we don't maintain a count of elements */
+  /* every element that exists in pool exists in map 
+     can't directly use map_verify since we don't maintain a count of elements */
 
   for ( ulong idx = ghost->root_idx; idx != fd_ghost_node_pool_idx_null( node_pool ); ) {
     fd_ghost_node_t * node = fd_ghost_node_pool_ele( node_pool, idx );
@@ -381,6 +380,12 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
     } else {
 
       /* Subtract pubkey's stake from the prev voted slot hash and propagate. */
+
+      FD_LOG_DEBUG(( "[ghost] removing (%s, %lu, %lu)",
+                      FD_BASE58_ENC_32_ALLOCA( pubkey ),
+                      latest_vote->stake,
+                      latest_vote->slot ));
+
       int cf = __builtin_usubl_overflow( node->stake, latest_vote->stake, &node->stake );
       if( FD_UNLIKELY( cf ) ) {
         FD_LOG_WARNING(( "[%s] sub overflow. node->stake %lu latest_vote->stake %lu",
@@ -389,11 +394,6 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
                          latest_vote->stake ));
         node->stake = 0;
       }
-
-      FD_LOG_DEBUG(( "[ghost] removing (%s, %lu, %lu)",
-                      FD_BASE58_ENC_32_ALLOCA( pubkey ),
-                      latest_vote->stake,
-                      latest_vote->slot ));
 
       fd_ghost_node_t * ancestor = node;
       while( ancestor ) {
