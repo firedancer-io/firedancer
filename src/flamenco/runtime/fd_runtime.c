@@ -1365,8 +1365,9 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
   /* Look up solana-side transaction status details */
   fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
   uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+  fd_blockstore_start_read( blockstore );
   fd_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
-  if ( txn_map_entry != NULL ) {
+  if ( FD_LIKELY( txn_map_entry != NULL ) ) {
     void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
 
     fd_solblock_TransactionStatusMeta txn_status = {0};
@@ -1375,8 +1376,9 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
     ulong fd_cus_consumed     = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
     ulong solana_cus_consumed = ULONG_MAX;
     ulong solana_txn_err      = ULONG_MAX;
-    if ( meta != NULL ) {
+    if ( FD_LIKELY( meta != NULL ) ) {
       pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
+      fd_blockstore_end_read( blockstore );
       if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
         FD_LOG_WARNING(("no txn_status decoding found sig=%s (%s)", FD_BASE58_ENC_64_ALLOCA( sig ), PB_GET_ERROR(&stream)));
       }
@@ -1411,6 +1413,8 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
 
       fd_solcap_write_transaction2( capture_ctx->capture, &txn );
     }
+  } else {
+    fd_blockstore_end_read( blockstore );
   }
 }
 
@@ -2279,6 +2283,7 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   /* Update block height */
   slot_ctx->slot_bank.block_height += 1UL;
+  fd_blockstore_start_write( slot_ctx->blockstore );
   fd_blockstore_block_height_update(
         slot_ctx->blockstore,
         slot_ctx->slot_bank.slot,
@@ -2287,12 +2292,13 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   // TODO: this is not part of block execution, move it.
   if( slot_ctx->slot_bank.slot != 0 ) {
     slot_ctx->block = fd_blockstore_block_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot );
+    fd_blockstore_end_write( slot_ctx->blockstore );
 
     ulong slot_idx;
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.prev_slot, &slot_idx );
     ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
-    if (slot_idx==1UL && new_epoch==0UL) {
+    if( slot_idx == 1UL && new_epoch == 0UL ) {
       /* the block after genesis has a height of 1*/
       slot_ctx->slot_bank.block_height = 1UL;
     }
@@ -2304,6 +2310,8 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
       fd_process_new_epoch(slot_ctx, new_epoch - 1UL);
       fd_funk_end_write(slot_ctx->acc_mgr->funk);
     }
+  } else {
+    fd_blockstore_end_write( slot_ctx->blockstore );
   }
 
   slot_ctx->slot_bank.collected_execution_fees = 0;
