@@ -267,14 +267,12 @@ struct fd_replay_tile_ctx {
   ulong   snapshot_interval;       /* User defined parameter */
   ulong   incremental_interval;    /* User defined parameter */
   ulong   last_full_snap;          /* If a full snapshot has been produced */
-
   ulong * is_funk_constipated;     /* Shared fseq to determine if funk should be constipated */
   ulong   prev_full_snapshot_dist; /* Tracking for snapshot creation */
   ulong   prev_incr_snapshot_dist; /* Tracking for incremental snapshot creation */
+  int     first_constipation;
 
-  int     first_constipation; /* TODO: tear out this hack somehow */
-
-  int is_caught_up;
+  int     is_caught_up;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -589,10 +587,19 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
      up to the root because then we will register previously registered slots
      that are in the constipated root. This introduces an edge case where 
      we will never register the slots that in the original constipated txn. 
-     This currently gets handled in a hacky way in funk_and_txncache_publish. */
+     This currently gets handled in a hacky way by first tracking the first
+     call to is_funk_constipated. This gets set to 1 as soon as funk gets
+     constipated. By setting this, we are able to register the slot that 
+     corresponds to the constipated root. */
 
   if( FD_UNLIKELY( !ctx->slot_ctx->status_cache ) ) {
     return;
+  }
+
+  if( ctx->first_constipation ) {
+    FD_LOG_NOTICE(( "Starting constipation at slot=%lu", root_txn->xid.ul[0] ));
+    fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, root_txn->xid.ul[0] );
+    ctx->first_constipation = 0;
   }
 
   fd_funk_txn_t * txn = root_txn;
@@ -709,6 +716,15 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
      All slots that are "rooted" in the constipated state will be published
      into the constipated root. When constipation is disabled, flush the backed 
      up transactions into the root.
+
+     There is some unfortunate behavior we have to consider here with
+     publishing and constipation. When the status cache is in a constipated
+     state, we want to register all of the slots except for the slot that
+     corresponds to the constipated root. However, during the first pass when
+     we are constipated, we also need to register the constipated root into
+     the txn cache. If we don't then the constipated root slot will never be
+     included in the status cache. TODO: There is probably a better way to 
+     hhandle this. 
      
      Constipation can be activated for a variety of reasons including snapshot
      creation and epoch account hash generation.
@@ -739,7 +755,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
     FD_LOG_WARNING(( "Publishing slot=%lu while constipated", smr ));
 
     /* At this point, first collapse the current transaction that should be 
-       published into the oldest child transaction.*/
+       published into the oldest child transaction. */
 
     fd_funk_txn_t * txn        = root_txn;
     fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_map );
@@ -750,12 +766,6 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
       }
       txn        = parent_txn;
       parent_txn = fd_funk_txn_parent( txn, txn_map );
-    }
-
-    if( ctx->first_constipation ) {
-      FD_LOG_NOTICE(("Starting constipation at slot=%lu", txn->xid.ul[0]));
-      fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      ctx->first_constipation = 0;
     }
   }
 
