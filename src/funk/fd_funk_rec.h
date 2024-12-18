@@ -14,7 +14,8 @@
 #define FD_FUNK_REC_ALIGN     (32UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
-   how records are to be interpreted.
+   how records are to be interpreted.  The 5 most signifcant bytes of a
+   rec's flag are reserved to be used in conjunction with the ERASE flag.
 
    - ERASE indicates a record in an in-preparation transaction should be
    erased if and when the in-preparation transaction is published.  If
@@ -22,7 +23,10 @@
    be set on a published record.  Will not be set if an in-preparation
    transaction ancestor has this record with erase set.  If set, the
    first ancestor transaction encountered (going from youngest to
-   oldest) will not have erased set. */
+   oldest) will not have erased set.  
+   
+   If the ERASE flag is set, then the five most significant bytes of the
+   flags field for the record will be used to store user-specified data. */
 
 #define FD_FUNK_REC_FLAG_ERASE (1UL<<0)
 
@@ -440,7 +444,22 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 
 int
 fd_funk_rec_remove( fd_funk_t *     funk,
-                    fd_funk_rec_t * rec );
+                    fd_funk_rec_t * rec,
+                    ulong           erase_data );
+
+
+/* When a record is erased there is metadata stored in the five most 
+   significant bytes of a record.  These are helpers to make setting
+   and getting these values simple. The caller is responsible for doing
+   a check on the flag of the record before using the value of the erase
+   data. The 5 least significant bytes of the erase data parameter will
+   be used and set into the erase flag. */
+
+void
+fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
+
+ulong
+fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:

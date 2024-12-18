@@ -552,12 +552,12 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
        the record map below.  Note that we can't just reuse rec_idx in
        the update case because that could break map queries. */
 
-    ulong val_sz    = (ulong)rec_map[ rec_idx ].val_sz;
-    ulong val_max   = (ulong)rec_map[ rec_idx ].val_max;
-    ulong val_gaddr = rec_map[ rec_idx ].val_gaddr;
-    int val_no_free = rec_map[ rec_idx ].val_no_free;
-    uint part       = rec_map[ rec_idx ].part;
-    int erase       = rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE;
+    ulong val_sz      = (ulong)rec_map[ rec_idx ].val_sz;
+    ulong val_max     = (ulong)rec_map[ rec_idx ].val_max;
+    ulong val_gaddr   = rec_map[ rec_idx ].val_gaddr;
+    int   val_no_free = rec_map[ rec_idx ].val_no_free;
+    uint  part        = rec_map[ rec_idx ].part;
+    ulong flags       = rec_map[ rec_idx ].flags;
 
     fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
     fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
@@ -590,11 +590,11 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
     /* Unstash value metadata from stack temporaries into dst_rec */
 
-    dst_rec->val_sz    = (uint)val_sz;
-    dst_rec->val_max   = (uint)val_max;
-    dst_rec->val_gaddr = val_gaddr;
+    dst_rec->val_sz      = (uint)val_sz;
+    dst_rec->val_max     = (uint)val_max;
+    dst_rec->val_gaddr   = val_gaddr;
     dst_rec->val_no_free = val_no_free;
-    dst_rec->flags     = ( erase ? FD_FUNK_REC_FLAG_ERASE : 0 );
+    dst_rec->flags       = flags;
 
     /* Use the new partition */
 

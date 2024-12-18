@@ -128,15 +128,15 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_modify( tst,  rec_map+rec_max      ) );
       FD_TEST( !fd_funk_rec_modify( tst,  (fd_funk_rec_t *)1UL ) );
 
-      FD_TEST( fd_funk_rec_remove( NULL, NULL                  )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  NULL                  )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max       )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL  )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, NULL                 , 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec, 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  NULL                 , 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max      , 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL , 0UL )==FD_FUNK_ERR_INVAL );
 
       if( trec ) {
         if( is_frozen ) {
-          FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_FROZEN );
+          FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 0UL )==FD_FUNK_ERR_FROZEN );
         }
       }
 
@@ -248,14 +248,14 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_modify( tst,  rec_map+rec_max      ) );
       FD_TEST( !fd_funk_rec_modify( tst,  (fd_funk_rec_t *)1UL ) );
 
-      FD_TEST( fd_funk_rec_remove( NULL, NULL                  )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  NULL                  )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max       )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL  )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, NULL                 , 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec, 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  NULL                 , 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max      , 0UL )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL , 0UL )==FD_FUNK_ERR_INVAL );
 
       if( trec && ttxn_is_frozen ) {
-        FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_FROZEN );
+        FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 0UL )==FD_FUNK_ERR_FROZEN );
       }
 
       int err;
@@ -406,7 +406,7 @@ main( int     argc,
 
       fd_funk_rec_t * _trec = fd_funk_rec_modify( tst, trec );
       FD_TEST( trec==(fd_funk_rec_t const *)_trec );
-      FD_TEST( !fd_funk_rec_remove( tst, _trec ) );
+      FD_TEST( !fd_funk_rec_remove( tst, _trec, 0UL ) );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 

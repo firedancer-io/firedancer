@@ -414,7 +414,8 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 
 int
 fd_funk_rec_remove( fd_funk_t *     funk,
-                    fd_funk_rec_t * rec ) {
+                    fd_funk_rec_t * rec,
+                    ulong           erase_data ) {
 
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
   fd_funk_check_write( funk );
@@ -461,7 +462,22 @@ fd_funk_rec_remove( fd_funk_t *     funk,
   fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
   rec->flags |= FD_FUNK_REC_FLAG_ERASE;
 
+  /* At this point, the 5 most significant bytes should store data about the
+     transaction that the record was updated in. */
+
+  fd_funk_rec_set_erase_data( rec, erase_data );
+
   return FD_FUNK_SUCCESS;
+}
+
+void
+fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
+  rec->flags |= ((erase_data & 0xFFFFFFFFFFUL) << (sizeof(unsigned long) * 8 - 40));
+}
+
+ulong
+fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
+  return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
 }
 
 fd_funk_rec_t *
