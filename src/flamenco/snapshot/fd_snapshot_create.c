@@ -2,6 +2,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/zstd/fd_zstd.h"
 #include "../runtime/fd_hashes.h"
+#include "../runtime/fd_runtime.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,14 +30,13 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      To avoid iterating through the root twice to determine what accounts were
      touched in the snapshot slot and what accounts were touched in the
      other slots, we will create an array of pubkey pointers for all accounts
-     that were touched in the pubkey slot. This buffer can be safely sized to 
+     that were touched in the snapshot slot. This buffer can be safely sized to 
      the maximum amount of writable accounts that are possible in a non-epoch
-     boundary slot. The rationale for this bound is explained in
-     fd_snapshot_create.h. */
+     boundary slot. The rationale for this bound is explained in fd_runtime.h.
+     We will not attempt to create a snapshot on an epoch boundary. */
 
   fd_pubkey_t * * snapshot_slot_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
   ulong           snapshot_slot_key_cnt = 0UL;
-
 
   /* We will dynamically resize the number of incremental keys because the upper
      bound will be roughly 8 bytes * writable accs in a slot * number of slots
@@ -430,8 +430,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     }
   }
 
-  fd_funk_rec_key_t key = {0};
-  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_TOMBSTONES;
+  fd_funk_rec_key_t     key           = fd_acc_mgr_tombstone_key();
   fd_funk_rec_t const * rec           = fd_funk_rec_query( funk, NULL, &key );
   uchar const *         rec_val       = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
   ulong                 tombstone_cnt = *(ulong*)rec_val;

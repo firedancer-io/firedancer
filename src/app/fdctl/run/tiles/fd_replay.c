@@ -580,8 +580,6 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
                   fd_funk_txn_t *        txn_map,
                   fd_funk_txn_t *        root_txn,
                   uchar                  is_funk_constipated ) {
-
-  (void)is_funk_constipated;
   
   /* For the status cache, we stop rooting until the status cache has been 
      written out to the current snapshot. We also need to iterate up the
@@ -606,10 +604,10 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
 
     ulong slot = txn->xid.ul[0];
     if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
-      FD_LOG_WARNING(("REGISTERING SLOT %lu", slot));
+      FD_LOG_INFO(( "Registering slot %lu", slot ));
       fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
     } else {
-      FD_LOG_WARNING(("REGISTERING CONSTIPATED SLOT %lu", slot));
+      FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
       fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
     }
     txn = fd_funk_txn_parent( txn, txn_map );
@@ -641,6 +639,8 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong smr, uchar is_constipat
     return;
   }
 
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+
   /* The distance from the last snapshot should only grow until we skip
      past the last full snapshot. If it has shrunk that means we skipped
      over the snapshot interval. */
@@ -655,7 +655,11 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong smr, uchar is_constipat
   ctx->prev_incr_snapshot_dist  = curr_incr_snapshot_dist;
 
   ulong updated_fseq = 0UL;
-  if( is_full_snapshot_ready || is_inc_snapshot_ready ) {
+
+  /* TODO: We need a better check if the smr fell on an epoch boundary due to 
+     skipped slots. We just don't want to make a snapshot on an epoch boundary */
+  if( (is_full_snapshot_ready || is_inc_snapshot_ready) && 
+      !fd_runtime_is_epoch_boundary( epoch_bank, smr, smr-1UL ) ) {
     /* Constipate the status cache when a snapshot is ready to be created. */
     if( is_full_snapshot_ready ) {
       ctx->last_full_snap = smr;
@@ -969,15 +973,6 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->tower_checkpt_fileno );
 }
 
-static uint
-is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulong prev_slot ) {
-  ulong slot_idx;
-  ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, prev_slot, &slot_idx );
-  ulong new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, &slot_idx );
-
-  return ( prev_epoch < new_epoch || slot_idx == 0 );
-}
-
 static fd_fork_t *
 prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              fd_stem_context_t *    stem,
@@ -1004,14 +999,14 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   /* if it is an epoch boundary, push out stake weights */
   if( fork->slot_ctx.slot_bank.slot != 0 ) {
-    is_new_epoch_in_new_block = (int)is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
+    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
   }
 
   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot      = curr_slot;
   fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
 
-  if( is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
+  if( fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
     FD_LOG_WARNING(("Epoch boundary"));
 
     fd_epoch_fork_elem_t * epoch_fork = NULL;
@@ -1526,7 +1521,7 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
   }
 
   if( thread_count != total_thread_count )
-    FD_LOG_WARNING(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", thread_count, total_thread_count, main_thread_seen ));
+    FD_LOG_ERR(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", thread_count, total_thread_count, main_thread_seen ));
 
   fd_tile_private_map_boot( tile_to_cpu, thread_count );
 }

@@ -15,11 +15,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-/* This is the reasonably tight upper bound for the number of writable 
-   accounts in a slot. This is because a block has a limit of 48 million
-   compute units. Each writable account lock costs 300 CUs. That means there
-   can be up to 48M/300 writable accounts in a block. */
-#define FD_WRITABLE_ACCS_IN_SLOT          (160000UL)
 #define FD_BLOCKHASH_QUEUE_SIZE           (300UL)
 #define FD_TICKS_PER_SLOT                 (64UL)
 

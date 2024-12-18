@@ -519,14 +519,13 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
-  /* TODO: This should be factored out */
-  fd_funk_rec_key_t key = {0};
-  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_TOMBSTONES;
-
-  fd_funk_rec_t * tombstones = fd_funk_rec_write_prepare( funk, txn, &key, 512008, 1, NULL, NULL );
-  uchar * tombstone_rec  = fd_funk_val( tombstones, fd_funk_wksp( funk ) );
-  ulong * tombestone_cnt = (ulong *)tombstone_rec;
-  uchar * tombstone_data = tombstone_rec + sizeof(ulong);
+  /* The max size of the tombstone record is bounded by the max number of 
+     accounts that can be changed in a given slot. */
+  fd_funk_rec_key_t key            = fd_acc_mgr_tombstone_key();
+  fd_funk_rec_t *   tombstones     = fd_funk_rec_write_prepare( funk, txn, &key, FD_WRITABLE_ACCS_IN_SLOT * sizeof(fd_pubkey_t), 1, NULL, NULL );
+  uchar *           tombstone_rec  = fd_funk_val( tombstones, fd_funk_wksp( funk ) );
+  ulong *           tombestone_cnt = (ulong *)tombstone_rec;
+  uchar *           tombstone_data = tombstone_rec + sizeof(ulong);
   *tombestone_cnt = 0;
 
   for( ulong i = 0; i < task_data.info_sz; i++ ) {
