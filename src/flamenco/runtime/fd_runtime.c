@@ -2343,7 +2343,7 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     ulong txn_cnt = block_info->txn_cnt;
     fd_txn_p_t * txn_ptrs = fd_scratch_alloc( alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
 
-    /* This now collects the tick entries in a block */
+    /* This now collects the tick entries in a block. */
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
     /* TODO: Currently the tick height is manually updated for each executed 
@@ -2793,7 +2793,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
-    /* TODO: tmp change */
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -2805,8 +2804,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       fd_funk_start_write( funk );
       if( slot_ctx->epoch_ctx->constipate_root ) {
-        fd_funk_txn_t *p = fd_funk_txn_parent( txn, txnmap );
-        if( p != NULL ) {
+        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnmap );
+        if( parent != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
 
           if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( funk, txn, 1) != FD_FUNK_SUCCESS ) ) {
