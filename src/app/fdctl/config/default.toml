@@ -1042,6 +1042,21 @@ dynamic_port_range = "8900-9000"
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
+    # The event tile is responsible for reporting validator performance
+    # information and errors to a remote collection service.
+    [tiles.event]
+        # Event reporting is enabled by default to allow the developers
+        # to monitor the performance of the validator and to help
+        # diagnose and improve the network.  You can disable reporting,
+        # or redirect the traffic to a different endpoint.
+        enabled = true
+
+        # The HTTP URL of the remote collection server to POST events
+        # to.  If you wish to write a custom handler for this data, see
+        # metrics.json for details about the schema.  The port is
+        # optional, and will default to 7878 if not provided.
+        endpoint = "http://127.0.0.1:7878"
+
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]

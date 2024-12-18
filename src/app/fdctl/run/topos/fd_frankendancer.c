@@ -263,6 +263,20 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "votel_plugin", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
+  if( FD_LIKELY( config->tiles.event.enabled ) ) {
+    fd_topob_wksp( topo, "event"        );
+    fd_topob_wksp( topo, "event_sign"   );
+    fd_topob_wksp( topo, "sign_event"   );
+    fd_topob_link( topo, "event_sign",   "event_sign",   128UL,                                    32UL,                   1UL );
+    fd_topob_link( topo, "sign_event",   "sign_event",   128UL,                                    64UL,                   1UL );
+    /**/                 fd_topob_tile( topo, "event",   "event",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+
+    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "event_sign",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out( topo, "event",  0UL,                        "event_sign",     0UL                                                  );
+    /**/               fd_topob_tile_in(  topo, "event",  0UL,           "metric_in", "sign_event",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_event",     0UL                                                  );
+  }
+
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"          );
     /**/                 fd_topob_tile( topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
@@ -417,6 +431,14 @@ fd_topo_initialize( config_t * config ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
         FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) {
+      tile->event.enabled = config->tiles.event.enabled;
+      strncpy( tile->event.endpoint, config->tiles.event.endpoint, sizeof(tile->event.endpoint) );
+
+      tile->event.is_frankendancer = 1;
+      strncpy( tile->event.cluster, config->cluster, sizeof(tile->event.cluster) );
+      strncpy( tile->event.identity_key_path, config->consensus.identity_path, sizeof(tile->event.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "cswtch" ) ) ) {
 
