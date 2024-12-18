@@ -40,8 +40,8 @@ metric introduced.
 </enum>
 
 <common>
-    <gauge name="Pid" summary="The process ID of the tile." />
-    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
+    <gauge name="Pid" clickhouse_exclude="true" summary="The process ID of the tile." />
+    <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
     <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
@@ -222,18 +222,18 @@ metric introduced.
 <enum name="PackTimingState">
     <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
     <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
-    <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader?" />
-    <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader?" />
+    <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader" />
+    <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader" />
     <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
     <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
     <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
     <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
-    <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-    <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-    <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-    <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-    <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
-    <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
+    <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy" />
+    <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy" />
     <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
     <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
