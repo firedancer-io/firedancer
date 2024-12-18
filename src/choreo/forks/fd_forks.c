@@ -277,7 +277,9 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   /* Check the parent block is present in the blockstore and executed. */
 
+  fd_blockstore_start_read( blockstore );
   fd_block_t * block = fd_blockstore_block_query( blockstore, parent_slot );
+  fd_blockstore_end_read( blockstore );
   if( FD_UNLIKELY( !block ) ) {
     FD_LOG_WARNING(( "fd_forks_prepare missing parent_slot %lu", parent_slot ));
   }
