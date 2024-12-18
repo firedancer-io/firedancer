@@ -306,6 +306,91 @@ fd_tls_server_handshake( fd_tls_t const *      server,
   }
 }
 
+static long
+fd_tls_server_hs_retry( fd_tls_t const *              server,
+                        fd_tls_estate_srv_t *         handshake,
+                        fd_tls_client_hello_t const * ch,
+                        uchar const                   ch1_hash[32] ) {
+
+  if( FD_UNLIKELY( handshake->hello_retry ) ) {
+    /* Already retried but still no X25519 share */
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_ILLEGAL_PARAMETER, FD_TLS_REASON_SENDMSG_FAIL );
+  }
+  handshake->hello_retry = 1;
+
+  /* Message buffer */
+# define MSG_BUFSZ 512UL
+  uchar msg_buf[ MSG_BUFSZ ];
+
+  /* Transcript hasher (RetryHelloRequest variation)
+     https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.1 */
+  fd_sha256_t transcript; fd_sha256_init( &transcript );
+  uchar const transcript_prefix[] = { 254, 0x00, 0x00, 32 };
+  fd_sha256_append( &transcript, transcript_prefix, sizeof(transcript_prefix) );
+  fd_sha256_append( &transcript, ch1_hash, 32 );
+
+  /* Create HelloRetryRequest message */
+
+  ulong server_hello_sz;
+
+  do {
+    uchar *       wire     = msg_buf;
+    uchar * const wire_end = msg_buf + MSG_BUFSZ;
+
+    /* Leave space for message header */
+
+    void * hdr_ptr = wire;
+    wire += sizeof(fd_tls_msg_hdr_t);
+    fd_tls_msg_hdr_t hdr = { .type = FD_TLS_MSG_SERVER_HELLO };
+
+    /* Construct server hello */
+
+    fd_tls_server_hello_t sh = {
+      .cipher_suite = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256,
+      .key_share    = { .has_x25519 = 1 },
+      .session_id   = ch->session_id,
+    };
+    memcpy( sh.key_share.x25519, server->kex_public_key, 32UL );
+
+    /* Encode server hello */
+
+    long encode_res = fd_tls_encode_hello_retry_request( &sh, wire, (ulong)(wire_end-wire) );
+    if( FD_UNLIKELY( encode_res<0L ) )
+      return fd_tls_alert( &handshake->base, (uint)(-encode_res), FD_TLS_REASON_SH_ENCODE );
+    wire += (ulong)encode_res;
+
+    hdr.sz = fd_uint_to_tls_u24( (uint)encode_res );
+    fd_tls_encode_msg_hdr( &hdr, hdr_ptr, sizeof(fd_tls_msg_hdr_t) );
+    server_hello_sz = (ulong)(wire - msg_buf);
+  } while(0);
+
+  /* Call back with HelloRetryRequest */
+
+  if( FD_UNLIKELY( !server->sendmsg_fn(
+        handshake,
+        msg_buf, server_hello_sz,
+        FD_TLS_LEVEL_INITIAL,
+        /* flush */ 1 ) ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
+
+  /* Record HelloRetryRequest in transcript hash */
+
+  fd_sha256_append( &transcript, msg_buf, server_hello_sz );
+
+  /* Finish up ********************************************************/
+
+  /* Store transcript hash state */
+
+  fd_tls_transcript_store( &handshake->transcript, &transcript );
+
+  /* Done */
+
+  handshake->base.state = FD_TLS_HS_START;
+
+# undef MSG_BUFSZ
+  return (long)0L;
+}
+
 /* fd_tls_server_hs_start is invoked in response to the initial
    ClientHello.  We send back several messages in response, including
    - the ServerHello, completing cryptographic negotiation
@@ -335,7 +420,12 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   uchar msg_buf[ MSG_BUFSZ ];
 
   /* Transcript hasher */
-  fd_sha256_t transcript; fd_sha256_init( &transcript );
+  fd_sha256_t transcript;
+  if( handshake->hello_retry ) {
+    fd_tls_transcript_load( &handshake->transcript, &transcript );
+  } else {
+    fd_sha256_init( &transcript );
+  }
 
   /* Read client hello ************************************************/
 
@@ -404,6 +494,16 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Record client hello in transcript hash */
 
   fd_sha256_append( &transcript, record, read_sz );
+
+  /* Retry if key share is missing */
+
+  if( !ch.key_share.has_x25519 ) {
+    uchar ch1_hash[ 32 ];
+    fd_sha256_fini( &transcript, ch1_hash );
+    long rc = fd_tls_server_hs_retry( server, handshake, &ch, ch1_hash );
+    /**/ rc = fd_long_if( rc>=0, (long)read_sz, rc );
+    return rc;
+  }
 
   /* Respond with server hello ****************************************/
 
@@ -1699,6 +1799,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "unsupported cryptographic parameters (fd_tls only supports TLS 1.3, X25519, Ed25519, AES-128-GCM)";
   case FD_TLS_REASON_CH_NO_QUIC:
     return "client does not support QUIC (missing QUIC transport params)";
+  case FD_TLS_REASON_CH_RETRY_KS:
+    return "client didn't provide an X25519 key share even after a RetryHelloRequest";
   case FD_TLS_REASON_X25519_FAIL:
     return "X25519 key exchange failed";
   case FD_TLS_REASON_NO_X509:
