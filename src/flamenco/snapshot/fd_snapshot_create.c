@@ -40,7 +40,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      that were touched in the snapshot slot. This buffer can be safely sized to 
      the maximum amount of writable accounts that are possible in a non-epoch
      boundary slot. The rationale for this bound is explained in fd_runtime.h.
-     We will not attempt to create a snapshot on an epoch boundary. */
+     We will not attempt to create a snapshot on an epoch boundary. 
+     
+     TODO: We must add compaction here. */
 
   fd_pubkey_t * * snapshot_slot_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
   ulong           snapshot_slot_key_cnt = 0UL;
@@ -60,7 +62,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
   /* In order to size out the accounts DB index in the manifest, we must
      iterate through funk and accumulate the size of all of the records
-     from all slots before the snapshot_slot. slot */
+     from all slots before the snapshot_slot. */
 
   fd_funk_t * funk    = snapshot_ctx->acc_mgr->funk;
   ulong       prev_sz = 0UL;
