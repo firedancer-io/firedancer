@@ -228,11 +228,6 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
     slot_ctx->slot_bank.collected_execution_fees = 0;
     slot_ctx->slot_bank.collected_priority_fees = 0;
     slot_ctx->slot_bank.collected_rent = 0;
-    slot_ctx->txn_count = 0;
-    slot_ctx->nonvote_txn_count = 0;
-    slot_ctx->failed_txn_count = 0;
-    slot_ctx->nonvote_failed_txn_count = 0;
-    slot_ctx->total_compute_units_used = 0;
   }
 
 }

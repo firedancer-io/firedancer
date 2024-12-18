@@ -40,10 +40,7 @@ struct __attribute__((packed, aligned(8))) fd_replay_complete_msg {
 };
 typedef struct fd_replay_complete_msg fd_replay_complete_msg_t;
 
-#define FD_CLUSTER_NODE_CNT     (200U*201U - 1U)
-#define FD_GOSSIP_LINK_MSG_SIZE (58U + 12U * 6U)
-
-struct __attribute__((packed)) fd_gossip_update_msg {
+struct __attribute__((packed, aligned(8))) fd_gossip_update_msg {
   uchar  pubkey[32];			// 0..31
   ulong  wallclock; 			// 32..39
   ushort shred_version;			// 40..41
@@ -72,21 +69,5 @@ struct __attribute__((packed)) fd_gossip_update_msg {
   } addrs[12];
 };
 typedef struct fd_gossip_update_msg fd_gossip_update_msg_t;
-
-FD_STATIC_ASSERT( sizeof(fd_gossip_update_msg_t) == FD_GOSSIP_LINK_MSG_SIZE, fd_gossip_update_msg );
-
-struct __attribute__((packed)) fd_vote_update_msg {
-  uchar vote_pubkey[32];	// 0..31
-  uchar node_pubkey[32];	// 32..63
-  ulong activated_stake;	// 64..71
-  ulong last_vote;		// 72..79
-  ulong root_slot;		// 80..87
-  ulong epoch_credits;		// 88..95
-  uchar commission;		// 96
-  uchar is_delinquent;		// 97
-};
-typedef struct fd_vote_update_msg fd_vote_update_msg_t;
-
-FD_STATIC_ASSERT( sizeof(fd_vote_update_msg_t) <= FD_GOSSIP_LINK_MSG_SIZE, fd_vote_update_msg );
 
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

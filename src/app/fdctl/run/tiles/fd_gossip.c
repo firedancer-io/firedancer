@@ -550,56 +550,43 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 static void
 publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
+  static const ulong FIREDANCER_CLUSTER_NODE_CNT = 200*201 - 1;
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->gossip_plugin_out_mem, ctx->gossip_plugin_out_chunk );
 
   ulong i = 0;
   for( fd_contact_info_table_iter_t iter = fd_contact_info_table_iter_init( ctx->contact_info_table );
-       !fd_contact_info_table_iter_done( ctx->contact_info_table, iter ) && i < FD_CLUSTER_NODE_CNT;
+       !fd_contact_info_table_iter_done( ctx->contact_info_table, iter ) && i < FIREDANCER_CLUSTER_NODE_CNT;
        iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ), ++i ) {
     fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
-    fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
-    memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
+    fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*sizeof(fd_gossip_update_msg_t));
     memcpy( msg->pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
     msg->wallclock = ele->contact_info.wallclock;
     msg->shred_version = ele->contact_info.shred_version;
-#define COPY_ADDR( _idx_, _srcname_ )                                                  \
+#define COPY_ADDR( _idx_, _srcname_ )                                                    \
     if( ele->contact_info._srcname_.discriminant == fd_gossip_socket_addr_enum_ip4 ) { \
       msg->addrs[ _idx_ ].ip = ele->contact_info._srcname_.inner.ip4.addr;             \
       msg->addrs[ _idx_ ].port = ele->contact_info._srcname_.inner.ip4.port;           \
     }
-    /*
-      0:  gossip_socket,
-      1:  rpc_socket,
-      2:  rpc_pubsub_socket,
-      3:  serve_repair_socket_udp,
-      4:  serve_repair_socket_quic,
-      5:  tpu_socket_udp,
-      6:  tpu_socket_quic,
-      7:  tvu_socket_udp,
-      8:  tvu_socket_quic,
-      9:  tpu_forwards_socket_udp,
-      10: tpu_forwards_socket_quic,
-      11: tpu_vote_socket,
-    */
-    COPY_ADDR(0,  gossip);
-    COPY_ADDR(1,  rpc);
-    COPY_ADDR(2,  rpc_pubsub);
-    COPY_ADDR(3,  serve_repair);
-    COPY_ADDR(4,  serve_repair);
-    COPY_ADDR(5,  tpu);
-    COPY_ADDR(6,  tpu);
-    COPY_ADDR(7,  tvu);
-    COPY_ADDR(8,  tvu);
-    COPY_ADDR(9,  tpu_fwd);
-    COPY_ADDR(10, tpu_fwd);
+    COPY_ADDR(0, gossip);
+    COPY_ADDR(1, rpc);
+    COPY_ADDR(2, rpc_pubsub);
+    COPY_ADDR(3, repair);
+    // COPY_ADDR(4, serve_repair_socket_quic);  FIX THESE CASES
+    // COPY_ADDR(5, tpu_socket_udp);
+    // COPY_ADDR(6, tpu_socket_quic);
+    // COPY_ADDR(7, tvu_socket_udp);
+    // COPY_ADDR(8, tvu_socket_quic);
+    // COPY_ADDR(9, tpu_forwards_socket_udp);
+    // COPY_ADDR(10, tpu_forwards_socket_quic);
     COPY_ADDR(11, tpu_vote);
   }
 
   *(ulong *)dst = i;
+  ulong data_sz = i*sizeof(fd_gossip_update_msg_t);
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, PLUGIN_OUT_IDX, FD_PLUGIN_MSG_GOSSIP_UPDATE, ctx->gossip_plugin_out_chunk, 0, 0UL, 0UL, tspub );
-  ctx->gossip_plugin_out_chunk = fd_dcache_compact_next( ctx->gossip_plugin_out_chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->gossip_plugin_out_chunk0, ctx->gossip_plugin_out_wmark );
+  fd_stem_publish( stem, PLUGIN_OUT_IDX, FD_PLUGIN_MSG_GOSSIP_UPDATE, ctx->gossip_plugin_out_chunk, data_sz, 0UL, 0UL, tspub );
+  ctx->gossip_plugin_out_chunk = fd_dcache_compact_next( ctx->gossip_plugin_out_chunk, data_sz, ctx->gossip_plugin_out_chunk0, ctx->gossip_plugin_out_wmark );
 }
 
 static void
