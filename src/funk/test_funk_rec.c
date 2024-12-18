@@ -128,24 +128,15 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_modify( tst,  rec_map+rec_max      ) );
       FD_TEST( !fd_funk_rec_modify( tst,  (fd_funk_rec_t *)1UL ) );
 
-      FD_TEST( fd_funk_rec_remove( NULL, NULL,                  0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec, 0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  NULL,                  0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max,       0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL,  0 )==FD_FUNK_ERR_INVAL );
-
-      FD_TEST( fd_funk_rec_remove( NULL, NULL,                  1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec, 1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  NULL,                  1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max,       1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL,  1 )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, NULL                  )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  NULL                  )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max       )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL  )==FD_FUNK_ERR_INVAL );
 
       if( trec ) {
         if( is_frozen ) {
-          FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 0 )==FD_FUNK_ERR_FROZEN );
-          FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 1 )==FD_FUNK_ERR_FROZEN );
-        } else {
-          FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 0 )==FD_FUNK_ERR_XID );
+          FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_FROZEN );
         }
       }
 
@@ -257,21 +248,14 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_modify( tst,  rec_map+rec_max      ) );
       FD_TEST( !fd_funk_rec_modify( tst,  (fd_funk_rec_t *)1UL ) );
 
-      FD_TEST( fd_funk_rec_remove( NULL, NULL,                  0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec, 0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  NULL,                  0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max,       0 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL,  0 )==FD_FUNK_ERR_INVAL );
-
-      FD_TEST( fd_funk_rec_remove( NULL, NULL,                  1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec, 1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  NULL,                  1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max,       1 )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL,  1 )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, NULL                  )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( NULL, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  NULL                  )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  rec_map+rec_max       )==FD_FUNK_ERR_INVAL );
+      FD_TEST( fd_funk_rec_remove( tst,  (fd_funk_rec_t *)1UL  )==FD_FUNK_ERR_INVAL );
 
       if( trec && ttxn_is_frozen ) {
-        FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 0 )==FD_FUNK_ERR_FROZEN );
-        FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec, 1 )==FD_FUNK_ERR_FROZEN );
+        FD_TEST( fd_funk_rec_remove( tst, (fd_funk_rec_t *)trec )==FD_FUNK_ERR_FROZEN );
       }
 
       int err;
@@ -414,9 +398,7 @@ main( int     argc,
       }
       ulong rkey = rrec->key;
 
-      int erase = (!rxid) | (int)(r & 1U); r >>= 1;
-
-      rec_remove( ref, rrec, erase );
+      rec_remove( ref, rrec );
 
       fd_funk_txn_t const * ttxn = rxid ? fd_funk_txn_query( xid_set( txid, rxid ), txn_map ) : NULL;
       fd_funk_rec_t const * trec = fd_funk_rec_query( tst, ttxn, key_set( tkey, rkey ) );
@@ -424,7 +406,7 @@ main( int     argc,
 
       fd_funk_rec_t * _trec = fd_funk_rec_modify( tst, trec );
       FD_TEST( trec==(fd_funk_rec_t const *)_trec );
-      FD_TEST( !fd_funk_rec_remove( tst, _trec, erase ) );
+      FD_TEST( !fd_funk_rec_remove( tst, _trec ) );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 

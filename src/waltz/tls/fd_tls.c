@@ -985,8 +985,6 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .signature_algorithms = { .ed25519=1 },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
-      .server_cert_types    = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
-      .client_cert_types    = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
       .quic_tp = {
         .buf   = (quic_tp_sz>=0L) ? quic_tp            : NULL,
         .bufsz = (quic_tp_sz>=0L) ? (ushort)quic_tp_sz : 0,

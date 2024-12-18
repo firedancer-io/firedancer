@@ -17,6 +17,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+mod blaster;
+
 #[allow(non_upper_case_globals)]
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
@@ -386,6 +388,7 @@ static USAGE: &str = r"Usage: ./firedancer-agave-quic-test <command>
 
 Available commands are:
 
+  blast:       Flood target with MTU-size QUIC streams
   ping-server: Ping solana_client to fd_quic server
   ping-client: Ping fd_quic client to solana_streamer server
   spam-server: Benchmark single solana_streamer client to fd_quic server";
@@ -410,6 +413,15 @@ fn main() {
     }
 
     match arg.as_str() {
+        "blast" => {
+            let arg = if let Some(arg) = std::env::args().nth(2) {
+                arg
+            } else {
+                eprintln!("Usage firedancer-agave-quic-test blast <endpoint:port>");
+                std::process::exit(1);
+            };
+            blaster::blast(arg);
+        }
         "ping-server" => unsafe { agave_to_fdquic() },
         "ping-client" => unsafe { fdquic_to_agave() },
         "spam-server" => unsafe { agave_to_fdquic_bench() },

@@ -522,15 +522,13 @@ main( int     argc,
       }
       ulong rkey = rrec->key;
 
-      int erase = (!rxid) | (int)(r & 1U); r >>= 1;
-
-      rec_remove( ref, rrec, erase );
+      rec_remove( ref, rrec );
 
       fd_funk_txn_t const * ttxn = rxid ? fd_funk_txn_query( xid_set( txid, rxid ), txn_map ) : NULL;
       fd_funk_rec_t const * trec = fd_funk_rec_query( tst, ttxn, key_set( tkey, rkey ) );
 
       fd_funk_rec_t * _trec = fd_funk_rec_modify( tst, trec );
-      FD_TEST( !fd_funk_rec_remove( tst, _trec, erase ) );
+      FD_TEST( !fd_funk_rec_remove( tst, _trec ) );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 
