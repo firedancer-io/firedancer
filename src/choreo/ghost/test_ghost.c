@@ -1,4 +1,5 @@
 #include "fd_ghost.h"
+#include <math.h>
 #include <stdlib.h>
 
 #define INSERT( c, p )                                                                             \
@@ -373,8 +374,93 @@ test_ghost_head( fd_wksp_t * wksp ){
   fd_wksp_free_laddr( mem );
 }
 
+void test_ghost_vote_leaves( fd_wksp_t * wksp ){
+  /* one validator */
+  ulong node_max = 8;
+  ulong vote_max = 8;
+  int depth = 3;
+
+  void * mem = fd_wksp_alloc_laddr( wksp,
+                                    fd_ghost_align(),
+                                    fd_ghost_footprint( node_max, vote_max ),
+                                    1UL );
+  FD_TEST( mem ); 
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, vote_max, 0UL ) );
+
+  fd_ghost_init( ghost, 0, 40 );
+  fd_pubkey_t pk = { .key = { 0 } };
+
+  /* full tree */
+
+  for( ulong i = 1; i < node_max - 1; i++){
+    fd_ghost_insert( ghost, i, (i - 1) / 2 );
+  }
+
+  /* vote along leaves */
+
+  ulong first_leaf = (ulong) (pow(2, (depth - 1)) - 1);
+  for( ulong i = first_leaf; i < node_max - 1; i++){
+    fd_ghost_replay_vote( ghost, i, &pk, 10);
+  }
+
+  fd_ghost_print( ghost );
+
+  ulong path[depth];
+  ulong leaf = node_max - 2;
+  for( int i = depth - 1; i >= 0; i--){
+    path[i] = leaf;
+    leaf = (leaf - 1) / 2;
+  }
+
+  /* check weights and stakes */
+  int j = 0;
+  for( ulong i = 0; i < node_max - 1; i++){
+    fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
+    if ( i == node_max - 2){
+      FD_TEST( node->stake == 10 );
+    } else {
+      FD_TEST( node->stake == 0 );
+    }
+
+    if ( i == path[j] ){
+      FD_TEST( node->weight == 10 );
+      j++;
+    } else {
+      FD_TEST( node->weight == 0 );
+    }
+  }
+
+  /* have other validators vote for rest of leaves */
+  for ( ulong i = first_leaf; i < node_max - 2; i++){
+    fd_pubkey_t pk = { .key = { (uchar)i } };
+    fd_ghost_replay_vote( ghost, i, &pk, 10);
+  }
+
+  fd_ghost_print( ghost );
+
+    /* check weights and stakes */
+  for( ulong i = 0; i < node_max - 1; i++){
+    fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
+    if ( i >= first_leaf){
+      FD_TEST( node->stake == 10 );
+    } else {
+      FD_TEST( node->stake == 0 );
+    }
+
+    if ( i >= first_leaf){
+      FD_TEST( node->weight == 10 );
+    } else {
+      FD_TEST( node->weight > 10);
+    }
+  }
+
+  FD_TEST( fd_ghost_verify( ghost ) );
+
+  fd_ghost_print( ghost );
+}
+
 void
-test_ghost_head_bst( fd_wksp_t * wksp ){
+test_ghost_head_full_tree( fd_wksp_t * wksp ){
   ulong  node_max = 16;
   ulong  vote_max = 16;
   void * mem      = fd_wksp_alloc_laddr( wksp,
@@ -386,15 +472,46 @@ test_ghost_head_bst( fd_wksp_t * wksp ){
 
   ulong slots[node_max];
   ulong parent_slots[node_max];
-  ulong i = 0;
 
-  fd_ghost_init( ghost, 1, 100 );
-  INSERT( 11, 10 );
-  INSERT( 12, 10 );
-  INSERT( 13, 11 );
+  fd_ghost_init( ghost, 0, 120 );
+  FD_LOG_NOTICE(( "ghost node max: %lu", fd_ghost_node_pool_max( fd_ghost_node_pool( ghost ) ) ));
 
+  for ( ulong i = 1; i < node_max - 1; i++ ) {
+    slots[i]        = i;
+    parent_slots[i] = (i - 1)/2;
+    fd_ghost_insert( ghost, slots[i], parent_slots[i] );
+    fd_pubkey_t pk = { .key = { ( uchar )i } };
+    fd_ghost_replay_vote( ghost, i, &pk, i);
+  }
 
+  for ( ulong i = 0; i < node_max - 1; i++ ) {
+    fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
+    FD_TEST( node->stake == i );
+  }
 
+  FD_TEST( fd_ghost_verify( ghost ) );
+
+  fd_ghost_print( ghost );
+  fd_ghost_node_t const * head = fd_ghost_head( ghost );
+
+  FD_LOG_NOTICE(( "head slot %lu", head->slot ));
+
+  // head will always be rightmost node in this complete binary tree
+
+  FD_TEST( head->slot == node_max - 2 );
+
+  // add one more nodes
+
+  fd_ghost_insert( ghost, node_max - 1, (node_max - 2)/2 );
+  fd_pubkey_t pk = { .key = { (uchar)(node_max - 1) } };
+  fd_ghost_replay_vote( ghost, node_max - 1, &pk, node_max - 1);
+
+  FD_TEST( fd_ghost_verify( ghost ) );
+  fd_ghost_print( ghost );
+  head = fd_ghost_head( ghost );
+  FD_TEST( head->slot == 14 );
+
+  // adding one more node would fail.
 }
 
 int
@@ -421,6 +538,7 @@ main( int argc, char ** argv ) {
   test_ghost_publish_left( wksp );
   test_ghost_publish_right( wksp );
   test_ghost_gca( wksp );
+  test_ghost_vote_leaves( wksp );
 
   fd_halt();
   return 0;
