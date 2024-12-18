@@ -146,7 +146,7 @@
   {"name":"prevent_rent_paying_rent_recipients","pubkey": "Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF","cleaned_up":[1,18,0]},
   {"name":"delay_visibility_of_program_deployment","pubkey": "GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5","cleaned_up":[1,18,0]},
   {"name":"apply_cost_tracker_during_replay","pubkey": "2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj"},
-  {"name":"bpf_account_data_direct_mapping","pubkey": "EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33"},
+  {"name":"bpf_account_data_direct_mapping","pubkey": "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq","old": "EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33"},
   {"name":"add_set_tx_loaded_accounts_data_size_instruction","pubkey": "G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6","cleaned_up":[1,18,0]},
   {"name":"switch_to_new_elf_parser","pubkey": "Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD"},
   {"name":"round_up_heap_size","pubkey": "CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y","cleaned_up":[1,18,0]},
