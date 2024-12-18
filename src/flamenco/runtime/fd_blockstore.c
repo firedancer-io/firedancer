@@ -661,7 +661,6 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   return;
 }
 
-/* Remove all the unassembled shreds for a slot */
 int
 fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_map_t * block_map       = fd_blockstore_block_map( blockstore );

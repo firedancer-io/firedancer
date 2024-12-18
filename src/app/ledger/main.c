@@ -340,7 +340,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
 
     /* If we have reached a new block, load one in from rocksdb to the blockstore */
-    if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
+    fd_blockstore_start_read( blockstore );
+    fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+    fd_blockstore_end_read( blockstore );
+    if( block == NULL && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
                                                     ledger_args->copy_txn_status, slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL );
       if( FD_UNLIKELY( err ) ) {
