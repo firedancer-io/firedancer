@@ -15,8 +15,10 @@ class Tile(Enum):
     STORE = 9
     SIGN = 10
     METRIC = 11
-    PLUGIN = 12
-    GUI = 13
+    CSWTCH = 12
+    EVENT = 13
+    PLUGIN = 14
+    GUI = 15
 
 class MetricType(Enum):
     COUNTER = 0
@@ -39,11 +41,12 @@ class MetricEnum:
         self.values = values
 
 class Metric:
-    def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str):
+    def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
         self.type = type
         self.name = name
         self.tile = tile
         self.description = description
+        self.clickhouse_exclude = clickhouse_exclude
         self.offset = 0
 
     def footprint(self) -> int:
@@ -53,16 +56,16 @@ class Metric:
         return 1
 
 class CounterMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str):
-        super().__init__(MetricType.COUNTER, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
+        super().__init__(MetricType.COUNTER, name, tile, description, clickhouse_exclude)
 
 class GaugeMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str):
-        super().__init__(MetricType.GAUGE, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
+        super().__init__(MetricType.GAUGE, name, tile, description, clickhouse_exclude)
 
 class HistogramMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter, min: str, max: str):
-        super().__init__(MetricType.HISTOGRAM, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, converter: HistogramConverter, min: str, max: str):
+        super().__init__(MetricType.HISTOGRAM, name, tile, description, clickhouse_exclude)
 
         self.converter = converter
         self.min = min
@@ -72,8 +75,8 @@ class HistogramMetric(Metric):
         return 136
 
 class CounterEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum):
-        super().__init__(MetricType.COUNTER, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, enum: MetricEnum):
+        super().__init__(MetricType.COUNTER, name, tile, description, clickhouse_exclude)
 
         self.enum = enum
 
@@ -84,8 +87,8 @@ class CounterEnumMetric(Metric):
         return len(self.enum.values)
 
 class GaugeEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum):
-        super().__init__(MetricType.GAUGE, name, tile, description)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, enum: MetricEnum):
+        super().__init__(MetricType.GAUGE, name, tile, description, clickhouse_exclude)
 
         self.enum = enum
 
@@ -140,16 +143,20 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
     elif 'summary' in metric.attrib:
         description = metric.attrib['summary']
 
+    clickhouse_exclude = False
+    if 'clickhouse_exclude' in metric.attrib:
+        clickhouse_exclude = metric.attrib['clickhouse_exclude'] == 'true'
+
     if metric.tag == 'counter':
         if 'enum' in metric.attrib:
-            return CounterEnumMetric(name, tile, description, enums[metric.attrib['enum']])
+            return CounterEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']])
         else:
-            return CounterMetric(name, tile, description)
+            return CounterMetric(name, tile, description, clickhouse_exclude)
     elif metric.tag == 'gauge':
         if 'enum' in metric.attrib:
-            return GaugeEnumMetric(name, tile, description, enums[metric.attrib['enum']])
+            return GaugeEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']])
         else:
-            return GaugeMetric(name, tile, description)
+            return GaugeMetric(name, tile, description, clickhouse_exclude)
     elif metric.tag == 'histogram':
         converter = None
         if 'converter' in metric.attrib:
@@ -160,7 +167,7 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
         min = metric.attrib['min']
         max = metric.attrib['max']
 
-        return HistogramMetric(name, tile, description, converter, min, max)
+        return HistogramMetric(name, tile, description, clickhouse_exclude, converter, min, max)
     else:
         raise Exception(f'Unknown metric type: {metric.tag}')
 
