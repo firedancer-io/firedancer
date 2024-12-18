@@ -112,25 +112,6 @@ fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
   return (fd_pubkey_t const *)fd_type_pun_const( id->c );
 }
 
-static inline fd_funk_rec_key_t
-fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
-  fd_funk_rec_key_t id;
-  memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
-  memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funk_rec_key_t) - sizeof(fd_pubkey_t) );
-
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
-
-  return id;
-}
-
-static inline fd_funk_rec_key_t
-fd_acc_mgr_tombstone_key( void ) {
-  fd_funk_rec_key_t id = {0};
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_TOMBSTONES;
-
-  return id;
-}
-
 /* Account Access API *************************************************/
 
 static inline void
