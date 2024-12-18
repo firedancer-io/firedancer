@@ -381,6 +381,14 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
     } else {
 
       /* Subtract pubkey's stake from the prev voted slot hash and propagate. */
+      int cf = __builtin_usubl_overflow( node->stake, latest_vote->stake, &node->stake );
+      if( FD_UNLIKELY( cf ) ) {
+        FD_LOG_WARNING(( "[%s] sub overflow. node->stake %lu latest_vote->stake %lu",
+                         __func__,
+                         node->stake,
+                         latest_vote->stake ));
+        node->stake = 0;
+      }
 
       FD_LOG_DEBUG(( "[ghost] removing (%s, %lu, %lu)",
                       FD_BASE58_ENC_32_ALLOCA( pubkey ),
@@ -426,10 +434,17 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
 
   /* Propagate the vote stake up the ancestry, including updating the
      head. */
+  FD_LOG_DEBUG(( "[ghost] adding (%s, %lu, %lu)", FD_BASE58_ENC_32_ALLOCA( pubkey ), stake, latest_vote->slot ));
+  int cf = __builtin_uaddl_overflow( node->stake, latest_vote->stake, &node->stake );
+  if( FD_UNLIKELY( cf ) ) {
+    FD_LOG_ERR(( "[%s] add overflow. node->stake %lu latest_vote->stake %lu",
+                 __func__,
+                 node->stake,
+                 latest_vote->stake ));
+  }
 
   fd_ghost_node_t * ancestor = node;
   while( ancestor ) {
-    FD_LOG_NOTICE(("adding %lu to ancestor %lu", latest_vote->stake, ancestor->slot));
     int cf = __builtin_uaddl_overflow( ancestor->weight, latest_vote->stake, &ancestor->weight );
     if( FD_UNLIKELY( cf ) ) {
       FD_LOG_ERR(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu",
