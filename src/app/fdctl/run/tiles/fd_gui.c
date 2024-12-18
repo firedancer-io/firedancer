@@ -22,6 +22,7 @@
 #include "../../../../disco/gui/fd_gui.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../ballet/http/fd_http_server.h"
+#include "../../../../ballet/json/cJSON.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -85,6 +86,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( GUI_PARAMS ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
   ulong sz = FD_LAYOUT_FINI( l, scratch_align() );
 
 # if FD_HAS_ZSTD
@@ -105,10 +107,11 @@ dist_file_sz( void ) {
   return tot_sz;
 }
 
-static inline ulong
+FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_FN_UNUSED ) {
   /* Reserve total size of files for compression buffers */
-  return fd_spad_footprint( dist_file_sz() );
+  return fd_spad_footprint( dist_file_sz() ) +
+    256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
 }
 
 static int
@@ -347,6 +350,26 @@ pre_compress_files( fd_wksp_t * wksp,
 
 #endif /* FD_HAS_ZSTD */
 
+static FD_TL fd_alloc_t * cjson_alloc_ctx;
+
+static void *
+cjson_alloc( ulong sz ) {
+  if( FD_LIKELY( cjson_alloc_ctx ) ) {
+    return fd_alloc_malloc( cjson_alloc_ctx, 8UL, sz );
+  } else {
+    return malloc( sz );
+  }
+}
+
+static void
+cjson_free( void * ptr ) {
+  if( FD_LIKELY( cjson_alloc_ctx ) ) {
+    fd_alloc_free( cjson_alloc_ctx, ptr );
+  } else {
+    free( ptr );
+  }
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -364,12 +387,21 @@ unprivileged_init( fd_topo_t *      topo,
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
+  void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),       fd_alloc_footprint() );
 
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%lu.%lu.%lu", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
 
   ctx->topo = topo;
   ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, tile->gui.is_voting, ctx->topo ) );
   FD_TEST( ctx->gui );
+  
+  cjson_alloc_ctx = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+  FD_TEST( cjson_alloc_ctx );
+  cJSON_Hooks hooks = {
+    .malloc_fn = cjson_alloc,
+    .free_fn   = cjson_free,
+  };
+  cJSON_InitHooks( &hooks );
 
   fd_topo_link_t * link = &topo->links[ tile->in_link_id[ 0 ] ];
   fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
