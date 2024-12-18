@@ -528,7 +528,7 @@ main( int     argc,
       fd_funk_rec_t const * trec = fd_funk_rec_query( tst, ttxn, key_set( tkey, rkey ) );
 
       fd_funk_rec_t * _trec = fd_funk_rec_modify( tst, trec );
-      FD_TEST( !fd_funk_rec_remove( tst, _trec ) );
+      FD_TEST( !fd_funk_rec_remove( tst, _trec, 0UL ) );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 

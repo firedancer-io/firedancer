@@ -537,7 +537,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_memcpy( tombstone_data + *tombestone_cnt * sizeof(fd_pubkey_t), task_info->acc_pubkey, sizeof(fd_pubkey_t) );
     *tombestone_cnt += 1UL;
-    fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, task_info->rec ) );
+    fd_funk_rec_remove( funk, fd_funk_rec_modify(funk, task_info->rec), task_info->rec->pair.xid->ul[0] );
   }
 
   // Sanity-check LT Hash
