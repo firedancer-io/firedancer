@@ -33,6 +33,10 @@ fd_gui_printf_skip_rate( fd_gui_t * gui,
                          ulong      epoch_idx );
 
 void
+fd_gui_printf_first_processed_slot( fd_gui_t * gui,
+                                    ulong      epoch_idx );
+
+void
 fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx );
 

@@ -152,6 +152,8 @@ fd_gui_ws_open( fd_gui_t * gui,
       FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
       fd_gui_printf_epoch( gui, i );
       FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+      fd_gui_printf_first_processed_slot( gui, i );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     }
   }
 
@@ -1008,6 +1010,11 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->completed_time         = LONG_MAX;
 
   if( FD_LIKELY( slot->mine ) ) {
+    if( FD_UNLIKELY( gui->epoch.epochs[ epoch_idx ].my_total_slots==0 ) ) {
+      gui->epoch.epochs[ epoch_idx ].my_first_processed_slot = slot->slot;
+      fd_gui_printf_first_processed_slot( gui, epoch_idx );
+      fd_http_server_ws_broadcast( gui->http );
+    }
     /* All slots start off not skipped, until we see it get off the reset
        chain. */
     gui->epoch.epochs[ epoch_idx ].my_total_slots++;
@@ -1035,12 +1042,13 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.has_epoch[ idx ] = 1;
 
 
-  gui->epoch.epochs[ idx ].epoch            = epoch;
-  gui->epoch.epochs[ idx ].start_slot       = start_slot;
-  gui->epoch.epochs[ idx ].end_slot         = start_slot + slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
-  gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
-  gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+  gui->epoch.epochs[ idx ].epoch                   = epoch;
+  gui->epoch.epochs[ idx ].start_slot              = start_slot;
+  gui->epoch.epochs[ idx ].end_slot                = start_slot + slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].excluded_stake          = excluded_stake;
+  gui->epoch.epochs[ idx ].my_total_slots          = 0UL;
+  gui->epoch.epochs[ idx ].my_skipped_slots        = 0UL;
+  gui->epoch.epochs[ idx ].my_first_processed_slot = ULONG_MAX;
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                epoch,
