@@ -303,7 +303,7 @@ fd_account_hash_task( void *tpool,
   int err = 0;
   fd_funk_txn_t const * txn_out = NULL;
   fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err, &txn_out );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || !acc_meta ) ) {
     FD_LOG_WARNING(( "failed to view account during bank hash" ));
     return;
   }
@@ -736,7 +736,8 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
   for( ulong i = num_iter_accounts; i; --i ) {
     fd_funk_rec_t const * rec = rec_map + (i-1UL);
     if ( ( rec->map_next >> 63 ) /* unused map entry */ ||
-         !fd_funk_key_is_acc( rec->pair.key ) /* not a solana record */ ||
+         !fd_funk_key_is_acc( rec->pair.key ) || /* not a solana record */
+         ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) || /* this is a tombstone */
          ( rec->pair.xid->ul[0] | rec->pair.xid->ul[1] ) != 0 /* not root xid */ ) {
       continue;
     }
@@ -890,7 +891,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
   fd_scratch_push();
 
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
-    if ( !fd_funk_key_is_acc( rec->pair.key ) )
+    if ( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
       continue;
 
     fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
@@ -1015,7 +1016,7 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
     for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
          NULL != rec;
          rec = fd_funk_txn_next_rec(funk, rec)) {
-      if ( fd_funk_key_is_acc( rec->pair.key ) ) {
+      if ( fd_funk_key_is_acc( rec->pair.key ) && !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
         accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
         if (NULL != q)
           accounts_hash_remove(hash_map, q);
