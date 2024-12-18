@@ -892,8 +892,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index      = offsetof(fd_features_t, bpf_account_data_direct_mapping)>>3,
-    .id         = {"\xca\xd6\x68\xb3\x88\x01\x19\x3f\x7e\xd4\xde\x26\xdc\x1c\x53\x2b\xf9\x20\x07\x6e\x3c\xe0\xd5\x2a\x8d\x88\x8b\x25\xda\xb6\x88\xd2"},
-                  /* EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33 */
+    .id         = {"\xe3\x5a\x16\xee\xe9\x8e\x13\xd7\x1e\x4e\x93\xe2\x30\x83\x0d\x5e\x21\x50\xef\x16\x78\x38\x38\xfe\x63\xae\xba\xaa\x3d\x20\x2c\xf0"},
+                  /* GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq */
     .name       = "bpf_account_data_direct_mapping",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1401,7 +1401,6 @@ fd_feature_id_query( ulong prefix ) {
   case 0x073a0a7d3f570b55: return &ids[  82 ];
   case 0x4d6ae02c256bdf10: return &ids[  83 ];
   case 0x5bf898a97b29c67f: return &ids[  84 ];
-  case 0x2e2d4501d149cd2c: return &ids[  84 ];
   case 0xe8f10f26141749dd: return &ids[  85 ];
   case 0xe02ac5f848d395d8: return &ids[  86 ];
   case 0x7b285d0430faf2fc: return &ids[  87 ];
@@ -1464,7 +1463,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8ff9cf8537529ed8: return &ids[ 144 ];
   case 0xd6120d1b80de5fea: return &ids[ 145 ];
   case 0xca9ab2701c9aa81b: return &ids[ 146 ];
-  case 0x3f190188b368d6ca: return &ids[ 147 ];
+  case 0xd7138ee9ee165ae3: return &ids[ 147 ];
   case 0x55d3a0c392cf63e0: return &ids[ 148 ];
   case 0x0e7aa95037c5daac: return &ids[ 149 ];
   case 0xe2d13039d5f9c6a6: return &ids[ 150 ];
@@ -1481,7 +1480,6 @@ fd_feature_id_query( ulong prefix ) {
   case 0x81b8fd99bea25f9b: return &ids[ 161 ];
   case 0x3cbf822ccb2eebd4: return &ids[ 162 ];
   case 0xe9d32123513c4d0d: return &ids[ 163 ];
-  case 0x86fa44f01141c71a: return &ids[ 163 ];
   case 0x64205286d7935342: return &ids[ 164 ];
   case 0x97f912be04ecd673: return &ids[ 165 ];
   case 0x4b241cb4c6f3b3b2: return &ids[ 166 ];
