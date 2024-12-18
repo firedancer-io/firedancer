@@ -106,7 +106,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_replay.o: src/app/fdctl/run/tiles/generated
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_sender.o: src/app/fdctl/run/tiles/generated/sender_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_eqvoc.o: src/app/fdctl/run/tiles/generated/eqvoc_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_rpcserv.o: src/app/fdctl/run/tiles/generated/rpcserv_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_snaps.o: src/app/fdctl/run/tiles/generated/snaps_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_snaps.o: src/app/fdctl/run/tiles/generated/snapshot_seccomp.h
 endif
 
 check-agave-hash:
