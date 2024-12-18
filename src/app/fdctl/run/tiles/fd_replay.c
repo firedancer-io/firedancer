@@ -50,7 +50,6 @@
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
-#define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
@@ -63,7 +62,6 @@
 #define STORE_OUT_IDX  (4UL)
 #define POH_OUT_IDX    (5UL)
 #define REPLAY_PLUG_OUT_IDX (6UL)
-#define VOTES_PLUG_OUT_IDX (7UL)
 
 /* Scratch space estimates.
    TODO: Update constants and add explanation
@@ -172,12 +170,6 @@ struct fd_replay_tile_ctx {
   ulong       replay_plugin_out_chunk0;
   ulong       replay_plugin_out_wmark;
   ulong       replay_plugin_out_chunk;
-
-  fd_wksp_t * votes_plugin_out_mem;
-  ulong       votes_plugin_out_chunk0;
-  ulong       votes_plugin_out_wmark;
-  ulong       votes_plugin_out_chunk;
-  long        last_plugin_push_time;
 
   char const * blockstore_checkpt;
   int          tx_metadata_storage;
@@ -723,11 +715,11 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   if( ctx->replay_plugin_out_mem ) {
     fd_replay_complete_msg_t msg2 = {
       .slot = curr_slot,
-      .total_txn_count = fork->slot_ctx.txn_count,
-      .nonvote_txn_count = fork->slot_ctx.nonvote_txn_count,
-      .failed_txn_count = fork->slot_ctx.failed_txn_count,
-      .nonvote_failed_txn_count = fork->slot_ctx.nonvote_failed_txn_count,
-      .compute_units = fork->slot_ctx.total_compute_units_used,
+      .total_txn_count = fork->slot_ctx.slot_bank.transaction_count - fork->slot_ctx.parent_transaction_count,
+      .nonvote_txn_count = 0,
+      .failed_txn_count = 0,
+      .nonvote_failed_txn_count = 0,
+      .compute_units = 0,
       .transaction_fee = fork->slot_ctx.slot_bank.collected_execution_fees,
       .priority_fee = fork->slot_ctx.slot_bank.collected_priority_fees,
       .parent_slot = ctx->parent_slot,
@@ -1049,11 +1041,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     if( flags & REPLAY_FLAG_FINISHED_BLOCK ) {
-      fork->slot_ctx.txn_count = fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count;
       FD_LOG_INFO(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
                     curr_slot,
                     ctx->parent_slot,
-                    fork->slot_ctx.txn_count,
+                    fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count,
                     FD_BASE58_ENC_32_ALLOCA( ctx->blockhash.uc ) ));
       // Copy over latest blockhash to slot_bank poh for updating the sysvars
       fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
@@ -1524,39 +1515,6 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   FD_TEST( ctx->slot_ctx );
 }
 
-static void
-publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
-                         fd_stem_context_t *    stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out_mem, ctx->votes_plugin_out_chunk );
-
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY ( !fork  ) ) return;
-  fd_vote_accounts_t * accts = &fork->slot_ctx.slot_bank.epoch_stakes;
-  fd_vote_accounts_pair_t_mapnode_t * root = accts->vote_accounts_root;
-  fd_vote_accounts_pair_t_mapnode_t * pool = accts->vote_accounts_pool;
-
-  ulong i = 0;
-  for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( pool, root );
-       n && i < FD_CLUSTER_NODE_CNT;
-       n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
-    if( n->elem.stake == 0 ) continue;
-    fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
-    memset( msg, 0, 112U );
-    memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
-    memcpy( msg->node_pubkey, n->elem.value.node_pubkey.uc, sizeof(fd_pubkey_t) );
-    msg->activated_stake = n->elem.stake;
-    msg->last_vote = n->elem.value.last_timestamp_slot;
-    msg->is_delinquent = (uchar)(msg->last_vote == 0);
-    ++i;
-  }
-
-  *(ulong *)dst = i;
-
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, VOTES_PLUG_OUT_IDX, FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE, ctx->votes_plugin_out_chunk, 0, 0UL, 0UL, tspub );
-  ctx->votes_plugin_out_chunk = fd_dcache_compact_next( ctx->votes_plugin_out_chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->votes_plugin_out_chunk0, ctx->votes_plugin_out_wmark );
-}
-
 /* after_credit runs on every iteration of the replay tile loop except
    when backpressured.
 
@@ -1634,13 +1592,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, buf_len, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
     }
   }
-
-  long now = fd_log_wallclock();
-  if( ctx->votes_plugin_out_mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
-    ctx->last_plugin_push_time = now;
-    publish_votes_to_plugin( ctx, stem );
-  }
-
 }
 
 static void
@@ -2101,19 +2052,10 @@ unprivileged_init( fd_topo_t *      topo,
     if( strcmp( replay_plugin_out->name, "replay_plugi" ) ) {
       FD_LOG_ERR(("output link confusion for output %lu", REPLAY_PLUG_OUT_IDX));
     }
-    ctx->replay_plugin_out_mem    = topo->workspaces[ topo->objs[ replay_plugin_out->dcache_obj_id ].wksp_id ].wksp;
-    ctx->replay_plugin_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_plugin_out_mem, replay_plugin_out->dcache );
-    ctx->replay_plugin_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_plugin_out_mem, replay_plugin_out->dcache, replay_plugin_out->mtu );
-    ctx->replay_plugin_out_chunk  = ctx->replay_plugin_out_chunk0;
-
-    fd_topo_link_t const * votes_plugin_out = &topo->links[ tile->out_link_id[ VOTES_PLUG_OUT_IDX] ];
-    if( strcmp( votes_plugin_out->name, "votes_plugin" ) ) {
-      FD_LOG_ERR(("output link confusion for output %lu", VOTES_PLUG_OUT_IDX));
-    }
-    ctx->votes_plugin_out_mem    = topo->workspaces[ topo->objs[ votes_plugin_out->dcache_obj_id ].wksp_id ].wksp;
-    ctx->votes_plugin_out_chunk0 = fd_dcache_compact_chunk0( ctx->votes_plugin_out_mem, votes_plugin_out->dcache );
-    ctx->votes_plugin_out_wmark  = fd_dcache_compact_wmark ( ctx->votes_plugin_out_mem, votes_plugin_out->dcache, votes_plugin_out->mtu );
-    ctx->votes_plugin_out_chunk  = ctx->votes_plugin_out_chunk0;
+    ctx->replay_plugin_out_mem         = topo->workspaces[ topo->objs[ replay_plugin_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->replay_plugin_out_chunk0      = fd_dcache_compact_chunk0( ctx->replay_plugin_out_mem, replay_plugin_out->dcache );
+    ctx->replay_plugin_out_wmark       = fd_dcache_compact_wmark ( ctx->replay_plugin_out_mem, replay_plugin_out->dcache, replay_plugin_out->mtu );
+    ctx->replay_plugin_out_chunk       = ctx->replay_plugin_out_chunk0;
   }
 
   if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {
