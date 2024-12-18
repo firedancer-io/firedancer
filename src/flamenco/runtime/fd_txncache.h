@@ -205,8 +205,7 @@
    when we root a slot to when the status cache is done getting serialized into
    the snapshot format. This SHOULD be enough time because serializing the 
    status cache into a Solana snapshot is done on the order of seconds and is
-   one of the first things that is done during snapshot creation. 
-   TODO:FIXME: flush right after we are done with the stuff here. */
+   one of the first things that is done during snapshot creation. */
 
 #define FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS (1024UL)
 
@@ -318,8 +317,7 @@ fd_txncache_register_root_slot( fd_txncache_t * tc,
    fd_txncache_register_root_slot. This means that older root slots will not
    get purged nor will the newer root slots actually be rooted. All the slots
    that are marked as constipated will be flushed down to the set of rooted
-   slots when fd_txncache_flush_constipated_slots is called.
-   */
+   slots when fd_txncache_flush_constipated_slots is called. */
 
 void
 fd_txncache_register_constipated_slot( fd_txncache_t * tc,
@@ -434,7 +432,7 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
    probably be changed in the future. */
 
 int
-fd_txncache_get_entries( fd_txncache_t * tc,
+fd_txncache_get_entries( fd_txncache_t *         tc,
                          fd_bank_slot_deltas_t * bank_slot_deltas );
 
 /* fd_txncache_{is,set}_constipated is used to set and determine if the 

@@ -111,7 +111,10 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
 
   ulong  root_slots_max;
   ulong  live_slots_max;
-  ulong  constipated_slots_max;
+  ulong  constipated_slots_max; /* The max number of constipated slots that the txncache will support
+                                   while in a constipated mode. If this gets exceeded, this means
+                                   that the txncache was in a constipated state for too long without
+                                   being flushed. */
   ushort txnpages_per_blockhash_max;
   uint   txnpages_max;
 
@@ -1072,9 +1075,8 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
 }
 
 int
-fd_txncache_get_entries( fd_txncache_t * tc,
+fd_txncache_get_entries( fd_txncache_t *         tc,
                          fd_bank_slot_deltas_t * slot_deltas ) {
-
 
   fd_rwlock_read( tc->lock );
   
@@ -1083,6 +1085,7 @@ fd_txncache_get_entries( fd_txncache_t * tc,
 
   fd_txncache_private_txnpage_t * txnpages   = fd_txncache_get_txnpages( tc );
   ulong                         * root_slots = fd_txncache_get_root_slots( tc );
+
   for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {    
     ulong slot = root_slots[ i ];
 
@@ -1106,6 +1109,9 @@ fd_txncache_get_entries( fd_txncache_t * tc,
       fd_memcpy( &status_pair->hash, slotblockcache->blockhash, sizeof(fd_hash_t) );
       status_pair->value.txn_idx = slotblockcache->txnhash_offset;
 
+      /* First count through the number of etnries you expect to encounter
+         and size out the data structure to store them.*/
+
       ulong num_statuses = 0UL;
       for( ulong k=0UL; k<FD_TXNCACHE_SLOTCACHE_MAP_CNT; k++ ) {
         uint head = slotblockcache->heads[ k ];
@@ -1117,6 +1123,8 @@ fd_txncache_get_entries( fd_txncache_t * tc,
       status_pair->value.statuses_len = num_statuses;
       status_pair->value.statuses     = fd_scratch_alloc( FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
       fd_memset( status_pair->value.statuses, 0, num_statuses * sizeof(fd_cache_status_t) );
+
+      /* Copy over every entry for the given slot into the slot deltas. */
 
       num_statuses = 0UL;
       for( ulong k=0UL; k<FD_TXNCACHE_SLOTCACHE_MAP_CNT; k++ ) {
