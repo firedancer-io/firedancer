@@ -1,4 +1,5 @@
 #include "fd_tls_proto.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 
 FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_list_t )==1UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_tls_ext_cert_type_t      )==1UL, layout );
@@ -149,7 +150,6 @@ test_tls_server_respond( fd_tls_t *            server,
   while( (rec = test_record_recv( &test_client_out )) ) {
     long res = fd_tls_server_handshake( server, hs, rec->buf, rec->cur, rec->level );
     if( res<0L ) {
-      fd_halt();
       FD_LOG_ERR(( "fd_tls_server_handshake failed (alert %ld-%s; reason %u-%s)",
                    res,             fd_tls_alert_cstr( (uint)-res ),
                    hs->base.reason, fd_tls_reason_cstr( hs->base.reason ) ));
@@ -191,6 +191,11 @@ prepare_tls_pair( fd_rng_t * rng,
   fd_memcpy( server->cert_public_key, server_sign_ctx.public_key, 32UL );
   for( ulong b=0; b<32UL; b++ ) client->kex_private_key [b] = fd_rng_uchar( rng );
   fd_memcpy( client->cert_public_key, client_sign_ctx.public_key, 32UL );
+
+  fd_x509_mock_cert( server->cert_x509, server->cert_public_key );
+  server->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+  fd_x509_mock_cert( client->cert_x509, client->cert_public_key );
+  client->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
 
   fd_x25519_public( server->kex_public_key, server->kex_private_key );
   fd_x25519_public( client->kex_public_key, client->kex_private_key );
