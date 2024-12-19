@@ -2027,16 +2027,22 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
   return res;
 }
 
+/* This thunk works around a compiler bug (bogus stringop-overflow warning) in GCC 11 */
+__attribute__((noinline)) static void
+fd_quic_key_update_derive1( fd_quic_conn_t * conn ) {
+  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+}
+
 static void
 fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   /* Key updates are only possible for 1-RTT packets, which are appdata */
   ulong const enc_level = fd_quic_enc_level_appdata_id;
 
   /* Update payload keys */
-  memcpy( &conn->keys[enc_level][0].pkt_key, &conn->new_keys[0].pkt_key, FD_AES_128_KEY_SZ );
-  memcpy( &conn->keys[enc_level][0].iv,      &conn->new_keys[0].iv,      FD_AES_GCM_IV_SZ  );
-  memcpy( &conn->keys[enc_level][1].pkt_key, &conn->new_keys[1].pkt_key, FD_AES_128_KEY_SZ );
-  memcpy( &conn->keys[enc_level][1].iv,      &conn->new_keys[1].iv,      FD_AES_GCM_IV_SZ  );
+  memcpy( conn->keys[enc_level][0].pkt_key, conn->new_keys[0].pkt_key, FD_AES_128_KEY_SZ );
+  memcpy( conn->keys[enc_level][0].iv,      conn->new_keys[0].iv,      FD_AES_GCM_IV_SZ  );
+  memcpy( conn->keys[enc_level][1].pkt_key, conn->new_keys[1].pkt_key, FD_AES_128_KEY_SZ );
+  memcpy( conn->keys[enc_level][1].iv,      conn->new_keys[1].iv,      FD_AES_GCM_IV_SZ  );
 
   /* Update IVs */
   memcpy( conn->secrets.secret[enc_level][0], conn->secrets.new_secret[0], FD_QUIC_SECRET_SZ );
@@ -2047,7 +2053,7 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   /* Wind up for next key phase update */
   conn->key_phase  = !conn->key_phase;
   conn->key_update = 0;
-  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+  fd_quic_key_update_derive1( conn );
 
   FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
 }
