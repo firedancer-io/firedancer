@@ -219,6 +219,15 @@ typedef struct {
     } metric;
 
     struct {
+      int  enabled;
+      char endpoint[ 512 ];
+
+      int    is_frankendancer;
+      char   cluster[ 32 ];
+      char   identity_key_path[ PATH_MAX ];
+    } event;
+
+    struct {
       int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
@@ -415,6 +424,17 @@ fd_topo_tile_name_cnt( fd_topo_t const * topo,
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, name ) ) ) cnt++;
+  }
+  return cnt;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_polled_in_cnt( fd_topo_t const * topo ) {
+  ulong cnt = 0;
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    for( ulong j=0; j<topo->tiles[ i ].in_cnt; j++ ) {
+      if( FD_UNLIKELY( topo->tiles[ i ].in_link_poll[ j ] ) ) cnt++;
+    }
   }
   return cnt;
 }

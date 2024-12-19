@@ -1,0 +1,387 @@
+{
+    "name": "metrics_sample",
+    "id": 2,
+    "description": "Metric data periodically sampled by the application.",
+    "fields": {
+        "reason": {
+            "type": "Enum8",
+            "description": "Reason the metrics snapshot was sampled.",
+            "variants": {
+                "periodic": 1,
+                "leader_start": 2,
+                "leader_end_start": 3,
+                "leader_end": 4
+            }
+        },
+        "slot": { "type": "UInt64", "description": "If the reason the sample was taken is because a leader was starting or ending, this is the slot that was starting (or ending). If a leader slot is both ending and starting (leader_end_start), this is the slot which is starting." },
+        "tile": {
+            "type": "Nested",
+            "description": "Common metrics shared by all tiles",
+            "fields": {
+                "kind":                             { "type": "LowCardinality(String)", "max_length": 20, "description": "Tile type." },
+                "kind_id":                          { "type": "UInt16", "description": "ID of the tile within the type." },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches." },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches." },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running." },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated." },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0." },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." },
+                "regime_duration_nanos": {
+                    "type": "Tuple",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes.",
+                    "fields": {
+                        "caught_up_housekeeping": { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "processing_housekeeping": { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "caught_up_prefrag": { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "processing_prefrag": { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "backpressure_prefrag": { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "caught_up_postfrag": { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "processing_postfrag": { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                }
+            }
+        },
+        "link": {
+            "type": "Nested",
+            "description": "Metrics for links between tiles.",
+            "fields": {
+                "kind":                       { "type": "LowCardinality(String)", "max_length": 20, "description": "Tile type." },
+                "kind_id":                    { "type": "UInt16", "description": "ID of the tile within the type." },
+                "link_kind":                  { "type": "LowCardinality(String)", "max_length": 20, "description": "Link type." },
+                "link_kind_id":               { "type": "UInt16", "description": "ID of the link within the link kind." },
+                "consumed_count":             { "type": "UInt64", "description": "The number of times the link reader has consumed a fragment." },
+                "consumed_size_bytes":        { "type": "UInt64", "description": "The total number of bytes read by the link consumer." },
+                "filtered_count":             { "type": "UInt64", "description": "The number of fragments that were filtered and not consumed." },
+                "filtered_size_bytes":        { "type": "UInt64", "description": "The total number of bytes read by the link consumer that were filtered." },
+                "overrun_polling_count":      { "type": "UInt64", "description": "The number of times the link has been overrun while polling." },
+                "overrun_polling_frag_count": { "type": "UInt64", "description": "The number of fragments the link has not processed because it was overrun while polling." },
+                "overrun_reading_count":      { "type": "UInt64", "description": "The number of input overruns detected while reading metadata by the consumer." },
+                "overrun_reading_frag_count": { "type": "UInt64", "description": "The number of fragments the link has not processed because it was overrun while reading." },
+                "slow_count":                 { "type": "UInt64", "description": "The number of times the consumer was detected as rate limiting consumer by the producer." }
+            }
+        },
+        "net": {
+            "type": "Nested",
+            "description": "Metrics for net tiles.",
+            "fields": {
+                "received_packets":         { "type": "UInt64", "description": "Number of IP packets received." },
+                "received_bytes":           { "type": "UInt64", "description": "Total bytes received (including IP, UDP headers)." },
+                "sent_packets":             { "type": "UInt64", "description": "Number of IP packets sent." },
+                "sent_bytes":               { "type": "UInt64", "description": "Total bytes sent (including IP, UDP headers)." },
+                "xdp_rx_dropped_ring_full": { "type": "UInt64", "description": "Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." },
+                "xdp_rx_dropped_other":     { "type": "UInt64", "description": "Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." },
+                "tx_dropped":               { "type": "UInt64", "description": "Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." }
+            }
+        },
+        "quic": {
+            "type": "Nested",
+            "description": "Metrics for quic tiles.",
+            "fields": {
+                "txns_overrun":                { "type": "UInt64", "description": "Count of txns overrun before reassembled (too small txn_reassembly_count)." },
+                "txn_reasms_started":          { "type": "UInt64", "description": "Count of fragmented txn receive ops started." },
+                "txn_reasms_active":           { "type": "UInt64", "description": "Number of fragmented txn receive ops currently active." },
+                "frags_ok":                    { "type": "UInt64", "description": "Count of txn frags received" },
+                "frags_gap":                   { "type": "UInt64", "description": "Count of txn frags dropped due to data gap" },
+                "frags_dup":                   { "type": "UInt64", "description": "Count of txn frags dropped due to dup (stream already completed)" },
+                "txns_received": {
+                    "type": "Tuple",
+                    "description": "Count of txns received via TPU.",
+                    "fields": {
+                        "udp": { "type": "UInt64", "description": "TPU/UDP" },
+                        "quic_fast": { "type": "UInt64", "description": "TPU/QUIC unfragmented" },
+                        "quic_frag": { "type": "UInt64", "description": "TPU/QUIC fragmented" }
+                    }
+                },
+                "txns_abandoned":              { "type": "UInt64", "description": "Count of txns abandoned because a conn was lost." },
+                "quic_packet_too_small":       { "type": "UInt64", "description": "Count of packets received on the QUIC port that were too small to be a valid IP packet." },
+                "quic_txn_too_small":          { "type": "UInt64", "description": "Count of txns received via QUIC dropped because they were too small." },
+                "quic_txn_too_large":          { "type": "UInt64", "description": "Count of txns received via QUIC dropped because they were too large." },
+                "non_quic_packet_too_small":   { "type": "UInt64", "description": "Count of packets received on the non-QUIC port that were too small to be a valid IP packet." },
+                "non_quic_packet_too_large":   { "type": "UInt64", "description": "Count of packets received on the non-QUIC port that were too large to be a valid transaction." },
+                "received_packets":            { "type": "UInt64", "description": "Number of IP packets received." },
+                "received_bytes":              { "type": "UInt64", "description": "Total bytes received (including IP, UDP, QUIC headers)." },
+                "sent_packets":                { "type": "UInt64", "description": "Number of IP packets sent." },
+                "sent_bytes":                  { "type": "UInt64", "description": "Total bytes sent (including IP, UDP, QUIC headers)." },
+                "connections_active":          { "type": "UInt64", "description": "The number of currently active QUIC connections." },
+                "connections_created":         { "type": "UInt64", "description": "The total number of connections that have been created." },
+                "connections_closed":          { "type": "UInt64", "description": "Number of connections gracefully closed." },
+                "connections_aborted":         { "type": "UInt64", "description": "Number of connections aborted." },
+                "connections_timed_out":       { "type": "UInt64", "description": "Number of connections timed out." },
+                "connections_retried":         { "type": "UInt64", "description": "Number of connections established with retry." },
+                "connection_error_no_slots":   { "type": "UInt64", "description": "Number of connections that failed to create due to lack of slots." },
+                "connection_error_retry_fail": { "type": "UInt64", "description": "Number of connections that failed during retry (e.g. invalid token)." },
+                "pkt_crypto_failed":           { "type": "UInt64", "description": "Number of packets that failed decryption." },
+                "pkt_no_conn":                 { "type": "UInt64", "description": "Number of packets with an unknown connection ID." },
+                "pkt_tx_alloc_fail":           { "type": "UInt64", "description": "Number of packets failed to send because of metadata alloc fail." },
+                "handshakes_created":          { "type": "UInt64", "description": "Number of handshake flows created." },
+                "handshake_error_alloc_fail":  { "type": "UInt64", "description": "Number of handshakes dropped due to alloc fail." },
+                "stream_received_events":      { "type": "UInt64", "description": "Number of stream RX events." },
+                "stream_received_bytes":       { "type": "UInt64", "description": "Total stream payload bytes received." },
+                "received_frames": {
+                    "type": "Tuple",
+                    "description": "Number of QUIC frames received.",
+                    "fields": {
+                        "unknown": { "type": "UInt64", "description": "Unknown frame type" },
+                        "ack": { "type": "UInt64", "description": "ACK frame" },
+                        "reset_stream": { "type": "UInt64", "description": "RESET_STREAM frame" },
+                        "stop_sending": { "type": "UInt64", "description": "STOP_SENDING frame" },
+                        "crypto": { "type": "UInt64", "description": "CRYPTO frame" },
+                        "new_token": { "type": "UInt64", "description": "NEW_TOKEN frame" },
+                        "stream": { "type": "UInt64", "description": "STREAM frame" },
+                        "max_data": { "type": "UInt64", "description": "MAX_DATA frame" },
+                        "max_stream_data": { "type": "UInt64", "description": "MAX_STREAM_DATA frame" },
+                        "max_streams": { "type": "UInt64", "description": "MAX_STREAMS frame" },
+                        "data_blocked": { "type": "UInt64", "description": "DATA_BLOCKED frame" },
+                        "stream_data_blocked": { "type": "UInt64", "description": "STREAM_DATA_BLOCKED frame" },
+                        "streams_blocked": { "type": "UInt64", "description": "STREAMS_BLOCKED(bidi) frame" },
+                        "new_conn_id": { "type": "UInt64", "description": "NEW_CONN_ID frame" },
+                        "retire_conn_id": { "type": "UInt64", "description": "RETIRE_CONN_ID frame" },
+                        "path_challenge": { "type": "UInt64", "description": "PATH_CHALLENGE frame" },
+                        "path_response": { "type": "UInt64", "description": "PATH_RESPONSE frame" },
+                        "conn_close_quic": { "type": "UInt64", "description": "CONN_CLOSE(transport) frame" },
+                        "conn_close_app": { "type": "UInt64", "description": "CONN_CLOSE(app) frame" },
+                        "handshake_done": { "type": "UInt64", "description": "HANDSHAKE_DONE frame" },
+                        "ping": { "type": "UInt64", "description": "PING frame" },
+                        "padding": { "type": "UInt64", "description": "PADDING frame" }
+                    }
+                },
+                "ack_tx": {
+                    "type": "Tuple",
+                    "description": "ACK events",
+                    "fields": {
+                        "noop": { "type": "UInt64", "description": "non-ACK-eliciting packet" },
+                        "new": { "type": "UInt64", "description": "new ACK range" },
+                        "merged": { "type": "UInt64", "description": "merged into existing ACK range" },
+                        "drop": { "type": "UInt64", "description": "out of buffers" },
+                        "cancel": { "type": "UInt64", "description": "ACK suppressed by handler" }
+                    }
+                },
+                "frame_fail_parse":            { "type": "UInt64", "description": "Number of QUIC frames failed to parse." }
+            }
+        },
+        "verify": {
+            "type": "Nested",
+            "description": "Metrics for verify tiles.",
+            "fields": {
+                "transaction_parse_failure":  { "type": "UInt64", "description": "Count of transactions that failed to parse" },
+                "transaction_dedup_failure":  { "type": "UInt64", "description": "Count of transactions that failed to deduplicate in the verify stage" },
+                "transaction_verify_failure": { "type": "UInt64", "description": "Count of transactions that failed to deduplicate in the verify stage" }
+            }
+        },
+        "dedup": {
+            "type": "Nested",
+            "description": "Metrics for dedup tiles.",
+            "fields": {
+                "transaction_dedup_failure": { "type": "UInt64", "description": "Count of transactions that failed to deduplicate in the dedup stage" },
+                "gossiped_votes_received":   { "type": "UInt64", "description": "Count of simple vote transactions received over gossip instead of via the normal TPU path" }
+            }
+        },
+        "resolv": {
+            "type": "Nested",
+            "description": "Metrics for resolv tiles.",
+            "fields": {
+                "no_bank_drop":      { "type": "UInt64", "description": "Count of transactions dropped because the bank was not available" },
+                "lut_resolved": {
+                    "type": "Tuple",
+                    "description": "Count of address lookup tables resolved",
+                    "fields": {
+                        "invalid_lookup_index": { "type": "UInt64", "description": "The transaction referenced an index in a LUT that didn't exist" },
+                        "account_uninitialized": { "type": "UInt64", "description": "The account referenced as a LUT hasn't been initialized" },
+                        "invalid_account_data": { "type": "UInt64", "description": "The account referenced as a LUT couldn't be parsed" },
+                        "invalid_account_owner": { "type": "UInt64", "description": "The account referenced as a LUT wasn't owned by the ALUT program ID" },
+                        "account_not_found": { "type": "UInt64", "description": "The account referenced as a LUT couldn't be found" },
+                        "success": { "type": "UInt64", "description": "Resolved successfully" }
+                    }
+                },
+                "blockhash_expired": { "type": "UInt64", "description": "Count of transactions that failed to resolve because the blockhash was expired" },
+                "blockhash_unknown": { "type": "UInt64", "description": "Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." }
+            }
+        },
+        "pack": {
+            "type": "Nested",
+            "description": "Metrics for pack tiles.",
+            "fields": {
+                "normal_transaction_received":             { "type": "UInt64", "description": "Count of transactions received via the normal TPU path" },
+                "transaction_inserted": {
+                    "type": "Tuple",
+                    "description": "Result of inserting a transaction into the pack object",
+                    "fields": {
+                        "bundle_blacklist": { "type": "UInt64", "description": "Transaction uses an account on the bundle blacklist" },
+                        "write_sysvar": { "type": "UInt64", "description": "Transaction tries to write to a sysvar" },
+                        "estimation_fail": { "type": "UInt64", "description": "Estimating compute cost and/or fee failed" },
+                        "duplicate_account": { "type": "UInt64", "description": "Transaction included an account address twice" },
+                        "too_many_accounts": { "type": "UInt64", "description": "Transaction tried to load too many accounts" },
+                        "too_large": { "type": "UInt64", "description": "Transaction requests too many CUs" },
+                        "expired": { "type": "UInt64", "description": "Transaction already expired" },
+                        "addr_lut": { "type": "UInt64", "description": "Transaction loaded accounts from a lookup table" },
+                        "unaffordable": { "type": "UInt64", "description": "Fee payer's balance below transaction fee" },
+                        "duplicate": { "type": "UInt64", "description": "Pack aware of transaction with same signature" },
+                        "priority": { "type": "UInt64", "description": "Transaction's fee was too low given its compute unit requirement and other competing transactions" },
+                        "nonvote_add": { "type": "UInt64", "description": "Transaction that was not a simple vote added to pending transactions" },
+                        "vote_add": { "type": "UInt64", "description": "Simple vote transaction was added to pending transactions" },
+                        "nonvote_replace": { "type": "UInt64", "description": "Transaction that was not a simple vote replaced a lower priority transaction" },
+                        "vote_replace": { "type": "UInt64", "description": "Simple vote transaction replaced a lower priority transaction" }
+                    }
+                },
+                "metric_timing": {
+                    "type": "Tuple",
+                    "description": "Time in nanos spent in each state",
+                    "fields": {
+                        "no_txn_no_bank_no_leader_no_microblock": { "type": "UInt64", "description": "Pack had no transactions available, and wasn't leader" },
+                        "txn_no_bank_no_leader_no_microblock": { "type": "UInt64", "description": "Pack had transactions available, but wasn't leader or had hit a limit" },
+                        "no_txn_bank_no_leader_no_microblock": { "type": "UInt64", "description": "Pack had no transactions available, had banks but wasn't leader" },
+                        "txn_bank_no_leader_no_microblock": { "type": "UInt64", "description": "Pack had transactions available, had banks but wasn't leader" },
+                        "no_txn_no_bank_leader_no_microblock": { "type": "UInt64", "description": "Pack had no transactions available, and was leader but had no available banks" },
+                        "txn_no_bank_leader_no_microblock": { "type": "UInt64", "description": "Pack had transactions available, was leader, but had no available banks" },
+                        "no_txn_bank_leader_no_microblock": { "type": "UInt64", "description": "Pack had available banks but no transactions" },
+                        "txn_bank_leader_no_microblock": { "type": "UInt64", "description": "Pack had banks and transactions available but couldn't schedule anything non-conflicting" },
+                        "no_txn_no_bank_no_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                        "txn_no_bank_no_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                        "no_txn_bank_no_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                        "txn_bank_no_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                        "no_txn_no_bank_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock but all banks were busy" },
+                        "txn_no_bank_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock but all banks were busy" },
+                        "no_txn_bank_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock and now has no transactions" },
+                        "txn_bank_leader_microblock": { "type": "UInt64", "description": "Pack scheduled a non-empty microblock" }
+                    }
+                },
+                "transaction_dropped_from_extra":          { "type": "UInt64", "description": "Transactions dropped from the extra transaction storage because it was full" },
+                "transaction_inserted_to_extra":           { "type": "UInt64", "description": "Transactions inserted into the extra transaction storage because pack's primary storage was full" },
+                "transaction_inserted_from_extra":         { "type": "UInt64", "description": "Transactions pulled from the extra transaction storage and inserted into pack's primary storage" },
+                "transaction_expired":                     { "type": "UInt64", "description": "Transactions deleted from pack because their TTL expired" },
+                "available_transactions":                  { "type": "UInt64", "description": "The total number of pending transactions in pack's pool that are available to be scheduled" },
+                "available_vote_transactions":             { "type": "UInt64", "description": "The number of pending simple vote transactions in pack's pool that are available to be scheduled" },
+                "pending_transactions_heap_size":          { "type": "UInt64", "description": "The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." },
+                "conflicting_transactions":                { "type": "UInt64", "description": "The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions" },
+                "smallest_pending_transaction":            { "type": "UInt64", "description": "A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" },
+                "microblock_per_block_limit":              { "type": "UInt64", "description": "The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" },
+                "data_per_block_limit":                    { "type": "UInt64", "description": "The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" },
+                "transaction_schedule": {
+                    "type": "Tuple",
+                    "description": "Result of trying to consider a transaction for scheduling",
+                    "fields": {
+                        "taken": { "type": "UInt64", "description": "Pack included the transaction in the microblock" },
+                        "cu_limit": { "type": "UInt64", "description": "Pack skipped the transaction because it would have exceeded the block CU limit" },
+                        "fast_path": { "type": "UInt64", "description": "Pack skipped the transaction because of account conflicts using the fast bitvector check" },
+                        "byte_limit": { "type": "UInt64", "description": "Pack skipped the transaction because it would have exceeded the block data size limit" },
+                        "write_cost": { "type": "UInt64", "description": "Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" },
+                        "slow_path": { "type": "UInt64", "description": "Pack skipped the transaction because of account conflicts using the full slow check" }
+                    }
+                },
+                "cus_consumed_in_block":                   { "type": "UInt64", "description": "The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" },
+                "delete_missed":                           { "type": "UInt64", "description": "Count of attempts to delete a transaction that wasn't found" },
+                "delete_hit":                              { "type": "UInt64", "description": "Count of attempts to delete a transaction that was found and deleted" }
+            }
+        },
+        "bank": {
+            "type": "Nested",
+            "description": "Metrics for bank tiles.",
+            "fields": {
+                "transaction_sanitize_failure":     { "type": "UInt64", "description": "Number of transactions that failed to sanitize." },
+                "transaction_not_executed_failure": { "type": "UInt64", "description": "Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." },
+                "precompile_verify_failure":        { "type": "UInt64", "description": "Number of transactions that failed precompile verification and thus will not execute." },
+                "slot_acquire": {
+                    "type": "Tuple",
+                    "description": "Result of acquiring a slot.",
+                    "fields": {
+                        "success": { "type": "UInt64", "description": "Success" },
+                        "too_high": { "type": "UInt64", "description": "Too high" },
+                        "too_low": { "type": "UInt64", "description": "Too low" }
+                    }
+                },
+                "transaction_load_address_tables": {
+                    "type": "Tuple",
+                    "description": "Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported.",
+                    "fields": {
+                        "success": { "type": "UInt64", "description": "Success" },
+                        "slot_hashes_sysvar_not_found": { "type": "UInt64", "description": "The slot hashes syvar could not be found." },
+                        "account_not_found": { "type": "UInt64", "description": "The account storing the address lookup table was deactivated or could not be found." },
+                        "invalid_account_owner": { "type": "UInt64", "description": "The account that owns the referenced lookup table is not the address lookup table program." },
+                        "invalid_account_data": { "type": "UInt64", "description": "The data for the referenced address lookup table is malformed." },
+                        "invalid_index": { "type": "UInt64", "description": "The referenced index in the address lookup table does not exist." }
+                    }
+                },
+                "transaction_result": {
+                    "type": "Tuple",
+                    "description": "Result of loading and executing a transaction.",
+                    "fields": {
+                        "success": { "type": "UInt64", "description": "Success" },
+                        "account_in_use": { "type": "UInt64", "description": "An account is already being processed in another transaction in a way that does not support parallelism." },
+                        "account_loaded_twice": { "type": "UInt64", "description": "A `Pubkey` appears twice in the transaction's `account_keys`.  Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys." },
+                        "account_not_found": { "type": "UInt64", "description": "Attempt to debit an account but found no record of a prior credit." },
+                        "program_account_not_found": { "type": "UInt64", "description": "Attempt to load a program that does not exist." },
+                        "insufficient_funds_for_fee": { "type": "UInt64", "description": "The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction." },
+                        "invalid_account_for_fee": { "type": "UInt64", "description": "This account may not be used to pay transaction fees." },
+                        "already_processed": { "type": "UInt64", "description": "The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack." },
+                        "blockhash_not_found": { "type": "UInt64", "description": "The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded." },
+                        "instruction_error": { "type": "UInt64", "description": "An error occurred while processing an instruction." },
+                        "call_chain_too_deep": { "type": "UInt64", "description": "Loader call chain is too deep." },
+                        "missing_signature_for_fee": { "type": "UInt64", "description": "Transaction requires a fee but has no signature present." },
+                        "invalid_account_index": { "type": "UInt64", "description": "Transaction contains an invalid account reference." },
+                        "signature_failure": { "type": "UInt64", "description": "Transaction did not pass signature verification." },
+                        "invalid_program_for_execution": { "type": "UInt64", "description": "This program may not be used for executing instructions." },
+                        "sanitize_failure": { "type": "UInt64", "description": "Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked." },
+                        "cluster_maintenance": { "type": "UInt64", "description": "Transactions are currently disabled due to cluster maintenance." },
+                        "account_borrow_outstanding": { "type": "UInt64", "description": "Transaction processing left an account with an outstanding borrowed reference." },
+                        "would_exceed_max_block_cost_limit": { "type": "UInt64", "description": "Transaction would exceed max Block Cost Limit." },
+                        "unsupported_version": { "type": "UInt64", "description": "Transaction version is unsupported." },
+                        "invalid_writable_account": { "type": "UInt64", "description": "Transaction loads a writable account that cannot be written." },
+                        "would_exceed_max_account_cost_limit": { "type": "UInt64", "description": "Transaction would exceed max account limit within the block." },
+                        "would_exceed_account_data_block_limit": { "type": "UInt64", "description": "Transaction would exceed account data limit within the block." },
+                        "too_many_account_locks": { "type": "UInt64", "description": "Transaction locked too many accounts." },
+                        "address_lookup_table_not_found": { "type": "UInt64", "description": "Address lookup table not found." },
+                        "invalid_address_lookup_table_owner": { "type": "UInt64", "description": "Attempted to lookup addresses from an account owned by the wrong program." },
+                        "invalid_address_lookup_table_data": { "type": "UInt64", "description": "Attempted to lookup addresses from an invalid account." },
+                        "invalid_address_lookup_table_index": { "type": "UInt64", "description": "Address table lookup uses an invalid index." },
+                        "invalid_rent_paying_account": { "type": "UInt64", "description": "Transaction leaves an account with a lower balance than rent-exempt minimum." },
+                        "would_exceed_max_vote_cost_limit": { "type": "UInt64", "description": "Transaction would exceed max Vote Cost Limit." },
+                        "would_exceed_account_data_total_limit": { "type": "UInt64", "description": "Transaction would exceed total account data limit." },
+                        "duplicate_instruction": { "type": "UInt64", "description": "Transaction contains a duplicate instruction that is not allowed." },
+                        "insufficient_funds_for_rent": { "type": "UInt64", "description": "Transaction results in an account with insufficient funds for rent." },
+                        "max_loaded_accounts_data_size_exceeded": { "type": "UInt64", "description": "Transaction exceeded max loaded accounts data size cap." },
+                        "invalid_loaded_accounts_data_size_limit": { "type": "UInt64", "description": "LoadedAccountsDataSizeLimit set for transaction must be greater than 0." },
+                        "resanitization_needed": { "type": "UInt64", "description": "Sanitized transaction differed before/after feature activiation. Needs to be resanitized." },
+                        "program_execution_temporarily_restricted": { "type": "UInt64", "description": "Program execution is temporarily restricted on an account." },
+                        "unbalanced_transaction": { "type": "UInt64", "description": "The total balance before the transaction does not equal the total balance after the transaction." },
+                        "program_cache_hit_max_limit": { "type": "UInt64", "description": "The total program cache size hit the maximum allowed limit." }
+                    }
+                },
+                "processing_failed":                { "type": "UInt64", "description": "Count of transactions for which the processing stage failed and won't land on chain" },
+                "fee_only_transactions":            { "type": "UInt64", "description": "Count of transactions that will land on chain but without executing" },
+                "executed_failed_transactions":     { "type": "UInt64", "description": "Count of transactions that execute on chain but failed" },
+                "successful_transactions":          { "type": "UInt64", "description": "Count of transactions that execute on chain and succeed" },
+                "cost_model_undercount":            { "type": "UInt64", "description": "Count of transactions that used more CUs than the cost model should have permitted them to" }
+            }
+        },
+        "shred": {
+            "type": "Nested",
+            "description": "Metrics for shred tiles.",
+            "fields": {
+                "microblocks_abandoned":      { "type": "UInt64", "description": "The number of microblocks that were abandoned because we switched slots without finishing the current slot" },
+                "shred_processed": {
+                    "type": "Tuple",
+                    "description": "The result of processing a thread from the network",
+                    "fields": {
+                        "bad_slot": { "type": "UInt64", "description": "Shred was for a slot for which we don't know the leader" },
+                        "parse_failed": { "type": "UInt64", "description": "Shred parsing failed" },
+                        "rejected": { "type": "UInt64", "description": "Shred was invalid for one of many reasons" },
+                        "ignored": { "type": "UInt64", "description": "Shred was ignored because we had already received or reconstructed it" },
+                        "okay": { "type": "UInt64", "description": "Shred accepted to an incomplete FEC set" },
+                        "completes": { "type": "UInt64", "description": "Shred accepted and resulted in a valid, complete FEC set" }
+                    }
+                },
+                "fec_set_spilled":            { "type": "UInt64", "description": "The number of FEC sets that were spilled because they didn't complete in time and we needed space" },
+                "shred_rejected_initial":     { "type": "UInt64", "description": "The number shreds that were rejected before any resources were allocated for the FEC set" },
+                "fec_rejected_fatal":         { "type": "UInt64", "description": "The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" }
+            }
+        },
+        "store": {
+            "type": "Nested",
+            "description": "Metrics for store tiles.",
+            "fields": {
+                "transactions_inserted": { "type": "UInt64", "description": "Count of transactions produced while we were leader in the shreds that have been inserted so far" }
+            }
+        }
+    }
+}

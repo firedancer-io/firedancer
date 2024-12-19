@@ -1,0 +1,50 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# events: event reporting needs to open a socket to a remote server
+#
+# Event reporting must be able to open a socket at runtime (rather than
+# during application init) because if the socket fails due to a
+# transient network error, it will be reopened.
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM | SOCK_NONBLOCK" )
+             (eq (arg 2) 0))
+
+# events: event reporting needs to re-connect the socket if disconnected
+connect: (and (not (or (eq (arg 0) 2)
+                       (eq (arg 0) logfile_fd)))
+              (eq (arg 2) 16))
+
+# events: event reporting makes a non-blocking connection to a server
+#
+# The only way to check if `connect(2)` fails with O_NONBLOCK is to
+# later call getsockopt( SOL_SOCKET, SO_ERROR ).  We only want to allow
+# the socket fd for arg 0, but we don't know what it is, so we exclude
+# all others instead.
+getsockopt: (and (not (or (eq (arg 0) 2)
+                          (eq (arg 0) logfile_fd)))
+                 (eq (arg 1) "SOL_SOCKET")
+                 (eq (arg 2) "SO_ERROR"))
+
+# events: event reporting calls poll to send/receive HTTP data
+poll: (and (eq (arg 1) 1)
+           (eq (arg 2) 0))
+
+# events: close (and reopen) HTTP connection for transient failures
+close

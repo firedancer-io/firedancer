@@ -322,6 +322,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
 
   char const * FLOATING[] = {
     "metric",
+    "event",
     "cswtch",
     "bencho",
     "bhole",  /* FIREDANCER only */

@@ -1,0 +1,16 @@
+{
+    "name": "general_boot",
+    "id": 1,
+    "description": "General boot event, reported when the validator is started.",
+    "fields": {
+        "vote_account":  { "type": "String", "max_length": 44, "description": "The base58 encoding of the validator vote public key." },
+        "genesis_hash":  { "type": "String", "max_length": 44, "description": "The genesis hash of the cluster that the validator is running on." },
+        "commit_hash":   { "type": "String", "max_length": 40, "description": "The commit hash of the validator software that is running." },
+        "feature_set":   { "type": "UInt32",                   "description": "The feature set of the validator software that is running." },
+        "topology":      { "type": "String",                   "description": "The tile topology of the validator, formatted as JSON." },
+        "configuration": { "type": "String",                   "description": "The full configuration of the validator, formatted as JSON." },
+        "meminfo":       { "type": "String",                   "description": "A raw dumpout of /proc/meminfo." },
+        "cpuinfo":       { "type": "String",                   "description": "A raw dumpout of /proc/cpuinfo." },
+        "osversion":     { "type": "String",                   "description": "A raw dumpout of /proc/version. TODO USE uname(2) ??" }
+    }
+}

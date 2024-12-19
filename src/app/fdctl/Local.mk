@@ -35,6 +35,7 @@ $(call add-objs,run/tiles/fd_store,fd_fdctl)
 $(call add-objs,run/tiles/fd_sign,fd_fdctl)
 $(call add-objs,run/tiles/fd_cswtch,fd_fdctl)
 $(call add-objs,run/tiles/fd_metric,fd_fdctl)
+$(call add-objs,run/tiles/fd_event,fd_fdctl)
 $(call add-objs,run/tiles/fd_gui,fd_fdctl)
 $(call add-objs,run/tiles/fd_plugin,fd_fdctl)
 $(call add-objs,run/tiles/generated/http_import_dist,fd_fdctl)
@@ -92,6 +93,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_quic.o: src/app/fdctl/run/tiles/generated/q
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify.o: src/app/fdctl/run/tiles/generated/verify_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated/metric_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_event.o: src/app/fdctl/run/tiles/generated/event_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_cswtch.o: src/app/fdctl/run/tiles/generated/cswtch_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: src/app/fdctl/run/tiles/generated/gui_seccomp.h src/app/fdctl/run/tiles/generated/http_import_dist.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_plugin.o: src/app/fdctl/run/tiles/generated/plugin_seccomp.h

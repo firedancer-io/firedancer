@@ -132,6 +132,14 @@ update_config_for_dev( config_t * const config ) {
       strcpy( gui->gui.cluster, "development" );
     }
   }
+
+  ulong events_idx = fd_topo_find_tile( &config->topo, "event", 0UL );
+  if( FD_LIKELY( events_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t * events = &config->topo.tiles[ events_idx ];
+    if( FD_LIKELY( !strcmp( events->event.cluster, "unknown" ) ) ) {
+      strcpy( events->event.cluster, "development" );
+    }
+  }
 }
 
 static void *
