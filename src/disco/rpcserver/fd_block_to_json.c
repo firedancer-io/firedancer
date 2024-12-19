@@ -696,15 +696,19 @@ fd_block_to_json( fd_webserver_t * ws,
     int first_sig = 1;
     ulong blockoff = 0;
     while (blockoff < blk_sz) {
-      if ( blockoff + sizeof(ulong) > blk_sz )
-        FD_LOG_ERR(("premature end of block"));
+      if ( blockoff + sizeof(ulong) > blk_sz ) {
+        FD_LOG_WARNING(("premature end of block"));
+        return "premature end of block";
+      }
       ulong mcount = *(const ulong *)(blk_data + blockoff);
       blockoff += sizeof(ulong);
 
       /* Loop across microblocks */
       for (ulong mblk = 0; mblk < mcount; ++mblk) {
-        if ( blockoff + sizeof(fd_microblock_hdr_t) > blk_sz )
-          FD_LOG_ERR(("premature end of block"));
+        if ( blockoff + sizeof(fd_microblock_hdr_t) > blk_sz ) {
+          FD_LOG_WARNING(("premature end of block"));
+          return "premature end of block";
+        }
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)blk_data + blockoff);
         blockoff += sizeof(fd_microblock_hdr_t);
 
@@ -749,15 +753,19 @@ fd_block_to_json( fd_webserver_t * ws,
   int first_txn = 1;
   ulong blockoff = 0;
   while (blockoff < blk_sz) {
-    if ( blockoff + sizeof(ulong) > blk_sz )
-      FD_LOG_ERR(("premature end of block"));
+    if ( blockoff + sizeof(ulong) > blk_sz ) {
+      FD_LOG_WARNING(("premature end of block"));
+      return "premature end of block";
+    }
     ulong mcount = *(const ulong *)(blk_data + blockoff);
     blockoff += sizeof(ulong);
 
     /* Loop across microblocks */
     for (ulong mblk = 0; mblk < mcount; ++mblk) {
-      if ( blockoff + sizeof(fd_microblock_hdr_t) > blk_sz )
-        FD_LOG_ERR(("premature end of block"));
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blk_sz ) {
+        FD_LOG_WARNING(("premature end of block"));
+        return "premature end of block";
+      }
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)blk_data + blockoff);
       blockoff += sizeof(fd_microblock_hdr_t);
 

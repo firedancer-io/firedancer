@@ -130,7 +130,10 @@ static void
 fd_geyser_scan_txns( fd_geyser_t * ctx, ulong slotn, uchar * data, ulong sz ) {
   ulong blockoff = 0;
   while( blockoff < sz ) {
-    if( blockoff + sizeof( ulong ) > sz ) FD_LOG_ERR(( "premature end of block" ));
+    if( blockoff + sizeof( ulong ) > sz ) {
+      FD_LOG_WARNING(( "premature end of block" ));
+      return;
+    }
     ulong mcount = FD_LOAD( ulong, (const uchar *)data + blockoff );
     blockoff += sizeof( ulong );
 
