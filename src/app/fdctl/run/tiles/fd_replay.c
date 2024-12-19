@@ -294,7 +294,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) ) );
+  ulong thread_spad_size = fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * thread_spad_size );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );

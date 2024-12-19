@@ -51,9 +51,9 @@ fd_eqvoc_join( void * sheqvoc ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, sheqvoc );
-  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),        sizeof(fd_eqvoc_t) );
-  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),  fd_eqvoc_fec_pool_footprint( eqvoc->fec_max ) );
-  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),   fd_eqvoc_fec_map_footprint( eqvoc->fec_max ) );
+  fd_eqvoc_t * eqvoc = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),         sizeof(fd_eqvoc_t) );
+  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_pool_align(),   fd_eqvoc_fec_pool_footprint( eqvoc->fec_max ) );
+  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_fec_map_align(),    fd_eqvoc_fec_map_footprint( eqvoc->fec_max ) );
   void * proof_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_pool_align(), fd_eqvoc_proof_pool_footprint( eqvoc->proof_max ) );
   void * proof_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_proof_map_align(),  fd_eqvoc_proof_map_footprint( eqvoc->proof_max ) );
   void * sha512      = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),           fd_sha512_footprint() );
