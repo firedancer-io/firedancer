@@ -52,7 +52,7 @@
 /* Number of recognized CRDS enum members */
 #define FD_KNOWN_CRDS_ENUM_MAX (14UL)
 /* Prune data prefix
-   https://github.com/anza-xyz/agave/blob/0c264859b127940f13673b5fea300131a70b1a8d/agave/gossip/src/protocol.rs#L39 */
+   https://github.com/anza-xyz/agave/blob/0c264859b127940f13673b5fea300131a70b1a8d/gossip/src/protocol.rs#L39 */
 #define FD_GOSSIP_PRUNE_DATA_PREFIX "\xffSOLANA_PRUNE_DATA"
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
