@@ -52,14 +52,14 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong depth     = tile->quic.out_depth;
+  ulong out_depth = tile->quic.out_depth;
   ulong reasm_max = tile->quic.reasm_cnt;
 
   fd_quic_limits_t limits = quic_limits( tile ); /* May FD_LOG_ERR */
   ulong            l      = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )                    );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits )               );
-  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(),     fd_tpu_reasm_footprint( depth, reasm_max ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )                        );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits )                   );
+  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(),     fd_tpu_reasm_footprint( out_depth, reasm_max ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
