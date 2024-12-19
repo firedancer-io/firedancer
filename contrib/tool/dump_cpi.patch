@@ -1,0 +1,43 @@
+diff --git a/src/flamenco/vm/syscall/fd_vm_syscall_cpi_common.c b/src/flamenco/vm/syscall/fd_vm_syscall_cpi_common.c
+index 336b002c2..0403a4909 100644
+--- a/src/flamenco/vm/syscall/fd_vm_syscall_cpi_common.c
++++ b/src/flamenco/vm/syscall/fd_vm_syscall_cpi_common.c
+@@ -594,6 +594,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
+ 
+   FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
+ 
++  fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT;
++  dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
++                    instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt, &sys_ctx);
++
+   /* Pre-flight checks ************************************************/
+   int err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
+   if( FD_UNLIKELY( err ) ) return err;
+@@ -732,18 +736,27 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
+     }
+   }
+ 
++  sys_ctx.has_exec_effects = 1;
++  sys_ctx.exec_effects.modified_accounts_count = (pb_size_t) caller_accounts_to_update_len;
++  sys_ctx.exec_effects.modified_accounts = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_acct_state_t) * caller_accounts_to_update_len );
++
+   /* Update the caller accounts with any changes made by the callee during CPI execution */
+   for( ulong i=0UL; i<caller_accounts_to_update_len; i++ ) {
+     /* https://github.com/firedancer-io/solana/blob/508f325e19c0fd8e16683ea047d7c1a85f127e74/programs/bpf_loader/src/syscalls/cpi.rs#L939-L943 */
+     /* We only want to update the writable accounts, because the non-writable 
+        caller accounts can't be changed during a CPI execution. */
+     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
++      dump_acct_to_state( vm->instr_ctx->instr, callee_account_keys[i], &sys_ctx.exec_effects.modified_accounts[i] );
+       fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
+       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], (uchar)callee_account_keys[i], callee);
+       if( FD_UNLIKELY( err ) ) return err;
+     }
+   }
+ 
++  char filename[256];
++  gen_cpi_state_filename( &vm->instr_ctx->instr->program_id_pubkey, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ), filename );
++  dump_pb_to_file( &sys_ctx, filename, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS );
++
+   caller_lamports_h = 0UL;
+   caller_lamports_l = 0UL;
+   err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
