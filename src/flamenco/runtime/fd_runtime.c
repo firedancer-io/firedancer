@@ -1104,7 +1104,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                                          fd_capture_ctx_t *           capture_ctx,
                                          fd_txn_p_t *                 txn,
                                          fd_execute_txn_task_info_t * task_info ) {
-
+  FD_SPAD_FRAME_BEGIN( spad ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
   int res = 0;
@@ -1124,8 +1124,6 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     txn->flags = 0U;
     return -1;
   }
-
-  txn_ctx->valloc = fd_scratch_virtual();
 
   /* NOTE: This intentionally does not have sigverify */
 
@@ -1152,6 +1150,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   return res;
 
   } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 
@@ -1445,13 +1444,13 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         /* lock for inserting/modifying vote accounts in slot ctx. */
         fd_funk_start_write( slot_ctx->acc_mgr->funk );
-        fd_vote_store_account( slot_ctx, acc_rec );
-        FD_SCRATCH_SCOPE_BEGIN {
+        fd_vote_store_account( slot_ctx, acc_rec, txn_ctx->spad );
+        FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
           fd_vote_state_versioned_t vsv[1];
           fd_bincode_decode_ctx_t decode_vsv =
             { .data    = acc_rec->const_data,
               .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
-              .valloc  = fd_scratch_virtual() };
+              .valloc  = fd_spad_virtual( txn_ctx->spad ) };
 
           int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
           if( err ) break; /* out of scratch scope */
@@ -1471,9 +1470,9 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
             __builtin_unreachable();
           }
 
-          fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
-        }
-        FD_SCRATCH_SCOPE_END;
+          fd_valloc_t valloc = fd_spad_virtual( txn_ctx->spad );
+          fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot, valloc );
+        } FD_SPAD_FRAME_END;
         fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
@@ -1734,7 +1733,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       results       = fd_scratch_alloc( alignof(uchar), txn_cnt * sizeof(uchar) );
     }
 
-    fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, 128UL * txn_cnt * sizeof(fd_borrowed_account_t *) );
+    fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, MAX_TX_ACCOUNT_LOCKS * txn_cnt * sizeof(fd_borrowed_account_t *) );
     ulong acc_idx = 0UL;
     ulong nonvote_txn_count = 0;
     ulong failed_txn_count = 0;
@@ -1837,13 +1836,13 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
           fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
           if( dirty_vote_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-            fd_vote_store_account( slot_ctx, acc_rec );
-            FD_SCRATCH_SCOPE_BEGIN {
+            fd_vote_store_account( slot_ctx, acc_rec, txn_ctx->spad );
+            FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
               fd_vote_state_versioned_t vsv[1];
               fd_bincode_decode_ctx_t decode_vsv =
                 { .data    = acc_rec->const_data,
                   .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
-                  .valloc  = fd_scratch_virtual() };
+                  .valloc  = fd_spad_virtual( txn_ctx->spad ) };
 
               int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
               if( err ) break; /* out of scratch scope */
@@ -1863,9 +1862,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
                 __builtin_unreachable();
               }
 
-              fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
-            }
-            FD_SCRATCH_SCOPE_END;
+              fd_valloc_t valloc = fd_spad_virtual( txn_ctx->spad );
+              fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot, valloc );
+            } FD_SPAD_FRAME_END;
           }
 
           if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
@@ -2120,16 +2119,24 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
         incomplete_txn_idxs_cnt  = next_incomplete_txn_idxs_cnt;
 
-        // Dump txns in waves
-        if( dump_txn ) {
-          for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
-            fd_dump_txn_to_protobuf( wave_task_infos[i].txn_ctx, spads[0] );
-          }
+        for( ulong i=0UL; i<spad_cnt; i++ ) {
+          /* Borrowed accounts are allocated during prep and need to
+             persist till the end of finalize. This initial frame will
+             be holding that. */
+          fd_spad_push( spads[ i ] );
         }
 
         /* Assign out spads to the transaction contexts */
         for( ulong i=0UL; i<wave_task_infos_cnt; i++ ) {
           wave_task_infos[i].spads = spads;
+        }
+
+        // Dump txns in waves
+        if( dump_txn ) {
+          for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
+            /* Manual push/pop on the spad within the callee. */
+            fd_dump_txn_to_protobuf( wave_task_infos[i].txn_ctx, spads[0] );
+          }
         }
 
         res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
@@ -2147,9 +2154,19 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
           FD_LOG_ERR(("Fail finalize"));
         }
 
-        /* Resetting the spad is a O(1) operation */
         for( ulong i=0UL; i<spad_cnt; i++ ) {
-          fd_spad_reset( spads[i] );
+          /* The first frame, which holds borrowed accounts, can be
+             pretty big, and there are additional dynamic allocations
+             during finalize. */
+          if( FD_UNLIKELY( fd_spad_verify( spads[ i ] ) ) ) {
+            FD_LOG_ERR(( "spad corrupted or overflown" ));
+          }
+          /* We indiscriminately pushed a frame to every spad.
+             So it should be safe to indiscriminately pop here. */
+          fd_spad_pop( spads[ i ] );
+          if( FD_UNLIKELY( fd_spad_frame_used( spads[ i ] )!=0 ) ) {
+            FD_LOG_ERR(( "stray spad frame frame_used=%lu", fd_spad_frame_used( spads[ i ] ) ));
+          }
         }
 
         // wave_time += fd_log_wallclock();
@@ -2957,10 +2974,12 @@ fd_runtime_txn_lamports_per_signature( fd_exec_txn_ctx_t * txn_ctx,
   // why is asan not detecting access to uninitialized memory here?!
   fd_nonce_state_versions_t state;
   int err;
-  if ((NULL != txn_descriptor) && fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err)) {
+  FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+  if ((NULL != txn_descriptor) && fd_load_nonce_account(txn_ctx, &state, fd_spad_virtual( txn_ctx->spad ), &err)) {
     if (state.inner.current.discriminant == fd_nonce_state_enum_initialized)
       return state.inner.current.inner.initialized.fee_calculator.lamports_per_signature;
   }
+  } FD_SPAD_FRAME_END;
 
   //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
   //                        let TransactionExecutionDetails {

@@ -13,6 +13,7 @@
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
+#include "context/fd_exec_txn_ctx.h"
 #include "info/fd_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
@@ -94,6 +95,170 @@ FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_META_ALIGN,     account_rec_m
 FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_REC_DATA_ALIGN, account_rec_data_align );
 FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, meta)%FD_ACCOUNT_META_ALIGN)==0,     account_rec_meta_offset );
 FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, data)%FD_ACCOUNT_REC_DATA_ALIGN)==0, account_rec_data_offset );
+
+#define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
+#define FD_BPF_ALIGN_OF_U128        (8UL    )
+FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_align );
+#define FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP (16UL)
+
+/******** These macros bound out memory footprint ********/
+
+/* The tight upper bound on borrowed account footprint over the
+   execution of a single transaction. */
+#define FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT (MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ))
+
+/* The tight-ish upper bound on input region footprint over the
+   execution of a single transaction. See input serialization code for
+   reference: fd_bpf_loader_serialization.c
+
+   This bound is based off of the transaction MTU. We consider the
+   question of what kind of transaction one would construct to
+   maximally bloat the input region.
+   The worst case scenario is when every nested instruction references
+   all unique accounts in the transaction. A transaction can lock a max
+   of MAX_TX_ACCOUNT_LOCKS accounts. Then all remaining input account
+   references are going to be duplicates, which cost 1 byte to specify
+   offset in payload, and which cost 8 bytes during serialization. Then
+   there would be 0 bytes of instruction data, because they exist byte
+   for byte in the raw payload, which is not a worthwhile bloat factor.
+ */
+#define FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                      \
+                                                        (1UL                         /* dup byte          */                                                + \
+                                                         sizeof(uchar)               /* is_signer         */                                                + \
+                                                         sizeof(uchar)               /* is_writable       */                                                + \
+                                                         sizeof(uchar)               /* executable        */                                                + \
+                                                         sizeof(uint)                /* original_data_len */                                                + \
+                                                         sizeof(fd_pubkey_t)         /* key               */                                                + \
+                                                         sizeof(fd_pubkey_t)         /* owner             */                                                + \
+                                                         sizeof(ulong)               /* lamports          */                                                + \
+                                                         sizeof(ulong)               /* data len          */                                                + \
+                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : fd_ulong_align_up( FD_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
+                                                         MAX_PERMITTED_DATA_INCREASE                                                                        + \
+                                                         sizeof(ulong))              /* rent_epoch        */
+
+#define FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                       \
+                                              (fd_ulong_align_up( (sizeof(ulong)         /* acct_cnt       */                                          + \
+                                                                   account_lock_limit*FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping) + \
+                                                                   sizeof(ulong)         /* instr data len */                                          + \
+                                                                                         /* No instr data  */                                            \
+                                                                   sizeof(fd_pubkey_t)), /* program id     */                                            \
+                                                                   FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) + FD_BPF_ALIGN_OF_U128)
+
+#define FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                           \
+                                             ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
+                                              ((FD_TXN_MTU-FD_TXN_MIN_SERIALIZED_SZ-account_lock_limit)*8UL)) /* We can have roughly this much duplicate offsets */
+
+/* Bincode valloc footprint over the execution of a single transaction.
+   As well as other footprint specific to each native program type.
+
+   N.B. We know that bincode valloc footprint is bounded, because
+   whenever we alloc something, we advance our pointer into the binary
+   buffer, so eventually we are gonna reach the end of the buffer.
+   This buffer is usually backed by and ultimately bounded in size by
+   either accounts data or the transaction MTU.
+
+   That being said, it's not obvious what the tight upper bound would
+   be for allocations across all possible execution paths of all native
+   programs, including possible CPIs from native programs.  The
+   footprint estimate here is based on a manual review of our native
+   program implementation.  Note that even if the possible paths remain
+   steady at the Solana protocol level, the footprint is subject to
+   change when we change our implementation.
+
+   ### Native programs
+   ALUT (migrated to BPF)
+   Loader
+     - rodata for bpf program relocation and validation
+   Compute budget (0 allocations)
+   Config (migrated to BPF)
+   Precompile (0 allocations)
+   Stake
+     - The instruction with the largest footprint is deactivate_delinquent
+       - During instruction decode, no allocations
+       - During execution, this is (vote account get_state() + vote convert_to_current()) times 2, once for delinquent_vote_account, and once for reference_vote_account
+   System
+     - system_program_instruction_decode seed
+   Vote
+     - The instruction with the largest footprint is compact vote state update
+       - During instruction decode, this is 9*lockouts_len bytes, MTU bounded
+       - During execution, this is vote account get_state() + vote convert_to_current() + 12*lockouts_len bytes + lockouts_len ulong + deq_fd_landed_vote_t_alloc(lockouts_len)
+   Zk Elgamal (0 allocations)
+
+   The largest footprint is hence deactivate_delinquent, in which the
+   two get_state() calls dominate the footprint.  In particular, the
+   authorized_voters treaps bloat 40 bytes (epoch+pubkey) in a vote
+   account to 72 bytes (sizeof(fd_vote_authorized_voter_t)) in memory.
+ */
+#define FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT (2UL*FD_ACC_SZ_MAX*72UL/40UL)
+
+/* Misc other footprint. */
+#define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_sbpf_syscalls_footprint(), fd_sbpf_syscalls_align() ))
+
+#ifdef FD_DEBUG_SBPF_TRACES
+#define FD_RUNTIME_VM_TRACE_EVENT_MAX      (1UL<<30)
+#define FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX (2048UL)
+#define FD_RUNTIME_VM_TRACE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
+#else
+#define FD_RUNTIME_VM_TRACE_FOOTPRINT (0UL)
+#endif
+
+#define FD_RUNTIME_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT+FD_RUNTIME_VM_TRACE_FOOTPRINT)
+
+/* Now finally, we bound out the footprint of transaction execution. */
+#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(account_lock_limit, direct_mapping)                                         \
+                                                  (FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT                                     + \
+                                                   FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping) + \
+                                                   FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT                                   + \
+                                                   FD_RUNTIME_MISC_FOOTPRINT)
+
+/* Convenience macros for common use cases. */
+#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT
+#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
+
+/* Helpers for runtime spad frame management. */
+struct fd_runtime_spad_verify_handle_private {
+  fd_spad_t *         spad;
+  fd_exec_txn_ctx_t * txn_ctx;
+};
+typedef struct fd_runtime_spad_verify_handle_private fd_runtime_spad_verify_handle_private_t;
+
+static inline void
+fd_runtime_spad_private_frame_end( fd_runtime_spad_verify_handle_private_t * _spad_handle ) {
+  /* fd_spad_verify() returns 0 if everything looks good, and non-zero
+     otherwise.
+
+     Since the fast spad alloc API doesn't check for or indicate an OOM
+     situation and is going to happily permit an OOB alloc, we need
+     some way of detecting that. Moreover, we would also like to detect
+     unbalanced frame push/pop or usage of more frames than allowed.
+     While surrounding the spad with guard regions will help detect the
+     former, it won't necessarily catch the latter.
+
+     On compliant transactions, fd_spad_verify() isn't all that
+     expensive.  Nonetheless, We invoke fd_spad_verify() only at the
+     peak of memory usage, and not gratuitously everywhere. One peak
+     would be right before we do the most deeply nested spad frame pop.
+     However, we do pops through compiler-inserted cleanup functions
+     that take only a single pointer, so we define this helper function
+     to access the needed context info.  The end result is that we do
+     super fast spad calls everywhere in the runtime, and every now and
+     then we invoke verify to check things. */
+  /* -1UL because spad pop is called after instr stack pop. */
+  if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
+    uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( _spad_handle->txn_ctx->txn_descriptor, _spad_handle->txn_ctx->_txn_raw->raw );
+    FD_BASE58_ENCODE_64_BYTES( txn_signature, sig );
+    FD_LOG_ERR(( "spad corrupted or overflown on transaction %s", sig ));
+  }
+  fd_spad_pop( _spad_handle->spad );
+}
+
+#define FD_RUNTIME_TXN_SPAD_FRAME_BEGIN(_spad, _txn_ctx) do {                                                        \
+  fd_runtime_spad_verify_handle_private_t _spad_handle __attribute__((cleanup(fd_runtime_spad_private_frame_end))) = \
+    (fd_runtime_spad_verify_handle_private_t) { .spad = _spad, .txn_ctx = _txn_ctx };                                \
+  fd_spad_push( _spad_handle.spad );                                                                                 \
+  do
+
+#define FD_RUNTIME_TXN_SPAD_FRAME_END while(0); } while(0)
 
 FD_PROTOTYPES_BEGIN
 

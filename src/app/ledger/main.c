@@ -467,7 +467,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   args->spad_cnt = fd_tpool_worker_cnt( args->tpool );
   for( ulong i=0UL; i<args->spad_cnt; i++ ) {
-    ulong       total_mem_sz = fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) );
+    ulong       total_mem_sz = FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ;
     uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, total_mem_sz, 999UL );
     fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
     if( FD_UNLIKELY( !spad ) ) {

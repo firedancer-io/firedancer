@@ -65,7 +65,7 @@ sol_compat_wksp_init( void ) {
   wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 8UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
   assert( wksp );
 
-  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, fd_spad_footprint( MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ) ), 3 ); /* 1342191744 B */
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, 3 ); /* 1342191744 B */
   assert( spad_mem );
 
   smem = malloc( smax );  /* 1 GiB */

@@ -292,9 +292,9 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L144-L149 */
   if( required_lamports>0UL ) {
     // Create account metas
-    FD_SCRATCH_SCOPE_BEGIN {
+    FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
       fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
-                                                fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+                                                fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
 
@@ -319,12 +319,12 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
-    } FD_SCRATCH_SCOPE_END;
+    } FD_SPAD_FRAME_END;
   }
 
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
     fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * )
-                                              fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t) );
+                                              fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t) );
     fd_native_cpi_create_account_meta( lut_key, 1, 1, &acct_metas[0] );
 
     // Create signers list
@@ -365,7 +365,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 
 
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_LUT, lut_acct ) {
@@ -662,10 +662,10 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     } FD_BORROWED_ACCOUNT_DROP( payer_acct );
 
 
-    FD_SCRATCH_SCOPE_BEGIN {
+    FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
       // Create account metas
       fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
-                                                fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+                                                fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
 
@@ -688,7 +688,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
-    } FD_SCRATCH_SCOPE_END;
+    } FD_SPAD_FRAME_END;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -955,10 +955,10 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
 
     fd_bincode_decode_ctx_t decode = {
-      .valloc  = fd_scratch_virtual(),
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ),
       .data    = instr_data,
       .dataend = instr_data + instr_data_sz
     };
@@ -983,7 +983,7 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
     default:
       break;
     }
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
