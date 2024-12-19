@@ -216,28 +216,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   /* Copy stakes->stake_history */
-  for ( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init(
-          oldbank->stakes.stake_history.treap,
-          oldbank->stakes.stake_history.pool );
-          !fd_stake_history_treap_fwd_iter_done( iter );
-          iter = fd_stake_history_treap_fwd_iter_next( iter, oldbank->stakes.stake_history.pool ) ) {
-
-    fd_stake_history_entry_t const * ele = fd_stake_history_treap_fwd_iter_ele_const( iter, oldbank->stakes.stake_history.pool );
-
-    FD_TEST( fd_stake_history_pool_free( epoch_bank->stakes.stake_history.pool ) );
-    fd_stake_history_entry_t * new_ele = fd_stake_history_pool_ele_acquire( epoch_bank->stakes.stake_history.pool );
-
-    new_ele->epoch        = ele->epoch;
-    new_ele->activating   = ele->activating;
-    new_ele->deactivating = ele->deactivating;
-    new_ele->effective    = ele->effective;
-
-    epoch_bank->stakes.stake_history.treap = fd_stake_history_treap_ele_insert(
-      epoch_bank->stakes.stake_history.treap,
-      new_ele,
-      epoch_bank->stakes.stake_history.pool
-    );
-  }
+  fd_memcpy( &epoch_bank->stakes.stake_history, &oldbank->stakes.stake_history, sizeof(oldbank->stakes.stake_history));
 
   fd_stakes_destroy( &oldbank->stakes, &destroy );
 
@@ -327,7 +306,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   do {
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
 
-    /* We need to save the vote accounts for the current epoch and the next 
+    /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch
        boundary. */
 
