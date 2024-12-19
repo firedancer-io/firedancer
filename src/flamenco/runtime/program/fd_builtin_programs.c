@@ -76,7 +76,10 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_system_program_id.key,         "system_program",         14UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_vote_program_id.key,           "vote_program",           12UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,          "stake_program",          13UL );
+
+  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_stake_program_to_core_bpf ) ) {
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,        "stake_program",          13UL );
+  }
 
   if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_config_program_to_core_bpf ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,       "config_program",         14UL );

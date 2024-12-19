@@ -4423,6 +4423,10 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx ) {
     if( FD_FEATURE_ACTIVE( slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) {
       fd_migrate_builtin_to_core_bpf( slot_ctx, NULL, &fd_solana_address_lookup_table_program_id, &fd_solana_address_lookup_table_program_buffer_address, 0 );
     }
+
+    if( FD_FEATURE_ACTIVE( slot_ctx, migrate_stake_program_to_core_bpf ) ) {
+      fd_migrate_builtin_to_core_bpf( slot_ctx, NULL, &fd_solana_stake_program_id, &fd_solana_stake_program_buffer_address, 0 );
+    }
   } FD_SCRATCH_SCOPE_END;
 }
 
