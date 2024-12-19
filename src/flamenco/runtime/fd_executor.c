@@ -1063,6 +1063,31 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
   instr->starting_lamports_h = starting_lamports_h;
   instr->starting_lamports_l = starting_lamports_l;
 
+  /* Check that the caller's lamport sum has not changed.
+     https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L329-L340 */
+  if( txn_ctx->instr_stack_sz>0 ) {
+    /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L330 */
+    fd_exec_instr_ctx_t const * caller_instruction_context = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz-1 ];
+
+    /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L331-L332 */
+    ulong original_caller_lamport_sum_h = caller_instruction_context->instr->starting_lamports_h;
+    ulong original_caller_lamport_sum_l = caller_instruction_context->instr->starting_lamports_l;
+
+    /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L333-L334 */
+    ulong current_caller_lamport_sum_h = 0UL;
+    ulong current_caller_lamport_sum_l = 0UL;
+    int err = fd_instr_info_sum_account_lamports( caller_instruction_context->instr, &current_caller_lamport_sum_h, &current_caller_lamport_sum_l );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L335-L339 */
+    if( FD_UNLIKELY( current_caller_lamport_sum_h!=original_caller_lamport_sum_h || 
+                     current_caller_lamport_sum_l!=original_caller_lamport_sum_l ) ) {
+      return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+    }
+  }
+
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L347-L351 */
   if( FD_UNLIKELY( txn_ctx->instr_trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
