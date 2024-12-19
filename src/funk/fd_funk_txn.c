@@ -517,7 +517,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
                     fd_funk_partvec_t *       partvec,           /* ==fd_funk_get_partvec( funk, wksp ) */
                     fd_alloc_t *              alloc,             /* ==fd_funk_alloc( funk, wksp ) */
                     fd_wksp_t *               wksp ) {           /* ==fd_funk_wksp( funk ) */
-  /* We don't need to to do all the individual removal pointer updates
+  /* We don't need to do all the individual removal pointer updates
      as we are removing the whole list from txn_idx.  Likewise, we
      temporarily repurpose txn_cidx as a loop detector for additional
      corruption protection.  */

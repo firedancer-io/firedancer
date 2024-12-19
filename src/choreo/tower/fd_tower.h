@@ -298,7 +298,7 @@
    starting from where the cluster thinks we last left off. Conveniently
    Funk, our accounts database, stores all the vote accounts including
    our own, so on bootstrap we simply load in our vote account state
-   itself to to initialize our own local view of the tower.
+   itself to initialize our own local view of the tower.
 
    *Additional Considerations*
 

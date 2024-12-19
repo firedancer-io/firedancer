@@ -41,7 +41,7 @@
    512 (direct IO) and 4096 (x86 normal pages size).
 
    FD_SPAD_LG_ALIGN is log2 FD_SPAD_ALIGN.  Note: FD_SPAD_ALIGN is
-   declared explicitly to to workaround legacy compiler issues. */
+   declared explicitly to workaround legacy compiler issues. */
 
 #define FD_SPAD_LG_ALIGN (7)
 
