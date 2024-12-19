@@ -153,7 +153,7 @@ pub(crate) unsafe fn quinn_to_fdquic(crypto_provider: CryptoProvider) {
         assert!(metrics.conn_closed_cnt <= 1);
         assert!(metrics.conn_aborted_cnt <= 1);
         assert!(metrics.conn_retry_cnt == 1);
-        //assert!(metrics.conn_err_no_slots_cnt == 0);
+        assert!(metrics.conn_err_no_slots_cnt == 0);
         assert!(metrics.conn_err_retry_fail_cnt == 0);
         assert!(metrics.hs_created_cnt == 1);
         assert!(metrics.hs_err_alloc_fail_cnt == 0);

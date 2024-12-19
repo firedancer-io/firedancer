@@ -1312,11 +1312,11 @@ fd_quic_gen_initial_secret_and_keys(
       conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
 }
 
-ulong
+static ulong
 fd_quic_send_retry( fd_quic_t *               quic,
                     fd_quic_pkt_t *           pkt,
                     fd_quic_conn_id_t const * orig_dst_conn_id,
-                    fd_quic_conn_id_t const * new_conn_id,
+                    ulong                     new_conn_id,
                     uchar const               dst_mac_addr_u6[ 6 ],
                     uint                      dst_ip_addr,
                     ushort                    dst_udp_port ) {
@@ -1434,12 +1434,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
       }
 
-      /* Pick a new conn ID for ourselves, which the peer will address us
-         with in the future (via dest conn ID). */
-
-      ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
-      fd_quic_conn_id_t new_conn_id = fd_quic_conn_id_new( &new_conn_id_u64, sizeof(ulong) );
-
       /* Save peer's conn ID, which we will use to address peer with. */
 
       fd_quic_conn_id_t peer_conn_id = {0};
@@ -1491,33 +1485,24 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           odcid.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
-      /* Repeat the conn ID we picked in transport params (this is done
-         to authenticate conn IDs via TLS by including them in TLS-
-         protected data).
-
-         Per spec, this field should be the source conn ID field we've set
-         on the first Initial packet we've sent.  At this point, we might
-         not have sent an Initial packet yet -- so this field should hold
-         a value we are about to pick.
-
-         fd_quic_conn_create will set conn->initial_source_conn_id to
-         the random new_conn_id we've created earlier. */
-
-      tp->initial_source_connection_id_present = 1;
-      tp->initial_source_connection_id_len     = new_conn_id.sz;
-      fd_memcpy( tp->initial_source_connection_id,
-          new_conn_id.conn_id,
-          FD_QUIC_MAX_CONN_ID_SZ );
+      /* Rules for selecting the SCID:
+         - No retry token, accepted:       generate new random ID
+         - No retry token, retry request:  generate new random ID
+         - Retry token, accepted:          reuse SCID from retry token */
+      ulong scid;
 
       /* Handle retry if configured. */
-      if( quic->config.retry ) {
+      if( !quic->config.retry ) {
+        scid = fd_rng_ulong( state->_rng );
+      } else {
         fd_quic_metrics_t * metrics = &quic->metrics;
 
         /* This is the initial packet before retry. */
         if( initial->token_len == 0 ) {
+          ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
-                &odcid, &new_conn_id,
+                &odcid, new_conn_id_u64,
                 dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
           }
@@ -1528,13 +1513,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            Validate the relevant fields of this post-retry INITIAL packet,
            i.e. retry src conn id, ip, port */
 
-        fd_quic_conn_id_t retry_src_conn_id;
+        ulong retry_src_conn_id;
         int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         };
+
+        /* Continue using the same SCID we used in the Retry packet. */
+        scid = retry_src_conn_id;
 
         /* From rfc 9000:
 
@@ -1571,15 +1559,31 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            (Length and content validated in fd_quic_retry_server_verify) */
         tp->retry_source_connection_id_present = 1;
         tp->retry_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
-        memcpy( tp->retry_source_connection_id, retry_src_conn_id.conn_id, FD_QUIC_CONN_ID_SZ );
+        FD_STORE( ulong, tp->retry_source_connection_id, retry_src_conn_id );
 
         metrics->conn_retry_cnt++;
       }
 
+      /* Repeat the conn ID we picked in transport params (this is done
+         to authenticate conn IDs via TLS by including them in TLS-
+         protected data).
+
+         Per spec, this field should be the source conn ID field we've set
+         on the first Initial packet we've sent.  At this point, we might
+         not have sent an Initial packet yet -- so this field should hold
+         a value we are about to pick.
+
+         fd_quic_conn_create will set conn->initial_source_conn_id to
+         the random new_conn_id we've created earlier. */
+
+      tp->initial_source_connection_id_present = 1;
+      tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
+      FD_STORE( ulong, tp->initial_source_connection_id, scid );
+
       /* Allocate new conn */
 
       conn = fd_quic_conn_create( quic,
-          new_conn_id_u64,
+          scid,
           &peer_conn_id,
           dst_ip_addr,
           dst_udp_port,
@@ -4225,9 +4229,7 @@ fd_quic_connect( fd_quic_t *  quic,
 
   /* Repeat source conn ID -- rationale see fd_quic_handle_v1_initial */
 
-  memcpy( tp->initial_source_connection_id,
-          conn->initial_source_conn_id.conn_id,
-          FD_QUIC_MAX_CONN_ID_SZ );
+  FD_STORE( ulong, tp->initial_source_connection_id, conn->initial_source_conn_id );
   tp->initial_source_connection_id_present = 1;
   tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
 
@@ -4396,7 +4398,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
 
   /* initial source connection id */
-  conn->initial_source_conn_id = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
+  conn->initial_source_conn_id = our_conn_id;
 
   /* peer connection id */
   conn->peer_cids[0]     = *peer_conn_id;
