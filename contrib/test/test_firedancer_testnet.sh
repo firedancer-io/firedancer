@@ -7,8 +7,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_DIR="$SCRIPT_DIR/../.."
 
 # create temporary files in the user's home directory because it's likely to be on a large disk
-# TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-testnet.XXXXXX)
-TMPDIR=/home/lheeger/tmp-test-tvu-testnet
+TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-testnet.XXXXXX)
 mkdir -p $TMPDIR
 cd $TMPDIR
 
@@ -91,10 +90,13 @@ echo "
 [consensus]
     expected_shred_version = 35459
 [log]
-  path = \"fddev.log\"
-  level_stderr = \"NOTICE\"
+    path = \"fddev.log\"
+    level_stderr = \"NOTICE\"
 [development]
-    topology = \"firedancer\"
+    sandbox = false
+    no_agave = true
+[development.bench]
+    affinity = \"1-32\"
 " > fddev.toml
 
 # JOB_URL is potentially set by the github workflow
