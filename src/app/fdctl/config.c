@@ -262,7 +262,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
+    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;

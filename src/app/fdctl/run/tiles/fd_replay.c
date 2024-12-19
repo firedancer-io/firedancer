@@ -32,6 +32,7 @@
 #include "../../../../choreo/fd_choreo.h"
 #include "../../../../disco/store/fd_epoch_forks.h"
 #include "../../../../funk/fd_funk_filemap.h"
+#include "../../../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 
 #include <arpa/inet.h>
@@ -261,6 +262,17 @@ struct fd_replay_tile_ctx {
 
   fd_spad_t * spads[ 128UL ];
   ulong       spad_cnt;
+
+  /* TODO: refactor this all into fd_replay_tile_snapshot_ctx_t. */
+  ulong   snapshot_interval;       /* User defined parameter */
+  ulong   incremental_interval;    /* User defined parameter */
+  ulong   last_full_snap;          /* If a full snapshot has been produced */
+  ulong * is_funk_constipated;     /* Shared fseq to determine if funk should be constipated */
+  ulong   prev_full_snapshot_dist; /* Tracking for snapshot creation */
+  ulong   prev_incr_snapshot_dist; /* Tracking for incremental snapshot creation */
+  int     first_constipation;
+
+  int     is_caught_up;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -562,36 +574,212 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 }
 
 static void
-funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
+txncache_publish( fd_replay_tile_ctx_t * ctx, 
+                  fd_funk_txn_t *        txn_map,
+                  fd_funk_txn_t *        root_txn,
+                  uchar                  is_funk_constipated ) {
+  
+  /* For the status cache, we stop rooting until the status cache has been 
+     written out to the current snapshot. We also need to iterate up the
+     funk transaction tree to figure out what slots should be constipated.
+
+     As a note, when funk is constipated we don't want to iterate all the way
+     up to the root because then we will register previously registered slots
+     that are in the constipated root. This introduces an edge case where 
+     we will never register the slots that in the original constipated txn. 
+     This currently gets handled in a hacky way by first tracking the first
+     call to is_funk_constipated. This gets set to 1 as soon as funk gets
+     constipated. By setting this, we are able to register the slot that 
+     corresponds to the constipated root. */
+
+  if( FD_UNLIKELY( !ctx->slot_ctx->status_cache ) ) {
+    return;
+  }
+
+  if( ctx->first_constipation ) {
+    FD_LOG_NOTICE(( "Starting constipation at slot=%lu", root_txn->xid.ul[0] ));
+    fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, root_txn->xid.ul[0] );
+    ctx->first_constipation = 0;
+  }
+
+  fd_funk_txn_t * txn = root_txn;
+  while( txn ) {
+
+    if( !fd_funk_txn_parent( txn, txn_map ) && is_funk_constipated ) {
+      break;
+    }
+
+    ulong slot = txn->xid.ul[0];
+    if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
+      FD_LOG_INFO(( "Registering slot %lu", slot ));
+      fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
+    } else {
+      FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
+      fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
+    }
+    txn = fd_funk_txn_parent( txn, txn_map );
+  }
+}
+
+static void
+snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong smr, uchar is_constipated ) {
+
+  /* We are ready for a snapshot if either we are on or just passed a snapshot
+     interval and no snapshot is currently in progress. This is to handle the
+     case where the snapshot interval falls on a skipped slot. 
+     
+     We are ready to create a snapshot if:
+     1. The node is caught up to the network.
+     2. There is currently no snapshot in progress
+     3. The current slot is at the snapshot interval OR
+        The current slot has passed a snapshot interval
+
+    If a snapshot is ready to be created we will constipate funk and the 
+    status cache. This will also notify the status cache via the funk
+    constipation fseq. */
+
+  if( !ctx->is_caught_up ) {
+    return;
+  }
+
+  if( is_constipated ) {
+    return;
+  }
+
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+
+  /* The distance from the last snapshot should only grow until we skip
+     past the last full snapshot. If it has shrunk that means we skipped
+     over the snapshot interval. */
+  ulong curr_full_snapshot_dist = smr % ctx->snapshot_interval;
+  uchar is_full_snapshot_ready  = curr_full_snapshot_dist < ctx->prev_full_snapshot_dist;
+  ctx->prev_full_snapshot_dist  = curr_full_snapshot_dist;
+
+  /* Do the same for incrementals, only try to create one if there has been
+     a full snapshot. */
+  ulong curr_incr_snapshot_dist = smr % ctx->incremental_interval;
+  uchar is_inc_snapshot_ready   = smr % ctx->incremental_interval < ctx->prev_incr_snapshot_dist && ctx->last_full_snap;
+  ctx->prev_incr_snapshot_dist  = curr_incr_snapshot_dist;
+
+  ulong updated_fseq = 0UL;
+
+  /* TODO: We need a better check if the smr fell on an epoch boundary due to 
+     skipped slots. We just don't want to make a snapshot on an epoch boundary */
+  if( (is_full_snapshot_ready || is_inc_snapshot_ready) && 
+      !fd_runtime_is_epoch_boundary( epoch_bank, smr, smr-1UL ) ) {
+    /* Constipate the status cache when a snapshot is ready to be created. */
+    if( is_full_snapshot_ready ) {
+      ctx->last_full_snap = smr;
+      FD_LOG_NOTICE(( "Ready to create a full snapshot" ));
+      updated_fseq = fd_snapshot_create_pack_fseq( 0, smr );
+    } else {
+      FD_LOG_NOTICE(( "Ready to create an incremental snapshot" ));
+      updated_fseq = fd_snapshot_create_pack_fseq( 1, smr );
+    }
+    ctx->first_constipation = 1; /* TODO: I hate this hack. */
+    fd_txncache_set_is_constipated( ctx->slot_ctx->status_cache, 1 );
+    fd_fseq_update( ctx->is_funk_constipated, updated_fseq );
+  }
+}
+
+static void
+funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
+
+  /* When we are trying to root for an smr that we want a snapshot for, we need
+     to constipate funk as well as the txncache. The snapshot tile will notify
+     the replay tile that funk is ready to be unconstipated via the 
+     is_funk_constipated fseq. Txncache constipation will be handled differently.
+     All operations on the status cache are bounded by a rw lock making
+     operation atomic. The status cache will internally track if it is in a 
+     constipated state. The snapshot tile will be directly responsible for 
+     unconstipating the txncache. */
+
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, smr );
   fd_funk_txn_xid_t xid;
   memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
 
+  /* Generate a funk txn */
+
   xid.ul[0]                = smr;
   fd_funk_txn_t * txn_map  = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * root_txn = fd_funk_txn_query( &xid, txn_map );
+
+  /* Once all of the banking tiles have finished executing, grab a write
+     lock on funk and publish the transaction.
+     
+     The publishing mechanism for funk and the status cache will change
+     if constipation is enabled. If constipation is enabled,
+     constipate the current transaction into the constipated root. This means
+     we will treat the oldest ancestor as the new root of the transaction tree.
+     All slots that are "rooted" in the constipated state will be published
+     into the constipated root. When constipation is disabled, flush the backed 
+     up transactions into the root.
+
+     There is some unfortunate behavior we have to consider here with
+     publishing and constipation. When the status cache is in a constipated
+     state, we want to register all of the slots except for the slot that
+     corresponds to the constipated root. However, during the first pass when
+     we are constipated, we also need to register the constipated root into
+     the txn cache. If we don't then the constipated root slot will never be
+     included in the status cache. TODO: There is probably a better way to 
+     hhandle this. 
+     
+     Constipation can be activated for a variety of reasons including snapshot
+     creation and epoch account hash generation.
+     TODO: Currently epoch account hash generation is unimplemented but the
+           funk fseq should be repurposed to be more generalized. */
 
   for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
     fd_tpool_wait( ctx->tpool, i+1 );
   }
   fd_funk_start_write( ctx->funk );
-  ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
-  if( FD_UNLIKELY( !rc ) ) {
-    FD_LOG_ERR(( "failed to funk publish slot %lu", smr ));
+  
+  uchar is_funk_constipated = fd_fseq_query( ctx->is_funk_constipated ) != 0;
+
+  txncache_publish( ctx, txn_map, root_txn, is_funk_constipated );
+
+  /* Now try to publish into funk, this is handled differently based on if 
+     funk is constipated. */
+
+  if( !is_funk_constipated ) {
+    FD_LOG_NOTICE(( "Publishing slot=%lu", smr ));
+
+    ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
+    if( FD_UNLIKELY( !rc ) ) {
+      FD_LOG_ERR(( "failed to funk publish slot %lu", smr ));
+    }
+    
+  } else {
+    FD_LOG_WARNING(( "Publishing slot=%lu while constipated", smr ));
+
+    /* At this point, first collapse the current transaction that should be 
+       published into the oldest child transaction. */
+
+    fd_funk_txn_t * txn        = root_txn;
+    fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_map );
+
+    while( parent_txn ) {
+      if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
+        FD_LOG_ERR(( "Can't publish funk transaction" ));
+      }
+      txn        = parent_txn;
+      parent_txn = fd_funk_txn_parent( txn, txn_map );
+    }
   }
+
   fd_funk_end_write( ctx->funk );
 
-  if( FD_LIKELY( ctx->slot_ctx->status_cache ) ) {
-    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, smr );
-  }
-
+  /* TODO: This needs to get integrated into the snapshot tile. */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
   if( smr >= epoch_bank->eah_start_slot ) {
-    fd_accounts_hash( ctx->slot_ctx, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash );
+    fd_accounts_hash( ctx->slot_ctx->acc_mgr->funk, &ctx->slot_ctx->slot_bank,
+                      ctx->slot_ctx->valloc, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash );
     epoch_bank->eah_start_slot = FD_SLOT_NULL;
   }
+
+  snapshot_state_update( ctx, smr, is_funk_constipated );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
     fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, smr );
@@ -795,15 +983,6 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->tower_checkpt_fileno );
 }
 
-static uint
-is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulong prev_slot ) {
-  ulong slot_idx;
-  ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, prev_slot, &slot_idx );
-  ulong new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, &slot_idx );
-
-  return ( prev_epoch < new_epoch || slot_idx == 0 );
-}
-
 static fd_fork_t *
 prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              fd_stem_context_t *    stem,
@@ -830,14 +1009,14 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   /* if it is an epoch boundary, push out stake weights */
   if( fork->slot_ctx.slot_bank.slot != 0 ) {
-    is_new_epoch_in_new_block = (int)is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
+    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
   }
 
   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot      = curr_slot;
   fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
 
-  if( is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
+  if( fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
     FD_LOG_WARNING(("Epoch boundary"));
 
     fd_epoch_fork_elem_t * epoch_fork = NULL;
@@ -1071,6 +1250,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
       fork->slot_ctx.block = block_;
+
+      /* TODO:FIXME: This needs to be unhacked. */
+      fork->slot_ctx.slot_bank.max_tick_height += 64UL * (curr_slot - ctx->parent_slot);
+      fork->slot_ctx.slot_bank.tick_height     += 64UL * (curr_slot - ctx->parent_slot);
+
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -1182,6 +1366,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         FD_LOG_WARNING(( "still catching up. not voting." ));
       } else {
 
+
+        if( FD_UNLIKELY( !ctx->is_caught_up ) ) {
+          ctx->is_caught_up = 1;
+        }
+
         /* Proceed according to how local and cluster are synchronized. */
 
         if( FD_LIKELY( vote_fork ) ) {
@@ -1260,7 +1449,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
           funk_cancel( ctx, cmp_slot );
           checkpt( ctx );
-          FD_LOG_ERR( ( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ) );
+          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
 
@@ -1327,7 +1516,7 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
   ulong main_thread_seen = 0;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( strcmp( topo->tiles[i].name, "thread" ) == 0 ) {
+    if( strcmp( topo->tiles[i].name, "rtpool" ) == 0 ) {
       tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
       thread_count++;
     }
@@ -1667,7 +1856,7 @@ during_housekeeping( void * _ctx ) {
   if( FD_LIKELY( ctx->blockstore->smr == smr ) ) return;
   if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, smr );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, smr, ctx->ghost );
-  if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_publish( ctx, smr );
+  if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_and_txncache_publish( ctx, smr );
   if( FD_LIKELY( ctx->ghost ) ) {
     fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, smr );
     fd_ghost_publish( ctx->ghost, smr );
@@ -1761,9 +1950,21 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /**********************************************************************/
+  /* snapshot                                                           */
+  /**********************************************************************/
+
+  ctx->snapshot_interval    = tile->replay.full_interval ? tile->replay.full_interval : ULONG_MAX;
+  ctx->incremental_interval = tile->replay.incremental_interval ? tile->replay.incremental_interval : ULONG_MAX;
+  ctx->last_full_snap       = 0UL;
+
+  FD_LOG_NOTICE(( "Snapshot intervals full=%lu incremental=%lu", ctx->snapshot_interval, ctx->incremental_interval ));
+
+  /**********************************************************************/
   /* funk                                                               */
   /**********************************************************************/
 
+  /* TODO: This below code needs to be shared as a topology object. This
+     will involve adding support to create a funk-based file here. */
   fd_funk_t * funk;
   const char * snapshot = tile->replay.snapshot;
   if( strcmp( snapshot, "funk" ) == 0 ) {
@@ -1781,6 +1982,7 @@ unprivileged_init( fd_topo_t *      topo,
       tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
         FD_FUNK_OVERWRITE, NULL );
+    FD_LOG_NOTICE(( "Opened funk file at %s", tile->replay.funk_file ));
   }
   if( FD_UNLIKELY( funk == NULL ) ) {
     FD_LOG_ERR(( "no funk loaded" ));
@@ -1791,6 +1993,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no funk wksp" ));
   }
 
+  ctx->is_caught_up = 0;
+
   /**********************************************************************/
   /* root_slot fseq                                                     */
   /**********************************************************************/
@@ -1800,6 +2004,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->smr = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
   if( FD_UNLIKELY( !ctx->smr ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
   FD_TEST( ULONG_MAX==fd_fseq_query( ctx->smr ) );
+
+  /**********************************************************************/
+  /* constipated fseq                                                   */
+  /**********************************************************************/
+
+  /* When the replay tile boots, funk should not be constipated */
+
+  ulong constipated_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "constipate" );
+  FD_TEST( constipated_obj_id!=ULONG_MAX );
+  ctx->is_funk_constipated = fd_fseq_join( fd_topo_obj_laddr( topo, constipated_obj_id ) );
+  if( FD_UNLIKELY( !ctx->is_funk_constipated ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  fd_fseq_update( ctx->is_funk_constipated, 0UL );
+  FD_TEST( 0UL==fd_fseq_query( ctx->is_funk_constipated ) );
 
   /**********************************************************************/
   /* poh_slot fseq                                                     */
@@ -1873,7 +2090,9 @@ unprivileged_init( fd_topo_t *      topo,
     if (status_cache_mem == NULL) {
       FD_LOG_ERR(( "failed to allocate status cache" ));
     }
-    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                                           FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT,
+                                                           FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
     if (ctx->status_cache == NULL) {
       fd_wksp_free_laddr(status_cache_mem);
       FD_LOG_ERR(( "failed to join + new status cache" ));

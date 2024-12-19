@@ -44,6 +44,12 @@
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
+/* This is the reasonably tight upper bound for the number of writable 
+   accounts in a slot. This is because a block has a limit of 48 million
+   compute units. Each writable account lock costs 300 CUs. That means there
+   can be up to 48M/300 writable accounts in a block. */
+#define FD_WRITABLE_ACCS_IN_SLOT (160000UL)
+
 struct fd_execute_txn_task_info {
   fd_spad_t * * spads;
   fd_exec_txn_ctx_t * txn_ctx;
@@ -286,6 +292,11 @@ void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot );
+
+uint
+fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
+                              ulong             curr_slot,
+                              ulong             prev_slot );
 
 fd_microblock_txn_iter_t
 fd_microblock_txn_iter_init( fd_microblock_info_t const * microblock_info );
