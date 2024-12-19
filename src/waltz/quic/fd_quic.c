@@ -1312,11 +1312,11 @@ fd_quic_gen_initial_secret_and_keys(
       conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
 }
 
-ulong
+static ulong
 fd_quic_send_retry( fd_quic_t *               quic,
                     fd_quic_pkt_t *           pkt,
                     fd_quic_conn_id_t const * orig_dst_conn_id,
-                    fd_quic_conn_id_t const * new_conn_id,
+                    ulong                     new_conn_id,
                     uchar const               dst_mac_addr_u6[ 6 ],
                     uint                      dst_ip_addr,
                     ushort                    dst_udp_port ) {
@@ -1438,7 +1438,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          with in the future (via dest conn ID). */
 
       ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
-      fd_quic_conn_id_t new_conn_id = fd_quic_conn_id_new( &new_conn_id_u64, sizeof(ulong) );
 
       /* Save peer's conn ID, which we will use to address peer with. */
 
@@ -1491,24 +1490,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           odcid.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
-      /* Repeat the conn ID we picked in transport params (this is done
-         to authenticate conn IDs via TLS by including them in TLS-
-         protected data).
-
-         Per spec, this field should be the source conn ID field we've set
-         on the first Initial packet we've sent.  At this point, we might
-         not have sent an Initial packet yet -- so this field should hold
-         a value we are about to pick.
-
-         fd_quic_conn_create will set conn->initial_source_conn_id to
-         the random new_conn_id we've created earlier. */
-
-      tp->initial_source_connection_id_present = 1;
-      tp->initial_source_connection_id_len     = new_conn_id.sz;
-      fd_memcpy( tp->initial_source_connection_id,
-          new_conn_id.conn_id,
-          FD_QUIC_MAX_CONN_ID_SZ );
-
       /* Handle retry if configured. */
       if( quic->config.retry ) {
         fd_quic_metrics_t * metrics = &quic->metrics;
@@ -1517,7 +1498,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         if( initial->token_len == 0 ) {
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
-                &odcid, &new_conn_id,
+                &odcid, new_conn_id_u64,
                 dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
           }
@@ -1528,13 +1509,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            Validate the relevant fields of this post-retry INITIAL packet,
            i.e. retry src conn id, ip, port */
 
-        fd_quic_conn_id_t retry_src_conn_id;
+        ulong retry_src_conn_id;
         int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         };
+
+        /* Continue using the same SCID we used in the Retry packet. */
+        new_conn_id_u64 = retry_src_conn_id;
 
         /* From rfc 9000:
 
@@ -1571,10 +1555,26 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            (Length and content validated in fd_quic_retry_server_verify) */
         tp->retry_source_connection_id_present = 1;
         tp->retry_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
-        memcpy( tp->retry_source_connection_id, retry_src_conn_id.conn_id, FD_QUIC_CONN_ID_SZ );
+        FD_STORE( ulong, tp->retry_source_connection_id, retry_src_conn_id );
 
         metrics->conn_retry_cnt++;
       }
+
+      /* Repeat the conn ID we picked in transport params (this is done
+         to authenticate conn IDs via TLS by including them in TLS-
+         protected data).
+
+         Per spec, this field should be the source conn ID field we've set
+         on the first Initial packet we've sent.  At this point, we might
+         not have sent an Initial packet yet -- so this field should hold
+         a value we are about to pick.
+
+         fd_quic_conn_create will set conn->initial_source_conn_id to
+         the random new_conn_id we've created earlier. */
+
+      tp->initial_source_connection_id_present = 1;
+      tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
+      FD_STORE( ulong, tp->initial_source_connection_id, new_conn_id_u64 );
 
       /* Allocate new conn */
 
