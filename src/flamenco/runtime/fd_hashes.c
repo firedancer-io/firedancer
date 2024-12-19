@@ -973,7 +973,8 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
   fd_wksp_t *     wksp    = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-  // How many total records are we dealing with?
+  /* Pre-allocate the number of pubkey pairs that we are iterating over. */
+
   ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
   ulong                   num_pairs         = 0UL;
   fd_pubkey_hash_pair_t * pairs             = fd_valloc_malloc( valloc, 
