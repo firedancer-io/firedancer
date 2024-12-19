@@ -16,9 +16,6 @@
    checks the transaction signature field for duplicates and filters
    them out. */
 
-#define GOSSIP_IN_IDX (0UL) /* Frankendancer and Firedancer */
-#define VOTER_IN_IDX  (1UL) /* Firedancer only */
-
 /* fd_dedup_in_ctx_t is a context object for each in (producer) mcache
    connected to the dedup tile. */
 
@@ -41,6 +38,7 @@ typedef struct {
   /* The first unparsed_in_cnt in links do not have the parsed fd_txn_t
      in the payload trailer. */
   ulong             unparsed_in_cnt;
+  ulong             gossip_in_idx;
   fd_dedup_in_ctx_t in[ 64UL ];
 
   fd_wksp_t * out_mem;
@@ -141,7 +139,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
   ulong txn_off = fd_ulong_align_up( payload_sz, 2UL );
   fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
 
-  if ( FD_UNLIKELY( in_idx < ctx->unparsed_in_cnt ) ) {
+  if( FD_UNLIKELY( in_idx < ctx->unparsed_in_cnt ) ) {
     /* Transactions coming in from these links are not parsed.
 
        We'll need to parse it so it's ready for downstream consumers.
@@ -163,7 +161,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     if( FD_UNLIKELY( !txn_t_sz ) ) FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
 
     /* Increment on GOSSIP_IN_IDX but not VOTER_IN_IDX */
-    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL - in_idx );
+    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, ( in_idx == ctx->gossip_in_idx ) );
 
     /* Write payload_sz into trailer.
        fd_txn_parse always returns a multiple of 2 so this sz is
@@ -212,32 +210,8 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  /* Frankendancer has gossip_dedup, verify_dedup+
-     Firedancer has gossip_dedup, voter_dedup, verify_dedup+ */
-  ulong unparsed_in_cnt = 1;
-  if( FD_UNLIKELY( tile->in_cnt<2UL ) ) {
-    FD_LOG_ERR(( "dedup tile needs at least two input links, got %lu", tile->in_cnt ));
-  } else if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name, "gossip_dedup" ) ) ) {
-    /* We have one link for gossip messages... */
-    FD_LOG_ERR(( "dedup tile has unexpected input links %lu %lu %s",
-                 tile->in_cnt, GOSSIP_IN_IDX, topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name ));
-  } else {
-    /* ...followed by a voter_dedup link if it were the Firedancer topology */
-    ulong voter_dedup_idx = fd_topo_find_tile_in_link( topo, tile, "voter_dedup", 0 );
-    if( voter_dedup_idx!=ULONG_MAX ) {
-      FD_TEST( voter_dedup_idx == VOTER_IN_IDX );
-      unparsed_in_cnt = 2;
-    } else {
-      unparsed_in_cnt = 1;
-    }
-
-    /* ...followed by a sequence of verify_dedup links */
-    for( ulong i=unparsed_in_cnt; i<tile->in_cnt; i++ ) {
-      if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i ] ].name, "verify_dedup" ) ) ) {
-        FD_LOG_ERR(( "dedup tile has unexpected input links %lu %lu %s",
-                     tile->in_cnt, i, topo->links[ tile->in_link_id[ i ] ].name ));
-      }
-    }
+  if( FD_UNLIKELY( tile->in_cnt == 0UL ) ) {
+    FD_LOG_ERR(( "dedup tile needs at least one input link, got zero" ));
   }
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -252,7 +226,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
-  ctx->unparsed_in_cnt = unparsed_in_cnt;
+  ulong parsed_in_start_idx = ULONG_MAX;
+  ctx->gossip_in_idx = ULONG_MAX;
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -260,7 +235,19 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].mem    = link_wksp->wksp;
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+
+    if( FD_UNLIKELY( !strcmp( link->name, "gossip_dedup" ) ) ) {
+      if( FD_UNLIKELY( i > parsed_in_start_idx ) ) FD_LOG_ERR(( "unparsed links must go before parsed ones" ));
+      ctx->gossip_in_idx = i;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "voter_dedup" ) ) ) {
+      if( FD_UNLIKELY( i > parsed_in_start_idx ) ) FD_LOG_ERR(( "unparsed links must go before parsed ones" ));
+    } else if( FD_LIKELY( !strcmp( link->name, "verify_dedup" ) ) ) {
+      if( FD_UNLIKELY( parsed_in_start_idx == ULONG_MAX ) ) parsed_in_start_idx = i;
+    } else {
+      FD_LOG_ERR(( "dedup tile has unexpected input link name %s", link->name ));
+    }
   }
+  ctx->unparsed_in_cnt = parsed_in_start_idx;
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
