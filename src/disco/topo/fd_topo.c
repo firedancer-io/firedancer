@@ -369,15 +369,17 @@ fd_topo_print_log( int         stdout,
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
   }
 
-  char agave_affinity[ 4096 ];
-  ulong offset = 0UL;
-  for( ulong i=0UL; i<topo->agave_affinity_cnt; i++ ) {
-    ulong sz;
-    if( FD_LIKELY( i!=0UL ) ) FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, ", %lu", topo->agave_affinity_cpu_idx[ i ] ) );
-    else                      FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, "%lu", topo->agave_affinity_cpu_idx[ i ] ) );
-    offset += sz;
+  if( topo->agave_affinity_cnt > 0 ) {
+    char agave_affinity[4096];
+    ulong offset = 0UL;
+    for ( ulong i = 0UL; i < topo->agave_affinity_cnt; i++ ) {
+      ulong sz;
+      if( FD_LIKELY( i != 0UL )) FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, ", %lu", topo->agave_affinity_cpu_idx[ i ] ) );
+      else                       FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, "%lu", topo->agave_affinity_cpu_idx[ i ] ) );
+      offset += sz;
+    }
+    PRINT( "  %23s: %s\n", "Agave Affinity", agave_affinity );
   }
-  PRINT("  %23s: %s\n", "Agave Affinity", agave_affinity );
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
