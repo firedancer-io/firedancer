@@ -2823,6 +2823,12 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
     if( alert == 0u ) {
       fd_quic_frame_error( context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
     } else {
+      FD_DEBUG(
+        uint reason = conn->tls_hs->hs.base.reason;
+        FD_LOG_DEBUG(( "QUIC TLS handshake failed (alert %u-%s; reason %u-%s)",
+                       alert,  fd_tls_alert_cstr( alert ),
+                       reason, fd_tls_reason_cstr( reason ) ));
+      )
       fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
     }
     return FD_QUIC_PARSE_FAIL;

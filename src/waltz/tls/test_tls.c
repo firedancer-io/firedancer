@@ -278,7 +278,7 @@ test_tls_client_wrong_ciphersuite( fd_rng_t * rng ) {
 
   long alert = fd_tls_server_handshake( server, srv_hs, client_hello, sizeof(client_hello), FD_TLS_LEVEL_INITIAL );
   FD_TEST( alert == -FD_TLS_ALERT_HANDSHAKE_FAILURE );
-  FD_TEST( srv_hs->base.reason == FD_TLS_REASON_CH_CRYPTO_NEG );
+  FD_TEST( srv_hs->base.reason == FD_TLS_REASON_CH_NEG_CIPHER );
 
   fd_tls_estate_srv_delete( srv_hs );
   fd_tls_estate_cli_delete( cli_hs );

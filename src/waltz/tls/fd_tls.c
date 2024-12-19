@@ -459,11 +459,14 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   /* Check for cryptographic compatibility */
 
-  if( FD_UNLIKELY( ( !ch.supported_versions.tls13         )
-                 | ( !ch.supported_groups.x25519          )
-                 | ( !ch.signature_algorithms.ed25519     )
-                 | ( !ch.cipher_suites.aes_128_gcm_sha256 ) ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_CRYPTO_NEG );
+  if( FD_UNLIKELY( !ch.supported_versions.tls13 ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_VER );
+  if( FD_UNLIKELY( !ch.supported_groups.x25519 ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_KX );
+  if( FD_UNLIKELY( !ch.signature_algorithms.ed25519 ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_SIG );
+  if( FD_UNLIKELY( !ch.cipher_suites.aes_128_gcm_sha256 ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_CIPHER );
 
   /* Remember client random for SSLKEYLOGFILE */
   fd_memcpy( handshake->base.client_random, ch.random, 32UL );
@@ -1795,8 +1798,14 @@ fd_tls_reason_cstr( uint reason ) {
     return "failed to decode ClientHello";
   case FD_TLS_REASON_CH_ENCODE:
     return "failed to encode ClientHello";
-  case FD_TLS_REASON_CH_CRYPTO_NEG:
-    return "unsupported cryptographic parameters (fd_tls only supports TLS 1.3, X25519, Ed25519, AES-128-GCM)";
+  case FD_TLS_REASON_CH_NEG_VER:
+    return "unsupported TLS version (fd_tls only supports TLS 1.3)";
+  case FD_TLS_REASON_CH_NEG_KX:
+    return "ClientHello did not advertise X25519 as a supported key exchange alg";
+  case FD_TLS_REASON_CH_NEG_SIG:
+    return "ClientHello did not advertise Ed25519 as a supported signature alg";
+  case FD_TLS_REASON_CH_NEG_CIPHER:
+    return "ClientHello did not advertise AES-128-GCM as a supported cipher suite";
   case FD_TLS_REASON_CH_NO_QUIC:
     return "client does not support QUIC (missing QUIC transport params)";
   case FD_TLS_REASON_CH_RETRY_KS:
