@@ -105,7 +105,7 @@ struct fd_quic_conn {
   fd_quic_conn_id_t      peer_cids[1]; /* FIXME support new/retire conn ID */
 
   /* initial source connection id */
-  fd_quic_conn_id_t  initial_source_conn_id;
+  ulong              initial_source_conn_id;
 
   uint               tx_max_datagram_sz;  /* size of maximum datagram allowed by peer */
 
