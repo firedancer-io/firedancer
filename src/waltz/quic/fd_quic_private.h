@@ -52,6 +52,28 @@ struct fd_quic_svc_queue {
 
 typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
 
+struct fd_quic_pkt {
+  fd_eth_hdr_t       eth[1];
+  fd_ip4_hdr_t       ip4[1];
+  fd_udp_hdr_t       udp[1];
+
+  /* the following are the "current" values only. There may be more QUIC packets
+     in a UDP datagram */
+  fd_quic_long_hdr_t long_hdr[1];
+  ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
+  ulong              rcv_time;    /* time packet was received */
+  uint               enc_level;   /* encryption level */
+  uint               datagram_sz; /* length of the original datagram */
+  uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
+# define ACK_FLAG_RQD     1
+# define ACK_FLAG_CANCEL  2
+
+  uchar const *      cur_quic_pkt;    /* pointer to the current QUIC packet */
+  ulong              cur_quic_pkt_sz; /* bound on the max size of the QUIC packet */
+};
+typedef struct fd_quic_pkt fd_quic_pkt_t;
+
+
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
 
@@ -114,30 +136,22 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
+
+  /* Context for packet currently being processed */
+  fd_quic_pkt_t pkt[1];
+
+  /* leaky bucket parameters for diagnostics */
+  struct {
+    int   enabled;     /* 1 if diagnostics is enabled */
+    float cur_val;     /* current bucket value */
+    float rate;        /* number of credits per nanosecond */
+    float capacity;    /* capacity of bucket */
+    ulong last_update; /* last time bucket was updated */
+  } diag_params;
 };
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
 #define FD_QUIC_STATE_OFF (fd_ulong_align_up( sizeof(fd_quic_t), alignof(fd_quic_state_t) ))
-
-struct fd_quic_pkt {
-  fd_eth_hdr_t       eth[1];
-  fd_ip4_hdr_t       ip4[1];
-  fd_udp_hdr_t       udp[1];
-
-  /* the following are the "current" values only. There may be more QUIC packets
-     in a UDP datagram */
-  fd_quic_long_hdr_t long_hdr[1];
-  ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
-  ulong              rcv_time;    /* time packet was received */
-  uint               enc_level;   /* encryption level */
-  uint               datagram_sz; /* length of the original datagram */
-  uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
-# define ACK_FLAG_RQD     1
-# define ACK_FLAG_CANCEL  2
-
-  uchar const *      cur_quic_pkt;    /* pointer to the current QUIC packet */
-  ulong              cur_quic_pkt_sz; /* bound on the max size of the QUIC packet */
-};
 
 FD_PROTOTYPES_BEGIN
 

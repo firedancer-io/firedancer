@@ -472,6 +472,8 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
   (void)pretty_print;
   (void)now;
 
+  if( buf == NULL ) return FD_QUIC_PARSE_FAIL;
+
   static FD_TL char pretty_print_buf[16384];
 
   memset( pretty_print_buf, 0, sizeof( pretty_print_buf ) );

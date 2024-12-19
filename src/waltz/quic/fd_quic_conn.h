@@ -19,29 +19,39 @@
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
 
+#define FD_QUIC_REASON_CODES(X,SEP) \
+  X(NO_ERROR                     , 0x00  , "No error"                                  ) SEP \
+  X(INTERNAL_ERROR               , 0x01  , "Implementation error"                      ) SEP \
+  X(CONNECTION_REFUSED           , 0x02  , "Server refuses a connection"               ) SEP \
+  X(FLOW_CONTROL_ERROR           , 0x03  , "Flow control error"                        ) SEP \
+  X(STREAM_LIMIT_ERROR           , 0x04  , "Too many streams opened"                   ) SEP \
+  X(STREAM_STATE_ERROR           , 0x05  , "Frame received in invalid stream state"    ) SEP \
+  X(FINAL_SIZE_ERROR             , 0x06  , "Change to final size"                      ) SEP \
+  X(FRAME_ENCODING_ERROR         , 0x07  , "Frame encoding error"                      ) SEP \
+  X(TRANSPORT_PARAMETER_ERROR    , 0x08  , "Error in transport parameters"             ) SEP \
+  X(CONNECTION_ID_LIMIT_ERROR    , 0x09  , "Too many connection IDs received"          ) SEP \
+  X(PROTOCOL_VIOLATION           , 0x0a  , "Generic protocol violation"                ) SEP \
+  X(INVALID_TOKEN                , 0x0b  , "Invalid Token received"                    ) SEP \
+  X(APPLICATION_ERROR            , 0x0c  , "Application error"                         ) SEP \
+  X(CRYPTO_BUFFER_EXCEEDED       , 0x0d  , "CRYPTO data buffer overflowed"             ) SEP \
+  X(KEY_UPDATE_ERROR             , 0x0e  , "Invalid packet protection update"          ) SEP \
+  X(AEAD_LIMIT_REACHED           , 0x0f  , "Excessive use of packet protection keys"   ) SEP \
+  X(NO_VIABLE_PATH               , 0x10  , "No viable network path exists"             ) SEP \
+  X(CRYPTO_BASE                  , 0x100 , "0x0100-0x01ff CRYPTO_ERROR TLS alert code" ) SEP \
+  X(HANDSHAKE_FAILURE            , 0x128 , "Handshake failed"                          )
+
 enum {
-  FD_QUIC_CONN_REASON_NO_ERROR                     = 0x00,    /* No error */
-  FD_QUIC_CONN_REASON_INTERNAL_ERROR               = 0x01,    /* Implementation error */
-  FD_QUIC_CONN_REASON_CONNECTION_REFUSED           = 0x02,    /* Server refuses a connection */
-  FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR           = 0x03,    /* Flow control error */
-  FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR           = 0x04,    /* Too many streams opened */
-  FD_QUIC_CONN_REASON_STREAM_STATE_ERROR           = 0x05,    /* Frame received in invalid stream state */
-  FD_QUIC_CONN_REASON_FINAL_SIZE_ERROR             = 0x06,    /* Change to final size */
-  FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR         = 0x07,    /* Frame encoding error */
-  FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR    = 0x08,    /* Error in transport parameters */
-  FD_QUIC_CONN_REASON_CONNECTION_ID_LIMIT_ERROR    = 0x09,    /* Too many connection IDs received */
-  FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION           = 0x0a,    /* Generic protocol violation */
-  FD_QUIC_CONN_REASON_INVALID_TOKEN                = 0x0b,    /* Invalid Token received */
-  FD_QUIC_CONN_REASON_APPLICATION_ERROR            = 0x0c,    /* Application error */
-  FD_QUIC_CONN_REASON_CRYPTO_BUFFER_EXCEEDED       = 0x0d,    /* CRYPTO data buffer overflowed */
-  FD_QUIC_CONN_REASON_KEY_UPDATE_ERROR             = 0x0e,    /* Invalid packet protection update */
-  FD_QUIC_CONN_REASON_AEAD_LIMIT_REACHED           = 0x0f,    /* Excessive use of packet protection keys */
-  FD_QUIC_CONN_REASON_NO_VIABLE_PATH               = 0x10,    /* No viable network path exists */
-  FD_QUIC_CONN_REASON_CRYPTO_BASE                  = 0x100,   /* 0x0100-0x01ff CRYPTO_ERROR TLS alert code*/
-  /* QUIC permits the use of a generic code in place of a specific error code [...]
-     such as handshake_failure (0x0128 in QUIC). */
-  FD_QUIC_CONN_REASON_HANDSHAKE_FAILURE            = 0x128    /* Handshake failed. */
+# define COMMA ,
+# define _(NAME,CODE,DESC) \
+  FD_QUIC_CONN_REASON_##NAME = CODE
+  FD_QUIC_REASON_CODES(_,COMMA)
+# undef _
+# undef COMMA
 };
+
+char const *
+fd_quic_conn_reason_name( uint reason );
+
 
 struct fd_quic_conn_stream_rx {
   ulong rx_hi_stream_id;    /* highest RX stream ID sent by peer + 4 */

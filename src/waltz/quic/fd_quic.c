@@ -543,11 +543,12 @@ fd_quic_init( fd_quic_t * quic ) {
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
-  /* Initialize quic-pretty-print parameters */
-  state->quic_pretty_print.last_update_time = 0;
-  state->quic_pretty_print.current_value    = 0;
-  state->quic_pretty_print.rate             = 5.0f / 1e9f; /* 5 per second */
-  state->quic_pretty_print.capacity         = 1;
+  /* Initialize diags parameters */
+  state->diag_params.enabled     = 1;
+  state->diag_params.cur_val     = 0.0f;
+  state->diag_params.capacity    = 10.0f;
+  state->diag_params.rate        = 5.0f / 1e9f; /* rate is messages per nanosecond */
+  state->diag_params.last_update = (ulong)fd_log_wallclock();
 
   return quic;
 }
@@ -785,6 +786,39 @@ fd_quic_conn_error1( fd_quic_conn_t * conn,
   fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
 }
 
+/* sample unexpected events for diagnostics */
+/* TODO make parameters general for a wide range of exceptional conditions */
+void
+fd_quic_pkt_diag( fd_quic_conn_t * conn,
+                  uint             reason,
+                  uint             error_line ) {
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+  if( !state->diag_params.enabled ) return;
+
+  /* update bucket */
+  float dt   = (float)( (long)state->now - (long)state->diag_params.last_update );
+  float rate = state->diag_params.rate;
+
+  /* leak at specified rate */
+  state->diag_params.cur_val = fmaxf( 0.0f, state->diag_params.cur_val - dt * rate );
+
+  if( state->diag_params.cur_val + 1.0f > state->diag_params.capacity ) {
+    /* no capacity available */
+    return;
+  }
+
+  /* capacity available, so increase cur_val */
+  state->diag_params.cur_val += 1.0f;
+
+  printf( "packet diagnostics. reason: %u %s error_line: %u\n", reason, fd_quic_conn_reason_name( reason ), error_line );
+  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
+                                 state->now,
+                                 state->pkt->cur_quic_pkt,
+                                 state->pkt->cur_quic_pkt_sz,
+                                 "ingress" );
+}
+
 static void
 fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             reason,
@@ -792,6 +826,10 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
   fd_quic_conn_error1( conn, reason );
 
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+  /* do diagnostics */
+  /* TODO can we look up the reason code? */
+  fd_quic_pkt_diag( conn, reason, error_line );
 
   ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
   fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
@@ -1730,6 +1768,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
   //fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, cur_sz, "ingress" );
+  fd_quic_pkt_diag( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
 
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
@@ -2337,12 +2376,14 @@ fd_quic_process_packet( fd_quic_t * quic,
     return;
   }
 
-  fd_quic_pkt_t pkt = { .datagram_sz = (uint)data_sz };
+  fd_quic_pkt_t * pkt = state->pkt;
+  memset( pkt, 0, sizeof( *pkt ) );
 
-  pkt.rcv_time = state->now;
+  pkt->datagram_sz = (uint)data_sz;
+  pkt->rcv_time    = state->now;
 
   /* parse eth, ip, udp */
-  rc = fd_quic_decode_eth( pkt.eth, cur_ptr, cur_sz );
+  rc = fd_quic_decode_eth( pkt->eth, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     /* TODO count failure */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_eth failed" )) );
@@ -2351,8 +2392,8 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   /* TODO support for vlan? */
 
-  if( FD_UNLIKELY( pkt.eth->net_type != FD_ETH_HDR_TYPE_IP ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt.eth->net_type )) );
+  if( FD_UNLIKELY( pkt->eth->net_type != FD_ETH_HDR_TYPE_IP ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt->eth->net_type )) );
     return;
   }
 
@@ -2360,7 +2401,7 @@ fd_quic_process_packet( fd_quic_t * quic,
   cur_ptr += rc;
   cur_sz  -= rc;
 
-  rc = fd_quic_decode_ip4( pkt.ip4, cur_ptr, cur_sz );
+  rc = fd_quic_decode_ip4( pkt->ip4, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     /* TODO count failure */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_ip4 failed" )) );
@@ -2368,14 +2409,14 @@ fd_quic_process_packet( fd_quic_t * quic,
   }
 
   /* check version, tot_len, protocol, checksum? */
-  if( FD_UNLIKELY( pkt.ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
+  if( FD_UNLIKELY( pkt->ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Packet is not UDP" )) );
     return;
   }
 
   /* verify ip4 packet isn't truncated
    * AF_XDP can silently do this */
-  if( FD_UNLIKELY( pkt.ip4->net_tot_len > cur_sz ) ) {
+  if( FD_UNLIKELY( pkt->ip4->net_tot_len > cur_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "IPv4 header indicates truncation" )) );
     return;
   }
@@ -2384,7 +2425,7 @@ fd_quic_process_packet( fd_quic_t * quic,
   cur_ptr += rc;
   cur_sz  -= rc;
 
-  rc = fd_quic_decode_udp( pkt.udp, cur_ptr, cur_sz );
+  rc = fd_quic_decode_udp( pkt->udp, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     /* TODO count failure  */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_udp failed" )) );
@@ -2392,15 +2433,15 @@ fd_quic_process_packet( fd_quic_t * quic,
   }
 
   /* sanity check udp length */
-  if( FD_UNLIKELY( pkt.udp->net_len < sizeof(fd_udp_hdr_t) ||
-                   pkt.udp->net_len > cur_sz ) ) {
+  if( FD_UNLIKELY( pkt->udp->net_len < sizeof(fd_udp_hdr_t) ||
+                   pkt->udp->net_len > cur_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "UDP header indicates truncation" )) );
     return;
   }
 
   /* update pointer + size */
   cur_ptr += rc;
-  cur_sz   = pkt.udp->net_len - rc; /* replace with udp length */
+  cur_sz   = pkt->udp->net_len - rc; /* replace with udp length */
 
   /* cur_ptr[0..cur_sz-1] should be payload */
 
@@ -2486,7 +2527,7 @@ fd_quic_process_packet( fd_quic_t * quic,
       /* probably it's better to switch outside the loop */
       switch( version ) {
         case 1u:
-          rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+          rc = fd_quic_process_quic_packet_v1( quic, pkt, cur_ptr, cur_sz );
           break;
 
         /* this is redundant */
@@ -2521,7 +2562,7 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   /* short header packet
      only one_rtt packets currently have short headers */
-  fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+  fd_quic_process_quic_packet_v1( quic, pkt, cur_ptr, cur_sz );
 }
 
 /* main receive-side entry point */
