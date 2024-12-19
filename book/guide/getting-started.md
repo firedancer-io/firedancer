@@ -56,7 +56,7 @@ convenience script. First, clone the source code with:
 ```sh [bash]
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ git checkout v0.1 # Latest Frankendancer Testnet release
+$ git checkout v0.302.20104 # Or the latest Frankendancer release
 ```
 
 Then you can run the `deps.sh` script to install system packages and
