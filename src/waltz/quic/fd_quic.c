@@ -25,6 +25,7 @@
 #include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
+#include <stdarg.h>
 
 #include "../../ballet/hex/fd_hex.h"
 
@@ -546,9 +547,9 @@ fd_quic_init( fd_quic_t * quic ) {
   /* Initialize diags parameters */
   state->diag_params.enabled     = 1;
   state->diag_params.cur_val     = 0.0f;
-  state->diag_params.capacity    = 10.0f;
+  state->diag_params.capacity    = 20.0f;
   state->diag_params.rate        = 5.0f / 1e9f; /* rate is messages per nanosecond */
-  state->diag_params.last_update = (ulong)fd_log_wallclock();
+  state->diag_params.last_update = (ulong)fd_quic_now( quic );
 
   return quic;
 }
@@ -790,8 +791,8 @@ fd_quic_conn_error1( fd_quic_conn_t * conn,
 /* TODO make parameters general for a wide range of exceptional conditions */
 void
 fd_quic_pkt_diag( fd_quic_conn_t * conn,
-                  uint             reason,
-                  uint             error_line ) {
+                  char const *     fmt,
+                  ... ) {
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
 
   if( !state->diag_params.enabled ) return;
@@ -799,9 +800,14 @@ fd_quic_pkt_diag( fd_quic_conn_t * conn,
   /* update bucket */
   float dt   = (float)( (long)state->now - (long)state->diag_params.last_update );
   float rate = state->diag_params.rate;
+  float upd  = dt * rate;
 
-  /* leak at specified rate */
-  state->diag_params.cur_val = fmaxf( 0.0f, state->diag_params.cur_val - dt * rate );
+  if( upd >= 1.0f ) {
+    /* leak at specified rate */
+    state->diag_params.cur_val = fmaxf( 0.0f, state->diag_params.cur_val - upd );
+
+    state->diag_params.last_update = (ulong)state->now;
+  }
 
   if( state->diag_params.cur_val + 1.0f > state->diag_params.capacity ) {
     /* no capacity available */
@@ -811,7 +817,11 @@ fd_quic_pkt_diag( fd_quic_conn_t * conn,
   /* capacity available, so increase cur_val */
   state->diag_params.cur_val += 1.0f;
 
-  printf( "packet diagnostics. reason: %u %s error_line: %u\n", reason, fd_quic_conn_reason_name( reason ), error_line );
+  va_list ap;
+  va_start( ap, fmt );
+  vprintf( fmt, ap );
+  va_end( ap );
+
   fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
                                  state->now,
                                  state->pkt->cur_quic_pkt,
@@ -829,7 +839,8 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
 
   /* do diagnostics */
   /* TODO can we look up the reason code? */
-  fd_quic_pkt_diag( conn, reason, error_line );
+  fd_quic_pkt_diag( conn, "Connection error. Reason: %d-%s error line: %d packet diagnostics:\n", reason,
+                    fd_quic_conn_reason_name( reason ), error_line );
 
   ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
   fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
@@ -873,6 +884,9 @@ fd_quic_frame_error( fd_quic_frame_context_t const * ctx,
     .src_line = error_line,
   };
   fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
+
+  fd_quic_pkt_diag( conn, "Packet diagnostics. Reason: %u-%s line: %u\n", reason,
+                    fd_quic_conn_reason_name( reason ), error_line );
 }
 
 /* returns the encoding level we should use for the next tx quic packet
@@ -1768,7 +1782,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
   //fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, cur_sz, "ingress" );
-  fd_quic_pkt_diag( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+  fd_quic_pkt_diag( conn, "INITIAL packet\n" );
 
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
@@ -1939,6 +1953,7 @@ fd_quic_handle_v1_handshake(
 
   //fd_quic_state_t * state = fd_quic_get_state( quic );
   //fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, cur_sz, "ingress" );
+  fd_quic_pkt_diag( conn, "HANDSHAKE packet\n" );
 
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
@@ -2206,8 +2221,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   if( FD_UNLIKELY( payload_sz<FD_QUIC_CRYPTO_TAG_SZ ) ) return FD_QUIC_PARSE_FAIL;
   ulong         frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  //fd_quic_state_t * state = fd_quic_get_state( quic );
-  //fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print, state->now, cur_ptr, tot_sz, "ingress" );
+  fd_quic_pkt_diag( conn, "1RTT packet\n" );
 
   while( frame_sz != 0UL ) {
     ulong rc = fd_quic_handle_v1_frame(
