@@ -294,23 +294,16 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       continue;
     }
 
-    fd_pubkey_t const * callee_account = &vm->instr_ctx->instr->acct_pubkeys[instruction_accounts[i].index_in_caller];
-    fd_pubkey_t const * account_key = &vm->instr_ctx->txn_ctx->accounts[instruction_accounts[i].index_in_transaction];
-    fd_borrowed_account_t * acc_rec = NULL;
-    /* TODO: replace with more efficient idx lookup */
-    int err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_account, &acc_rec );
-    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
-      /* TODO: magic number */
-      return 1000;
-    }
-
-    /* const_meta is NULL if the account is a new account (it doesn't exist in Funk at the time of the transaction) */
-    fd_account_meta_t const * acc_meta = acc_rec->const_meta;
-    uchar known_account = !!acc_meta;
+    /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
+       A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
+       will set its meta up) */
+    fd_borrowed_account_t const * acc_rec     = vm->instr_ctx->instr->borrowed_accounts[instruction_accounts[i].index_in_caller];
+    fd_pubkey_t const *           account_key = acc_rec->pubkey;
+    fd_account_meta_t const *     acc_meta    = acc_rec->const_meta;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
-    if( known_account && fd_account_is_executable( acc_meta ) ) {
+    if( fd_account_is_executable( acc_meta ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
       FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
@@ -339,7 +332,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller ) ) ) {
+      if( FD_UNLIKELY( VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller ) ) ) {
         return 1001;
       }
     }
