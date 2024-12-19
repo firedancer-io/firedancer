@@ -419,6 +419,17 @@ fd_topo_tile_name_cnt( fd_topo_t const * topo,
   return cnt;
 }
 
+FD_FN_PURE static inline ulong
+fd_topo_polled_in_cnt( fd_topo_t const * topo ) {
+  ulong cnt = 0;
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    for( ulong j=0; j<topo->tiles[ i ].in_cnt; j++ ) {
+      if( FD_UNLIKELY( topo->tiles[ i ].in_link_poll[ j ] ) ) cnt++;
+    }
+  }
+  return cnt;
+}
+
 /* Finds the workspace of a given name in the topology.  Returns
    ULONG_MAX if there is no such workspace.  There can be at most one
    workspace of a given name. */

@@ -1,0 +1,77 @@
+{
+    "name": "common",
+    "id": -1,
+    "common": false,
+    "description": "Fields that are common to and reported by all events.",
+    "fields": {
+        "timestamp": {
+            "type": "DateTime64(9)",
+            "description": "The timestamp that the event was generated on the validator client, with nanosecond precision. Timestamp is provided by the validator, and might be skewed."
+        },
+        "server_timestamp": {
+            "type": "DateTime64(9)",
+            "server_only": true,
+            "description": "The timestamp that the event was received by the server, with nanosecond precision. Timestamp is provided by the server, and might be skewed."
+        },
+        "identity": {
+            "type": "String",
+            "max_length": 44,
+            "description": "The base58 encoded validator identity public key. The validator must prove posession of the identity and metrics reported by identity are authenticated."
+        },
+        "client_ip": {
+            "type": "IPv6",
+            "server_only": true,
+            "description": "The IP address of the client that reported the event, as determined by the edge reverse proxy."
+        },
+        "cluster": {
+            "type": "Enum8",
+            "description": "The cluster that the validator is running on. One of \"mainnet\", \"devnet\", \"testnet\", \"development\", or \"unknown\".",
+            "variants": {
+                "mainnet": 1,
+                "devnet": 2,
+                "testnet": 3,
+                "development": 4,
+                "pythnet": 5,
+                "pythtest": 6
+            }
+        },
+        "version"   : {
+            "type": "LowCardinality(String)",
+            "max_length": 11,
+            "description": "The version of the validator software that is running."
+        },
+        "client": {
+            "type": "Enum8",
+            "description": "The client that the validator is running. Currently always \"frankendancer\".",
+            "variants": {
+                "agave": 1,
+                "frankendancer": 2,
+                "firedancer": 3
+            }
+        },
+        "os": {
+            "type": "Enum8",
+            "description": "The operating system that the validator is running. Currently always \"linux\".",
+            "variants": {
+                "linux": 1
+            }
+        },
+        "instance_id": {
+            "type": "UInt64",
+            "description": "A unique identifier for this instance of the validator. Randomly generated when the validator is booted."
+        },
+        "machine_id": {
+            "type": "UInt64",
+            "description": "A unique identifier for the host running this validator. Will remain the same between validator and machine restarts."
+        },
+        "boot_id": {
+            "type": "UInt64",
+            "description": "A unique identifier for the boot identifier of the host running this validator. Will remain the same between validator restarts, but reset on machine restarts."
+        },
+        "unparsed": {
+            "type": "String",
+            "server_only": true,
+            "description": "Any JSON leftover in the event after a parse of known fields is dumped out here."
+        }
+    }
+}
