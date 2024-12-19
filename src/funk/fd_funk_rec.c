@@ -470,6 +470,47 @@ fd_funk_rec_remove( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
+int
+fd_funk_rec_forget( fd_funk_t *      funk,
+                    fd_funk_rec_t ** recs,
+                    ulong recs_cnt ) {
+  if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
+  fd_funk_check_write( funk );
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+
+  ulong rec_max = funk->rec_max;
+
+  for( ulong i = 0; i < recs_cnt; ++i ) {
+    fd_funk_rec_t * rec = recs[i];
+    ulong rec_idx = (ulong)(rec - rec_map);
+
+    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
+      return FD_FUNK_ERR_INVAL;
+
+    ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
+    fd_funk_xid_key_pair_t const * key = fd_funk_rec_pair( rec );
+    if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( txn_idx ) || /* Must be published */
+                     !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) || /* Must be removed */
+                     rec!=fd_funk_rec_map_query_const( rec_map, key, NULL ) ) ) {
+      return FD_FUNK_ERR_KEY;
+    }
+
+    ulong prev_idx = rec->prev_idx;
+    ulong next_idx = rec->next_idx;
+    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =           next_idx;
+    else                                      rec_map[ prev_idx ].next_idx = next_idx;
+    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =           prev_idx;
+    else                                      rec_map[ next_idx ].prev_idx = prev_idx;
+
+    fd_funk_rec_map_remove( rec_map, key );
+  }
+
+  return FD_FUNK_SUCCESS;
+}
+
 void
 fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
   rec->flags |= ((erase_data & 0xFFFFFFFFFFUL) << (sizeof(unsigned long) * 8 - 40));

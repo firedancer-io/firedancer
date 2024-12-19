@@ -7,6 +7,7 @@
 #include "fd_executor.h"
 #include "fd_account.h"
 #include "fd_hashes.h"
+#include "fd_txncache.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -2179,7 +2180,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
-  fd_sysvar_fees_new_derived(slot_ctx, slot_ctx->slot_bank.fee_rate_governor, slot_ctx->parent_signature_cnt);
+  fd_sysvar_fees_new_derived(slot_ctx, slot_ctx->slot_bank.fee_rate_governor, slot_ctx->slot_bank.parent_signature_cnt);
 
   // TODO: move all these out to a fd_sysvar_update() call...
   long clock_update_time = -fd_log_wallclock();
@@ -2326,6 +2327,8 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
     }
 
+    slot_ctx->tick_count = 0UL;
+
     long block_execute_time = -fd_log_wallclock();
 
     int res = fd_runtime_block_execute_prepare( slot_ctx );
@@ -2336,7 +2339,14 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     ulong txn_cnt = block_info->txn_cnt;
     fd_txn_p_t * txn_ptrs = fd_scratch_alloc( alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
 
+    /* This now collects the tick entries in a block. */
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
+
+    /* TODO: Currently the tick height is manually updated for each executed 
+       slot as a hack to support snapshot loading. This code should be removed 
+       once correct tick calculation is implemented. */
+    slot_ctx->slot_bank.tick_height     += 64UL;
+    slot_ctx->slot_bank.max_tick_height += 64UL;
 
     res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, tpool, spads, spad_cnt );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -2759,32 +2769,64 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
   }
 }
 
+uint
+fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulong prev_slot ) {
+  ulong slot_idx;
+  ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, prev_slot, &slot_idx );
+  ulong new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, &slot_idx );
+
+  return ( prev_epoch < new_epoch || slot_idx == 0 );
+}
+
 static int
 fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_capture_ctx_t * capture_ctx,
-                             fd_tpool_t * tpool ) {
+                             fd_tpool_t * tpool ) {        
   /* Publish any transaction older than 31 slots */
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
+  fd_funk_t *       funk       = slot_ctx->acc_mgr->funk;
+  fd_funk_txn_t *   txnmap     = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
-    /* TODO: tmp change */
-    if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
+    if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
-      fd_funk_start_write(funk);
-      ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
-      if (publish_err == 0) {
-        FD_LOG_ERR(("publish err"));
-        return -1;
-      }
-      if( slot_ctx->status_cache ) {
+      if( slot_ctx->status_cache && !fd_txncache_get_is_constipated( slot_ctx->status_cache ) ) {
         fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
+      } else if( slot_ctx->status_cache ) {
+        fd_txncache_register_constipated_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       }
 
-      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      fd_funk_start_write( funk );
+      if( slot_ctx->epoch_ctx->constipate_root ) {
+        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnmap );
+        if( parent != NULL ) {
+          slot_ctx->root_slot = txn->xid.ul[0];
+
+          if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( funk, txn, 1) != FD_FUNK_SUCCESS ) ) {
+            FD_LOG_ERR(( "Unable to publish into the parent transaction" ));
+          }
+        }
+      } else {
+        slot_ctx->root_slot = txn->xid.ul[0];
+        /* TODO: The epoch boundary check is not correct due to skipped slots. */
+        if( (!(slot_ctx->root_slot % slot_ctx->snapshot_freq) || (
+             !(slot_ctx->root_slot % slot_ctx->incremental_freq) && slot_ctx->last_snapshot_slot)) &&
+             !fd_runtime_is_epoch_boundary( epoch_bank, slot_ctx->root_slot, slot_ctx->root_slot - 1UL )) {
+
+          slot_ctx->last_snapshot_slot         = slot_ctx->root_slot;
+          slot_ctx->epoch_ctx->constipate_root = 1;
+          fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
+        }
+
+        if( FD_UNLIKELY( !fd_funk_txn_publish( funk, txn, 1 ) ) ) {
+          FD_LOG_ERR(( "No transactions were published" ));
+        }
+      }
+
       if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
-        fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash );
+        fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, &slot_ctx->slot_bank.epoch_account_hash );
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
 
