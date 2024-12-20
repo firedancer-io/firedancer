@@ -168,7 +168,9 @@ fd_quic_trace_frame( fd_quic_trace_frame_ctx_t * context,
   case T: return fd_quic_trace1_##NAME##_frame( context, data, data_sz );
 FD_QUIC_FRAME_TYPES(F)
 # undef F
-  default: return FD_QUIC_PARSE_FAIL;
+  default:
+    FD_LOG_HEXDUMP_NOTICE(( "Failed to parse frame", data, data_sz ));
+    return FD_QUIC_PARSE_FAIL;
   }
 }
 
