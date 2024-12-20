@@ -90,7 +90,7 @@ fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
 
   /* Set secrets->initial_secret */
   fd_quic_gen_initial_secret(
-      &conn->secrets,
+      secrets,
       initial->dst_conn_id, initial->dst_conn_id_len );
 
   /* Derive secrets->secret[0][0] */
