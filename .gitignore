@@ -42,6 +42,10 @@ deps-bundle.tar.zst
 # VSCode
 .vscode
 
+# JetBrains
+.fleet
+.idea
+
 # Packet Captures
 *.pcap
 *.pcapng
