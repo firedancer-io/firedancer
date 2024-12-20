@@ -1759,10 +1759,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
 
       slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
 
-      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[0];
-      fd_instr_info_t instr;
-      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instr );
-      int is_vote = (0 == memcmp(instr.program_id_pubkey.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)));
+      int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw, fd_solana_vote_program_id.key );
       if( is_vote ) {
         if( FD_UNLIKELY( exec_txn_err ) ) {
           failed_txn_count++;

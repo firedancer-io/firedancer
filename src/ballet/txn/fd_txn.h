@@ -440,6 +440,28 @@ fd_txn_get_instr_data( fd_txn_instr_t const * instr,
   return (uchar const *)((ulong)payload + (ulong)instr->data_off);
 }
 
+/*
+ * 1. has 1 or 2 signatures
+ * 2. is legacy message
+ * 3. has only one instruction
+ * 4. which must be a Vote instruction
+ */
+static inline int
+fd_txn_is_simple_vote_transaction( fd_txn_t const * txn,
+                                   void     const * payload,
+                                   uchar    const   vote_program_id[ static 32 ] ) {
+  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
+
+  ulong instr_cnt      = txn->instr_cnt;
+  ulong vote_instr_cnt = 0UL;
+  for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
+    ulong prog_id_idx = (ulong)txn->instr[i].program_id;
+    fd_acct_addr_t const * prog_id = addr_base + prog_id_idx;
+    vote_instr_cnt += (ulong)(0 == memcmp(prog_id->b, vote_program_id, 32UL) );
+  }
+  return (vote_instr_cnt==1UL) && (instr_cnt==1UL) && (txn->transaction_version==FD_TXN_VLEGACY) && (txn->signature_cnt<3UL);
+}
+
 /* fd_txn_align returns the alignment in bytes required of a region of
    memory to be used as a fd_txn_t.  It is the same as
    alignof(fd_txn_t). */
