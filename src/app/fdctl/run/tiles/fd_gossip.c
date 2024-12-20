@@ -36,7 +36,7 @@
 #define NET_OUT_IDX     0
 #define SHRED_OUT_IDX   1
 #define REPAIR_OUT_IDX  2
-#define DEDUP_OUT_IDX   3
+#define VERIFY_OUT_IDX  3
 #define SIGN_OUT_IDX    4
 #define VOTER_OUT_IDX   5
 #define REPLAY_OUT_IDX  6
@@ -104,15 +104,15 @@ struct fd_gossip_tile_ctx {
   ulong       voter_contact_out_wmark;
   ulong       voter_contact_out_chunk;
 
-  fd_frag_meta_t * dedup_out_mcache;
-  ulong *          dedup_out_sync;
-  ulong            dedup_out_depth;
-  ulong            dedup_out_seq;
+  fd_frag_meta_t * verify_out_mcache;
+  ulong *          verify_out_sync;
+  ulong            verify_out_depth;
+  ulong            verify_out_seq;
 
-  fd_wksp_t * dedup_out_mem;
-  ulong       dedup_out_chunk0;
-  ulong       dedup_out_wmark;
-  ulong       dedup_out_chunk;
+  fd_wksp_t * verify_out_mem;
+  ulong       verify_out_chunk0;
+  ulong       verify_out_wmark;
+  ulong       verify_out_chunk;
 
   fd_frag_meta_t * eqvoc_out_mcache;
   ulong *          eqvoc_out_sync;
@@ -317,15 +317,15 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       return;
     }
 
-    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->dedup_out_mem, ctx->dedup_out_chunk );
+    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->verify_out_mem, ctx->verify_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
 
     ulong sig = 1UL;
-    fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, sig, ctx->dedup_out_chunk,
+    fd_mcache_publish( ctx->verify_out_mcache, ctx->verify_out_depth, ctx->verify_out_seq, sig, ctx->verify_out_chunk,
       vote_txn_sz, 0UL, 0, 0 );
-    ctx->dedup_out_seq   = fd_seq_inc( ctx->dedup_out_seq, 1UL );
-    ctx->dedup_out_chunk = fd_dcache_compact_next( ctx->dedup_out_chunk, vote_txn_sz, ctx->dedup_out_chunk0, ctx->dedup_out_wmark );
+    ctx->verify_out_seq   = fd_seq_inc( ctx->verify_out_seq, 1UL );
+    ctx->verify_out_chunk = fd_dcache_compact_next( ctx->verify_out_chunk, vote_txn_sz, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
   } else if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
@@ -810,7 +810,7 @@ unprivileged_init( fd_topo_t *      topo,
                    strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX  ] ].name,    "gossip_net" )    ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name,  "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name,  "gossip_repai" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ DEDUP_OUT_IDX  ] ].name,  "gossip_dedup" )  ||
+                   strcmp( topo->links[ tile->out_link_id[ VERIFY_OUT_IDX  ] ].name, "gossip_verif" )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name,  "gossip_sign" )   ||
                    strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX  ] ].name,  "gossip_voter" )  ||
                    strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name,  "gossip_repla" )  ||
@@ -960,15 +960,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_contact_out_chunk       = ctx->repair_contact_out_chunk0;
 
   /* Set up dedup tile output */
-  fd_topo_link_t * dedup_out = &topo->links[ tile->out_link_id[ DEDUP_OUT_IDX ] ];
-  ctx->dedup_out_mcache      = dedup_out->mcache;
-  ctx->dedup_out_sync        = fd_mcache_seq_laddr( ctx->dedup_out_mcache );
-  ctx->dedup_out_depth       = fd_mcache_depth( ctx->dedup_out_mcache );
-  ctx->dedup_out_seq         = fd_mcache_seq_query( ctx->dedup_out_sync );
-  ctx->dedup_out_mem         = topo->workspaces[ topo->objs[ dedup_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->dedup_out_chunk0      = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out->dcache );
-  ctx->dedup_out_wmark       = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out->dcache, dedup_out->mtu );
-  ctx->dedup_out_chunk       = ctx->dedup_out_chunk0;
+  fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id[ VERIFY_OUT_IDX ] ];
+  ctx->verify_out_mcache      = verify_out->mcache;
+  ctx->verify_out_sync        = fd_mcache_seq_laddr( ctx->verify_out_mcache );
+  ctx->verify_out_depth       = fd_mcache_depth( ctx->verify_out_mcache );
+  ctx->verify_out_seq         = fd_mcache_seq_query( ctx->verify_out_sync );
+  ctx->verify_out_mem         = topo->workspaces[ topo->objs[ verify_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->verify_out_chunk0      = fd_dcache_compact_chunk0( ctx->verify_out_mem, verify_out->dcache );
+  ctx->verify_out_wmark       = fd_dcache_compact_wmark ( ctx->verify_out_mem, verify_out->dcache, verify_out->mtu );
+  ctx->verify_out_chunk       = ctx->verify_out_chunk0;
 
   fd_topo_link_t * eqvoc_out = &topo->links[ tile->out_link_id[ EQVOC_OUT_IDX ] ];
   ctx->eqvoc_out_mcache      = eqvoc_out->mcache;
