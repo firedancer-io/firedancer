@@ -103,7 +103,7 @@ fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
 
   /* Derive decryption key */
   fd_quic_crypto_keys_t keys[1];
-  fd_quic_gen_keys( keys, conn->secrets.secret[0][0] );
+  fd_quic_gen_keys( keys, secrets->secret[0][0] );
 
   ulong pktnum_off = initial->pkt_num_pnoff;
   int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );
