@@ -39,6 +39,7 @@ $(call run-unit-test,test_system_ids,)
 ifdef FD_HAS_ROCKSDB
 $(call add-hdrs,fd_rocksdb.h)
 $(call add-objs,fd_rocksdb,fd_flamenco)
+$(call make-bin,fd_blockstore_ctl,main,fd_util fd_flamenco fd_ballet fd_util, $(ROCKSDB_LIBS))
 endif
 
 ifdef FD_HAS_ATOMIC
