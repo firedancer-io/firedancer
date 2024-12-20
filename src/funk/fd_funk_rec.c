@@ -51,38 +51,66 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
+  /* Find all instances of the record. They should all be in the same
+     hash chain. This code was copied out of the map_giant template. */
+  fd_funk_rec_t const * best_result = NULL;
+  fd_funk_txn_t const * best_txn = NULL;
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-
-  if( txn ) { /* Query txn and its in-prep ancestors */
-
-    fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
-
-    ulong txn_max = funk->txn_max;
-
-    ulong txn_idx = (ulong)(txn - txn_map);
-
-    if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) )
-      return NULL;
-
-    /* TODO: const correct and/or fortify? */
-    do {
-      fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-      fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
-      if( FD_LIKELY( rec ) ) {
-        if( FD_UNLIKELY(NULL != txn_out  ) ) {
-          *txn_out = txn;
+  fd_funk_rec_map_private_t * priv = fd_funk_rec_map_private( rec_map );
+  ulong hash = fd_funk_rec_key_hash( key, priv->seed );
+  ulong * head = fd_funk_rec_map_private_list( priv ) + ( hash & (priv->list_cnt-1UL) );
+  ulong * cur = head;
+  for(;;) {
+    ulong ele_idx = fd_funk_rec_map_private_unbox_idx( *cur );
+    if( fd_funk_rec_map_private_is_null( ele_idx ) ) break;
+    fd_funk_rec_t * ele = rec_map + ele_idx;
+    if( hash == ele->map_hash && FD_LIKELY( fd_funk_rec_key_eq( key, ele->pair.key ) ) ) {
+      for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, txn_map ) ) {
+        if( best_result && cur_txn == best_txn ) break; /* Shortcut exit */
+        if( !cur_txn ?
+            fd_funk_txn_xid_eq_root( ele->pair.xid ) :
+            fd_funk_txn_xid_eq( &cur_txn->xid, ele->pair.xid ) ) {
+          best_result = ele;
+          best_txn = cur_txn;
+          break;
         }
-        return rec;
+        if( cur_txn == NULL) break;
       }
-      txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
-    } while( FD_UNLIKELY( txn ) );
-
+    }
+    cur = &ele->map_next;
   }
 
-  /* Query the last published transaction */
+  if( txn_out ) *txn_out = best_txn;
+  return best_result;
+}
 
-  fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-  return fd_funk_rec_map_query_const( rec_map, pair, NULL );
+int
+fd_funk_rec_has_unpublished( fd_funk_t *               funk,
+                             fd_funk_rec_key_t const * key ) {
+  if( FD_UNLIKELY( (!funk) | (!key) ) ) return 0;
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  /* Search for instances of the record. They should all be in the same
+     hash chain. This code was copied out of the map_giant template. */
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funk_rec_map_private_t * priv = fd_funk_rec_map_private( rec_map );
+  ulong hash = fd_funk_rec_key_hash( key, priv->seed );
+  ulong * head = fd_funk_rec_map_private_list( priv ) + ( hash & (priv->list_cnt-1UL) );
+  ulong * cur = head;
+  for(;;) {
+    ulong ele_idx = fd_funk_rec_map_private_unbox_idx( *cur );
+    if( fd_funk_rec_map_private_is_null( ele_idx ) ) break;
+    fd_funk_rec_t * ele = rec_map + ele_idx;
+    if( hash == ele->map_hash &&
+        FD_LIKELY( fd_funk_rec_key_eq( key, ele->pair.key ) ) &&
+        !fd_funk_txn_xid_eq_root( ele->pair.xid ) ) {
+      return 1;
+    }
+    cur = &ele->map_next;
+  }
+  return 0;
 }
 
 void *

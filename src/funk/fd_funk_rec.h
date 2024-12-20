@@ -23,8 +23,8 @@
    be set on a published record.  Will not be set if an in-preparation
    transaction ancestor has this record with erase set.  If set, the
    first ancestor transaction encountered (going from youngest to
-   oldest) will not have erased set.  
-   
+   oldest) will not have erased set.
+
    If the ERASE flag is set, then the five most significant bytes of the
    flags field for the record will be used to store user-specified data. */
 
@@ -207,6 +207,12 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
                             fd_valloc_t               valloc,
                             ulong *                   result_len );
+
+/* Return true if the record key is part of an unpublished transaction */
+
+FD_FN_PURE int
+fd_funk_rec_has_unpublished( fd_funk_t *               funk,
+                             fd_funk_rec_key_t const * key );
 
 /* fd_funk_rec_test tests the record pointed to by rec.  Returns
    FD_FUNK_SUCCESS (0) if rec appears to be a live unfrozen record in
@@ -448,7 +454,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     ulong           erase_data );
 
 
-/* When a record is erased there is metadata stored in the five most 
+/* When a record is erased there is metadata stored in the five most
    significant bytes of a record.  These are helpers to make setting
    and getting these values simple. The caller is responsible for doing
    a check on the flag of the record before using the value of the erase
