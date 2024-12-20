@@ -1,6 +1,6 @@
 #include "fd_quic_trace.h"
 #include "../../../waltz/quic/fd_quic_proto.c"
-#include "../../../waltz/quic/templ/fd_quic_frame.c"
+#include "../../../waltz/quic/templ/fd_quic_frame.h"
 
 #define FRAME_STUB(name) \
   static ulong \
