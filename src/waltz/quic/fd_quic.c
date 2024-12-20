@@ -2784,6 +2784,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   ulong rcv_hi  = rcv_off + rcv_sz;  /* in [0,2^63-1] */
 
   if( FD_UNLIKELY( rcv_sz > p_sz ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5061,11 +5062,17 @@ fd_quic_frame_handle_ack_frame(
 
   /* walk thru ack ranges */
   for( ulong j = 0UL; j < ack_range_count; ++j ) {
-    if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( p_end <= p ) ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     fd_quic_ack_range_frag_t ack_range[1];
     ulong rc = fd_quic_decode_ack_range_frag( ack_range, p, (ulong)( p_end - p ) );
-    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     /* ensure we have ulong local vars, regardless of ack_range definition */
     ulong gap    = (ulong)ack_range->gap;
@@ -5130,11 +5137,17 @@ fd_quic_frame_handle_ack_frame(
   /* ECN counts
      we currently ignore them, but we must process them to get to the following bytes */
   if( data->type & 1U ) {
-    if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( p_end <= p ) ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     fd_quic_ecn_counts_frag_t ecn_counts[1];
     ulong rc = fd_quic_decode_ecn_counts_frag( ecn_counts, p, (ulong)( p_end - p ) );
-    if( rc == FD_QUIC_PARSE_FAIL ) return FD_QUIC_PARSE_FAIL;
+    if( rc == FD_QUIC_PARSE_FAIL ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     p += rc;
   }
@@ -5152,7 +5165,7 @@ fd_quic_frame_handle_reset_stream_frame(
   fd_quic_frame_context_t * context = vp_context;
   context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
   /* TODO implement */
-  return FD_QUIC_PARSE_FAIL;
+  return 0UL;
 }
 
 static ulong
@@ -5173,12 +5186,10 @@ fd_quic_frame_handle_new_token_frame(
     fd_quic_new_token_frame_t * data,
     uchar const * p,
     ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
+  /* FIXME A server MUST treat receipt of a NEW_TOKEN frame as a connection error of type PROTOCOL_VIOLATION. */
+  (void)context; (void)data; (void)p; (void)p_sz;
   /* ack-eliciting */
-  return FD_QUIC_PARSE_FAIL;
+  return 0UL;
 }
 
 void
@@ -5464,12 +5475,10 @@ fd_quic_frame_handle_path_challenge_frame(
     void * context,
     fd_quic_path_challenge_frame_t * data,
     uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+    ulong  p_sz) {
+  /* FIXME The recipient of this frame MUST generate a PATH_RESPONSE frame (Section 19.18) containing the same Data value. */
+  (void)context; (void)data; (void)p; (void)p_sz;
+  return 0UL;
 }
 
 static ulong
@@ -5478,11 +5487,9 @@ fd_quic_frame_handle_path_response_frame(
     fd_quic_path_response_frame_t * data,
     uchar const * p,
     ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+  /* We don't generate PATH_CHALLENGE frames, so this frame should never arrive */
+  (void)context; (void)data; (void)p; (void)p_sz;
+  return 0UL;
 }
 
 static void
@@ -5523,6 +5530,7 @@ fd_quic_frame_handle_conn_close_0_frame(
 
   ulong reason_phrase_length = data->reason_phrase_length;
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
+    fd_quic_frame_error( vp_context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5556,6 +5564,7 @@ fd_quic_frame_handle_conn_close_1_frame(
 
   ulong reason_phrase_length = data->reason_phrase_length;
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
+    fd_quic_frame_error( vp_context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5599,24 +5608,13 @@ fd_quic_frame_handle_handshake_done_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) {
-    switch( conn->state ) {
-      case FD_QUIC_CONN_STATE_PEER_CLOSE:
-      case FD_QUIC_CONN_STATE_ABORT:
-      case FD_QUIC_CONN_STATE_CLOSE_PENDING:
-        /* connection closing... nothing to do */
-        return 0;
-
-      case FD_QUIC_CONN_STATE_HANDSHAKE:
-        /* still handshaking... assume packet was reordered */
-        return FD_QUIC_PARSE_FAIL;
-
-      case FD_QUIC_CONN_STATE_ACTIVE:
-        /* duplicate frame? */
-        return 0;
-    }
-
-    return FD_QUIC_PARSE_FAIL;
+  if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ) {
+    /* still handshaking... assume packet was reordered */
+    context.pkt->ack_flag |= ACK_FLAG_CANCEL;
+    return 0UL;
+  } else if( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
+    /* duplicate frame or conn closing? */
+    return 0UL;
   }
 
   /* Instantly acknowledge the first HANDSHAKE_DONE frame */
