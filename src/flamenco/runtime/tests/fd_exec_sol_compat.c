@@ -50,6 +50,7 @@ sol_compat_init( int log_level ) {
   if ( !getenv( "FD_LOG_PATH" ) ) {
     setenv( "FD_LOG_PATH", "", 1 );
   }
+  fd_log_enable_unclean_exit();
   fd_boot( &argc, &argv_ );
   fd_log_level_logfile_set( log_level );
   fd_flamenco_boot( NULL, NULL );
