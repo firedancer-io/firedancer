@@ -964,6 +964,7 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
                                               txn->payload );
   } FD_SCRATCH_SCOPE_END;
 
+  /* TODO: Can use a smaller size, adjusted for payload length */
   ulong msg_sz     = sizeof( fd_txn_p_t );
   fd_mcache_publish( ctx->sender_out_mcache,
                      ctx->sender_out_depth,
