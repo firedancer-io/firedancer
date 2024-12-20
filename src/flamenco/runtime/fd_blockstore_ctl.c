@@ -1,6 +1,15 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 
+
+struct fd_entry_row {
+  ulong slot;
+  uchar ref_tick;
+  ulong sz;        /* bytes */
+  ulong shred_cnt;
+};
+typedef struct fd_entry_row fd_entry_row_t;
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -19,15 +28,6 @@ main( int argc, char ** argv ) {
                                             0UL );
   FD_TEST( wksp );
 
-  // test_ghost_print( wksp );
-  // test_ghost_simple( wksp );
-  // test_ghost_publish_left( wksp );
-  // test_ghost_publish_right( wksp );
-  // test_ghost_gca( wksp );
-  // test_ghost_vote_leaves( wksp );
-  // test_ghost_head_full_tree( wksp );
-  // test_ghost_head( wksp );
-  // test_rooted_vote( wksp );
   ulong shred_max = 1 << 15;
   ulong idx_max = 1 << 15;
   ulong block_max = 1 << 15;
@@ -97,32 +97,36 @@ main( int argc, char ** argv ) {
     }
   }
 
+  fd_entry_row_t row = {0};
+
   // iterate the blocks:
   for( ulong slot = st; slot <= end; slot++ ) {
-    //FD_LOG_NOTICE(( "querying block %lu", slot ));  
     fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
     FD_TEST( block );
-    FD_LOG_NOTICE(( "shred cnt: %lu", block->shreds_cnt ));
-    fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
-    for ( ulong shred_idx = 0; shred_idx < block->shreds_cnt; shred_idx++ ) {
 
+    row.slot = slot;
+    
+    fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
+    ulong batch_start         = 0;
+    ulong batch_sz            = 0;
+    for ( ulong shred_idx = 0; shred_idx < block->shreds_cnt; shred_idx++ ) {
       fd_block_shred_t * shred = &shreds[shred_idx];
+      batch_sz += fd_shred_payload_sz( &shred->hdr );
+
       if( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) {
-        // batch ended
-        FD_LOG_NOTICE(( "batch ended with shred idx: %lu", shred_idx ));
+        row.shred_cnt = shred_idx - batch_start + 1;
+        row.ref_tick  = (uchar)( (int)shred->hdr.data.flags &
+                                      (int)FD_SHRED_DATA_REF_TICK_MASK );
+        row.sz        = batch_sz;
+        
+        FD_LOG_NOTICE(( "Batch | slot: %lu, ref_tick: %c, sz: %lu, shred_cnt: %lu",
+                        row.slot, row.ref_tick, row.sz, row.shred_cnt ));
+
+        batch_start   = shred_idx + 1;
       }
-      uchar ref_tick = (uchar)( (int)shred->hdr.data.flags &
-                                               (int)FD_SHRED_DATA_REF_TICK_MASK );
-      FD_LOG_NOTICE(( "shred idx: %lu, ref_tick: %u", shred_idx, ref_tick ));
-      //fd_block_shred_payload_t * payload = fd_shred_data_payload( shred );
     }
   }
-
-  fd_block_t * block = fd_blockstore_block_query( blockstore, 308015636);
-  FD_TEST( !block );
-
-  //fd_block_micro_t entry = {0};
-
+  
   fd_halt();
   return 0;
 }
