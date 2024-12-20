@@ -95,7 +95,7 @@ fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
 
   /* Derive secrets->secret[0][0] */
   fd_tls_hkdf_expand_label(
-      conn->secrets.secret[0][0], FD_QUIC_SECRET_SZ,
+      secrets->secret[0][0], FD_QUIC_SECRET_SZ,
       secrets->initial_secret,
       FD_QUIC_CRYPTO_LABEL_CLIENT_IN,
       FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,
