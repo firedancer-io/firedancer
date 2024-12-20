@@ -2,6 +2,8 @@
 
 name: Builds
 on:
+  schedule:
+    - cron: 0 4 * * *
   workflow_call:
     inputs:
       gcc:
@@ -114,7 +116,7 @@ jobs:
           if [ "${{ inputs.clang }}" != "all" ]; then
             ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
           fi
-          echo "ARGS=$ARGS" >> $GITHUB_ENV
+          echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
       - name: Run clang builds
         run: |
