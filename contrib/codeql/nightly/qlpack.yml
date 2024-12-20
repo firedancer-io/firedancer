@@ -1,0 +1,6 @@
+name: asymmetric-research/fd-dev-queries
+version: 0.0.1
+extractor: cpp
+warnOnImplicitThis: true
+dependencies:
+  codeql/cpp-all: "*"
