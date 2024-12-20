@@ -1,6 +1,6 @@
 #include "fd_quic_trace.h"
 #include "../../../waltz/quic/fd_quic_proto.c"
-#include "../../../waltz/quic/templ/fd_quic_frame.h"
+#include "../../../waltz/quic/templ/fd_quic_frame.c"
 
 #define FRAME_STUB(name) \
   static ulong \
@@ -155,14 +155,18 @@ FRAME_STUB( handshake_done )
 
 static ulong
 fd_quic_trace_frame( fd_quic_trace_frame_ctx_t * context,
-                     uchar const * data,
-                     ulong         data_sz ) {
+                     uchar const *               data,
+                     ulong                       data_sz ) {
   if( FD_UNLIKELY( data_sz<1UL ) ) return FD_QUIC_PARSE_FAIL;
-  (void)context;
 
   /* Frame ID is technically a varint but it's sufficient to look at the
      first byte. */
   uint id = data[0];
+  if( !fd_quic_frame_type_allowed( context->enc_level, id ) ) {
+    FD_LOG_HEXDUMP_NOTICE(( "Frame not allowed", data, data_sz ));
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   switch( id ) {
 # define F(T,MID,NAME,...) \
   case T: return fd_quic_trace1_##NAME##_frame( context, data, data_sz );
