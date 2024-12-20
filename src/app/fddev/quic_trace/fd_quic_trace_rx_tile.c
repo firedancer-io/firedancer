@@ -77,33 +77,35 @@ fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
     return;
   }
 
-  fd_quic_conn_t * conn = NULL;
-  if( initial->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) {
+  fd_quic_crypto_keys_t _keys[1];
+  fd_quic_crypto_keys_t const * keys = NULL;
+  if( initial->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) { do {
     ulong dst_conn_id = fd_ulong_load_8( initial->dst_conn_id );
     fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
     if( !conn_entry ) return;
-    fd_quic_conn_t * conn1 = translate_ptr( conn_entry->conn );
-    if( FD_LIKELY( bounds_check_conn( quic, conn1 ) ) ) conn = conn1;
+    fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
+    if( FD_UNLIKELY( !bounds_check_conn( quic, conn ) ) ) break;
+
+    keys = translate_ptr( &conn->keys[0][0] );
+  } while(0); } else {
+    /* Set secrets->initial_secret */
+    fd_quic_crypto_secrets_t secrets[1];
+    fd_quic_gen_initial_secret(
+        secrets,
+        initial->dst_conn_id, initial->dst_conn_id_len );
+
+    /* Derive secrets->secret[0][0] */
+    fd_tls_hkdf_expand_label(
+        secrets->secret[0][0], FD_QUIC_SECRET_SZ,
+        secrets->initial_secret,
+        FD_QUIC_CRYPTO_LABEL_CLIENT_IN,
+        FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,
+        NULL, 0UL );
+
+    /* Derive decryption key */
+    fd_quic_gen_keys( _keys, secrets->secret[0][0] );
+    keys = _keys;
   }
-
-  fd_quic_crypto_secrets_t secrets[1];
-
-  /* Set secrets->initial_secret */
-  fd_quic_gen_initial_secret(
-      secrets,
-      initial->dst_conn_id, initial->dst_conn_id_len );
-
-  /* Derive secrets->secret[0][0] */
-  fd_tls_hkdf_expand_label(
-      secrets->secret[0][0], FD_QUIC_SECRET_SZ,
-      secrets->initial_secret,
-      FD_QUIC_CRYPTO_LABEL_CLIENT_IN,
-      FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,
-      NULL, 0UL );
-
-  /* Derive decryption key */
-  fd_quic_crypto_keys_t keys[1];
-  fd_quic_gen_keys( keys, secrets->secret[0][0] );
 
   ulong pktnum_off = initial->pkt_num_pnoff;
   int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );
