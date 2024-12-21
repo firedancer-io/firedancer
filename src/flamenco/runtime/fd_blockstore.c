@@ -450,7 +450,7 @@ fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
   return h;
 }
 
-static void
+static int
 fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t * block ) {
 
 #define MAX_MICROS ( 1 << 17 )
@@ -466,14 +466,19 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 
   ulong blockoff = 0;
   while( blockoff < sz ) {
-    if( blockoff + sizeof( ulong ) > sz ) FD_LOG_ERR(( "premature end of block" ));
+    if( blockoff + sizeof( ulong ) > sz ) {
+      FD_LOG_WARNING(( "premature end of block" ));
+      return FD_BLOCKSTORE_ERR_DESHRED_INVALID;
+    }
     ulong mcount = FD_LOAD( ulong, (const uchar *)data + blockoff );
     blockoff += sizeof( ulong );
 
     /* Loop across microblocks */
     for( ulong mblk = 0; mblk < mcount; ++mblk ) {
-      if( blockoff + sizeof( fd_microblock_hdr_t ) > sz )
-        FD_LOG_ERR(( "premature end of block" ));
+      if( blockoff + sizeof( fd_microblock_hdr_t ) > sz ) {
+        FD_LOG_WARNING(( "premature end of block" ));
+        return FD_BLOCKSTORE_ERR_DESHRED_INVALID;
+      }
       if( micros_cnt < MAX_MICROS ) {
         fd_block_micro_t * m = micros + ( micros_cnt++ );
         m->off               = blockoff;
@@ -492,19 +497,22 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                                           NULL,
                                           &pay_sz );
         if( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
-          FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu",
+          FD_LOG_WARNING(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu",
                         txn_idx,
                         mblk,
                         slot,
                         txn_sz ));
+          return FD_BLOCKSTORE_ERR_DESHRED_INVALID;
         }
         fd_txn_t const * txn = (fd_txn_t const *)txn_out;
 
-        if( pay_sz == 0UL )
-          FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu",
+        if( pay_sz == 0UL ) {
+          FD_LOG_WARNING(( "failed to parse transaction %lu in microblock %lu in slot %lu",
                         txn_idx,
                         mblk,
                         slot ));
+          return FD_BLOCKSTORE_ERR_DESHRED_INVALID;
+        }
 
         fd_txn_key_t const * sigs =
             (fd_txn_key_t const *)( (ulong)raw + (ulong)txn->signature_off );
@@ -552,6 +560,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
   fd_memcpy( txns_laddr, txns, sizeof( fd_block_txn_t ) * txns_cnt );
   block->txns_gaddr = fd_wksp_gaddr_fast( fd_blockstore_wksp( blockstore ), txns_laddr );
   block->txns_cnt   = txns_cnt;
+  return FD_BLOCKSTORE_OK;
 }
 
 /* Remove a slot from blockstore */
@@ -1053,7 +1062,11 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   switch( deshredder.result ) {
   case FD_SHRED_ESLOT:
-    fd_blockstore_scan_block( blockstore, slot, block );
+    if (FD_UNLIKELY( fd_blockstore_scan_block( blockstore, slot, block ) != FD_BLOCKSTORE_OK )) {
+      FD_LOG_WARNING(( "failed to scan block for slot %lu", slot ));
+      err = FD_BLOCKSTORE_ERR_DESHRED_INVALID;
+      goto fail_deshred;
+    }
 
     /* Do this last when it's safe */
     FD_COMPILER_MFENCE();
