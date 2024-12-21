@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+import "packet.proto";
+import "shared.proto";
+
+package relayer;
+
+message GetTpuConfigsRequest {}
+message GetTpuConfigsResponse {
+  shared.Socket tpu = 1;
+  shared.Socket tpu_forward = 2;
+}
+
+message SubscribePacketsRequest {}
+message SubscribePacketsResponse {
+  shared.Header header = 1;
+  oneof msg {
+    shared.Heartbeat heartbeat = 2;
+    packet.PacketBatch batch = 3;
+  }
+}
+
+/// Relayers offer a TPU and TPU forward proxy for Solana validators.
+/// Validators can connect and fetch the TPU configuration for the relayer and start to advertise the
+/// relayer's information in gossip.
+/// They can also subscribe to packets which arrived on the TPU ports at the relayer
+service Relayer {
+  // The relayer has TPU and TPU forward sockets that validators can leverage.
+  // A validator can fetch this config and change its TPU and TPU forward port in gossip.
+  rpc GetTpuConfigs (GetTpuConfigsRequest) returns (GetTpuConfigsResponse) {}
+
+  // Validators can subscribe to packets from the relayer and receive a multiplexed signal that contains a mixture
+  // of packets and heartbeats
+  rpc SubscribePackets (SubscribePacketsRequest) returns (stream SubscribePacketsResponse) {}
+}

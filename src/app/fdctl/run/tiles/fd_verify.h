@@ -29,6 +29,7 @@ typedef struct {
   ulong * tcache_ring;
   ulong * tcache_map;
 
+  ulong              in_kind[ 32 ];
   fd_verify_in_ctx_t in[ 32 ];
 
   fd_wksp_t * out_mem;
