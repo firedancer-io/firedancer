@@ -7,7 +7,6 @@
 #include "fd_quic_stream.h"
 #include "log/fd_quic_log_tx.h"
 #include "fd_quic_pkt_meta.h"
-#include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
 
