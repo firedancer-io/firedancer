@@ -1174,7 +1174,7 @@ fd_http_server_poll( fd_http_server_t * http ) {
   return 1;
 }
 
-void
+static void
 fd_http_server_evict_until( fd_http_server_t * http,
                             ulong              off ) {
   conn_treap_fwd_iter_t next;
