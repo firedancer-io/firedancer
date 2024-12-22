@@ -70,7 +70,7 @@ fd_tls_test_sign( void * ctx ) {
 
 /* Test record transport */
 
-#define TEST_RECORD_BUFSZ (1024UL)
+#define TEST_RECORD_BUFSZ (4096UL)
 struct test_record {
   uint  level;
   uchar buf[ TEST_RECORD_BUFSZ ];

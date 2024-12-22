@@ -56,6 +56,19 @@ my_transport_params( void *        context,
   FD_TEST( 0==memcmp( quic_tp, test_tp, quic_tp_sz ) );
 }
 
+static void
+fd_quic_tls_provide_data( fd_quic_tls_hs_t * tls_hs,
+                          uint               enc_level,
+                          uchar const *      msg,
+                          ulong              msg_sz ) {
+  FD_TEST( msg_sz<=FD_QUIC_TLS_RX_DATA_SZ );
+  tls_hs->rx_enc_level = (uchar)enc_level;
+  tls_hs->rx_sz        = (ushort)msg_sz;
+  tls_hs->rx_off       = 0;
+  fd_memcpy( tls_hs->rx_hs_buf, msg, msg_sz );
+  fd_quic_tls_process( tls_hs );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -114,9 +127,6 @@ main( int     argc,
   // start client handshake
   // client fd_quic_tls_hs_t is primed upon creation
 
-  int provide_rc = fd_quic_tls_provide_data( hs_client, FD_TLS_LEVEL_INITIAL, NULL, 0UL );
-  FD_TEST( provide_rc==FD_QUIC_SUCCESS );
-
   FD_LOG_INFO(( "entering main handshake loop" ));
 
   for( int l=0; l<16; ++l ) {
@@ -143,8 +153,7 @@ main( int     argc,
       // collect fragments at the same enc/sec level, then encrypt
       // ... then decrypt and forward
 
-      int provide_rc = fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data, hs_data->data_sz );
-      FD_TEST( provide_rc!=FD_QUIC_FAILED );
+      fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data, hs_data->data_sz );
 
       // remove hs_data from head of list
       //tls_client->hs_data = hs_data->next;
@@ -167,7 +176,7 @@ main( int     argc,
       FD_LOG_DEBUG(( "provide quic data server->client" ));
 
       // here we need encrypt/decrypt
-      FD_TEST( fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz )!=FD_QUIC_FAILED );
+      fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz );
 
       // remove hs_data from head of list
       fd_quic_tls_pop_hs_data( hs_server, hs_data->enc_level );

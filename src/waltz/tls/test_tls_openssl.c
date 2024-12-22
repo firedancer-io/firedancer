@@ -91,7 +91,7 @@ _fdtls_sendmsg( void const * handshake,
                 ulong        record_sz,
                 uint         encryption_level,
                 int          flush ) {
-  (void)handshake;  (void)flush;
+  (void)handshake; (void)flush;
   test_record_log( record, record_sz, !!_is_ossl_to_fd );
   test_record_send( &_fdtls_out, encryption_level, record, record_sz );
   return 1;
@@ -195,7 +195,7 @@ _ossl_info( SSL const * ssl,
             int         type,
             int         val ) {
   (void)ssl; (void)type; (void)val;
-  FD_LOG_DEBUG(( "OpenSSL info: type=%#x val=%d", type, val ));
+  FD_LOG_DEBUG(( "OpenSSL info: type=%#x val=%d", (uint)type, val ));
   if( (type&SSL_CB_LOOP)==SSL_CB_LOOP )
     FD_LOG_INFO(( "OpenSSL state: %s", SSL_state_string_long( ssl ) ));
 }
@@ -312,8 +312,13 @@ test_server( SSL_CTX * ctx ) {
   int res = SSL_do_handshake( ssl );
   FD_TEST( SSL_get_error( ssl, res )==SSL_ERROR_WANT_READ );
 
-  /* ServerHello, EncryptedExtensions, Certificate, CertificateVerify, server Finished */
+  /* RetryHelloRequest OR ServerHello, EncryptedExtensions, Certificate, CertificateVerify, server Finished */
   _fd_server_respond( server, hs );
+  if( hs->base.state==FD_TLS_HS_START ) {
+    /* In case of RetryHelloRequest */
+    _ossl_respond( ssl );
+    _fd_server_respond( server, hs );
+  }
 
   _ossl_respond( ssl );
 
@@ -475,6 +480,10 @@ main( int     argc,
   SSL_CTX_set_alpn_protos( ctx, (uchar const *)"\xasolana-tpu", 11UL );
   SSL_CTX_set_alpn_select_cb( ctx, _ossl_alpn_select, NULL );
 
+  /* Test server with and without RetryHelloRequest */
+  FD_TEST( 1==SSL_CTX_set1_groups_list( ctx, "ffdhe8192:X25519" ) );
+  test_server( ctx );
+  FD_TEST( 1==SSL_CTX_set1_groups_list( ctx, "X25519" ) );
   test_server( ctx );
 
   /* Test client with and without cert */

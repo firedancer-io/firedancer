@@ -9,14 +9,13 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <pthread.h>
- #include <poll.h>
+#include <poll.h>
+#include <errno.h>
 
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "fd_http_server_private.h"
 #include "fd_http_server.h"
-
-#define PORT 8080
 
 #define FD_HTTP_SERVER_GUI_MAX_CONNS             4
 #define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       2048
@@ -82,6 +81,7 @@ void build_http_req(struct Unstructured *u, uchar *buf, int *len, int *use_webso
 void build_ws_req(struct Unstructured *u, uchar *buf, int *len);
 
 static fd_http_server_t *http_server = NULL;
+uint16_t port = 0;
 static int clients_fd[FD_HTTP_SERVER_GUI_MAX_CONNS * 2] = {-1};
 static char clients_ws_fd[FD_HTTP_SERVER_GUI_MAX_CONNS * 2] = {0};
 static uint clients_fd_cnt = 0;
@@ -557,7 +557,7 @@ void do_action(struct Unstructured *u) {
 
             memset(&server_addr, 0, sizeof(server_addr));
             server_addr.sin_family = AF_INET;
-            server_addr.sin_port = htons(PORT);
+            server_addr.sin_port = htons(port);
 
             if (inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) != 1) {
                 close(*client_fd);
@@ -658,7 +658,21 @@ LLVMFuzzerTestOneInput( uchar const * data,
     };
 
     http_server = fd_http_server_join( fd_http_server_new( shmem, PARAMS, gui_callbacks, NULL ) );
-    fd_http_server_listen( http_server, ip_as_int, PORT );
+    http_server = fd_http_server_listen( http_server, ip_as_int, 0 );
+
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    struct sockaddr sock_addr;
+    memset(&addr, 0, sizeof(addr));
+    memset(&sock_addr, 0, sizeof(sock_addr));
+    memcpy(&sock_addr, &addr, sizeof(addr));
+
+    if (getsockname(http_server->socket_fd, &sock_addr, &addr_len) == -1) {
+        printf( "bind failed (%i-%s)", errno, strerror( errno ) );
+        abort();
+    }
+
+    port = ntohs(addr.sin_port);
 
     xorshift_init(&poll_rng, (uint32_t) rand_uint(&u));
 

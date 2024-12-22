@@ -742,7 +742,11 @@ fd_type_pun_const( void const * p ) {
    the other logical cores sharing the same underlying physical core for
    a few clocks without yielding it to the operating system scheduler.
    Typically useful for shared memory spin polling loops, especially if
-   hyperthreading is in use. */
+   hyperthreading is in use.  IMPORTANT SAFETY TIP!  This might act as a
+   FD_COMPILER_MFENCE on some combinations of toolchains and targets
+   (e.g. gcc documents that __builtin_ia32_pause also does a compiler
+   memory) but this should not be relied upon for portable code
+   (consider making this a compiler memory fence on all platforms?) */
 
 #if FD_HAS_X86
 #define FD_SPIN_PAUSE() __builtin_ia32_pause()

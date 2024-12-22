@@ -47,7 +47,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          queries: ./contrib/codeql/
+          queries: ./contrib/codeql/nightly
           config: |
               disable-default-queries: true
       - if: matrix.build-mode == 'manual'

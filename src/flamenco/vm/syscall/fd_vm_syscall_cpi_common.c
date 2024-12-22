@@ -174,7 +174,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len ); 
 
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
-        fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
+        fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
         /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
         /* TODO: not pass informational errors like this? */
 
@@ -201,7 +201,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
 
     int err;
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, post_len, &err ) &&
-        fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
+        fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
 
       ulong realloc_bytes_used = fd_ulong_sat_sub( post_len, original_len );
 
@@ -294,23 +294,16 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       continue;
     }
 
-    fd_pubkey_t const * callee_account = &vm->instr_ctx->instr->acct_pubkeys[instruction_accounts[i].index_in_caller];
-    fd_pubkey_t const * account_key = &vm->instr_ctx->txn_ctx->accounts[instruction_accounts[i].index_in_transaction];
-    fd_borrowed_account_t * acc_rec = NULL;
-    /* TODO: replace with more efficient idx lookup */
-    int err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_account, &acc_rec );
-    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
-      /* TODO: magic number */
-      return 1000;
-    }
-
-    /* const_meta is NULL if the account is a new account (it doesn't exist in Funk at the time of the transaction) */
-    fd_account_meta_t const * acc_meta = acc_rec->const_meta;
-    uchar known_account = !!acc_meta;
+    /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
+       A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
+       will set its meta up) */
+    fd_borrowed_account_t const * acc_rec     = vm->instr_ctx->instr->borrowed_accounts[instruction_accounts[i].index_in_caller];
+    fd_pubkey_t const *           account_key = acc_rec->pubkey;
+    fd_account_meta_t const *     acc_meta    = acc_rec->const_meta;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
-    if( known_account && fd_account_is_executable( acc_meta ) ) {
+    if( fd_account_is_executable( acc_meta ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
       FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
@@ -339,7 +332,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller ) ) ) {
+      if( FD_UNLIKELY( VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller ) ) ) {
         return 1001;
       }
     }
@@ -724,18 +717,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   ulong caller_accounts_to_update_len = 0;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len );
   if( FD_UNLIKELY( err ) ) return err;
-
-  /* Check that the caller lamports haven't changed */
-  ulong caller_lamports_h = 0UL;
-  ulong caller_lamports_l = 0UL;
-
-  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
-  if ( FD_UNLIKELY( err ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
-
-  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
-      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_SYSCALL_ERR_INSTR_ERR;
-  }
   
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
@@ -764,7 +745,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
          "caller account". Only writable accounts are caller accounts. */
       if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, i ) ) {
 
-        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx->instr, i, &err );
+        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx, i, &err );
         /* Lookup memory regions for the account data and the realloc region. */
         ulong data_region_idx    = vm->acc_region_metas[i].has_data_region ? vm->acc_region_metas[i].region_idx : 0;
         ulong realloc_region_idx = vm->acc_region_metas[i].has_resizing_region ? vm->acc_region_metas[i].region_idx : 0;

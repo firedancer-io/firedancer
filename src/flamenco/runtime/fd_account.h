@@ -251,6 +251,19 @@ fd_account_is_executable( fd_account_meta_t const * meta ) {
   return !!meta->info.executable;
 }
 
+/* fd_account_is_executable_internal was introduced to move towards deprecating the `is_executable` flag.
+   It returns true if the `remove_accounts_executable_flag_checks` feature is inactive AND fd_account_is_executable
+   return true. This is newly used in account modification logic to eventually allow "executable" accounts to be
+   modified. 
+   https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1052-L1060 */
+
+FD_FN_PURE static inline int
+fd_account_is_executable_internal( fd_exec_slot_ctx_t const * slot_ctx,
+                                   fd_account_meta_t  const * meta ) {
+  return !FD_FEATURE_ACTIVE( slot_ctx, remove_accounts_executable_flag_checks ) &&
+         fd_account_is_executable( meta );
+}
+
 /* fd_account_set_executable mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::set_executable.
    Returns FD_EXECUTOR_INSTR_SUCCESS if the set is successful.
@@ -308,16 +321,17 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
 
 /* fd_account_can_data_be changed mirrors Anza function 
    solana_sdk::transaction_context::BorrowedAccount::can_data_be_changed.
-   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1078-L1094 */
+   https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1136-L1152 */
 static inline int
-fd_account_can_data_be_changed( fd_instr_info_t const * instr,
-                                ulong                   instr_acc_idx,
-                                int *                   err ) {
+fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
+                                ulong                       instr_acc_idx,
+                                int *                       err ) {
 
+  fd_instr_info_t const * instr = ctx->instr;
   assert( instr_acc_idx < instr->acct_cnt );
   fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
-  if( FD_UNLIKELY( fd_account_is_executable( meta ) ) ) {
+  if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
     return 0;
   }

@@ -156,22 +156,29 @@ fd_vm_strerror( int err ) {
 int
 fd_vm_validate( fd_vm_t const * vm ) {
 
+  ulong sbpf_version = vm->sbpf_version;
+
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
 
-# define FD_VALID       ((uchar)0) /* Valid opcode */
-# define FD_CHECK_JMP   ((uchar)1) /* Validation should check that the instruction is a valid jump */
-# define FD_CHECK_END   ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
-# define FD_CHECK_ST    ((uchar)3) /* Validation should check that the instruction is a valid store */
-# define FD_CHECK_LDQ   ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
-# define FD_CHECK_DIV   ((uchar)5) /* Validation should check that the instruction is a valid division by immediate */
-# define FD_CHECK_SH32  ((uchar)6) /* Validation should check that the immediate is a valid 32-bit shift exponent */
-# define FD_CHECK_SH64  ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
-# define FD_INVALID     ((uchar)8) /* The opcode is invalid */
-# define FD_CHECK_CALLX ((uchar)9) /* Validation should check that callx has valid register number */
-# define FD_CHECK_CALLX_DEPR ((uchar)10) /* Older / deprecated FD_CHECK_CALLX */
+# define FD_VALID               ((uchar)0) /* Valid opcode */
+# define FD_CHECK_JMP_V3        ((uchar)1) /* Validation should check that the instruction is a valid jump (v3+) */
+# define FD_CHECK_END           ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
+# define FD_CHECK_ST            ((uchar)3) /* Validation should check that the instruction is a valid store */
+# define FD_CHECK_LDQ           ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
+# define FD_CHECK_DIV           ((uchar)5) /* Validation should check that the instruction is a valid division by immediate */
+# define FD_CHECK_SH32          ((uchar)6) /* Validation should check that the immediate is a valid 32-bit shift exponent */
+# define FD_CHECK_SH64          ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
+# define FD_INVALID             ((uchar)8) /* The opcode is invalid */
+# define FD_CHECK_CALL_REG      ((uchar)9) /* Validation should check that callx has valid register number */
+# define FD_CHECK_CALL_REG_DEPR ((uchar)10) /* Older / deprecated FD_CHECK_CALLX */
+# define FD_CHECK_CALL_IMM      ((uchar)11) /* Check call against functions registry */
+# define FD_CHECK_SYSCALL       ((uchar)12) /* Check call against syscalls registry */
+# define FD_CHECK_JMP_V0        ((uchar)13) /* Validation should check that the instruction is a valid jump (v0..v2) */
 
-  static uchar validation_map[ 256 ] = {
+  uchar FD_CHECK_JMP = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_JMP_V3 : FD_CHECK_JMP_V0;
+
+  uchar validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
     /* 0x04 */ FD_VALID,      /* 0x05 */ FD_CHECK_JMP,  /* 0x06 */ FD_INVALID,    /* 0x07 */ FD_VALID,
     /* 0x08 */ FD_INVALID,    /* 0x09 */ FD_INVALID,    /* 0x0a */ FD_INVALID,    /* 0x0b */ FD_INVALID,
@@ -205,13 +212,13 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_INVALID,    /* 0x7a */ FD_INVALID,    /* 0x7b */ FD_INVALID,
     /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_VALID,      /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
-    /* 0x84 */ FD_INVALID,    /* 0x85 */ FD_VALID,      /* 0x86 */ FD_VALID,      /* 0x87 */ FD_CHECK_ST,
+    /* 0x84 */ FD_INVALID,    /* 0x85 */ FD_CHECK_CALL_IMM,/*0x86*/FD_VALID,      /* 0x87 */ FD_CHECK_ST,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
-    /* 0x8c */ FD_VALID,      /* 0x8d */ FD_CHECK_CALLX,/* 0x8e */ FD_VALID,      /* 0x8f */ FD_CHECK_ST,
+    /* 0x8c */ FD_VALID,      /* 0x8d */ FD_CHECK_CALL_REG,/*0x8e*/FD_VALID,      /* 0x8f */ FD_CHECK_ST,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
-    /* 0x94 */ FD_INVALID,    /* 0x95 */ FD_VALID,      /* 0x96 */ FD_VALID,      /* 0x97 */ FD_CHECK_ST,
+    /* 0x94 */ FD_INVALID,    /* 0x95 */ FD_CHECK_SYSCALL,/*0x96*/ FD_VALID,      /* 0x97 */ FD_CHECK_ST,
     /* 0x98 */ FD_INVALID,    /* 0x99 */ FD_INVALID,    /* 0x9a */ FD_INVALID,    /* 0x9b */ FD_INVALID,
-    /* 0x9c */ FD_VALID,      /* 0x9d */ FD_INVALID,    /* 0x9e */ FD_VALID,      /* 0x9f */ FD_CHECK_ST,
+    /* 0x9c */ FD_VALID,      /* 0x9d */ FD_VALID,      /* 0x9e */ FD_VALID,      /* 0x9f */ FD_CHECK_ST,
     /* 0xa0 */ FD_INVALID,    /* 0xa1 */ FD_INVALID,    /* 0xa2 */ FD_INVALID,    /* 0xa3 */ FD_INVALID,
     /* 0xa4 */ FD_VALID,      /* 0xa5 */ FD_CHECK_JMP,  /* 0xa6 */ FD_INVALID,    /* 0xa7 */ FD_VALID,
     /* 0xa8 */ FD_INVALID,    /* 0xa9 */ FD_INVALID,    /* 0xaa */ FD_INVALID,    /* 0xab */ FD_INVALID,
@@ -237,8 +244,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0xf8 */ FD_INVALID,    /* 0xf9 */ FD_INVALID,    /* 0xfa */ FD_INVALID,    /* 0xfb */ FD_INVALID,
     /* 0xfc */ FD_INVALID,    /* 0xfd */ FD_INVALID,    /* 0xfe */ FD_VALID,      /* 0xff */ FD_INVALID,
   };
-
-  ulong sbpf_version = vm->sbpf_version;
 
   /* SIMD-0173: LDDW */
   validation_map[ 0x18 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_CHECK_LDQ : FD_INVALID;
@@ -280,7 +285,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
 
   /* SIMD-0173: CALLX */
-  validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? FD_CHECK_CALLX : FD_CHECK_CALLX_DEPR;
+  validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? FD_CHECK_CALL_REG : FD_CHECK_CALL_REG_DEPR;
 
   /* SIMD-0174: MUL, DIV, MOD */
   validation_map[ 0x24 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_VALID;
@@ -318,6 +323,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM64 */
   validation_map[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
 
+  /* SIMD-0178: static syscalls */
+  validation_map[ 0x85 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_CALL_IMM : FD_VALID;
+  validation_map[ 0x95 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_SYSCALL : FD_VALID;
+  validation_map[ 0x9d ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_VALID : FD_INVALID;
+
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
@@ -345,10 +355,23 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     case FD_VALID: break;
 
-    case FD_CHECK_JMP: {
+    /* Store ops are special because they allow dreg==r10.
+       We use a special validation_code, used later in the
+       "Check registers" section.
+       But there's nothing to do at this time. */
+    case FD_CHECK_ST: break;
+
+    case FD_CHECK_JMP_V0: {
       long jmp_dst = (long)i + (long)instr.offset + 1L;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
+      //FIXME: this shouldn't be here?
       if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
+      break;
+    }
+
+    case FD_CHECK_JMP_V3: {
+      long jmp_dst = (long)i + (long)instr.offset + 1L;
+      if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt) ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       break;
     }
 
@@ -356,8 +379,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
       if( FD_UNLIKELY( !((instr.imm==16) | (instr.imm==32) | (instr.imm==64)) ) ) return FD_VM_ERR_INVALID_END_IMM;
       break;
     }
-
-    case FD_CHECK_ST: break; /* FIXME: HMMM ... */
 
     /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L244 */
     case FD_CHECK_LDQ: {
@@ -376,7 +397,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     }
 
     case FD_CHECK_DIV: {
-      if( FD_UNLIKELY( instr.imm==0 ) ) return FD_VM_ERR_SIGFPE;  /* FIXME: SIGILL? */
+      if( FD_UNLIKELY( instr.imm==0 ) ) return FD_VM_ERR_SIGFPE;
       break;
     }
 
@@ -391,15 +412,40 @@ fd_vm_validate( fd_vm_t const * vm ) {
     }
 
     /* https://github.com/solana-labs/rbpf/blob/v0.8.5/src/verifier.rs#L207 */
-    case FD_CHECK_CALLX: {
+    case FD_CHECK_CALL_REG: {
       if( FD_UNLIKELY( instr.src_reg > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
       }
       break;
     }
-    case FD_CHECK_CALLX_DEPR: {
+    case FD_CHECK_CALL_REG_DEPR: {
       if( FD_UNLIKELY( instr.imm > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
+      }
+      break;
+    }
+
+    /* https://github.com/solana-labs/rbpf/blob/4ad935be/src/verifier.rs#L411-L418 */
+    case FD_CHECK_CALL_IMM: {
+      ulong target_pc = (ulong)( fd_long_sat_add( (long)i, fd_long_sat_add( (long)(int)instr.imm, 1 ) ) );
+      if( FD_UNLIKELY( target_pc>text_cnt || !fd_sbpf_calldests_test( vm->calldests, target_pc ) ) ) {
+        return FD_VM_INVALID_FUNCTION;
+      }
+      break;
+    }
+
+    /* https://github.com/solana-labs/rbpf/blob/4ad935be/src/verifier.rs#L423-L428 */
+    case FD_CHECK_SYSCALL: {
+      uint imm = instr.imm;
+      /* check out of bound */
+      if( FD_UNLIKELY( imm==0 || imm >= FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ ) ) {
+        return FD_VM_INVALID_SYSCALL;
+      }
+      uint syscall_key = FD_VM_SBPF_STATIC_SYSCALLS_LIST[ imm ];
+      /* check active syscall */
+      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, syscall_key, NULL );
+      if( FD_UNLIKELY( !syscall ) ) {
+        return FD_VM_INVALID_SYSCALL;
       }
       break;
     }

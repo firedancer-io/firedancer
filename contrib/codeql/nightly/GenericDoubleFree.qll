@@ -19,21 +19,21 @@ module DoubleFreeConfig<regcap/1 doubleMatch, regcap/1 barrierMatch> implements
 {
   class FlowState = string;
 
-  predicate isSource(DataFlow::Node source, DataFlow::FlowState state) {
+  predicate isSource(DataFlow::Node source, FlowState state) {
     exists(CandidateCall call |
       source.asIndirectArgument() = call.getArgument(0) and
       state = doubleMatch(call.getTarget().getName())
     )
   }
 
-  predicate isBarrier(DataFlow::Node barrier, DataFlow::FlowState state) {
+  predicate isBarrier(DataFlow::Node barrier, FlowState state) {
     exists(CandidateCall call |
       barrier.asIndirectArgument() = call.getArgument(0) and
       state = barrierMatch(call.getTarget().getName())
     )
   }
 
-  predicate isSink(DataFlow::Node sink, DataFlow::FlowState state) {
+  predicate isSink(DataFlow::Node sink, FlowState state) {
     exists(CandidateCall call |
       sink.asIndirectArgument() = call.getArgument(0) and
       state = doubleMatch(call.getTarget().getName())

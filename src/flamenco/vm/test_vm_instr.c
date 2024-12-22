@@ -476,7 +476,7 @@ run_input( test_input_t const * input,
   run_input2( out, vm, force_exec );
 
   /* Clean up */
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
   free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
   free( input_copy );

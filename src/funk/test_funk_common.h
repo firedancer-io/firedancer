@@ -140,8 +140,7 @@ rec_insert( funk_t * funk,
 
 void
 rec_remove( funk_t * funk,
-            rec_t *  rec,
-            int      erase );
+            rec_t *  rec );
 
 /* Mini funk API */
 

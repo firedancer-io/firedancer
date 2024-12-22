@@ -5,8 +5,6 @@
 
 #include "fd_quic_frame.h"
 #include "../fd_quic_enum.h"
-#include "../../../util/fd_util.h"
-
 
 /* Lookup table for allowed frame types *******************************/
 
@@ -16,7 +14,7 @@
 #define PKT_FLAG_0 (1u<<FD_QUIC_PKT_TYPE_ZERO_RTT)   /* allowed in 0-RTT */
 #define PKT_FLAG_1 (1u<<FD_QUIC_PKT_TYPE_ONE_RTT)    /* allowed in 1-RTT */
 
-static uchar const __attribute__((aligned(0x20)))
+uchar const __attribute__((aligned(0x20)))
 fd_quic_frame_type_flags[ FD_QUIC_FRAME_TYPE_CNT ] = {
 
   #define F(T,MID,NAME,_0,F0,F1,F2,F3,...) \
@@ -31,19 +29,6 @@ fd_quic_frame_type_flags[ FD_QUIC_FRAME_TYPE_CNT ] = {
 #undef PKT_FLAG_H
 #undef PKT_FLAG_0
 #undef PKT_FLAG_1
-
-/* fd_quic_frame_type_allowed checks whether a frame type is allowed for
-   a given packet type.  pkt_type is one of FD_QUIC_PKT_TYPE_{INITIAL,
-   HANDSHAKE,ZERO_RTT,ONE_RTT}.  Returns 1 if the frame type is allowed,
-   0 otherwise. */
-
-FD_FN_PURE static inline int
-fd_quic_frame_type_allowed( uint pkt_type,
-                            uint frame_type ) {
-  if( FD_UNLIKELY( pkt_type > FD_QUIC_PKT_TYPE_ONE_RTT ) ) return 0;
-  if( FD_UNLIKELY( frame_type >= FD_QUIC_FRAME_TYPE_CNT ) ) return 0;
-  return !!( fd_quic_frame_type_flags[frame_type] & (1u<<pkt_type) );
-}
 
 
 /* Lookup table for frame metric IDs **********************************/

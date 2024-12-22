@@ -386,7 +386,7 @@ fd_vm_memmove( fd_vm_t * vm,
       }
       if( FD_UNLIKELY( reverse ) ) {
         /* Bytes remaining between region begin and current position (+ 1 for inclusive region beginning). */
-        dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( dst_vaddr_begin + 1UL, vm->input_mem_regions[ dst_region_idx ].vaddr_offset );
+        dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( dst_offset + 1UL, vm->input_mem_regions[ dst_region_idx ].vaddr_offset );
       } else {
         /* Bytes remaining between current position and region end. */
         dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz, ( dst_offset - vm->input_mem_regions[ dst_region_idx ].vaddr_offset ) );
@@ -415,7 +415,7 @@ fd_vm_memmove( fd_vm_t * vm,
     if( src_is_input_mem_region ) {
       FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, src_offset, src_region_idx, src_haddr );
       if( FD_UNLIKELY( reverse ) ) {
-        src_bytes_rem_in_cur_region = fd_ulong_sat_sub( src_vaddr_begin + 1UL, vm->input_mem_regions[ src_region_idx ].vaddr_offset );
+        src_bytes_rem_in_cur_region = fd_ulong_sat_sub( src_offset + 1UL, vm->input_mem_regions[ src_region_idx ].vaddr_offset );
       } else {
         src_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz, ( src_offset - vm->input_mem_regions[ src_region_idx ].vaddr_offset ) );
       }

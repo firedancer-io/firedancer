@@ -158,7 +158,6 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
   self->is_server = is_server;
   self->is_flush  = 0;
   self->context   = context;
-  self->state     = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
 
   /* initialize handshake data */
 
@@ -185,14 +184,18 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
   /* all handshake offsets start at zero */
   fd_memset( self->hs_data_offset, 0, sizeof( self->hs_data_offset ) );
 
+  /* Set QUIC transport params */
+  self->self_transport_params = *self_transport_params;
+
   if( is_server ) {
     fd_tls_estate_srv_new( &self->hs.srv );
   } else {
     fd_tls_estate_cli_new( &self->hs.cli );
+    long res = fd_tls_client_handshake( &quic_tls->tls, &self->hs.cli, NULL, 0UL, 0 );
+    if( FD_UNLIKELY( res<0L ) ) {
+      self->alert = (uint)-res;
+    }
   }
-
-  /* Set QUIC transport params */
-  self->self_transport_params = *self_transport_params;
 
   return self;
 }
@@ -201,8 +204,6 @@ void
 fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
   if( !self ) return;
 
-  self->state = FD_QUIC_TLS_HS_STATE_DEAD;
-
   if( self->is_server )
     fd_tls_estate_srv_delete( &self->hs.srv );
   else
@@ -210,36 +211,26 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
 }
 
 int
-fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
-                          uint               enc_level,
-                          uchar const *      data,
-                          ulong              data_sz ) {
+fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
 
-  switch( self->state ) {
-    case FD_QUIC_TLS_HS_STATE_DEAD:
-    case FD_QUIC_TLS_HS_STATE_COMPLETE:
-      return FD_QUIC_SUCCESS;
-    default:
-      break;
-  }
+  if( FD_UNLIKELY( self->hs.base.state==FD_TLS_HS_FAIL ) ) return FD_QUIC_FAILED;
+  if( self->hs.base.state==FD_TLS_HS_CONNECTED ) return FD_QUIC_SUCCESS;
 
-  /* Client needs to initiate the handshake */
+  /* Process all fully received messages */
 
-  if( ( self->hs.base.state == FD_TLS_HS_START ) &
-      ( !self->is_server                       ) ) {
-    long res = fd_tls_client_handshake( &self->quic_tls->tls, &self->hs.cli, NULL, 0UL, 0 );
-    if( FD_UNLIKELY( res<0L ) ) {
-      self->alert = (uint)-res;
-      return FD_QUIC_FAILED;
-    }
-    return FD_QUIC_SUCCESS;
-  }
+  uint enc_level = self->rx_enc_level;
+  for(;;) {
+    uchar const * buf   = self->rx_hs_buf;
+    ulong         off   = self->rx_off;
+    ulong         avail = self->rx_sz - off;
+    if( avail<4 ) break;
 
-  /* QUIC-TLS allows coalescing multiple records into the same CRYPTO
-     frame.  It also allows fragmentation, but we don't support that. */
+    /* Peek the message size from fd_tls_msg_hdr_t
+       ?? AA BB CC => 0xCCBBAA?? => 0x??AABBCC => 0x00AABBCC */
+    uint msg_sz = fd_uint_bswap( FD_LOAD( uint, buf+off ) ) & 0xFFFFFFU;
+    if( avail<msg_sz+4 ) break;
 
-  do {
-    long res = fd_tls_handshake( &self->quic_tls->tls, &self->hs, data, data_sz, enc_level );
+    long res = fd_tls_handshake( &self->quic_tls->tls, &self->hs, buf+off, avail, enc_level );
 
     if( FD_UNLIKELY( res<0L ) ) {
       int alert = (int)-res;
@@ -251,27 +242,19 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
       return FD_QUIC_FAILED;
     }
 
-    data    += (ulong)res;
-    data_sz -= (ulong)res;
-  } while( data_sz );
+    self->rx_off = (ushort)( off+(ulong)res );
+  }
 
   switch( self->hs.base.state ) {
   case FD_TLS_HS_CONNECTED:
     /* handshake completed */
-    self->is_hs_complete = 1;
     self->quic_tls->handshake_complete_cb( self, self->context );
-    self->state = FD_QUIC_TLS_HS_STATE_COMPLETE;
     return FD_QUIC_SUCCESS;
   case FD_TLS_HS_FAIL:
     /* handshake permanently failed */
-    self->state = FD_QUIC_TLS_HS_STATE_DEAD;
     return FD_QUIC_FAILED;
   default:
-    /* fd_quic_tls_provide_data will perform as much handshaking as
-       possible.  Thus, we know that we are blocked on needing more data
-       when we reach fd_quic_tls_process without having completed the
-       handshake. */
-    self->state = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
+    /* handshake not yet complete */
     return FD_QUIC_SUCCESS;
   }
 }

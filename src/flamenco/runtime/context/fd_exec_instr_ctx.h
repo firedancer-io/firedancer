@@ -25,7 +25,6 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
 
   fd_funk_txn_t * funk_txn;
   fd_acc_mgr_t *  acc_mgr;
-  fd_valloc_t     valloc;
 
   /* Most instructions log the base58 program id multiple times, so it's
      convenient to compute it once and reuse it. */

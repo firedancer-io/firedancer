@@ -385,7 +385,7 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -65,15 +65,13 @@ worker_bulk( void * tpool,
              ulong  m0,     ulong m1,
              ulong  n0,     ulong n1 ) {
   FD_TEST( n0<FD_TILE_MAX );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker_rx[ n0 ].tpool  ) = tpool;
-  FD_VOLATILE( worker_rx[ n0 ].t0     ) = t0;     FD_VOLATILE( worker_rx[ n0 ].t1     ) = t1;
-  FD_VOLATILE( worker_rx[ n0 ].args   ) = args;
-  FD_VOLATILE( worker_rx[ n0 ].reduce ) = reduce; FD_VOLATILE( worker_rx[ n0 ].stride ) = stride;
-  FD_VOLATILE( worker_rx[ n0 ].l0     ) = l0;     FD_VOLATILE( worker_rx[ n0 ].l1     ) = l1;
-  FD_VOLATILE( worker_rx[ n0 ].m0     ) = m0;     FD_VOLATILE( worker_rx[ n0 ].m1     ) = m1;
-  FD_VOLATILE( worker_rx[ n0 ].n0     ) = n0;     FD_VOLATILE( worker_rx[ n0 ].n1     ) = n1;
-  FD_COMPILER_MFENCE();
+  worker_rx[ n0 ].tpool  = tpool;
+  worker_rx[ n0 ].t0     = t0;     worker_rx[ n0 ].t1     = t1;
+  worker_rx[ n0 ].args   = args;
+  worker_rx[ n0 ].reduce = reduce; worker_rx[ n0 ].stride = stride;
+  worker_rx[ n0 ].l0     = l0;     worker_rx[ n0 ].l1     = l1;
+  worker_rx[ n0 ].m0     = m0;     worker_rx[ n0 ].m1     = m1;
+  worker_rx[ n0 ].n0     = n0;     worker_rx[ n0 ].n1     = n1;
 }
 
 static void
@@ -85,15 +83,13 @@ worker_scalar( void * tpool,
                ulong  m0,     ulong m1,
                ulong  n0,     ulong n1 ) {
   FD_TEST( m0<FD_TILE_MAX );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker_rx[ m0 ].tpool  ) = tpool;
-  FD_VOLATILE( worker_rx[ m0 ].t0     ) = t0;     FD_VOLATILE( worker_rx[ m0 ].t1     ) = t1;
-  FD_VOLATILE( worker_rx[ m0 ].args   ) = args;
-  FD_VOLATILE( worker_rx[ m0 ].reduce ) = reduce; FD_VOLATILE( worker_rx[ m0 ].stride ) = stride;
-  FD_VOLATILE( worker_rx[ m0 ].l0     ) = l0;     FD_VOLATILE( worker_rx[ m0 ].l1     ) = l1;
-  FD_VOLATILE( worker_rx[ m0 ].m0     ) = m0;     FD_VOLATILE( worker_rx[ m0 ].m1     ) = m1;
-  FD_VOLATILE( worker_rx[ m0 ].n0     ) = n0;     FD_VOLATILE( worker_rx[ m0 ].n1     ) = n1;
-  FD_COMPILER_MFENCE();
+  worker_rx[ m0 ].tpool  = tpool;
+  worker_rx[ m0 ].t0     = t0;     worker_rx[ m0 ].t1     = t1;
+  worker_rx[ m0 ].args   = args;
+  worker_rx[ m0 ].reduce = reduce; worker_rx[ m0 ].stride = stride;
+  worker_rx[ m0 ].l0     = l0;     worker_rx[ m0 ].l1     = l1;
+  worker_rx[ m0 ].m0     = m0;     worker_rx[ m0 ].m1     = m1;
+  worker_rx[ m0 ].n0     = n0;     worker_rx[ m0 ].n1     = n1;
 }
 
 #if FD_HAS_ATOMIC
@@ -107,15 +103,13 @@ worker_taskq( void * tpool,
               ulong  n0,     ulong n1 ) {
   FD_TEST( m0<FD_TILE_MAX );
   FD_TEST( t0<=n0 ); FD_TEST( n1==n0+1UL ); FD_TEST( n1<=t1 ); /* these are otherwise non-deterministic for taskq */
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker_rx[ m0 ].tpool  ) = tpool;
-  FD_VOLATILE( worker_rx[ m0 ].t0     ) = t0;     FD_VOLATILE( worker_rx[ m0 ].t1     ) = t1;
-  FD_VOLATILE( worker_rx[ m0 ].args   ) = args;
-  FD_VOLATILE( worker_rx[ m0 ].reduce ) = reduce; FD_VOLATILE( worker_rx[ m0 ].stride ) = stride;
-  FD_VOLATILE( worker_rx[ m0 ].l0     ) = l0;     FD_VOLATILE( worker_rx[ m0 ].l1     ) = l1;
-  FD_VOLATILE( worker_rx[ m0 ].m0     ) = m0;     FD_VOLATILE( worker_rx[ m0 ].m1     ) = m1;
-  FD_VOLATILE( worker_rx[ m0 ].n0     ) = 0UL;    FD_VOLATILE( worker_rx[ m0 ].n1     ) = 0UL;
-  FD_COMPILER_MFENCE();
+  worker_rx[ m0 ].tpool  = tpool;
+  worker_rx[ m0 ].t0     = t0;     worker_rx[ m0 ].t1     = t1;
+  worker_rx[ m0 ].args   = args;
+  worker_rx[ m0 ].reduce = reduce; worker_rx[ m0 ].stride = stride;
+  worker_rx[ m0 ].l0     = l0;     worker_rx[ m0 ].l1     = l1;
+  worker_rx[ m0 ].m0     = m0;     worker_rx[ m0 ].m1     = m1;
+  worker_rx[ m0 ].n0     = 0UL;    worker_rx[ m0 ].n1     = 0UL;
 }
 #endif
 
@@ -425,23 +419,18 @@ main( int     argc,
 
   FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
 
-  ulong spin_done;
-
   if( tile_cnt>1L ) {
     tpool = fd_tpool_init( tpool_mem, 2UL ); FD_TEST( tpool );
 
     fd_tile_exec_delete( fd_tile_exec_new( 1UL, tile_self_push_main, 0, (char **)tpool ), NULL );
 
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( spin_done ) = 0;
-    FD_COMPILER_MFENCE();
-    fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, tile_spin_main, 0, (char **)fd_type_pun( &spin_done ) ); /* self push */
+    char * spin_done = (char *)0UL;
+    FD_COMPILER_MFENCE(); /* FIXME: give fd_tile_exec_new stronger fencing semantics */
+    fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, tile_spin_main, 0, &spin_done ); FD_TEST( exec );
 
     FD_TEST( !fd_tpool_worker_push( tpool, 1UL, NULL, 0UL ) ); /* Already in use */
 
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( spin_done ) = 1;
-    FD_COMPILER_MFENCE();
+    spin_done = (char *)1UL;
     fd_tile_exec_delete( exec, NULL );
 
     FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
@@ -457,15 +446,11 @@ main( int     argc,
 
   if( tile_cnt>1L ) {
     ulong worker_idx = tile_cnt-1UL;
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( spin_done ) = 0;
-    FD_COMPILER_MFENCE();
+    ulong spin_done = 0UL;
     fd_tpool_exec( tpool,worker_idx, worker_spin, &spin_done, 1UL,2UL,(void *)3UL,(void *)4UL,5UL,6UL,7UL,8UL,9UL,10UL,11UL );
     FD_TEST( fd_tpool_worker_state( tpool, worker_idx )==FD_TPOOL_WORKER_STATE_EXEC );
     FD_TEST( !fd_tpool_worker_pop( tpool ) ); /* already in use */
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( spin_done ) = 1;
-    FD_COMPILER_MFENCE();
+    spin_done = 1UL;
     fd_tpool_wait( tpool,worker_idx );
     FD_TEST( fd_tpool_worker_state( tpool, worker_idx )==FD_TPOOL_WORKER_STATE_IDLE );
   }
@@ -646,14 +631,12 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing FD_FOR_ALL" ));
 
   for( ulong rem=100000UL; rem; rem-- ) {
-    FD_COMPILER_MFENCE();
     test_t0 = fd_rng_ulong_roll( rng, tile_cnt );
     test_t1 = fd_rng_ulong_roll( rng, tile_cnt ); fd_swap_if( test_t1<test_t0, test_t0, test_t1 ); test_t1++;
     test_i0 = (long)fd_rng_int( rng );
     test_i1 = (long)fd_rng_int( rng ); fd_swap_if( test_i1<test_i0, test_i0, test_i1 );
     test_a0 = fd_rng_ulong( rng ); test_a1 = fd_rng_ulong( rng ); test_a2 = fd_rng_ulong( rng ); test_a3 = fd_rng_ulong( rng );
     test_a4 = fd_rng_ulong( rng ); test_a5 = fd_rng_ulong( rng ); test_a6 = fd_rng_ulong( rng );
-    FD_COMPILER_MFENCE();
     FD_FOR_ALL( test_for_all_0, tpool,test_t0,test_t1, test_i0,test_i1 );
     FD_FOR_ALL( test_for_all_1, tpool,test_t0,test_t1, test_i0,test_i1, test_a0 );
     FD_FOR_ALL( test_for_all_2, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1 );
@@ -669,14 +652,12 @@ main( int     argc,
   FD_FOR_ALL( test_scratch_attach, tpool,0UL,tile_cnt, 0L,(long)tile_cnt );
 
   for( ulong rem=100000UL; rem; rem-- ) {
-    FD_COMPILER_MFENCE();
     test_t0 = fd_rng_ulong_roll( rng, tile_cnt );
     test_t1 = fd_rng_ulong_roll( rng, tile_cnt ); fd_swap_if( test_t1<test_t0, test_t0, test_t1 ); test_t1++;
     test_i0 = (long)fd_rng_int( rng );
     test_i1 = (long)fd_rng_int( rng ); fd_swap_if( test_i1<test_i0, test_i0, test_i1 );
     test_a0 = fd_rng_ulong( rng ); test_a1 = fd_rng_ulong( rng ); test_a2 = fd_rng_ulong( rng ); test_a3 = fd_rng_ulong( rng );
     test_a4 = fd_rng_ulong( rng ); test_a5 = fd_rng_ulong( rng ); test_a6 = fd_rng_ulong( rng );
-    FD_COMPILER_MFENCE();
     FD_MAP_REDUCE( test_map_reduce_0, tpool,test_t0,test_t1, test_i0,test_i1,                                                  test_a6 );
     FD_MAP_REDUCE( test_map_reduce_1, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,                                         test_a6 );
     FD_MAP_REDUCE( test_map_reduce_2, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,                                 test_a6 );

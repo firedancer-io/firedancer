@@ -296,6 +296,11 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
 }
 
 
+FD_FN_CONST ulong
+fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
+                             ulong pktnum_sz,
+                             ulong exp_pkt_number );
+
 void
 fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                         fd_quic_conn_t *     conn,
@@ -308,15 +313,6 @@ void
 fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level );
-
-ulong
-fd_quic_send_retry( fd_quic_t *                  quic,
-                    fd_quic_pkt_t *              pkt,
-                    fd_quic_conn_id_t const *    orig_dst_conn_id,
-                    fd_quic_conn_id_t const *    new_conn_id,
-                    uchar const                  dst_mac_addr_u6[ 6 ],
-                    uint                         dst_ip_addr,
-                    ushort                       dst_udp_port );
 
 ulong
 fd_quic_process_quic_packet_v1( fd_quic_t *     quic,

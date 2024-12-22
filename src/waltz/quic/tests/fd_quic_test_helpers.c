@@ -79,6 +79,11 @@ fd_quic_test_now( void * context ) {
   return (ulong)fd_log_wallclock();
 }
 
+static void
+flush_pcap( void ) {
+  fflush( fd_quic_test_pcap );
+}
+
 /* Test runtime */
 
 void
@@ -90,6 +95,7 @@ fd_quic_test_boot( int *    pargc,
     FD_LOG_NOTICE(( "Logging to --pcap %s", _pcap ));
     fd_quic_test_pcap = fopen( _pcap, "ab" );
     FD_TEST( fd_quic_test_pcap );
+    atexit( flush_pcap );
   }
 }
 

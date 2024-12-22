@@ -153,15 +153,7 @@ txn_publish( funk_t * funk,
 
     rec_t * root_rec = rec_query( funk, NULL, rec->key );
 
-    if( rec->erase ) { /* erase published key */
-
-      if( !root_rec ) FD_LOG_ERR(( "never get here unless memory corruption" )); /* should have key in the records */
-
-      rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
-
-      rec_unmap( funk, rec_leave( funk, root_rec ) ); /* Unmap root rec */
-
-    } else if( !root_rec ) { /* key not published and not erasing, create published key */
+    if( !root_rec ) { /* key not published and not erasing, create published key */
 
       rec_t * prev = funk->rec_tail;
 
@@ -173,9 +165,10 @@ txn_publish( funk_t * funk,
       else       funk->rec_head = rec;
       funk->rec_tail = rec;
 
-    } else { /* key published and not erasing, update published key */
+    } else { /* update published key */
 
       root_rec->val = rec->val;
+      root_rec->erase = rec->erase;
 
       rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
 
@@ -344,32 +337,12 @@ rec_insert( funk_t * funk,
 
 void
 rec_remove( funk_t * funk,
-            rec_t *  rec,
-            int      erase ) {
+            rec_t *  rec ) {
+  (void)funk;
 
 //FD_LOG_NOTICE(( "remove (%lu,%lu) erase=%i", rec->txn ? rec->txn->xid : 0UL, rec->key, erase ));
 
-  if( !rec->txn ) {
-    if( !erase     ) FD_LOG_ERR(( "never get here unless user error" ));
-    if( rec->erase ) FD_LOG_ERR(( "never here unless memory corruption" ));
-  } else {
-    if( erase ) {
-      if( rec->erase ) return; /* Already marked for erase */
-      txn_t * txn = rec->txn;
-      do {
-        rec_t * match = rec_query( funk, txn->parent, rec->key );
-        if( match ) {
-          if( match->erase ) break; /* Already marked for erase in a recent ancestor so we can remove immediately */
-        //FD_LOG_NOTICE(( "erases (%lu,%lu)", match->txn ? match->txn->xid : 0UL, rec->key ));
-          rec->erase = 1;
-          return;
-        }
-        txn = txn->parent;
-      } while( txn );
-    }
-  }
-
-  rec_unmap( funk, rec_leave( funk, rec ) );
+  rec->erase = 1;
 }
 
 /* Mini funk implementation *******************************************/

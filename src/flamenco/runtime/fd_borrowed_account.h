@@ -36,6 +36,8 @@ struct __attribute__((aligned(8UL))) fd_borrowed_account {
 
   ushort refcnt_excl;
   ushort refcnt_shared;
+
+  uchar account_found;
 };
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 #define FD_BORROWED_ACCOUNT_FOOTPRINT (sizeof(fd_borrowed_account_t))

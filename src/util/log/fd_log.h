@@ -582,6 +582,8 @@ void fd_log_level_stderr_set ( int level );
 void fd_log_level_flush_set  ( int level );
 void fd_log_level_core_set   ( int level );
 
+void fd_log_enable_unclean_exit( void );
+
 /* These functions are for fd_log internal use only. */
 
 void

@@ -112,14 +112,14 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;
   }
-  if (NULL != orec)
+  if( NULL != orec )
     *orec = rec;
 
   void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
   // TODO/FIXME: this check causes issues with some metadata writes
 
   fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-  if( metadata->magic != FD_ACCOUNT_META_MAGIC ) {
+  if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) ) {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
     return NULL;
   }
@@ -147,23 +147,20 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  if( FD_BORROWED_ACCOUNT_MAGIC != account->magic ) {
+  if( FD_UNLIKELY( FD_BORROWED_ACCOUNT_MAGIC != account->magic ) ) {
     FD_LOG_ERR(( "bad magic for borrowed account - acc: %s, expected: %016lx, got: %016lx", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), FD_BORROWED_ACCOUNT_MAGIC, account->magic ));
   }
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-
   account->orig_rec  = account->const_rec;
   account->orig_meta = account->const_meta = meta;
   account->orig_data = account->const_data = (uchar const *)meta + meta->hlen;
 
-  if (ULONG_MAX == account->starting_dlen)
+  if( ULONG_MAX == account->starting_dlen )
     account->starting_dlen = meta->dlen;
 
-  if (ULONG_MAX == account->starting_lamports)
+  if( ULONG_MAX == account->starting_lamports )
     account->starting_lamports = meta->info.lamports;
 
   return FD_ACC_MGR_SUCCESS;

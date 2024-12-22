@@ -73,6 +73,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   }
 
   fd_valloc_t valloc = fd_scratch_virtual();
+  fd_spad_t * spad = fd_exec_instr_test_runner_get_spad( runner );
 
   /* Create effects */
   ulong output_end = (ulong) output_buf + output_bufsz;
@@ -96,8 +97,8 @@ do{
   ulong   rodata_sz = input->vm_ctx.rodata->size;
 
   /* Load input data regions */
-  fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, valloc );
+  fd_vm_input_region_t * input_regions     = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+  uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
@@ -114,6 +115,11 @@ do{
     /* Make sure bits over max_pc are all 0s. */
     ulong mask = (1UL << (max_pc % 64)) - 1UL;
     calldests[ max_pc / 64 ] &= mask;
+  }
+  ulong entry_pc = fd_ulong_min( input->vm_ctx.entry_pc, rodata_sz / 8UL - 1UL );
+  if( input->vm_ctx.sbpf_version >= FD_SBPF_V3 ) {
+    /* in v3 we have to enable the entrypoint */
+    calldests[ entry_pc / 64UL ] |= ( 1UL << ( entry_pc % 64UL ) );
   }
 
   /* Setup syscalls. Have them all be no-ops */
@@ -143,6 +149,11 @@ do{
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
 
+  /* Enable direct_mapping for SBPF version >= v1 */
+  if( input->vm_ctx.sbpf_version >= FD_SBPF_V1 ) {
+    ((fd_exec_epoch_ctx_t *)(instr_ctx->epoch_ctx))->features.bpf_account_data_direct_mapping = 0UL;
+  }
+
   fd_vm_init(
     vm,
     instr_ctx,
@@ -154,7 +165,7 @@ do{
     rodata_sz / 8, /* text_cnt */
     0, /* text_off */
     rodata_sz, /* text_sz */
-    input->vm_ctx.entry_pc,
+    entry_pc,
     calldests,
     input->vm_ctx.sbpf_version,
     syscalls,
@@ -300,7 +311,7 @@ uint
 fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
                            fd_exec_test_input_data_region_t const * test_input,
                            ulong                                    test_input_count,
-                           fd_valloc_t                              valloc ) {
+                           fd_spad_t *                              spad ) {
   ulong offset = 0UL;
   uint input_idx = 0UL;
   for( ulong i=0; i<test_input_count; i++ ) {
@@ -310,7 +321,7 @@ fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
       continue; /* skip empty regions https://github.com/anza-xyz/agave/blob/3072c1a72b2edbfa470ca869f1ea891dfb6517f2/programs/bpf_loader/src/serialization.rs#L136 */
     }
 
-    uchar * haddr = fd_valloc_malloc( valloc, 8UL, array->size );
+    uchar * haddr = fd_spad_alloc( spad, 8UL, array->size );
     fd_memcpy( haddr, array->bytes, array->size );
     input[input_idx].vaddr_offset     = offset;
     input[input_idx].haddr            = (ulong)haddr;

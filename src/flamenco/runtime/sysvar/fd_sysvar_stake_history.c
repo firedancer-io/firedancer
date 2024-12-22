@@ -5,7 +5,6 @@
 
 /* Ensure that the size declared by our header matches the minimum size
    of the corresponding fd_types entry. */
-FD_STATIC_ASSERT( FD_SYSVAR_STAKE_HISTORY_CAP == FD_STAKE_HISTORY_MIN, types );
 
 static void
 write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
@@ -44,10 +43,8 @@ fd_sysvar_stake_history_read( fd_stake_history_t * result,
 
 void
 fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_stake_history_t stake_history = {
-    .pool  = fd_stake_history_pool_alloc ( slot_ctx->valloc, FD_SYSVAR_STAKE_HISTORY_CAP ),
-    .treap = fd_stake_history_treap_alloc( slot_ctx->valloc, FD_SYSVAR_STAKE_HISTORY_CAP )
-  };
+  fd_stake_history_t stake_history;
+  fd_stake_history_new( &stake_history );
   write_stake_history( slot_ctx, &stake_history );
 }
 
@@ -58,25 +55,21 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
   fd_stake_history_t stake_history;
   fd_sysvar_stake_history_read( &stake_history, slot_ctx, &slot_ctx->valloc );
 
-  if (fd_stake_history_treap_ele_cnt( stake_history.treap ) == fd_stake_history_treap_ele_max( stake_history.treap )) {
-    fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( stake_history.treap, stake_history.pool );
-    fd_stake_history_entry_t * ele = fd_stake_history_treap_fwd_iter_ele( iter, stake_history.pool );
-    stake_history.treap = fd_stake_history_treap_ele_remove( stake_history.treap, ele, stake_history.pool );
-    fd_stake_history_pool_ele_release( stake_history.pool, ele );
-  }
+  if( stake_history.fd_stake_history_offset == 0 )
+    stake_history.fd_stake_history_offset = stake_history.fd_stake_history_size - 1;
+  else
+    stake_history.fd_stake_history_offset--;
 
-  if( 0 == fd_stake_history_pool_free( stake_history.pool ) ) {
-    FD_LOG_ERR(( "stake_history.pool is empty" ));
-  }
+  if( stake_history.fd_stake_history_len < stake_history.fd_stake_history_size)
+    stake_history.fd_stake_history_len++;
 
-  ulong idx = fd_stake_history_pool_idx_acquire( stake_history.pool );
+  // This should be done with a bit mask
+  ulong idx = stake_history.fd_stake_history_offset;
 
-  stake_history.pool[ idx ].epoch = entry->epoch;
-  stake_history.pool[ idx ].activating = entry->activating;
-  stake_history.pool[ idx ].effective = entry->effective;
-  stake_history.pool[ idx ].deactivating = entry->deactivating;
-  stake_history.treap = fd_stake_history_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
-
+  stake_history.fd_stake_history[ idx ].epoch = entry->epoch;
+  stake_history.fd_stake_history[ idx ].activating = entry->activating;
+  stake_history.fd_stake_history[ idx ].effective = entry->effective;
+  stake_history.fd_stake_history[ idx ].deactivating = entry->deactivating;
 
   write_stake_history( slot_ctx, &stake_history);
   fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };

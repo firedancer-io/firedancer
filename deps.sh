@@ -428,7 +428,6 @@ install_openssl () {
     no-comp \
     no-ct \
     no-des \
-    no-dh \
     no-dsa \
     no-dtls \
     no-dtls1-method \

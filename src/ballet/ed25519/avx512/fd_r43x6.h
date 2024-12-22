@@ -442,7 +442,7 @@ fd_r43x6_pack( fd_r43x6_t r ) {
    with limb 5 in [0,2^40+2^20-1).
 
    If x is {unreduced,unpacked,nearly reduced}, limb 4's carry will be
-   in {[0,2^5),[0,1],[0,1]} such that limb 5 will be be in
+   in {[0,2^5),[0,1],[0,1]} such that limb 5 will be in
    {[0,2^40+2^5-1),[0,2^40+1),[0,2^40+1)}.
 
    If x was reduced, all carries will be zero such that y will have the
@@ -808,7 +808,7 @@ fd_r43x6_mul_fast( fd_r43x6_t x,
       --> ul + 2^52 uh       = x*y
       --> ul + 2^43 (2^9 uh) = x*y
 
-    Thus, we can use pl=ul and and ph=2^9 uh from these instructions as
+    Thus, we can use pl=ul and ph=2^9 uh from these instructions as
     a split for the above.  With this we have:
 
       pl in [0,2^52)

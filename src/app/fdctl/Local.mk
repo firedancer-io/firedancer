@@ -8,7 +8,7 @@ ifdef FD_HAS_SSE
 include src/app/fdctl/with-version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
 
-src/app/fdctl/version.h: src/app/fdctl/version.mk
+src/app/fdctl/version.h: src/app/fdctl/version.mk agave/Cargo.toml
 	echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)UL" > $@
 	echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)UL" >> $@
 	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@

@@ -1,5 +1,6 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_account.h"
+#include "../fd_runtime.h"
 
 /* As a general note, copy_account_data implies that direct mapping is not being
    used/is inactive. This file is responsible for serializing and deserializing
@@ -104,7 +105,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
     /* Next, push the region for the account data if there is account data. We
        intentionally omit copy on write as a region type. */
     int err = 0;
-    uint is_writable = (uint)(fd_account_can_data_be_changed( instr_ctx->instr, instr_acc_idx, &err ) && !err);
+    uint is_writable = (uint)(fd_account_can_data_be_changed( instr_ctx, instr_acc_idx, &err ) && !err);
 
     /* Update the mapping from instruction account index to memory region index.
        This is an optimization to avoid redundant lookups to find accounts. */
@@ -157,7 +158,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L429-L459 */
   ulong serialized_size = 0UL;
-  serialized_size += sizeof(ulong);
+  serialized_size += sizeof(ulong); // acct_cnt
   /* First pass is to calculate size of buffer to allocate */
   for( ushort i=0; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
@@ -168,19 +169,9 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
     } else {
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx]  = i;
-      fd_pubkey_t *           acc      = &txn_accs[acc_idx];
-      fd_borrowed_account_t * view_acc = NULL;
-      int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      fd_account_meta_t const * metadata = view_acc->const_meta;
 
-      ulong acc_data_len = 0UL;
-      if( FD_LIKELY( read_result==FD_ACC_MGR_SUCCESS ) ) {
-        acc_data_len = metadata->dlen;
-      } else if( FD_UNLIKELY( read_result==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        acc_data_len = 0UL;
-      } else {
-        return NULL;
-      }
+      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
+      ulong acc_data_len = view_acc->const_meta->dlen;
 
       serialized_size += sizeof(uchar)               // is_signer
                        + sizeof(uchar)               // is_writable
@@ -204,7 +195,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
                   +  ctx.instr->data_sz
                   +  sizeof(fd_pubkey_t); // program id
 
-  uchar * serialized_params            = fd_valloc_malloc( ctx.valloc, FD_BPF_ALIGN_OF_U128, fd_ulong_align_up( serialized_size, 16UL ) );
+  uchar * serialized_params            = fd_spad_alloc( ctx.txn_ctx->spad, FD_BPF_ALIGN_OF_U128, fd_ulong_align_up( serialized_size, FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) );
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -226,48 +217,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
-      fd_borrowed_account_t * view_acc    = NULL;
-      int                     read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      /* Note: due to differences in borrowed account handling. The case where
-         the account is unknown must be handled differently. Notably, when the
-         account data is null and everything must be zero initialized. */
-      if( FD_UNLIKELY( read_result==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
-        FD_STORE( uchar, serialized_params, is_signer );
-        serialized_params += sizeof(uchar);
-
-        uchar is_writable = (uchar)fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i );
-        FD_STORE( uchar, serialized_params, is_writable );
-        serialized_params += sizeof(uchar);
-
-        fd_memset( serialized_params, 0, sizeof(uchar) + // is_executable
-                                         sizeof(uint) ); // original_data_len
-
-        serialized_params += sizeof(uchar) + // executable
-                             sizeof(uint);   // original_data_len
-
-        fd_pubkey_t key = *acc;
-        FD_STORE( fd_pubkey_t, serialized_params, key );
-        serialized_params += sizeof(fd_pubkey_t);
-
-        fd_memset( serialized_params, 0, sizeof(fd_pubkey_t) +         // owner
-                                         sizeof(ulong) +               // lamports
-                                         sizeof(ulong) );              // data_len
-        serialized_params += sizeof(fd_pubkey_t) + // owner
-                             sizeof(ulong) +       // lamports
-                             sizeof(ulong);        // data_len
-
-        write_account( &ctx, view_acc, (uchar)i, &serialized_params, &curr_serialized_params_start,
-                       input_mem_regions, input_mem_regions_cnt, acc_region_metas, 1, copy_account_data );
-
-        FD_STORE( ulong, serialized_params, ULONG_MAX );
-        serialized_params += sizeof(ulong); // rent_epoch
-
-        pre_lens[i] = 0UL;
-        continue;
-      } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        return NULL;
-      }
+      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
 
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L465 */
       fd_account_meta_t const * metadata = view_acc->const_meta;
@@ -356,21 +306,14 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
   uchar acc_idx_seen[256] = {0};
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs       = ctx.txn_ctx->accounts;
 
   start += sizeof(ulong); // number of accounts
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L508-L600 */
   for( ulong i=0UL; i<ctx.instr->acct_cnt; i++ ) {
     uchar         acc_idx = instr_acc_idxs[i];
-    fd_pubkey_t * acc     = &txn_accs[instr_acc_idxs[i]];
 
     start++; // position
-    fd_borrowed_account_t * view_acc = NULL;
-    /* Intentionally ignore the borrowed account error because it is not used */
-    fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-    if( FD_UNLIKELY( !view_acc ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
+    fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L515-517 */
       start += 7UL;
@@ -415,7 +358,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L551-563 */
         int err = 0;
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) &&
-            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+            fd_account_can_data_be_changed( &ctx, i, &err ) ) {
 
           int err = fd_account_set_data_from_slice( &ctx, i, post_data, post_len );
           if( FD_UNLIKELY( err ) ) {
@@ -432,7 +375,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         start += FD_BPF_ALIGN_OF_U128 - alignment_offset;
         int err = 0;
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) &&
-            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+            fd_account_can_data_be_changed( &ctx, i, &err ) ) {
 
           err = fd_account_set_data_length( &ctx, i, post_len );
           if( FD_UNLIKELY( err ) ) {
@@ -473,8 +416,6 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
     }
   }
 
-  fd_valloc_free( ctx.valloc, buffer );
-
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -505,19 +446,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
     acc_idx_seen[acc_idx] = 1;
     dup_acc_idx[acc_idx]  = i;
 
-    fd_pubkey_t const * acc = &txn_accs[acc_idx];
-    fd_borrowed_account_t * view_acc = NULL;
-    int read_result = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-    fd_account_meta_t const * metadata = view_acc->const_meta;
-
-    ulong acc_data_len = 0UL;
-    if( FD_LIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-      acc_data_len = metadata->dlen;
-    } else if( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-      acc_data_len = 0UL;
-    } else {
-      return NULL;
-    }
+    fd_borrowed_account_t * view_acc     = ctx.instr->borrowed_accounts[i];
+    ulong                   acc_data_len = view_acc->const_meta->dlen;
 
     pre_lens[i] = acc_data_len;
 
@@ -538,8 +468,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
                    + ctx.instr->data_sz   // instruction data
                    + sizeof(fd_pubkey_t); // program id
 
-  uchar * serialized_params = fd_valloc_malloc( ctx.valloc, 1UL, serialized_size );
-  uchar * serialized_params_start = serialized_params;
+  uchar * serialized_params            = fd_spad_alloc( ctx.txn_ctx->spad, 1UL, serialized_size );
+  uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
@@ -557,41 +487,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
-      fd_borrowed_account_t * view_acc = NULL;
-      int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      if( FD_UNLIKELY( !fd_acc_exists( view_acc->const_meta ) ) ) {
-          fd_memset( serialized_params, 0, sizeof(uchar)    // is_signer
-                                         + sizeof(uchar) ); // is_writable
-          serialized_params += sizeof(uchar)  // is_signer
-                             + sizeof(uchar); // is_writable
-
-          fd_pubkey_t key = *acc;
-          FD_STORE( fd_pubkey_t, serialized_params, key );
-          serialized_params += sizeof(fd_pubkey_t);
-
-          fd_memset( serialized_params, 0, sizeof(ulong)    // lamports
-                                         + sizeof(ulong) ); // data_len
-          serialized_params += sizeof(ulong) +
-                               sizeof(ulong);
-
-          write_account( &ctx, view_acc, (uchar)i, &serialized_params, &curr_serialized_params_start,
-                         input_mem_regions, input_mem_regions_cnt, acc_region_metas, 0, copy_account_data );
-
-          fd_memset( serialized_params, 0, sizeof(fd_pubkey_t) // owner
-                                         + sizeof(uchar) );    // is_executable
-          serialized_params += sizeof(fd_pubkey_t)
-                             + sizeof(uchar);
-
-
-          /* The rent epoch is always ulong max */
-          FD_STORE( ulong, serialized_params, ULONG_MAX );
-          serialized_params += sizeof(ulong);
-
-        continue;
-      } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_DEBUG(( "failed to read account data - pubkey: %s, err: %d", FD_BASE58_ENC_32_ALLOCA( acc ), read_result ));
-        return NULL;
-      }
+      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
       fd_account_meta_t const * metadata = view_acc->const_meta;
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
@@ -662,13 +558,11 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
   uchar acc_idx_seen[256] = {0};
 
   uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs       = ctx.txn_ctx->accounts;
 
   input_cursor += sizeof(ulong);
 
   for( ulong i=0UL; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx           = instr_acc_idxs[i];
-    fd_pubkey_t const * acc = &txn_accs[instr_acc_idxs[i]];
 
     input_cursor++; /* is_dup */
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -679,11 +573,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
                       sizeof(uchar) +      /* is_writable */
                       sizeof(fd_pubkey_t); /* key */
 
-      fd_borrowed_account_t * view_acc = NULL;
-      fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      if( FD_UNLIKELY( !view_acc ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-      }
+      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
 
       ulong lamports = FD_LOAD( ulong, input_cursor );
       if( view_acc->const_meta && view_acc->const_meta->info.lamports!=lamports ) {
@@ -702,7 +592,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
         if( view_acc->const_meta ) {
           int err = 0;
           if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, pre_len, &err ) &&
-              fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+              fd_account_can_data_be_changed( &ctx, i, &err ) ) {
             err = fd_account_set_data_from_slice( &ctx, i, post_data, pre_len );
             if( FD_UNLIKELY( err ) ) {
               return err;
@@ -723,8 +613,6 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
   if( FD_UNLIKELY( input_cursor>input+input_sz ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
-
-  fd_valloc_free( ctx.valloc, input );
 
   return 0;
 }

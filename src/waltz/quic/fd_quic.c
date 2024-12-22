@@ -558,12 +558,11 @@ fd_quic_enc_level_to_pn_space( uint enc_level ) {
 }
 
 /* This code is directly from rfc9000 A.3 */
-static void
-fd_quic_reconstruct_pkt_num( ulong * pkt_number,
-                             ulong   pkt_number_sz,
-                             ulong   exp_pkt_number ) {
-  ulong truncated_pn = *pkt_number;
-  ulong pn_nbits     = pkt_number_sz << 3u;
+FD_FN_CONST ulong
+fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
+                             ulong pktnum_sz,
+                             ulong exp_pkt_number ) {
+  ulong pn_nbits     = pktnum_sz << 3u;
   ulong pn_win       = 1ul << pn_nbits;
   ulong pn_hwin      = pn_win >> 1ul;
   ulong pn_mask      = pn_win - 1ul;
@@ -578,20 +577,18 @@ fd_quic_reconstruct_pkt_num( ulong * pkt_number,
   // The following code calculates a candidate value and
   // makes sure it's within the packet number window.
   // Note the extra checks to prevent overflow and underflow.
-  ulong candidate_pn = ( exp_pkt_number & ~pn_mask ) | truncated_pn;
+  ulong candidate_pn = ( exp_pkt_number & ~pn_mask ) | pktnum_comp;
   if( candidate_pn + pn_hwin <= exp_pkt_number &&
       candidate_pn + pn_win  < ( 1ul << 62ul ) ) {
-    *pkt_number = candidate_pn + pn_win;
-    return;
+    return candidate_pn + pn_win;
   }
 
   if( candidate_pn >  exp_pkt_number + pn_hwin &&
       candidate_pn >= pn_win ) {
-    *pkt_number = candidate_pn - pn_win;
-    return;
+    return candidate_pn - pn_win;
   }
 
-  *pkt_number = candidate_pn;
+  return candidate_pn;
 }
 
 static void
@@ -1312,11 +1309,11 @@ fd_quic_gen_initial_secret_and_keys(
       conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
 }
 
-ulong
+static ulong
 fd_quic_send_retry( fd_quic_t *               quic,
                     fd_quic_pkt_t *           pkt,
                     fd_quic_conn_id_t const * orig_dst_conn_id,
-                    fd_quic_conn_id_t const * new_conn_id,
+                    ulong                     new_conn_id,
                     uchar const               dst_mac_addr_u6[ 6 ],
                     uint                      dst_ip_addr,
                     ushort                    dst_udp_port ) {
@@ -1370,8 +1367,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
      RFC 9001 specifies use of the TLS_AES_128_GCM_SHA256_ID suite for
      initial secrets and keys. */
 
-  uint const enc_level = fd_quic_enc_level_initial_id;
-
   /* Parse initial packet */
 
   fd_quic_initial_t initial[1] = {0};
@@ -1385,8 +1380,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   /* len indicated the number of bytes after the packet number offset
      so verify this value is within the packet */
-  ulong len = (ulong)( initial->pkt_num_pnoff + initial->len );
-  if( FD_UNLIKELY( len > cur_sz ) ) {
+  ulong pn_offset = initial->pkt_num_pnoff;
+  ulong body_sz   = initial->len;  /* length of packet number, frames, and auth tag */
+  ulong tot_sz    = pn_offset + body_sz;
+  if( FD_UNLIKELY( tot_sz > cur_sz ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Bogus initial packet length" )) );
     return FD_QUIC_PARSE_FAIL;
   }
@@ -1433,12 +1430,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         quic->metrics.conn_err_no_slots_cnt++;
         return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
       }
-
-      /* Pick a new conn ID for ourselves, which the peer will address us
-         with in the future (via dest conn ID). */
-
-      ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
-      fd_quic_conn_id_t new_conn_id = fd_quic_conn_id_new( &new_conn_id_u64, sizeof(ulong) );
 
       /* Save peer's conn ID, which we will use to address peer with. */
 
@@ -1491,33 +1482,24 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           odcid.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
-      /* Repeat the conn ID we picked in transport params (this is done
-         to authenticate conn IDs via TLS by including them in TLS-
-         protected data).
-
-         Per spec, this field should be the source conn ID field we've set
-         on the first Initial packet we've sent.  At this point, we might
-         not have sent an Initial packet yet -- so this field should hold
-         a value we are about to pick.
-
-         fd_quic_conn_create will set conn->initial_source_conn_id to
-         the random new_conn_id we've created earlier. */
-
-      tp->initial_source_connection_id_present = 1;
-      tp->initial_source_connection_id_len     = new_conn_id.sz;
-      fd_memcpy( tp->initial_source_connection_id,
-          new_conn_id.conn_id,
-          FD_QUIC_MAX_CONN_ID_SZ );
+      /* Rules for selecting the SCID:
+         - No retry token, accepted:       generate new random ID
+         - No retry token, retry request:  generate new random ID
+         - Retry token, accepted:          reuse SCID from retry token */
+      ulong scid;
 
       /* Handle retry if configured. */
-      if( quic->config.retry ) {
+      if( !quic->config.retry ) {
+        scid = fd_rng_ulong( state->_rng );
+      } else {
         fd_quic_metrics_t * metrics = &quic->metrics;
 
         /* This is the initial packet before retry. */
         if( initial->token_len == 0 ) {
+          ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
-                &odcid, &new_conn_id,
+                &odcid, new_conn_id_u64,
                 dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
           }
@@ -1528,13 +1510,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            Validate the relevant fields of this post-retry INITIAL packet,
            i.e. retry src conn id, ip, port */
 
-        fd_quic_conn_id_t retry_src_conn_id;
+        ulong retry_src_conn_id;
         int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         };
+
+        /* Continue using the same SCID we used in the Retry packet. */
+        scid = retry_src_conn_id;
 
         /* From rfc 9000:
 
@@ -1571,15 +1556,31 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            (Length and content validated in fd_quic_retry_server_verify) */
         tp->retry_source_connection_id_present = 1;
         tp->retry_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
-        memcpy( tp->retry_source_connection_id, retry_src_conn_id.conn_id, FD_QUIC_CONN_ID_SZ );
+        FD_STORE( ulong, tp->retry_source_connection_id, retry_src_conn_id );
 
         metrics->conn_retry_cnt++;
       }
 
+      /* Repeat the conn ID we picked in transport params (this is done
+         to authenticate conn IDs via TLS by including them in TLS-
+         protected data).
+
+         Per spec, this field should be the source conn ID field we've set
+         on the first Initial packet we've sent.  At this point, we might
+         not have sent an Initial packet yet -- so this field should hold
+         a value we are about to pick.
+
+         fd_quic_conn_create will set conn->initial_source_conn_id to
+         the random new_conn_id we've created earlier. */
+
+      tp->initial_source_connection_id_present = 1;
+      tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
+      FD_STORE( ulong, tp->initial_source_connection_id, scid );
+
       /* Allocate new conn */
 
       conn = fd_quic_conn_create( quic,
-          new_conn_id_u64,
+          scid,
           &peer_conn_id,
           dst_ip_addr,
           dst_udp_port,
@@ -1626,75 +1627,56 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
   }
 
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_initial_id ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
   /* Decrypt incoming packet */
 
   /* header protection needs the offset to the packet number */
-  ulong   pn_offset        = initial->pkt_num_pnoff;
-
-  ulong   body_sz          = initial->len;  /* not a protected field */
-                                            /* length of payload + num packet bytes */
-
-  ulong   pkt_number       = ULONG_MAX;
-  ulong   pkt_number_sz    = ULONG_MAX;
-  ulong   tot_sz           = ULONG_MAX;
 
 # if !FD_QUIC_DISABLE_CRYPTO
-    /* this decrypts the header */
-    int server = conn->server;
+  /* this decrypts the header */
+  int server = conn->server;
 
-    if( FD_UNLIKELY(
-          fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
-                                      pn_offset,
-                                      &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
-      /* As this is an INITIAL packet, change the status to DEAD, and allow
-         it to be reaped */
-      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
-      quic->metrics.conn_aborted_cnt++;
-      quic->metrics.pkt_decrypt_fail_cnt++;
-      return FD_QUIC_PARSE_FAIL;
-    }
+  if( FD_UNLIKELY(
+        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+                                    pn_offset,
+                                    &conn->keys[0][!server] ) != FD_QUIC_SUCCESS ) ) {
+    /* As this is an INITIAL packet, change the status to DEAD, and allow
+        it to be reaped */
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
+    conn->state = FD_QUIC_CONN_STATE_DEAD;
+    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+    quic->metrics.conn_aborted_cnt++;
+    quic->metrics.pkt_decrypt_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
-    /* TODO should we avoid looking at the packet number here
-       since the packet integrity is checked in fd_quic_crypto_decrypt? */
+  ulong pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
+  ulong pktnum_comp   = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
 
-    /* number of bytes in the packet header */
-    pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-    tot_sz        = pn_offset + body_sz; /* total including header and payload */
-
-    /* now we have decrypted packet number */
-    pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
-    FD_DEBUG( FD_LOG_DEBUG(( "initial pkt_number: %lu", (ulong)pkt_number )) );
-
-    /* packet number space */
-    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-
-    /* reconstruct packet number */
-    fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
-
-    /* set packet number on the context */
-    pkt->pkt_number = pkt_number;
+  /* reconstruct packet number */
+  ulong pkt_number = fd_quic_reconstruct_pkt_num( pktnum_comp, pkt_number_sz, conn->exp_pkt_number[0] );
 
 # if !FD_QUIC_DISABLE_CRYPTO
-    /* NOTE from rfc9002 s3
-       It is permitted for some packet numbers to never be used, leaving intentional gaps. */
-    /* this decrypts the header and payload */
-    if( FD_UNLIKELY(
-          fd_quic_crypto_decrypt( cur_ptr, tot_sz,
-                                  pn_offset,
-                                  pkt_number,
-                                  &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
-      quic->metrics.pkt_decrypt_fail_cnt++;
-      return FD_QUIC_PARSE_FAIL;
-    }
+  /* NOTE from rfc9002 s3
+      It is permitted for some packet numbers to never be used, leaving intentional gaps. */
+  /* this decrypts the header and payload */
+  if( FD_UNLIKELY(
+        fd_quic_crypto_decrypt( cur_ptr, tot_sz,
+                                pn_offset,
+                                pkt_number,
+                                &conn->keys[0][!server] ) != FD_QUIC_SUCCESS ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
+    quic->metrics.pkt_decrypt_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
+
+  /* set packet number on the context */
+  pkt->pkt_number = pkt_number;
 
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     return FD_QUIC_PARSE_FAIL;
@@ -1744,11 +1726,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
   /* update expected packet number */
-  do {
-    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-    ulong next_pkt_number = pkt_number  + 1UL;
-    conn->exp_pkt_number[pn_space] = fd_ulong_max( conn->exp_pkt_number[pn_space], next_pkt_number );
-  } while(0);
+  conn->exp_pkt_number[0] = fd_ulong_max( conn->exp_pkt_number[0], pkt_number+1UL );
 
   FD_DEBUG( FD_LOG_DEBUG(( "new connection success" )) );
 
@@ -1767,14 +1745,12 @@ fd_quic_handle_v1_handshake(
     uchar *          cur_ptr,
     ulong            cur_sz
 ) {
-  uint const enc_level = fd_quic_enc_level_handshake_id;
-
   if( FD_UNLIKELY( !conn ) ) {
     quic->metrics.pkt_no_conn_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_handshake_id ) ) ) {
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -1811,10 +1787,6 @@ fd_quic_handle_v1_handshake(
   ulong    body_sz          = handshake->len;  /* not a protected field */
                                                /* length of payload + num packet bytes */
 
-  ulong    pkt_number       = ULONG_MAX;
-  ulong    pkt_number_sz    = ULONG_MAX;
-  ulong    tot_sz           = ULONG_MAX;
-
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   int server = conn->server;
@@ -1822,27 +1794,21 @@ fd_quic_handle_v1_handshake(
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                     pn_offset,
-                                    &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                    &conn->keys[2][!server] ) != FD_QUIC_SUCCESS ) ) {
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
   /* number of bytes in the packet header */
-  pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-  tot_sz        = pn_offset + body_sz; /* total including header and payload */
+  ulong pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
+  ulong tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
-  pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
-
-  /* packet number space */
-  uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
+  ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
 
   /* reconstruct packet number */
-  fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
-
-  /* set packet number on the context */
-  pkt->pkt_number = pkt_number;
+  ulong pkt_number = fd_quic_reconstruct_pkt_num( pktnum_comp, pkt_number_sz, conn->exp_pkt_number[1] );
 
   /* NOTE from rfc9002 s3
     It is permitted for some packet numbers to never be used, leaving intentional gaps. */
@@ -1853,13 +1819,16 @@ fd_quic_handle_v1_handshake(
         fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                 pn_offset,
                                 pkt_number,
-                                &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                &conn->keys[2][!server] ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
+
+  /* set packet number on the context */
+  pkt->pkt_number = pkt_number;
 
   /* check body size large enough for required elements */
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
@@ -1870,9 +1839,7 @@ fd_quic_handle_v1_handshake(
      > A server stops sending and processing Initial packets when it
      > receives its first Handshake packet. */
   fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
-  if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = (uchar) enc_level;
-  }
+  conn->peer_enc_level = (uchar)fd_uchar_max( conn->peer_enc_level, fd_quic_enc_level_handshake_id );
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -1906,11 +1873,7 @@ fd_quic_handle_v1_handshake(
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
   /* update expected packet number */
-  do {
-    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-    ulong next_pkt_number = pkt_number  + 1UL;
-    conn->exp_pkt_number[pn_space] = fd_ulong_max( conn->exp_pkt_number[pn_space], next_pkt_number );
-  } while(0);
+  conn->exp_pkt_number[1] = fd_ulong_max( conn->exp_pkt_number[1], pkt_number+1UL );
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -2023,16 +1986,22 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
   return res;
 }
 
+/* This thunk works around a compiler bug (bogus stringop-overflow warning) in GCC 11 */
+__attribute__((noinline)) static void
+fd_quic_key_update_derive1( fd_quic_conn_t * conn ) {
+  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+}
+
 static void
 fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   /* Key updates are only possible for 1-RTT packets, which are appdata */
   ulong const enc_level = fd_quic_enc_level_appdata_id;
 
   /* Update payload keys */
-  memcpy( &conn->keys[enc_level][0].pkt_key, &conn->new_keys[0].pkt_key, FD_AES_128_KEY_SZ );
-  memcpy( &conn->keys[enc_level][0].iv,      &conn->new_keys[0].iv,      FD_AES_GCM_IV_SZ  );
-  memcpy( &conn->keys[enc_level][1].pkt_key, &conn->new_keys[1].pkt_key, FD_AES_128_KEY_SZ );
-  memcpy( &conn->keys[enc_level][1].iv,      &conn->new_keys[1].iv,      FD_AES_GCM_IV_SZ  );
+  memcpy( conn->keys[enc_level][0].pkt_key, conn->new_keys[0].pkt_key, FD_AES_128_KEY_SZ );
+  memcpy( conn->keys[enc_level][0].iv,      conn->new_keys[0].iv,      FD_AES_GCM_IV_SZ  );
+  memcpy( conn->keys[enc_level][1].pkt_key, conn->new_keys[1].pkt_key, FD_AES_128_KEY_SZ );
+  memcpy( conn->keys[enc_level][1].iv,      conn->new_keys[1].iv,      FD_AES_GCM_IV_SZ  );
 
   /* Update IVs */
   memcpy( conn->secrets.secret[enc_level][0], conn->secrets.new_secret[0], FD_QUIC_SECRET_SZ );
@@ -2043,7 +2012,7 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   /* Wind up for next key phase update */
   conn->key_phase  = !conn->key_phase;
   conn->key_update = 0;
-  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+  fd_quic_key_update_derive1( conn );
 
   FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
 }
@@ -2068,7 +2037,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
   ulong pn_offset = 1UL + FD_QUIC_CONN_ID_SZ;
 
-  uint enc_level = pkt->enc_level = fd_quic_enc_level_appdata_id;
+  pkt->enc_level = fd_quic_enc_level_appdata_id;
   if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) {
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
@@ -2076,51 +2045,48 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   int server = conn->server;
 # if !FD_QUIC_DISABLE_CRYPTO
-    if( FD_UNLIKELY(
-          fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
-                                      pn_offset,
-                                      &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
-      quic->metrics.pkt_decrypt_fail_cnt++;
-      return FD_QUIC_PARSE_FAIL;
-    }
+  if( FD_UNLIKELY(
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
+                                    pn_offset,
+                                    &conn->keys[3][!server] ) != FD_QUIC_SUCCESS ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
+    quic->metrics.pkt_decrypt_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
-    uint first         = (uint)cur_ptr[0];
-    uint pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
-    uint key_phase     = fd_quic_one_rtt_key_phase( first );
+  uint pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
+  uint key_phase     = fd_quic_one_rtt_key_phase( cur_ptr[0] );
 
-    /* reconstruct packet number */
-    ulong pkt_number = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
-    uint  pn_space   = fd_quic_enc_level_to_pn_space( enc_level );
-    fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
+  /* reconstruct packet number */
+  ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
+  ulong pkt_number  = fd_quic_reconstruct_pkt_num( pktnum_comp, pkt_number_sz, conn->exp_pkt_number[2] );
 
-    /* set packet number on the context */
-    pkt->pkt_number = pkt_number;
+  /* NOTE from rfc9002 s3
+    It is permitted for some packet numbers to never be used, leaving intentional gaps. */
 
-    /* NOTE from rfc9002 s3
-      It is permitted for some packet numbers to never be used, leaving intentional gaps. */
-
-    /* is current packet in the current key phase? */
-    int current_key_phase = conn->key_phase == key_phase;
+  /* is current packet in the current key phase? */
+  int current_key_phase = conn->key_phase == key_phase;
 
 # if !FD_QUIC_DISABLE_CRYPTO
-    /* If the key phase bit flips, decrypt with the new pair of keys
-       instead.  Note that the key phase bit is untrusted at this point. */
-    fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[enc_level][!server]
-                                                     : &conn->new_keys[!server];
+  /* If the key phase bit flips, decrypt with the new pair of keys
+      instead.  Note that the key phase bit is untrusted at this point. */
+  fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[3][!server] : &conn->new_keys[!server];
 
-    /* this decrypts the header and payload */
-    if( FD_UNLIKELY(
-          fd_quic_crypto_decrypt( cur_ptr, tot_sz,
-                                  pn_offset,
-                                  pkt_number,
-                                  keys ) != FD_QUIC_SUCCESS ) ) {
-      /* remove connection from map, and insert into free list */
-      quic->metrics.pkt_decrypt_fail_cnt++;
-      return FD_QUIC_PARSE_FAIL;
-    }
+  /* this decrypts the header and payload */
+  if( FD_UNLIKELY(
+        fd_quic_crypto_decrypt( cur_ptr, tot_sz,
+                                pn_offset,
+                                pkt_number,
+                                keys ) != FD_QUIC_SUCCESS ) ) {
+    /* remove connection from map, and insert into free list */
+    quic->metrics.pkt_decrypt_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
+
+  /* set packet number on the context */
+  pkt->pkt_number = pkt_number;
 
   if( !current_key_phase ) {
     /* Decryption succeeded.  Commit the key phase update and throw
@@ -2129,9 +2095,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     fd_quic_key_update_complete( conn );
   }
 
-  if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
-    conn->peer_enc_level = (uchar)enc_level;
-  }
+  conn->peer_enc_level = (uchar)fd_uchar_max( conn->peer_enc_level, fd_quic_enc_level_appdata_id );
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -2164,11 +2128,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
   /* update expected packet number */
-  do {
-    uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
-    ulong next_pkt_number = pkt_number  + 1UL;
-    conn->exp_pkt_number[pn_space] = fd_ulong_max( conn->exp_pkt_number[pn_space], next_pkt_number );
-  } while(0);
+  conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
 
   return tot_sz;
 }
@@ -2722,8 +2682,7 @@ void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                    void *             context ) {
   (void)hs;
-  fd_quic_conn_t *           conn = (fd_quic_conn_t*)context;
-  fd_quic_conn_stream_rx_t * srx  = conn->srx;
+  fd_quic_conn_t * conn = (fd_quic_conn_t *)context;
 
   /* need to send quic handshake completion */
   switch( conn->state ) {
@@ -2741,13 +2700,6 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       }
       conn->handshake_complete = 1;
       conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
-
-      if( conn->server ) {
-        /* Remove flow control limits */
-        srx->rx_sup_stream_id = (1UL<<60) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
-        srx->rx_max_data      = (1UL<<62UL) - 1UL;
-      }
-
       return;
 
     default:
@@ -2760,68 +2712,81 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                    fd_quic_crypto_frame_t * crypto,
                                    uchar const *            p,
                                    ulong                    p_sz ) {
-  /* copy the context locally */
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+  fd_quic_frame_context_t const * context = vp_context;
+  context->pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* determine whether any of the data was already provided */
-  fd_quic_conn_t * conn      = context.conn;
-  uint             enc_level = context.pkt->enc_level;
+  fd_quic_conn_t *   conn      = context->conn;
+  fd_quic_tls_hs_t * tls_hs    = conn->tls_hs;
+  uint               enc_level = context->pkt->enc_level;
 
   /* offset expected */
-  ulong           exp_offset = conn->rx_crypto_offset[enc_level];
-  ulong           rcv_offset = crypto->offset;
-  ulong           rcv_sz     = crypto->length;
+  ulong rcv_off = crypto->offset;    /* in [0,2^62-1] */
+  ulong rcv_sz  = crypto->length;    /* in [0,2^62-1] */
+  ulong rcv_hi  = rcv_off + rcv_sz;  /* in [0,2^63-1] */
 
-  if( FD_UNLIKELY( rcv_sz > p_sz ) ) return FD_QUIC_PARSE_FAIL;
-
-  if( !conn->tls_hs ) {
-    /* Handshake already completed. Ignore frame */
-    /* TODO consider aborting conn if too many unsolicited crypto frames arrive */
-  } else if( FD_UNLIKELY( rcv_offset > exp_offset ) ) {
-    /* if data arrived early, we could buffer, but for now we simply won't ack */
-    /* TODO buffer handshake data */
+  if( FD_UNLIKELY( rcv_sz > p_sz ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
-  } else if( FD_UNLIKELY( rcv_offset + rcv_sz <= exp_offset ) ) {
-    /* the full range of bytes has already been consumed, so just fall thru */
-  } else {
-    /* We have bytes that we can use */
-    ulong skip = 0;
-    if( rcv_offset < exp_offset ) skip = exp_offset - rcv_offset;
-
-    rcv_sz -= skip;
-    uchar const * crypto_data = p + skip;
-
-    int provide_rc = fd_quic_tls_provide_data( conn->tls_hs,
-                                               context.pkt->enc_level,
-                                               crypto_data,
-                                               rcv_sz );
-    if( provide_rc == FD_QUIC_FAILED ) {
-      /* if TLS fails, ABORT connection */
-
-      /* if TLS returns an error, we present that as reason:
-           FD_QUIC_CONN_REASON_CRYPTO_BASE + tls-alert
-         otherwise, send INTERNAL_ERROR */
-      uint alert = conn->tls_hs->alert;
-      if( alert == 0u ) {
-        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-      } else {
-        fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
-      }
-
-      /* don't process any more frames on this connection */
-      return FD_QUIC_PARSE_FAIL;
-    }
-
-    /* successful, update rx_crypto_offset */
-    conn->rx_crypto_offset[enc_level] += rcv_sz;
   }
 
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
+  if( !tls_hs ) {
+    /* Handshake already completed. Ignore frame */
+    /* TODO consider aborting conn if too many unsolicited crypto frames arrive */
+    return rcv_sz;
+  }
 
-  (void)context; (void)p; (void)p_sz;
+  if( enc_level < tls_hs->rx_enc_level ) {
+    return rcv_sz;
+  }
 
-  /* no "additional" bytes - all already accounted for */
+  if( enc_level > tls_hs->rx_enc_level ) {
+    /* Discard data from any previous handshake level.  Currently only
+       happens at the Initial->Handshake encryption level change. */
+    tls_hs->rx_enc_level = (uchar)enc_level;
+    tls_hs->rx_off       = 0;
+    tls_hs->rx_sz        = 0;
+  }
+
+  if( rcv_off > tls_hs->rx_sz ) {
+    context->pkt->ack_flag |= ACK_FLAG_CANCEL;
+    return rcv_sz;
+  }
+
+  if( rcv_hi < tls_hs->rx_off ) {
+    return rcv_sz;
+  }
+
+  if( rcv_hi > FD_QUIC_TLS_RX_DATA_SZ ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BUFFER_EXCEEDED, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  tls_hs->rx_sz = (ushort)rcv_hi;
+  fd_memcpy( tls_hs->rx_hs_buf + rcv_off, p, rcv_sz );
+
+  int provide_rc = fd_quic_tls_process( conn->tls_hs );
+  if( provide_rc == FD_QUIC_FAILED ) {
+    /* if TLS fails, ABORT connection */
+
+    /* if TLS returns an error, we present that as reason:
+          FD_QUIC_CONN_REASON_CRYPTO_BASE + tls-alert
+        otherwise, send INTERNAL_ERROR */
+    uint alert = conn->tls_hs->alert;
+    if( alert == 0u ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
+    } else {
+      FD_DEBUG(
+        uint reason = conn->tls_hs->hs.base.reason;
+        FD_LOG_DEBUG(( "QUIC TLS handshake failed (alert %u-%s; reason %u-%s)",
+                       alert,  fd_tls_alert_cstr( alert ),
+                       reason, fd_tls_reason_cstr( reason ) ));
+      )
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BASE + alert, __LINE__ );
+    }
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   return rcv_sz;
 }
 
@@ -4213,9 +4178,7 @@ fd_quic_connect( fd_quic_t *  quic,
 
   /* Repeat source conn ID -- rationale see fd_quic_handle_v1_initial */
 
-  memcpy( tp->initial_source_connection_id,
-          conn->initial_source_conn_id.conn_id,
-          FD_QUIC_MAX_CONN_ID_SZ );
+  FD_STORE( ulong, tp->initial_source_connection_id, conn->initial_source_conn_id );
   tp->initial_source_connection_id_present = 1;
   tp->initial_source_connection_id_len     = FD_QUIC_CONN_ID_SZ;
 
@@ -4227,18 +4190,12 @@ fd_quic_connect( fd_quic_t *  quic,
       (void*)conn,
       0 /*is_server*/,
       tp );
-  quic->metrics.hs_created_cnt++;
-
-  /* Initiate the handshake */
-  int process_rc = fd_quic_tls_provide_data( tls_hs, FD_TLS_LEVEL_INITIAL, NULL, 0UL );
-  if( FD_UNLIKELY( process_rc == FD_QUIC_FAILED ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "Initial fd_quic_tls_provide_data failed" )) );
-
-    /* We haven't sent any data to the peer yet,
-       so simply clean up and fail */
+  if( FD_UNLIKELY( tls_hs->alert ) ) {
+    FD_LOG_WARNING(( "fd_quic_tls_hs_client_new failed" ));
     goto fail_tls_hs;
   }
 
+  quic->metrics.hs_created_cnt++;
   conn->tls_hs = tls_hs;
 
   fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id );
@@ -4256,7 +4213,7 @@ fail_tls_hs:
   /* shut down tls_hs */
   fd_quic_tls_hs_delete( tls_hs );
   fd_quic_tls_hs_pool_ele_release( state->hs_pool, tls_hs );
-
+  fd_quic_conn_free( quic, conn );
   return NULL;
 }
 
@@ -4346,6 +4303,13 @@ fd_quic_conn_create( fd_quic_t *               quic,
   srx->rx_tot_data       = 0;
   srx->rx_streams_active = 0L;
 
+  if( state->transport_params.initial_max_streams_uni_present ) {
+    srx->rx_sup_stream_id = (state->transport_params.initial_max_streams_uni<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+  }
+  if( state->transport_params.initial_max_data ) {
+    srx->rx_max_data = state->transport_params.initial_max_data;
+  }
+
   /* points to free tx space */
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
@@ -4364,9 +4328,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
   fd_memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );
   fd_memset( conn->pkt_number, 0, sizeof( conn->pkt_number ) );
-
-  /* crypto offset for first packet always starts at 0 */
-  fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->rx_crypto_offset ) );
 
   /* TODO lots of fd_memset calls that should really be builtin memset */
   fd_memset( conn->hs_sent_bytes, 0, sizeof( conn->hs_sent_bytes ) );
@@ -4393,7 +4354,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
 
   /* initial source connection id */
-  conn->initial_source_conn_id = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
+  conn->initial_source_conn_id = our_conn_id;
 
   /* peer connection id */
   conn->peer_cids[0]     = *peer_conn_id;
@@ -5050,11 +5011,17 @@ fd_quic_frame_handle_ack_frame(
 
   /* walk thru ack ranges */
   for( ulong j = 0UL; j < ack_range_count; ++j ) {
-    if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( p_end <= p ) ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     fd_quic_ack_range_frag_t ack_range[1];
     ulong rc = fd_quic_decode_ack_range_frag( ack_range, p, (ulong)( p_end - p ) );
-    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     /* ensure we have ulong local vars, regardless of ack_range definition */
     ulong gap    = (ulong)ack_range->gap;
@@ -5119,11 +5086,17 @@ fd_quic_frame_handle_ack_frame(
   /* ECN counts
      we currently ignore them, but we must process them to get to the following bytes */
   if( data->type & 1U ) {
-    if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( p_end <= p ) ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     fd_quic_ecn_counts_frag_t ecn_counts[1];
     ulong rc = fd_quic_decode_ecn_counts_frag( ecn_counts, p, (ulong)( p_end - p ) );
-    if( rc == FD_QUIC_PARSE_FAIL ) return FD_QUIC_PARSE_FAIL;
+    if( rc == FD_QUIC_PARSE_FAIL ) {
+      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     p += rc;
   }
@@ -5141,7 +5114,7 @@ fd_quic_frame_handle_reset_stream_frame(
   fd_quic_frame_context_t * context = vp_context;
   context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
   /* TODO implement */
-  return FD_QUIC_PARSE_FAIL;
+  return 0UL;
 }
 
 static ulong
@@ -5162,12 +5135,10 @@ fd_quic_frame_handle_new_token_frame(
     fd_quic_new_token_frame_t * data,
     uchar const * p,
     ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
+  /* FIXME A server MUST treat receipt of a NEW_TOKEN frame as a connection error of type PROTOCOL_VIOLATION. */
+  (void)context; (void)data; (void)p; (void)p_sz;
   /* ack-eliciting */
-  return FD_QUIC_PARSE_FAIL;
+  return 0UL;
 }
 
 void
@@ -5453,12 +5424,10 @@ fd_quic_frame_handle_path_challenge_frame(
     void * context,
     fd_quic_path_challenge_frame_t * data,
     uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+    ulong  p_sz) {
+  /* FIXME The recipient of this frame MUST generate a PATH_RESPONSE frame (Section 19.18) containing the same Data value. */
+  (void)context; (void)data; (void)p; (void)p_sz;
+  return 0UL;
 }
 
 static ulong
@@ -5467,11 +5436,9 @@ fd_quic_frame_handle_path_response_frame(
     fd_quic_path_response_frame_t * data,
     uchar const * p,
     ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+  /* We don't generate PATH_CHALLENGE frames, so this frame should never arrive */
+  (void)context; (void)data; (void)p; (void)p_sz;
+  return 0UL;
 }
 
 static void
@@ -5512,6 +5479,7 @@ fd_quic_frame_handle_conn_close_0_frame(
 
   ulong reason_phrase_length = data->reason_phrase_length;
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
+    fd_quic_frame_error( vp_context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5545,6 +5513,7 @@ fd_quic_frame_handle_conn_close_1_frame(
 
   ulong reason_phrase_length = data->reason_phrase_length;
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
+    fd_quic_frame_error( vp_context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5588,24 +5557,13 @@ fd_quic_frame_handle_handshake_done_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) {
-    switch( conn->state ) {
-      case FD_QUIC_CONN_STATE_PEER_CLOSE:
-      case FD_QUIC_CONN_STATE_ABORT:
-      case FD_QUIC_CONN_STATE_CLOSE_PENDING:
-        /* connection closing... nothing to do */
-        return 0;
-
-      case FD_QUIC_CONN_STATE_HANDSHAKE:
-        /* still handshaking... assume packet was reordered */
-        return FD_QUIC_PARSE_FAIL;
-
-      case FD_QUIC_CONN_STATE_ACTIVE:
-        /* duplicate frame? */
-        return 0;
-    }
-
-    return FD_QUIC_PARSE_FAIL;
+  if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ) {
+    /* still handshaking... assume packet was reordered */
+    context.pkt->ack_flag |= ACK_FLAG_CANCEL;
+    return 0UL;
+  } else if( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
+    /* duplicate frame or conn closing? */
+    return 0UL;
   }
 
   /* Instantly acknowledge the first HANDSHAKE_DONE frame */

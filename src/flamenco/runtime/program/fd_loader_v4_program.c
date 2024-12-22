@@ -418,7 +418,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
        end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
        https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L262-L269 */
-    err = fd_deploy_program( instr_ctx, programdata, buffer->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
+    err = fd_deploy_program( instr_ctx, programdata, buffer->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -686,7 +686,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( instr_ctx->txn_ctx->spad ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L470 */
     fd_pubkey_t const * program_id = &instr_ctx->instr->program_id_pubkey;
 
@@ -704,7 +704,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bincode_decode_ctx_t decode_ctx = {
         .data    = data,
         .dataend = &data[ instr_ctx->instr->data_sz > 1232UL ? 1232UL : instr_ctx->instr->data_sz ],
-        .valloc  = instr_ctx->valloc,
+        .valloc  = fd_spad_virtual( instr_ctx->txn_ctx->spad ),
       };
 
       if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
@@ -796,5 +796,5 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     return rc;
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }

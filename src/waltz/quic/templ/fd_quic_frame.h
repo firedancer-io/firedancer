@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_waltz_quic_templ_fd_quic_frame_h
 #define HEADER_fd_src_waltz_quic_templ_fd_quic_frame_h
 
+#include "../../../util/fd_util_base.h"
+
 /* FD_QUIC_FRAME_TYPES describes the frame types and their attributes.
 
    Columns:
@@ -42,5 +44,25 @@
   X(0x1e, 19, handshake_done,      "Section 19.20",  _, _, _, 1,    ,  )
 
 #define FD_QUIC_FRAME_TYPE_CNT (0x1f) /* lookup tables should have this many entries */
+
+extern uchar const __attribute__((aligned(0x20)))
+fd_quic_frame_type_flags[ FD_QUIC_FRAME_TYPE_CNT ];
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_quic_frame_type_allowed checks whether a frame type is allowed for
+   a given packet type.  pkt_type is one of FD_QUIC_PKT_TYPE_{INITIAL,
+   HANDSHAKE,ZERO_RTT,ONE_RTT}.  Returns 1 if the frame type is allowed,
+   0 otherwise. */
+
+FD_FN_PURE static inline int
+fd_quic_frame_type_allowed( uint pkt_type,
+                            uint frame_type ) {
+  if( FD_UNLIKELY( pkt_type>4 ) ) return 0;
+  if( FD_UNLIKELY( frame_type>=FD_QUIC_FRAME_TYPE_CNT ) ) return 0;
+  return !!( fd_quic_frame_type_flags[frame_type] & (1u<<pkt_type) );
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_templ_fd_quic_frame_h */

@@ -6,7 +6,7 @@ static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL
 static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
-  char const * one_offs[] = { "EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33" };
+  char const * one_offs[] = { "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq" };
   fd_features_enable_one_offs( (fd_features_t*)&vm_ctx->instr_ctx->epoch_ctx->features, one_offs, 1U, slot );
   vm_ctx->direct_mapping = enable;
 }
@@ -752,7 +752,7 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

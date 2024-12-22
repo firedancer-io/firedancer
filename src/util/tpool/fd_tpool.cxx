@@ -25,8 +25,9 @@ fd_tpool_private_worker( int     argc,
   ulong        scratch_sz = cfg->scratch_sz;
 
   fd_tpool_private_worker_t worker[1];
+
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_BOOT;
+  worker->state = FD_TPOOL_WORKER_STATE_BOOT;
   FD_COMPILER_MFENCE();
 
   worker->tile_idx   = (uint)tile_idx;
@@ -36,16 +37,19 @@ fd_tpool_private_worker( int     argc,
   if( scratch_sz ) fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_IDLE;
+  worker->state = FD_TPOOL_WORKER_STATE_IDLE;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( fd_tpool_private_worker( tpool )[ worker_idx ] ) = worker;
-  FD_COMPILER_MFENCE();
+
+  fd_tpool_private_worker( tpool )[ worker_idx ] = worker;
 
   for(;;) {
 
     /* We are IDLE ... see what we should do next */
 
-    int state = FD_VOLATILE_CONST( worker->state );
+    FD_COMPILER_MFENCE();
+    int state = worker->state;
+    FD_COMPILER_MFENCE();
+
     if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_EXEC ) ) {
       if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_IDLE ) ) break;
       FD_SPIN_PAUSE();
@@ -54,15 +58,17 @@ fd_tpool_private_worker( int     argc,
 
     /* We are EXEC ... do the task and then transition to IDLE */
 
-    fd_tpool_task_t task = FD_VOLATILE_CONST( worker->task );
+    fd_tpool_task_t task = worker->task;
 
-    void * task_tpool  = FD_VOLATILE_CONST( worker->task_tpool  );
-    ulong  task_t0     = FD_VOLATILE_CONST( worker->task_t0     ); ulong task_t1     = FD_VOLATILE_CONST( worker->task_t1     );
-    void * task_args   = FD_VOLATILE_CONST( worker->task_args   );
-    void * task_reduce = FD_VOLATILE_CONST( worker->task_reduce ); ulong task_stride = FD_VOLATILE_CONST( worker->task_stride );
-    ulong  task_l0     = FD_VOLATILE_CONST( worker->task_l0     ); ulong task_l1     = FD_VOLATILE_CONST( worker->task_l1     );
-    ulong  task_m0     = FD_VOLATILE_CONST( worker->task_m0     ); ulong task_m1     = FD_VOLATILE_CONST( worker->task_m1     );
-    ulong  task_n0     = FD_VOLATILE_CONST( worker->task_n0     ); ulong task_n1     = FD_VOLATILE_CONST( worker->task_n1     );
+    void * task_tpool  = worker->task_tpool;
+    ulong  task_t0     = worker->task_t0;     ulong task_t1     = worker->task_t1;
+    void * task_args   = worker->task_args;
+    void * task_reduce = worker->task_reduce; ulong task_stride = worker->task_stride;
+    ulong  task_l0     = worker->task_l0;     ulong task_l1     = worker->task_l1;
+    ulong  task_m0     = worker->task_m0;     ulong task_m1     = worker->task_m1;
+    ulong  task_n0     = worker->task_n0;     ulong task_n1     = worker->task_n1;
+
+    FD_COMPILER_MFENCE();
 
     try {
       task( task_tpool,task_t0,task_t1, task_args, task_reduce,task_stride, task_l0,task_l1, task_m0,task_m1, task_n0,task_n1 );
@@ -71,8 +77,7 @@ fd_tpool_private_worker( int     argc,
     }
 
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_IDLE;
-    FD_COMPILER_MFENCE();
+    worker->state = FD_TPOOL_WORKER_STATE_IDLE;
   }
 
   /* state is HALT, clean up and then reset back to BOOT */
@@ -80,8 +85,9 @@ fd_tpool_private_worker( int     argc,
   if( scratch_sz ) fd_scratch_detach( NULL );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_BOOT;
+  worker->state = FD_TPOOL_WORKER_STATE_BOOT;
   FD_COMPILER_MFENCE();
+
   return 0;
 }
 
@@ -100,6 +106,8 @@ fd_tpool_footprint( ulong worker_max ) {
 fd_tpool_t *
 fd_tpool_init( void * mem,
                ulong  worker_max ) {
+
+  FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -120,8 +128,9 @@ fd_tpool_init( void * mem,
   fd_memset( mem, 0, footprint );
 
   fd_tpool_private_worker_t * worker0 = (fd_tpool_private_worker_t *)mem;
+
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker0->state ) = FD_TPOOL_WORKER_STATE_EXEC;
+  worker0->state = FD_TPOOL_WORKER_STATE_EXEC;
   FD_COMPILER_MFENCE();
 
   fd_tpool_t * tpool  = (fd_tpool_t *)(worker0+1);
@@ -129,7 +138,7 @@ fd_tpool_init( void * mem,
   tpool->worker_cnt = 1UL;
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( fd_tpool_private_worker( tpool )[0] ) = worker0;
+  fd_tpool_private_worker( tpool )[0] = worker0;
   FD_COMPILER_MFENCE();
 
   return tpool;
@@ -138,16 +147,19 @@ fd_tpool_init( void * mem,
 void *
 fd_tpool_fini( fd_tpool_t * tpool ) {
 
+  FD_COMPILER_MFENCE();
+
   if( FD_UNLIKELY( !tpool ) ) {
     FD_LOG_WARNING(( "NULL tpool" ));
     return NULL;
   }
 
-  while( fd_tpool_worker_cnt( tpool )>1UL )
+  while( fd_tpool_worker_cnt( tpool )>1UL ) {
     if( FD_UNLIKELY( !fd_tpool_worker_pop( tpool ) ) ) {
       FD_LOG_WARNING(( "fd_tpool_worker_pop failed" ));
       return NULL;
     }
+  }
 
   return (void *)fd_tpool_private_worker0( tpool );
 }
@@ -157,6 +169,8 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
                       ulong        tile_idx,
                       void *       scratch,
                       ulong        scratch_sz ) {
+
+  FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( !tpool ) ) {
     FD_LOG_WARNING(( "NULL tpool" ));
@@ -215,7 +229,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
   char ** argv = (char **)fd_type_pun( cfg );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker[ worker_cnt ] ) = NULL;
+  worker[ worker_cnt ] = NULL;
   FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, fd_tpool_private_worker, argc, argv ) ) ) {
@@ -231,6 +245,8 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
 
 fd_tpool_t *
 fd_tpool_worker_pop( fd_tpool_t * tpool ) {
+
+  FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( !tpool ) ) {
     FD_LOG_WARNING(( "NULL tpool" ));
@@ -248,16 +264,17 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   int volatile *              vstate   = (int volatile *)&(worker->state);
   int                         state;
 
-  /* Testing for IDLE isn't strictly necessary given requirements
-     to use this but can help catch user errors.  Likewise,
-     FD_ATOMIC_CAS isn't strictly necessary given correct operation but
-     can more robustly catch such errors. */
+  /* Testing for IDLE isn't strictly necessary given requirements to use
+     this but can help catch user errors.  Likewise, FD_ATOMIC_CAS isn't
+     strictly necessary given correct operation but can more robustly
+     catch such errors. */
 
 # if FD_HAS_ATOMIC
 
   FD_COMPILER_MFENCE();
   state = FD_ATOMIC_CAS( vstate, FD_TPOOL_WORKER_STATE_IDLE, FD_TPOOL_WORKER_STATE_HALT );
   FD_COMPILER_MFENCE();
+
   if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_IDLE ) ) {
     FD_LOG_WARNING(( "worker to pop is not idle (%i-%s)", state, fd_tpool_worker_state_cstr( state ) ));
     return NULL;
@@ -268,10 +285,12 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   FD_COMPILER_MFENCE();
   state = *vstate;
   FD_COMPILER_MFENCE();
+
   if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_IDLE ) ) {
     FD_LOG_WARNING(( "worker to pop is not idle (%i-%s)", state, fd_tpool_worker_state_cstr( state ) ));
     return NULL;
   }
+
   FD_COMPILER_MFENCE();
   *vstate = FD_TPOOL_WORKER_STATE_HALT;
   FD_COMPILER_MFENCE();
@@ -333,9 +352,7 @@ FD_TPOOL_EXEC_ALL_IMPL_FTR
 #if FD_HAS_ATOMIC
 FD_TPOOL_EXEC_ALL_IMPL_HDR(taskq)
   ulong * l_next = (ulong *)_tpool;
-  FD_COMPILER_MFENCE();
-  void * tpool = (void *)FD_VOLATILE_CONST( l_next[1] );
-  FD_COMPILER_MFENCE();
+  void  * tpool  = (void *)l_next[1];
   for(;;) {
 
     /* Note that we use an ATOMIC_CAS here instead of an
@@ -345,8 +362,9 @@ FD_TPOOL_EXEC_ALL_IMPL_HDR(taskq)
        not overflow. */
 
     FD_COMPILER_MFENCE();
-    ulong m0 = FD_VOLATILE_CONST( *l_next );
+    ulong m0 = *l_next;
     FD_COMPILER_MFENCE();
+
     if( FD_UNLIKELY( m0>=l1 ) ) break;
     ulong m1 = m0+1UL;
     if( FD_UNLIKELY( FD_ATOMIC_CAS( l_next, m0, m1 )!=m0 ) ) {

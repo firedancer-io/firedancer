@@ -265,6 +265,45 @@ test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
 
 }
 
+__attribute__((noinline)) void
+test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
+                               fd_rng_t *          rng ) {
+  (void)rng;
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_transport_params_t * params = &fd_quic_get_state( sandbox->quic )->transport_params;
+  params->initial_max_data        = 987654321UL;
+  params->initial_max_streams_uni =      8192UL;
+
+  /* Create a connection that's not yet established */
+  ulong             our_conn_id  = 1234UL;
+  fd_quic_conn_id_t peer_conn_id = fd_quic_conn_id_new( &our_conn_id, 8UL );
+  uint              dst_ip_addr  = FD_IP4_ADDR( 192, 168, 1, 1 );
+  ushort            dst_udp_port = 8080;
+  fd_quic_conn_t * conn = fd_quic_conn_create( sandbox->quic, our_conn_id, &peer_conn_id, dst_ip_addr, dst_udp_port, 1 );
+  FD_TEST( conn );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE );
+
+  /* Ensure stream frames are accepted
+     (Rationale: The application encryption level becomes available before
+     the handshake is confirmed; Quota would have been granted already via
+     QUIC transport params) */
+  uchar buf[ 1024 ];
+  fd_quic_stream_frame_t stream_frame =
+  { .stream_id  = FD_QUIC_STREAM_TYPE_UNI_CLIENT,
+    .length_opt = 1,
+    .length     = 1UL };
+  ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  buf[ sz++ ] = '0';
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ); /* conn not killed */
+
+  /* Double check RX limits */
+  FD_TEST( conn->srx->rx_sup_stream_id ==     32770UL ); /* (8192<<2)+2 */
+  FD_TEST( conn->srx->rx_max_data      == 987654321UL );
+}
+
 static __attribute__((noinline)) void
 test_quic_parse_path_challenge( void ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
@@ -337,6 +376,7 @@ main( int     argc,
   test_quic_ping_frame                   ( sandbox, rng );
   test_quic_server_alpn_fail             ( sandbox, rng );
   test_quic_pktnum_skip                  ( sandbox, rng );
+  test_quic_conn_initial_limits          ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */

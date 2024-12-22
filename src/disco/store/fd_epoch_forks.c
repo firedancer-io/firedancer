@@ -89,7 +89,7 @@ fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost
 
     /* check if this fork has a parent in the entries list, and isn't the parent itself. */
     ulong slot = (opt_prev_slot == NULL) ? curr_slot : *opt_prev_slot;
-    if( elem->parent_slot != slot && elem->parent_slot >= ghost->root->slot && fd_ghost_is_descendant( ghost, slot, elem->parent_slot ) ) {
+    if( elem->parent_slot != slot && elem->parent_slot >= fd_ghost_root_node(ghost)->slot && fd_ghost_is_descendant( ghost, slot, elem->parent_slot ) ) {
       if( elem->parent_slot > max_parent_root ) {
         max_parent_root = elem->parent_slot;
         max_idx = i;
