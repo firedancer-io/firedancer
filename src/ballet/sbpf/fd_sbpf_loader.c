@@ -19,7 +19,7 @@ static FD_TL char fd_sbpf_errbuf[ FD_SBPF_ERRBUF_SZ ] = {0};
 /* fd_sbpf_loader_seterr remembers the error ID and line number of the
    current file at which the last error occurred. */
 
-__attribute__((cold,noinline)) int
+__attribute__((cold,noinline)) static int
 fd_sbpf_loader_seterr( int err,
                        int srcln ) {
   ldr_errno     = err;
@@ -237,7 +237,7 @@ fd_sbpf_load_phdrs( fd_sbpf_elf_info_t *  info,
 }
 
 /* FD_SBPF_SECTION_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator. 
+   including zero terminator.
    https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L12 */
 #define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
 
@@ -655,7 +655,7 @@ struct fd_sbpf_loader {
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
 /* FD_SBPF_SYM_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator. 
+   including zero terminator.
    https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L13 */
 #define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
 
@@ -1102,7 +1102,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
     /* Check for collision with syscall ID
        https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
     REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) );
-    
+
     FD_STORE( uint, ptr+4UL, pc_hash );
   }
 
