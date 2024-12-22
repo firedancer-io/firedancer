@@ -296,6 +296,11 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
 }
 
 
+FD_FN_CONST ulong
+fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
+                             ulong pktnum_sz,
+                             ulong exp_pkt_number );
+
 void
 fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                         fd_quic_conn_t *     conn,

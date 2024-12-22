@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
 #define HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
 
-#include "../../../disco/topo/fd_topo.h"
 #include "../../../disco/quic/fd_quic_tile.h"
 
 /* fd_quic_trace_ctx is the relocated fd_quic_ctx_t of the target quic
@@ -23,6 +22,7 @@ struct fd_quic_trace_frame_ctx {
   ulong  conn_id;
   uint   src_ip;
   ushort src_port;
+  uchar  pkt_type;
   ulong  pkt_num;
 };
 
