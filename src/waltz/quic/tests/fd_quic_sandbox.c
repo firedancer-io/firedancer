@@ -400,7 +400,7 @@ fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
   pkt_buf[13] = 0x01;  /* PING frame */
   memset( pkt_buf+14, 0, 18UL );
 
-  fd_quic_crypto_keys_t * keys = &conn->keys[fd_quic_enc_level_appdata_id][!conn->server];
+  fd_quic_crypto_keys_t * keys = &conn->keys[fd_quic_enc_level_appdata_id][0];
   ulong out_sz = 48UL;
   int crypt_res = fd_quic_crypto_encrypt( pkt_buf, &out_sz, pkt_buf, 13UL, pkt_buf+13, 19UL, keys, keys, pktnum );
   FD_TEST( crypt_res==FD_QUIC_SUCCESS );

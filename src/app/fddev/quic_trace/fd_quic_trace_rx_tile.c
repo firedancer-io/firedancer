@@ -92,9 +92,10 @@ fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
   if( !keys ) {
     /* Set secrets->initial_secret */
     fd_quic_crypto_secrets_t secrets[1];
-    fd_quic_gen_initial_secret(
+    fd_quic_gen_initial_secrets(
         secrets,
-        initial->dst_conn_id, initial->dst_conn_id_len );
+        initial->dst_conn_id, initial->dst_conn_id_len,
+        /* is_client */ 0 );
 
     /* Derive secrets->secret[0][0] */
     fd_tls_hkdf_expand_label(

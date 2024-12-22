@@ -123,11 +123,12 @@ struct fd_quic_conn {
   ulong hs_ackd_bytes[4];
 
   /* Keys for header and packet protection
-       secrets:    Contains 'master' secrets used to derive other keys
-       keys:       Current pair of keys for each encryption level
-       new_keys:   App keys to use for the next key update.  Once app
-                   keys are available these are always kept up-to-date
-       keys_avail: Bit set of available keys, LSB indexed by enc level */
+       secrets:     Contains 'master' secrets used to derive other keys
+       keys[e][d]:  Current pair of keys for each encryption level (e)
+                    and direction (d==0 is incoming, d==1 is outgoing)
+       new_keys[e]: App keys to use for the next key update.  Once app
+                    keys are available these are always kept up-to-date
+       keys_avail:  Bit set of available keys, LSB indexed by enc level */
   fd_quic_crypto_secrets_t secrets;
   fd_quic_crypto_keys_t    keys[FD_QUIC_NUM_ENC_LEVELS][2];
   fd_quic_crypto_keys_t    new_keys[2];

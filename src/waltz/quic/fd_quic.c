@@ -19,8 +19,6 @@
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
 
-#include <assert.h>
-#include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
 
@@ -1285,28 +1283,24 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
   }
 }
 
-void
+static void
 fd_quic_gen_initial_secret_and_keys(
     fd_quic_conn_t *          conn,
-    fd_quic_conn_id_t const * dst_conn_id ) {
+    fd_quic_conn_id_t const * dst_conn_id,
+    int                       is_server ) {
 
-  fd_quic_gen_initial_secret(
+  fd_quic_gen_initial_secrets(
       &conn->secrets,
-      dst_conn_id->conn_id, dst_conn_id->sz );
+      dst_conn_id->conn_id, dst_conn_id->sz,
+      is_server );
 
-  fd_quic_gen_secrets(
-      &conn->secrets,
-      fd_quic_enc_level_initial_id ); /* generate initial secrets */
-
-  /* gen initial keys */
   fd_quic_gen_keys(
       &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
       conn->secrets.secret[ fd_quic_enc_level_initial_id ][ 0 ] );
 
-  /* gen initial keys */
   fd_quic_gen_keys(
       &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
-      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
+      conn->secrets.secret[ fd_quic_enc_level_initial_id ][ 1 ] );
 }
 
 static ulong
@@ -1618,7 +1612,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn->tls_hs = tls_hs;
       quic->metrics.hs_created_cnt++;
 
-      fd_quic_gen_initial_secret_and_keys( conn, conn_id );
+      fd_quic_gen_initial_secret_and_keys( conn, conn_id, /* is_server */ 1 );
     } else {
       /* connection may have been torn down */
       FD_DEBUG( FD_LOG_DEBUG(( "unknown connection ID" )); )
@@ -1637,12 +1631,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
-  int server = conn->server;
-
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                     pn_offset,
-                                    &conn->keys[0][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                    &conn->keys[0][0] ) != FD_QUIC_SUCCESS ) ) {
     /* As this is an INITIAL packet, change the status to DEAD, and allow
         it to be reaped */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
@@ -1668,7 +1660,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                 pn_offset,
                                 pkt_number,
-                                &conn->keys[0][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                &conn->keys[0][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
@@ -1789,12 +1781,10 @@ fd_quic_handle_v1_handshake(
 
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
-  int server = conn->server;
-
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                     pn_offset,
-                                    &conn->keys[2][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                    &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -1819,7 +1809,7 @@ fd_quic_handle_v1_handshake(
         fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                 pn_offset,
                                 pkt_number,
-                                &conn->keys[2][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
     quic->metrics.pkt_decrypt_fail_cnt++;
@@ -1889,7 +1879,7 @@ fd_quic_handle_v1_retry(
 ) {
   (void)pkt;
 
-  if( FD_UNLIKELY ( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
+  if( FD_UNLIKELY( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
     if( FD_UNLIKELY( conn ) ) { /* likely a misbehaving client w/o a conn */
       fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     }
@@ -1923,7 +1913,7 @@ fd_quic_handle_v1_retry(
   conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
 
   /* Need to regenerate keys using the retry source connection id */
-  fd_quic_gen_initial_secret_and_keys( conn, &conn->retry_src_conn_id );
+  fd_quic_gen_initial_secret_and_keys( conn, &conn->retry_src_conn_id, /* is_server */ 0 );
 
   /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
   conn->token_len = retry_token_sz;
@@ -2043,12 +2033,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
-  int server = conn->server;
 # if !FD_QUIC_DISABLE_CRYPTO
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
-                                    &conn->keys[3][!server] ) != FD_QUIC_SUCCESS ) ) {
+                                    &conn->keys[3][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
@@ -2071,7 +2060,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 # if !FD_QUIC_DISABLE_CRYPTO
   /* If the key phase bit flips, decrypt with the new pair of keys
       instead.  Note that the key phase bit is untrusted at this point. */
-  fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[3][!server] : &conn->new_keys[!server];
+  fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[3][0] : &conn->new_keys[0];
 
   /* this decrypts the header and payload */
   if( FD_UNLIKELY(
@@ -2529,7 +2518,6 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
   fd_quic_conn_t *  conn   = (fd_quic_conn_t*)context;
   fd_quic_t *       quic   = conn->quic;
-  int               server = conn->server;
 
   /* look up suite */
   /* set secrets */
@@ -2539,8 +2527,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
   fd_quic_crypto_secrets_t * crypto_secret = &conn->secrets;
 
-  memcpy( crypto_secret->secret[enc_level][!server], secret->read_secret,  FD_QUIC_SECRET_SZ );
-  memcpy( crypto_secret->secret[enc_level][ server], secret->write_secret, FD_QUIC_SECRET_SZ );
+  memcpy( crypto_secret->secret[enc_level][0], secret->read_secret,  FD_QUIC_SECRET_SZ );
+  memcpy( crypto_secret->secret[enc_level][1], secret->write_secret, FD_QUIC_SECRET_SZ );
 
   conn->keys_avail = fd_uint_set_bit( conn->keys_avail, (int)enc_level );
 
@@ -3783,11 +3771,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     ulong   cipher_text_sz = conn->tx_sz;
     ulong   frames_sz      = (ulong)( payload_ptr - frame_start ); /* including padding */
 
-    int server = conn->server;
-
-    fd_quic_crypto_keys_t * hp_keys  = &conn->keys[enc_level][server];
-    fd_quic_crypto_keys_t * pkt_keys = key_phase_upd ? &conn->new_keys[server]
-                                                     : &conn->keys[enc_level][server];
+    fd_quic_crypto_keys_t * hp_keys  = &conn->keys[enc_level][1];
+    fd_quic_crypto_keys_t * pkt_keys = key_phase_upd ? &conn->new_keys[1] : &conn->keys[enc_level][1];
 
     if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr_ptr, hdr_sz,
           frame_start, frames_sz, pkt_keys, hp_keys, pkt_number ) != FD_QUIC_SUCCESS ) ) {
@@ -4198,7 +4183,7 @@ fd_quic_connect( fd_quic_t *  quic,
   quic->metrics.hs_created_cnt++;
   conn->tls_hs = tls_hs;
 
-  fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id );
+  fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id, /* is_server */ 0 );
 
   fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
 
