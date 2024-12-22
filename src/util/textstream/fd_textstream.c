@@ -45,7 +45,8 @@ void fd_textstream_clear( fd_textstream_t * strm ) {
   strm->last_blk = blk;
 }
 
-fd_textstream_blk_t * fd_textstream_new_blk( fd_textstream_t * strm ) {
+static fd_textstream_blk_t *
+fd_textstream_new_blk( fd_textstream_t * strm ) {
   fd_textstream_blk_t * blk = (fd_textstream_blk_t *)
     fd_valloc_malloc(strm->valloc, alignof(fd_textstream_blk_t), sizeof(fd_textstream_blk_t) + strm->alloc_sz);
   if ( blk == NULL )

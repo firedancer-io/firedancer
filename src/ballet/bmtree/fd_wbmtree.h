@@ -39,7 +39,6 @@ FD_PROTOTYPES_BEGIN
 ulong            fd_wbmtree32_align     ( void );
 ulong            fd_wbmtree32_footprint ( ulong leaf_cnt );
 fd_wbmtree32_t*  fd_wbmtree32_init      ( void * mem, ulong leaf_cnt );
-fd_wbmtree32_t*  fd_wbmtree32_join      ( void * mem );
 void             fd_wbmtree32_append    ( fd_wbmtree32_t * bmt, fd_wbmtree32_leaf_t const * leaf, ulong leaf_cnt, uchar *mbuf );
 uchar *          fd_wbmtree32_fini      ( fd_wbmtree32_t * bmt);
 

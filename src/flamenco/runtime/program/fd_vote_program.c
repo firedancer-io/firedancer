@@ -54,7 +54,7 @@
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 
 #define DEFAULT_COMPUTE_UNITS 2100UL
-extern fd_flamenco_yaml_t * fd_get_types_yaml(void);
+
 /**********************************************************************/
 /* size_of                                                            */
 /**********************************************************************/

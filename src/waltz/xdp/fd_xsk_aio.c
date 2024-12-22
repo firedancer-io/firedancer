@@ -295,7 +295,7 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
 }
 
 
-void
+static void
 fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {
   ulong tx_completed = fd_xsk_tx_complete( xsk_aio->xsk,
                                            xsk_aio->tx_stack       + xsk_aio->tx_top,
