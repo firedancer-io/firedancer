@@ -295,8 +295,7 @@ quic_pcap_iter_deliver_initial(
   data_sz     = tot_sz;
 
   fd_quic_crypto_secrets_t secrets[1];
-  fd_quic_gen_initial_secret( secrets, initial->dst_conn_id, initial->dst_conn_id_len );
-  fd_quic_gen_secrets( secrets, fd_quic_enc_level_initial_id );
+  fd_quic_gen_initial_secrets( secrets, initial->dst_conn_id, initial->dst_conn_id_len, /* is_server */ 1 );
 
   fd_quic_crypto_keys_t keys[1];
   fd_quic_gen_keys( keys, secrets->secret[ fd_quic_enc_level_initial_id ][ 0 ] );

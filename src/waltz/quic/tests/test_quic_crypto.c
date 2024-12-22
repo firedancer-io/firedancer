@@ -1,10 +1,3 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <signal.h>
-#include <arpa/inet.h>
-
-#include "../fd_quic.h"
 #include "../crypto/fd_quic_crypto_suites.h"
 
 FD_IMPORT_BINARY( test_client_initial,   "src/waltz/quic/fixtures/rfc9001-client-initial-payload.bin"   );
@@ -123,13 +116,12 @@ main( int     argc,
   fd_quic_crypto_secrets_t secrets;
 
   /* initial salt is based on quic version */
-  fd_quic_gen_initial_secret(
+  fd_quic_gen_initial_secrets(
       &secrets,
-      test_dst_conn_id, sizeof( test_dst_conn_id ) );
+      test_dst_conn_id, sizeof( test_dst_conn_id ),
+      /* is_server */ 1 );
   FD_TEST( 0==memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) );
   FD_LOG_INFO(( "fd_quic_gen_initial_secret: PASSED" ));
-
-  fd_quic_gen_secrets( &secrets, fd_quic_enc_level_initial_id );
 
   /* initial secrets are derived from the initial client destination connection id
      both client and server initial secrets are derived here */

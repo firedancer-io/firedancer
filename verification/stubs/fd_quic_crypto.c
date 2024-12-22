@@ -36,23 +36,11 @@ fd_quic_gen_keys(
 }
 
 int
-fd_quic_gen_secrets(
-    fd_quic_crypto_secrets_t * secrets,
-    uint                       enc_level,
-    fd_hmac_fn_t               hmac_fn,
-    ulong                      hash_sz ) {
-  assert( hmac_fn==fd_hmac_sha256 );
-  assert( hash_sz==32UL );
-  assert( enc_level<FD_QUIC_NUM_ENC_LEVELS );
-  __CPROVER_havoc_slice( secrets->secret, 32UL );
-  return FD_QUIC_SUCCESS;
-}
-
-int
-fd_quic_gen_initial_secret(
+fd_quic_gen_initial_secrets(
     fd_quic_crypto_secrets_t * secrets,
     uchar const *              conn_id,
-    ulong                      conn_id_sz ) {
+    ulong                      conn_id_sz,
+    int                        is_server ) {
   __CPROVER_r_ok( conn_id,      conn_id_sz      );
   __CPROVER_havoc_slice( secrets->secret, 32UL );
   int res;  __CPROVER_assume( res==FD_QUIC_SUCCESS || res==FD_QUIC_FAILED );
