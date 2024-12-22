@@ -2732,8 +2732,7 @@ void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                    void *             context ) {
   (void)hs;
-  fd_quic_conn_t *           conn = (fd_quic_conn_t*)context;
-  fd_quic_conn_stream_rx_t * srx  = conn->srx;
+  fd_quic_conn_t * conn = (fd_quic_conn_t *)context;
 
   /* need to send quic handshake completion */
   switch( conn->state ) {
@@ -2751,13 +2750,6 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       }
       conn->handshake_complete = 1;
       conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
-
-      if( conn->server ) {
-        /* Remove flow control limits */
-        srx->rx_sup_stream_id = (1UL<<60) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
-        srx->rx_max_data      = (1UL<<62UL) - 1UL;
-      }
-
       return;
 
     default:
@@ -4360,6 +4352,13 @@ fd_quic_conn_create( fd_quic_t *               quic,
   srx->rx_max_data       = our_tp->initial_max_data;
   srx->rx_tot_data       = 0;
   srx->rx_streams_active = 0L;
+
+  if( state->transport_params.initial_max_streams_uni_present ) {
+    srx->rx_sup_stream_id = (state->transport_params.initial_max_streams_uni<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+  }
+  if( state->transport_params.initial_max_data ) {
+    srx->rx_max_data = state->transport_params.initial_max_data;
+  }
 
   /* points to free tx space */
   conn->tx_ptr = conn->tx_buf;
