@@ -1,5 +1,6 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
+#include <unistd.h>
 
 #define INITIALIZE_BLOCKSTORE( blockstore )                                              \
     ulong shred_max = 1 << 15;                                                           \
@@ -63,6 +64,17 @@ get_next_batch_shred_off( fd_block_shred_t * shreds, ulong shreds_cnt, ulong * c
   return ULONG_MAX;
 }
 
+void write_header(const char *filename) {
+    // Open file in write mode
+    FILE *file = fopen(filename, "w");
+    if (file == NULL) {
+        perror("Error opening file");
+        return;
+    }
+    fprintf(file, "slot,ref_tick,sz,txn_cnt\n");
+    fclose(file);
+}
+
 void append_csv(const char *filename, fd_entry_row_t *row) {
     // Open file in append mode
     FILE *file = fopen(filename, "a");
@@ -78,7 +90,6 @@ void append_csv(const char *filename, fd_entry_row_t *row) {
     // Close the file
     fclose(file);
 }
-
 
 static void
 aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
@@ -343,14 +354,18 @@ main( int argc, char ** argv ) {
   int csv_fd = open(csv, O_RDWR | O_CREAT, 0666);
   FD_TEST( csv_fd > 0 );
 
-  // investigate_shred( wksp, folder );
-  aggregate_entries( wksp , folder, csv );
-  // aggregate_batch_entries( wksp );
+  if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
+    ftruncate( csv_fd, 0);
+    write_header(csv);
+    aggregate_entries( wksp , folder, csv );
+  } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
+    aggregate_batch_entries( wksp );
+  } else {
+    FD_LOG_WARNING(("Please specify either microblock or batch in the command line. No action taken."));
+  }
   
   fd_halt();
   return 0;
 
   investigate_shred( wksp, folder );
-  aggregate_batch_entries( wksp );
-
 }
