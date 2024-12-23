@@ -284,6 +284,7 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
         row.ref_tick  = (uchar)( (int)shred->hdr.data.flags &
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
         row.sz        = batch_sz;
+        batch_sz      = 0;
         batch_start   = shred_idx + 1;
 
         batch_append_csv(csv, &row);
