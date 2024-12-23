@@ -56,7 +56,8 @@ get_next_batch_shred_off( fd_block_shred_t * shreds, ulong shreds_cnt, ulong * c
   for( ulong i = *curr_shred_idx + 1; i < shreds_cnt; i++ ) {
     if( shreds[i].hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) {
       *curr_shred_idx = i + 1;
-      return shreds[i + 1].off;
+      if (i + 1 < shreds_cnt) return shreds[i + 1].off;
+      else return ULONG_MAX;
     }
   }
   return ULONG_MAX;
@@ -149,6 +150,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
           FD_LOG_NOTICE(( "\t Shred | off: %lu", shreds[curr_shred_idx].off )); 
         }*/
         if ( micro->off - sizeof(ulong) >= next_batch_off ) {
+          FD_TEST( curr_shred_idx < block->shreds_cnt );
           curr_batch_tick = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
           next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx );
         }
