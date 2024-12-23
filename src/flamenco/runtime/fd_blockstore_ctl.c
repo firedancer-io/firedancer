@@ -195,11 +195,11 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
           curr_shred_idx++;
           FD_LOG_NOTICE(( "\t Shred | off: %lu", shreds[curr_shred_idx].off )); 
         }*/
-        if ( micro->off - sizeof(ulong) >= next_batch_off ) {
+        if ( micro->off >= next_batch_off ) {
           row.batch_idx++;
           FD_TEST( curr_shred_idx < block->shreds_cnt );
           curr_batch_tick = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
-          next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx );
+          next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx ); // advance shred idx to next batch
         }
 
         //fd_block_shred_t * shred = &shreds[curr_shred_idx];
@@ -216,6 +216,12 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
         } else {
           row.sz = block->data_sz - micro->off;
         }
+
+        if ( row.txn_cnt == 0 ) { /* truncate payload sz to 48 at all times */
+          /* sometimes you get gotchad by reappring mcounts */
+          row.sz = 48;
+        }
+
         entry_append_csv(csv, &row);
         FD_LOG_NOTICE(( "Entry | slot: %lu, payload_sz: %lu txn_cnt: %lu, ref_tick: %d",
                         row.slot, row.sz, row.txn_cnt, (int) row.ref_tick ));
