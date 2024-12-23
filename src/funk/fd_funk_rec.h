@@ -14,7 +14,7 @@
 #define FD_FUNK_REC_ALIGN     (32UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
-   how records are to be interpreted.  The 5 most signifcant bytes of a
+   how records are to be interpreted.  The 5 most significant bytes of a
    rec's flag are reserved to be used in conjunction with the ERASE flag.
 
    - ERASE indicates a record in an in-preparation transaction should be
