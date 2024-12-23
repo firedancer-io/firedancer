@@ -2,6 +2,12 @@
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include <unistd.h>
 
+/**
+
+sudo /data/emwang/agave/release/agave-ledger-tool -l /data/emwang/rocksdb.tar.zst bounds
+-- look at slot bounds
+ */
+
 #define INITIALIZE_BLOCKSTORE( blockstore )                                              \
     ulong shred_max = 1 << 15;                                                           \
     ulong idx_max = 1 << 15;                                                             \
@@ -64,7 +70,7 @@ get_next_batch_shred_off( fd_block_shred_t * shreds, ulong shreds_cnt, ulong * c
   return ULONG_MAX;
 }
 
-void write_header(const char *filename) {
+void entry_write_header( const char *filename ) {
     // Open file in write mode
     FILE *file = fopen(filename, "w");
     if (file == NULL) {
@@ -75,7 +81,34 @@ void write_header(const char *filename) {
     fclose(file);
 }
 
-void append_csv(const char *filename, fd_entry_row_t *row) {
+void batch_write_header( const char *filename ) {
+    // Open file in write mode
+    FILE *file = fopen(filename, "w");
+    if (file == NULL) {
+        perror("Error opening file");
+        return;
+    }
+    fprintf(file, "slot,ref_tick,sz,shred_cnt\n");
+    fclose(file);
+}
+
+void batch_append_csv( const char * filename, fd_batch_row_t * row ) {
+    // Open file in append mode
+    FILE *file = fopen(filename, "a");
+    if (file == NULL) {
+        perror("Error opening file");
+        return;
+    }
+
+    // Write the row data to the CSV file
+    fprintf(file, "%lu,%u,%lu,%lu\n", 
+            row->slot, row->ref_tick, row->sz, row->shred_cnt);
+
+    // Close the file
+    fclose(file);
+}
+
+void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
     // Open file in append mode
     FILE *file = fopen(filename, "a");
     if (file == NULL) {
@@ -113,7 +146,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
     memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
     ulong st  = 308015637;
-    ulong end = 308015637;
+    ulong end = 308016637;
 
     ulong populated_slots[end - st + 1];
     memset( populated_slots, -1, sizeof(populated_slots) );
@@ -180,7 +213,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
         } else {
           row.sz = block->data_sz - micro->off;
         }
-        append_csv(csv, &row);
+        entry_append_csv(csv, &row);
         FD_LOG_NOTICE(( "Entry | slot: %lu, payload_sz: %lu txn_cnt: %lu, ref_tick: %d",
                         row.slot, row.sz, row.txn_cnt, (int) row.ref_tick ));
       }
@@ -188,8 +221,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
 }
 
 static void
-aggregate_batch_entries( fd_wksp_t * wksp ){
-  return;
+aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
   INITIALIZE_BLOCKSTORE( blockstore );
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -197,7 +229,7 @@ aggregate_batch_entries( fd_wksp_t * wksp ){
   fd_rocksdb_t           rocks_db         = {0};
   fd_rocksdb_root_iter_t iter             = {0};
 
-  char * err = fd_rocksdb_init( &rocks_db, "/data/ledgers/mainnet-307987557/rocksdb" );
+  char * err = fd_rocksdb_init( &rocks_db, folder );
   FD_LOG_NOTICE(( "rocksdb init: %s", err ));
 
   fd_rocksdb_root_iter_new( &iter );
@@ -250,6 +282,8 @@ aggregate_batch_entries( fd_wksp_t * wksp ){
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
         row.sz        = batch_sz;
         batch_start   = shred_idx + 1;
+
+        batch_append_csv(csv, &row);
 
         FD_LOG_NOTICE(( "Batch | slot: %lu, ref_tick: %d, payload_sz: %lu, shred_cnt: %lu",
                 row.slot, (int) row.ref_tick, row.sz, row.shred_cnt ));
@@ -315,9 +349,7 @@ investigate_shred( fd_wksp_t * wksp, const char * folder ){
       if( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) {
         FD_LOG_NOTICE(( " -- BATCH DONE -- " ));
       }
-
     }
-
     for ( ulong micro_idx = 0; micro_idx < block->micros_cnt; micro_idx++ ) {
       fd_block_micro_t * micro = &micros[micro_idx];
       FD_LOG_NOTICE(("Micro offset: %lu", micro->off));
@@ -354,12 +386,15 @@ main( int argc, char ** argv ) {
   int csv_fd = open(csv, O_RDWR | O_CREAT, 0666);
   FD_TEST( csv_fd > 0 );
 
+  int err = ftruncate( csv_fd, 0);
+  FD_TEST( err == 0 );
+
   if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
-    ftruncate( csv_fd, 0);
-    write_header(csv);
+    entry_write_header(csv);
     aggregate_entries( wksp , folder, csv );
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
-    aggregate_batch_entries( wksp );
+    batch_write_header(csv);
+    aggregate_batch_entries( wksp, folder, csv );
   } else {
     FD_LOG_WARNING(("Please specify either microblock or batch in the command line. No action taken."));
   }
