@@ -499,7 +499,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     rec_con = irec;
 
   /* We are able to handle tombstones in this case because we treat an erased
-     record as not exisitng. */
+     record as not existing. */
 
   if ( FD_UNLIKELY( rec_con && !(rec_con->flags & FD_FUNK_REC_FLAG_ERASE) ) ) {
     /* We have an incarnation of the record */
