@@ -32,21 +32,27 @@
     fd_hash_t fake_hash = {.hash = {1}};                                                 \
     slot_bank.block_hash_queue.last_hash = &fake_hash;                                   \
     slot_bank.block_hash_queue.last_hash_index = 0;                                      \
-    int fd = open("test.txt", O_RDWR | O_CREAT, 0666);                                   \            
+    int fd = open("test.txt", O_RDWR | O_CREAT, 0666);                                   \
     FD_TEST( fd > 0 );
 
-
-
-struct fd_entry_row {
+struct fd_batch_row {
   ulong slot;
   uchar ref_tick;
   ulong sz;        /* bytes */
   ulong shred_cnt;
 };
+typedef struct fd_batch_row fd_batch_row_t;
+
+struct fd_entry_row {
+  ulong slot;
+  uchar ref_tick;
+  ulong sz;        /* bytes */
+  ulong txn_cnt;
+};
 typedef struct fd_entry_row fd_entry_row_t;
 
 static void
-aggregate_entries( fd_wksp_t * wksp ){
+aggregate_entries( fd_wksp_t * wksp, const char * folder ){
     INITIALIZE_BLOCKSTORE( blockstore );
 
     FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -54,7 +60,7 @@ aggregate_entries( fd_wksp_t * wksp ){
     fd_rocksdb_t           rocks_db         = {0};
     fd_rocksdb_root_iter_t iter             = {0};
 
-    char * err = fd_rocksdb_init( &rocks_db, "/data/ledgers/mainnet-307987557/rocksdb" );
+    char * err = fd_rocksdb_init( &rocks_db, folder );
     FD_LOG_NOTICE(( "rocksdb init: %s", err ));
 
     fd_rocksdb_root_iter_new( &iter );
@@ -93,11 +99,30 @@ aggregate_entries( fd_wksp_t * wksp ){
 
       block = fd_blockstore_block_query( blockstore, slot );
       FD_TEST( block );
+
+      fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
+      uchar * data              = fd_wksp_laddr_fast( wksp, block->data_gaddr );
+      fd_block_micro_t * micros = fd_wksp_laddr_fast( wksp, block->micros_gaddr );
+
+
+
+      FD_TEST( shreds->off == micros->off);
+
+      for( ulong micro_idx = 0; micro_idx < block->micros_cnt; micro_idx++ ) {
+        fd_block_micro_t * micro = &micros[micro_idx];
+        fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (uchar *)data + micro->off );
+        
+        row.txn_cnt = hdr->txn_cnt;
+
+        FD_LOG_NOTICE(( "Entry | slot: %lu, ref_tick: %d, payload_sz: %lu",
+                        row.slot, (int) row.ref_tick, row.sz ));
+      }
     }
 }
 
 static void
 aggregate_batch_entries( fd_wksp_t * wksp ){
+  return;
   INITIALIZE_BLOCKSTORE( blockstore );
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -135,7 +160,7 @@ aggregate_batch_entries( fd_wksp_t * wksp ){
     populated_slots[slot_idx++] = slot;
   }
 
-  fd_entry_row_t row = {0};
+  fd_batch_row_t row = {0};
   fd_block_t * block = NULL;
   // iterate the blocks:
   for( int i = 0; i < slot_idx; i++ ) {
@@ -159,7 +184,7 @@ aggregate_batch_entries( fd_wksp_t * wksp ){
         row.sz        = batch_sz;
         batch_start   = shred_idx + 1;
 
-        FD_LOG_NOTICE(( "Entry | slot: %lu, ref_tick: %d, payload_sz: %lu, shred_cnt: %lu",
+        FD_LOG_NOTICE(( "Batch | slot: %lu, ref_tick: %d, payload_sz: %lu, shred_cnt: %lu",
                 row.slot, (int) row.ref_tick, row.sz, row.shred_cnt ));
       }
     }
@@ -191,6 +216,11 @@ main( int argc, char ** argv ) {
                                             0UL );
   FD_TEST( wksp );
 
+  const char * folder = fd_env_strip_cmdline_cstr( &argc, &argv, "--rocksdb-path", NULL, NULL);
+  int fd = open(folder, O_RDONLY | O_DIRECTORY, 0666);
+  FD_TEST( fd > 0 );
+
+  aggregate_entries( wksp , folder );
   aggregate_batch_entries( wksp );
   
   fd_halt();
