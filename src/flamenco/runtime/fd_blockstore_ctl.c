@@ -52,6 +52,7 @@ typedef struct fd_batch_row fd_batch_row_t;
 
 struct fd_entry_row {
   ulong slot;
+  ulong batch_idx;
   uchar ref_tick;
   ulong sz;        /* bytes */
   ulong txn_cnt;
@@ -77,7 +78,7 @@ void entry_write_header( const char *filename ) {
         perror("Error opening file");
         return;
     }
-    fprintf(file, "slot,ref_tick,sz,txn_cnt\n");
+    fprintf(file, "slot,batch_idx,ref_tick,sz,txn_cnt\n");
     fclose(file);
 }
 
@@ -117,8 +118,8 @@ void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
     }
 
     // Write the row data to the CSV file
-    fprintf(file, "%lu,%u,%lu,%lu\n", 
-            row->slot, row->ref_tick, row->sz, row->txn_cnt);
+    fprintf(file, "%lu,%lu,%u,%lu,%lu\n", 
+            row->slot, row->batch_idx, row->ref_tick, row->sz, row->txn_cnt);
 
     // Close the file
     fclose(file);
@@ -181,8 +182,9 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
 
      /* iterate shreds, print offset */
       ulong curr_shred_idx = 0;
-      int curr_batch_tick = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
+      int curr_batch_tick  = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
       ulong next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx );
+      row.batch_idx        = 0;
 
       for( ulong micro_idx = 0; micro_idx < block->micros_cnt; micro_idx++ ) {
         fd_block_micro_t * micro = &micros[micro_idx];
@@ -194,6 +196,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
           FD_LOG_NOTICE(( "\t Shred | off: %lu", shreds[curr_shred_idx].off )); 
         }*/
         if ( micro->off - sizeof(ulong) >= next_batch_off ) {
+          row.batch_idx++;
           FD_TEST( curr_shred_idx < block->shreds_cnt );
           curr_batch_tick = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
           next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx );
