@@ -18,15 +18,9 @@
    rec's flag are reserved to be used in conjunction with the ERASE flag.
 
    - ERASE indicates a record in an in-preparation transaction should be
-   erased if and when the in-preparation transaction is published.  If
-   set, there will be no value resources used by this record.  Will not
-   be set on a published record.  Will not be set if an in-preparation
-   transaction ancestor has this record with erase set.  If set, the
-   first ancestor transaction encountered (going from youngest to
-   oldest) will not have erased set.  
-   
-   If the ERASE flag is set, then the five most significant bytes of the
-   flags field for the record will be used to store user-specified data. */
+   erased if and when the in-preparation transaction is published. If
+   set on a published record, it serves as a tombstone.
+   If set, there will be no value resources used by this record. */
 
 #define FD_FUNK_REC_FLAG_ERASE (1UL<<0)
 
@@ -70,8 +64,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   ulong prev_part_idx;  /* Record map index of previous record in partition chain */
   ulong next_part_idx;  /* Record map index of next record in partition chain */
   uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
-
-  int   val_no_free; /* If set, do not call alloc_free on the value */
 
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
@@ -207,6 +199,12 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
                             fd_valloc_t               valloc,
                             ulong *                   result_len );
+
+/* Return true if the record key is part of an unpublished transaction */
+
+FD_FN_PURE int
+fd_funk_rec_has_unpublished( fd_funk_t *               funk,
+                             fd_funk_rec_key_t const * key );
 
 /* fd_funk_rec_test tests the record pointed to by rec.  Returns
    FD_FUNK_SUCCESS (0) if rec appears to be a live unfrozen record in
@@ -448,7 +446,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     ulong           erase_data );
 
 
-/* When a record is erased there is metadata stored in the five most 
+/* When a record is erased there is metadata stored in the five most
    significant bytes of a record.  These are helpers to make setting
    and getting these values simple. The caller is responsible for doing
    a check on the flag of the record before using the value of the erase

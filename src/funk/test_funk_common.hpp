@@ -428,6 +428,15 @@ struct fake_funk {
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
           assert(rec->part == rec2->_part);
         }
+
+        fd_funk_txn_t * txn_map = fd_funk_txn_map( _real, fd_funk_wksp( _real ) );
+        fd_funk_txn_t * txn = fd_funk_txn_query( xid, txn_map );
+        auto* rec3 = fd_funk_rec_query_global(_real, txn, rec->pair.key, NULL);
+        if( ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
+          assert(rec3 == NULL);
+        else
+          assert(rec == rec3);
+
         assert(!rec2->_touched);
         rec2->_touched = true;
       }

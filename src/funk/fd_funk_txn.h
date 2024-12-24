@@ -162,7 +162,7 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_txn_xid( fd_funk_txn
 
 #define FD_FUNK_ACCESSOR(field)                     \
 FD_FN_PURE static inline fd_funk_txn_t *            \
-fd_funk_txn_##field( fd_funk_txn_t * txn,           \
+fd_funk_txn_##field( fd_funk_txn_t const * txn,     \
                      fd_funk_txn_t * map ) {        \
   ulong idx = fd_funk_txn_idx( txn->field##_cidx ); \
   if( idx==FD_FUNK_TXN_IDX_NULL ) return NULL;      \

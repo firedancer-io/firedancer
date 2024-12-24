@@ -151,11 +151,6 @@ fd_funk_new( void * shmem,
   partvec->num_part = 0U;
   funk->partvec_gaddr = fd_wksp_gaddr_fast( wksp, partvec );
 
-  /* Speed load mode is off by default */
-  fd_funk_speed_load_mode( funk, 0 );
-  funk->speed_bump_gaddr  = 0UL;
-  funk->speed_bump_remain = 0UL;
-
   funk->write_lock = 0UL;
 
   FD_COMPILER_MFENCE();
@@ -471,9 +466,4 @@ void
 fd_funk_check_write( fd_funk_t * funk ) {
   ulong val = funk->write_lock;
   if( FD_UNLIKELY(!(val&1UL)) ) FD_LOG_CRIT(( "missing call to fd_funk_start_write" ));
-}
-
-void
-fd_funk_speed_load_mode( fd_funk_t * funk, int flag ) {
-  funk->speed_load = flag;
 }

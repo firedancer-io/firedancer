@@ -113,8 +113,8 @@ main( int     argc,
 
       rec_t *               rrec = rec_query_global( ref, NULL, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_global( tst, NULL, tkey, NULL );
-      if( !rrec ) FD_TEST( !trec );
-      else        FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : 0UL ) );
+      if( !rrec || rrec->erase ) FD_TEST( !trec );
+      else                       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : 0UL ) );
 
       FD_TEST( fd_funk_rec_test( NULL, NULL                 )==FD_FUNK_ERR_INVAL );
       FD_TEST( fd_funk_rec_test( NULL, trec                 )==FD_FUNK_ERR_INVAL );
@@ -144,7 +144,7 @@ main( int     argc,
 
       fd_funk_rec_t * mrec = fd_funk_rec_modify( tst, &rec_map[0] );
 
-      if( fd_funk_rec_map_query( rec_map, fd_funk_rec_pair( &rec_map[0] ), NULL )!=&rec_map[0] ) {
+      if( fd_funk_rec_map_query_const( rec_map, fd_funk_rec_pair( &rec_map[0] ), NULL )!=&rec_map[0] ) {
         FD_TEST( err==FD_FUNK_ERR_KEY );
         FD_TEST( !mrec );
       } else {
@@ -228,7 +228,7 @@ main( int     argc,
 
       rec_t *               rrec = rec_query_global( ref, rtxn, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_global( tst, ttxn, tkey, NULL );
-      if( !rrec ) FD_TEST( !trec );
+      if( !rrec || rrec->erase ) FD_TEST( !trec );
       else {
         FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : 0UL ) );
         int is_frozen = (rrec->txn ? txn_is_frozen( rrec->txn ) : funk_is_frozen( ref ));

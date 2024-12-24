@@ -518,91 +518,67 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
                     fd_alloc_t *              alloc,             /* ==fd_funk_alloc( funk, wksp ) */
                     fd_wksp_t *               wksp ) {           /* ==fd_funk_wksp( funk ) */
   /* We don't need to do all the individual removal pointer updates
-     as we are removing the whole list from txn_idx.  Likewise, we
-     temporarily repurpose txn_cidx as a loop detector for additional
-     corruption protection.  */
+     as we are removing the whole list from txn_idx.  */
 
   ulong rec_idx = txn_map[ txn_idx ].rec_head_idx;
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-
     /* Validate rec_idx */
 
     if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
     if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )!=txn_idx ) )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
-    if( FD_UNLIKELY( rec_map[ rec_idx ].val_no_free ) )
-      FD_LOG_CRIT(( "new record was speed loaded" ));
-    rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
-    ulong next_idx = rec_map[ rec_idx ].next_idx;
+    fd_funk_rec_t * rec = &rec_map[ rec_idx ];
+    ulong next_rec_idx = rec->next_idx;
 
-    /* See if (dst_xid,key) already exists */
-
-    fd_funk_xid_key_pair_t dst_pair[1];
-    fd_funk_xid_key_pair_init( dst_pair, dst_xid, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
-
-    fd_funk_rec_t * dst_rec = fd_funk_rec_map_query( rec_map, dst_pair, NULL );
-
-    /* At this point, we are either creating a new record or updating
-       an existing one.  In either case, we are going to be keeping
-       around the src's value for later use and for speed, we do this
-       zero-copy / in-place.  So we stash record value in stack
-       temporaries and unmap (xid,key).  Note this strictly frees 1
-       record from the rec_map, guaranteeing at least 1 record free in
-       the record map below.  Note that we can't just reuse rec_idx in
-       the update case because that could break map queries. */
-
-    ulong val_sz      = (ulong)rec_map[ rec_idx ].val_sz;
-    ulong val_max     = (ulong)rec_map[ rec_idx ].val_max;
-    ulong val_gaddr   = rec_map[ rec_idx ].val_gaddr;
-    int   val_no_free = rec_map[ rec_idx ].val_no_free;
-    uint  part        = rec_map[ rec_idx ].part;
-    ulong flags       = rec_map[ rec_idx ].flags;
-
-    fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
-    fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
-
-    if( FD_UNLIKELY( !dst_rec ) ) { /* Create a published key */
-
-      dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
-
-      ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
-      ulong dst_prev_idx = *_dst_rec_tail_idx;
-
-      dst_rec->prev_idx         = dst_prev_idx;
-      dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
-      dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
-      dst_rec->tag              = 0U;
-
-      fd_funk_part_init( dst_rec );
-
-      if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
-      else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
-
-      *_dst_rec_tail_idx = dst_rec_idx;
-
-    } else { /* Update a published key */
-
-      fd_funk_val_flush( dst_rec, alloc, wksp ); /* Free up any preexisting value resources */
-      fd_funk_part_set_intern( partvec, rec_map, dst_rec, FD_FUNK_PART_NULL );
-
+    /* See if (dst_xid,key) already exists. We would like to walk
+       down the hash chain starting at rec, but
+       fd_funk_txn_merge_all_children temporarily breaks the needed
+       ordering property. */
+    fd_funk_xid_key_pair_t old_pair[1];
+    fd_funk_xid_key_pair_init( old_pair, dst_xid, rec->pair.key );
+    fd_funk_rec_t * old_rec = (fd_funk_rec_t *) fd_funk_rec_map_query_const( rec_map, old_pair, NULL ); // Const version does not reorder
+    if( FD_LIKELY( old_rec ) ) {
+      /* Delete the old incarnation of the record. */
+      ulong prev_idx = old_rec->prev_idx;
+      ulong next_idx = old_rec->next_idx;
+      if( fd_funk_rec_idx_is_null( prev_idx ) ) {
+        *_dst_rec_head_idx = next_idx;
+      } else {
+        rec_map[ prev_idx ].next_idx = next_idx;
+      }
+      if( fd_funk_rec_idx_is_null( next_idx ) ) {
+        *_dst_rec_tail_idx = prev_idx;
+      } else {
+        rec_map[ next_idx ].prev_idx = prev_idx;
+      }
+      fd_funk_val_flush( old_rec, alloc, wksp );
+      old_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+      fd_funk_part_set_intern( partvec, rec_map, old_rec, FD_FUNK_PART_NULL );
+      fd_funk_rec_map_remove( rec_map, old_pair );
     }
 
-    /* Unstash value metadata from stack temporaries into dst_rec */
+    /* Add the new record to the transaction. We can update the xid in
+       place because it is not used for hashing the element. We have
+       to preserve the original element to preserve the
+       newest-to-oldest ordering in the hash
+       chain. fd_funk_rec_query_global relies on this subtle
+       property. */
 
-    dst_rec->val_sz      = (uint)val_sz;
-    dst_rec->val_max     = (uint)val_max;
-    dst_rec->val_gaddr   = val_gaddr;
-    dst_rec->val_no_free = val_no_free;
-    dst_rec->flags       = flags;
+    rec->pair.xid[0] = *dst_xid;
+    rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
 
-    /* Use the new partition */
+    if( fd_funk_rec_idx_is_null( *_dst_rec_head_idx ) ) {
+      *_dst_rec_head_idx = rec_idx;
+      rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+    } else {
+      rec_map[ *_dst_rec_tail_idx ].next_idx = rec_idx;
+      rec->prev_idx = *_dst_rec_tail_idx;
+    }
+    *_dst_rec_tail_idx = rec_idx;
+    rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
-    fd_funk_part_set_intern( partvec, rec_map, dst_rec, part );
-
-    /* Advance to the next record */
-
-    rec_idx = next_idx;
+    rec_idx = next_rec_idx;
   }
 
   txn_map[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
