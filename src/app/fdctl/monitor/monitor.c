@@ -293,8 +293,9 @@ run_monitor( config_t * const config,
     if( FD_UNLIKELY( (ulong)n>=buf_sz ) ) FD_LOG_ERR(( "snprintf truncated" )); \
     buf += n; buf_sz -= (ulong)n;                                               \
   } while(0)
-
+#define TAB 9
   ulong line_count = 0;
+  int monitor_pane = 0;
   for(;;) {
     /* Wait a somewhat randomized amount and then make a diagnostic
        snapshot */
@@ -311,7 +312,7 @@ run_monitor( config_t * const config,
     ulong buf_sz = FD_MONITOR_TEXT_BUF_SZ;
 
     /* move to beginning of line, n lines ago */
-    PRINT( "\033[%luF", line_count );
+    PRINT( "\033[2J\033[%luF", line_count );
 
     /* drain any firedancer log messages into the terminal */
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) drain_to_buffer( &buf, &buf_sz, drain_output_fd );
@@ -324,11 +325,13 @@ run_monitor( config_t * const config,
 
     char * mon_start = buf;
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) PRINT( TEXT_NEWLINE );
+    if( FD_UNLIKELY(fd_getch() == TAB) ) monitor_pane = !monitor_pane;
 
     long dt = now-then;
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
+    if( !monitor_pane ){
+    PRINT( "snapshot for %s | Use TAB to switch panes" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
     PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
     PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
@@ -361,7 +364,7 @@ run_monitor( config_t * const config,
       PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_processing_ticks, prv_processing_ticks, 0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
       PRINT( TEXT_NEWLINE );
     }
-    PRINT( TEXT_NEWLINE );
+    } else {
     PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
     PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
 
@@ -404,7 +407,8 @@ run_monitor( config_t * const config,
       }
     }
 
-
+    }
+    fd_log_sleep(dt);
     if( FD_UNLIKELY( with_sankey ) ) {
       /* We only need to count from one of the benchs, since they both receive
         all of the transactions. */
@@ -573,7 +577,6 @@ monitor_cmd_fn( args_t *         args,
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
   populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), drain_output_fd );
 
-  if( FD_UNLIKELY( close( STDIN_FILENO ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( config->development.sandbox ) ) {
