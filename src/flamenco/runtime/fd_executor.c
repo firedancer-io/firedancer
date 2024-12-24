@@ -318,17 +318,17 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 
-/* Only accounts in the transaction account keys that are owned by one of the four 
-   loaders (bpf v1, v2, v3, v4) are iterated over in Agave's replenish_program_cache() 
-   function to be loaded into the program cache. An account may be in the program cache 
-   iff the owners match one of the four loaders since `filter_executable_program_accounts()` 
+/* Only accounts in the transaction account keys that are owned by one of the four
+   loaders (bpf v1, v2, v3, v4) are iterated over in Agave's replenish_program_cache()
+   function to be loaded into the program cache. An account may be in the program cache
+   iff the owners match one of the four loaders since `filter_executable_program_accounts()`
    filters out all other accounts here:
    https://github.com/anza-xyz/agave/blob/v2.1/svm/src/transaction_processor.rs#L530-L560
- 
-   If this check holds true, the account is promoted to an executable account within 
+
+   If this check holds true, the account is promoted to an executable account within
    `fd_execute_load_transaction_accounts()`, which sadly involves modifying its read-only metadata
    to set the `executable` flag to true.
- 
+
    Note that although the v4 loader is not yet activated, Agave still checks that the
    owner matches one of the four bpf loaders provided in the hyperlink below
    within `filter_executable_program_accounts()`:
@@ -362,12 +362,12 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_rawtxn_b_t const * txn_raw                             = txn_ctx->_txn_raw;
   ushort                instr_cnt                           = txn_ctx->txn_descriptor->instr_cnt;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L323-L337 
-     
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L323-L337
+
      In the agave client, this big chunk of code is responsible for loading in all of the
      accounts in the transaction, mimicking each call to `load_transaction_account()`
      (https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L406-L497)
-     
+
      This contains a LOT of special casing as their accounts database and program cache
      is handled very differently than the FD client.
 
@@ -376,7 +376,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
         instructions from the transactions into the sysvar's data.
      2. If the account is a fee payer, then it is already loaded.
      3. If the account is an account override, then handle seperately. Account
-        overrides are used for simulating transactions. 
+        overrides are used for simulating transactions.
         - This is only used for testing.
      4. If the account is not writable and not an instruction account and it is
         in the loaded program cache, then load in a dummy account with the
@@ -443,15 +443,15 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       /* Continue because this should not be counted towards the total loaded account size.
          https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L426 */
       continue;
-    } 
+    }
 
     /* Second case: loading a program account that is not writable, not an instruction account,
        not already executable, and may be in the loaded program cache. We bypass this special casing
        if `disable_account_loader_special_case` is active.
        https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L438-L451 */
-    if( FD_UNLIKELY( !fd_account_is_executable( acct->const_meta ) && 
-                     !is_instruction_account && !is_writable && 
-                     !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, disable_account_loader_special_case ) && 
+    if( FD_UNLIKELY( !fd_account_is_executable( acct->const_meta ) &&
+                     !is_instruction_account && !is_writable &&
+                     !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, disable_account_loader_special_case ) &&
                      is_maybe_in_loaded_program_cache( acct ) ) ) {
       /* In the corresponding branch in the agave client, a dummy account is loaded in that has the
          executable flag set to true. This is a hack to mirror those semantics.
@@ -462,7 +462,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       meta->info.executable = 1;
       acct->account_found = 1;
     }
-    /* Third case: Default case 
+    /* Third case: Default case
        https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L452-L494 */
     else {
       /* If the account exists and is writable, collect rent from it. */
@@ -512,7 +512,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* The above checks from the mirrored `load_transaction_account()` function would promote
        this account to executable if necessary, so this check is sufficient.
        https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L493-L500 */
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) && 
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
                      !fd_account_is_executable( program_account->const_meta ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
@@ -1082,7 +1082,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L335-L339 */
-    if( FD_UNLIKELY( current_caller_lamport_sum_h!=original_caller_lamport_sum_h || 
+    if( FD_UNLIKELY( current_caller_lamport_sum_h!=original_caller_lamport_sum_h ||
                      current_caller_lamport_sum_l!=original_caller_lamport_sum_l ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
     }
@@ -1184,89 +1184,84 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
 
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
-                  fd_instr_info_t *   instr ) {
+  fd_instr_info_t *   instr ) {
   FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
-  FD_SCRATCH_SCOPE_BEGIN {
-    fd_exec_instr_ctx_t * parent = NULL;
-    if( txn_ctx->instr_stack_sz ) {
-      parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
-    }
-
-    int err = fd_instr_stack_push( txn_ctx, instr );
-    if( FD_UNLIKELY( err ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
-      return err;
-    }
-
-    fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
-    *ctx = (fd_exec_instr_ctx_t) {
-      .instr     = instr,
-      .txn_ctx   = txn_ctx,
-      .epoch_ctx = txn_ctx->epoch_ctx,
-      .slot_ctx  = txn_ctx->slot_ctx,
-      .acc_mgr   = txn_ctx->acc_mgr,
-      .funk_txn  = txn_ctx->funk_txn,
-      .parent    = parent,
-      .index     = parent ? (parent->child_cnt++) : 0,
-      .depth     = parent ? (parent->depth+1    ) : 0,
-      .child_cnt = 0U,
-    };
-
-    txn_ctx->instr_trace[ txn_ctx->instr_trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
-      .instr_info = instr,
-      .stack_height = txn_ctx->instr_stack_sz,
-    };
-
-    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
-    fd_exec_txn_ctx_reset_return_data( txn_ctx );
-    int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
-    if( native_prog_fn != NULL ) {
-      /* Log program invokation (internally caches program_id base58) */
-      fd_log_collector_program_invoke( ctx );
-      exec_result = native_prog_fn( ctx );
-    } else {
-      exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-    }
-
-    int stack_pop_err = fd_instr_stack_pop( txn_ctx, instr );
-    if( FD_LIKELY( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      /* Log success */
-      fd_log_collector_program_success( ctx );
-
-      /* Only report the stack pop error on success */
-      if( FD_UNLIKELY( stack_pop_err ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
-        return stack_pop_err;
-      }
-    } else {
-      /* if txn_ctx->exec_err is not set, it indicates an instruction error */
-      if( !txn_ctx->exec_err ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, exec_result, txn_ctx->instr_err_idx );
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_exec_instr_ctx_t * parent = NULL;
+      if( txn_ctx->instr_stack_sz ) {
+        parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
       }
 
-      if( !txn_ctx->failed_instr ) {
-        txn_ctx->failed_instr = ctx;
-        ctx->instr_err        = (uint)( -exec_result - 1 );
+      // https://github.com/anza-xyz/agave/blob/b1acfbde5bd78488641e7dca3cafc07bef48b87b/program-runtime/src/invoke_context.rs#L251
+      //
+      // the get_last_program_key() throws the error that causes the UNSUPPORTED_PROGRAM_ID
+      int err = ( instr->acct_cnt == 0 ) ? FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID : fd_instr_stack_push( txn_ctx, instr );
+      if( FD_UNLIKELY( err ) ) {
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
+        return err;
       }
 
-      /* Log failure cases.
-         We assume that the correct type of error is stored in ctx.
-         Syscalls are expected to log when the error is generated, while
-         native programs will be logged here.
-         (This is because syscall errors often carry data with them.) */
-      fd_log_collector_program_failure( ctx );
-    }
+      fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
+      *ctx = (fd_exec_instr_ctx_t) {
+        .instr     = instr,
+        .txn_ctx   = txn_ctx,
+        .epoch_ctx = txn_ctx->epoch_ctx,
+        .slot_ctx  = txn_ctx->slot_ctx,
+        .acc_mgr   = txn_ctx->acc_mgr,
+        .funk_txn  = txn_ctx->funk_txn,
+        .parent    = parent,
+        .index     = parent ? (parent->child_cnt++) : 0,
+        .depth     = parent ? (parent->depth+1    ) : 0,
+        .child_cnt = 0U,
+      };
 
-#ifdef VLOG
-  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
-  } else {
-    FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
-  }
-#endif
+      txn_ctx->instr_trace[ txn_ctx->instr_trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
+        .instr_info = instr,
+        .stack_height = txn_ctx->instr_stack_sz,
+      };
 
-    return exec_result;
-  } FD_SCRATCH_SCOPE_END;
+      fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
+      fd_exec_txn_ctx_reset_return_data( txn_ctx );
+      int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
+      if( native_prog_fn != NULL ) {
+        /* Log program invokation (internally caches program_id base58) */
+        fd_log_collector_program_invoke( ctx );
+        exec_result = native_prog_fn( ctx );
+      } else {
+        exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+
+      int stack_pop_err = fd_instr_stack_pop( txn_ctx, instr );
+      if( FD_LIKELY( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) ) {
+        /* Log success */
+        fd_log_collector_program_success( ctx );
+
+        /* Only report the stack pop error on success */
+        if( FD_UNLIKELY( stack_pop_err ) ) {
+          FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
+          return stack_pop_err;
+        }
+      } else {
+        /* if txn_ctx->exec_err is not set, it indicates an instruction error */
+        if( !txn_ctx->exec_err ) {
+          FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, exec_result, txn_ctx->instr_err_idx );
+        }
+
+        if( !txn_ctx->failed_instr ) {
+          txn_ctx->failed_instr = ctx;
+          ctx->instr_err        = (uint)( -exec_result - 1 );
+        }
+
+        /* Log failure cases.
+           We assume that the correct type of error is stored in ctx.
+           Syscalls are expected to log when the error is generated, while
+           native programs will be logged here.
+           (This is because syscall errors often carry data with them.) */
+        fd_log_collector_program_failure( ctx );
+      }
+
+      return exec_result;
+    } FD_SCRATCH_SCOPE_END;
   } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
 
