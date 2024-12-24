@@ -299,8 +299,17 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
 
       if( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) {
         row.shred_cnt = shred_idx - batch_start + 1;
+
+        /* because the last shred of a block can have ref_tick 0,
+           we can check if the previous shred was  a part of this
+          last shreds FEC set, and use that ref_tick instead. */
         row.ref_tick  = (uchar)( (int)shred->hdr.data.flags &
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
+        if ( row.ref_tick == 0 && shred_idx > 0 && shred_idx - 1 >= batch_start ) {
+          row.ref_tick = (uchar)( (int)shreds[shred_idx - 1].hdr.data.flags &
+                                      (int)FD_SHRED_DATA_REF_TICK_MASK );
+        }
+
         row.sz        = batch_sz;
         batch_sz      = 0;
         batch_start   = shred_idx + 1;
