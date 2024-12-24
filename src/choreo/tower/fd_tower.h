@@ -10,14 +10,14 @@
    1-- 2
         \-- 5     (B)
 
-   Here, is a diagram of a fork. The leader for slot 5 decided to build
+   Above is a diagram of a fork. The leader for slot 5 decided to build
    off slot 2, rather than slot 4. This can happen for various reasons,
    for example network propagation delay. We now have two possible forks
    labeled A and B. The consensus algorithm has to pick one of them.
 
    So, how does the consensus algorithm pick? As detailed in fd_ghost.h,
    we pick the fork based on the most stake from votes, called the
-   “heaviest”. Validators vote for blocks during replay, and
+   "heaviest". Validators vote for blocks during replay, and
    simultaneously use other validator’s votes to determine which block
    to vote for. This encourages convergence, because as one fork gathers
    more votes, more and more votes pile-on, solidifying its position as
@@ -105,15 +105,15 @@
    have the previous example tower, with a before-and-after view with
    respect to a vote for slot 9:
 
-             slot | conf
-   (before)  -----------
+   (before)  slot | conf
+            -----------
              4    | 1
              3    | 2
              2    | 3
              1    | 4
 
-            slot | conf
-   (after)  -----------
+   (after)  slot | conf
+            -----------
             9    | 1
             2    | 3
             1    | 4
@@ -127,14 +127,14 @@
 
    Next, we add a vote for slot 11:
 
-             slot | conf
-   (before)  -----------
+   (before)  slot | conf
+            -----------
              9    | 1
              2    | 3
              1    | 4
 
-             slot | conf
-   (after)   -----------
+   (after)  slot | conf
+            -----------
              11   | 1
              9    | 2
              2    | 3
@@ -168,14 +168,14 @@
    considered rooted and it is popped from the bottom of the tower. Here
    is an example:
 
-             slot | conf
-   (before)  -----------
+   (before)  slot | conf
+            -----------
              50   | 1
              ...  | ... (29 votes elided)
              1    | 4
 
-             slot | conf
-   (after)  -----------
+   (after)  slot | conf
+            -----------
              53   | 1
              ...  | ... (29 votes elided)
              1    | 4
@@ -293,44 +293,40 @@
    with the cluster. That tower state is then stored inside a vote
    account, like any other state on Solana.
 
-   On the flip side, we also must sync the other way: from cluster to
-   local. If we have previously voted, we need to make sure we’re
-   starting from where the cluster thinks we last left off. Conveniently
-   Funk, our accounts database, stores all the vote accounts including
-   our own, so on bootstrap we simply load in our vote account state
-   itself to initialize our own local view of the tower.
+   On the flip side, we also must stay in sync the other way from
+   cluster to local. If we have previously voted, we need to make sure
+   our tower matches up with what the cluster has last seen. We know the
+   most recent tower is in the last vote we sent, so we durably store
+   every tower (by checkpointing it to disk) whenever we send a vote. In
+   case this tower is out-of-date Conveniently Funk, our accounts
+   database, stores all the vote accounts including our own, so on
+   bootstrap we simply load in our vote account state itself to to
+   initialize our own local view of the tower.
 
-   *Additional Considerations*
+   Finally, a note on the difference between the Vote Program and
+   TowerBFT. The Vote Program runs during transaction (block) execution.
+   It checks that certain invariants about the tower inside a vote
+   transaction are upheld (recall a validator sends their entire tower
+   as part of a "vote"): otherwise, it fails the transaction. For
+   example, it checks that every vote contains a tower in which the vote
+   slots are strictly monotonically increasing. As a consequence, only
+   valid towers are committed to the ledger. Another important detail of
+   the Vote Program is that it only has a view of the current fork on
+   which it is executing. Specifically, it can't observe what state is
+   on other forks, like what a validator's tower looks like on fork A
+   vs. fork B.
 
-   What's the difference between TowerBFT and the Vote Program?
-
-   - TowerBFT runs on the sending side against our own tower ("local"
-     view). It updates the tower with votes based on the algorithm
-     detailed above. Importantly, TowerBFT has a view of all forks, and
-     the validator makes a voting decision based on all forks.
-
-   - The Vote Program runs on the receiving side against others' towers
-     ("cluster" view). It checks that invariants about TowerBFT are
-     maintained on votes received from the cluster. These checks are
-     comparatively superficial to all the rules in tower. Furthermore,
-     given it is a native program, the Vote Program only has access to
-     the limited state programs are subject to. Specifically, it only
-     has a view of the current fork it is executing on. It can't
-     determine things like how much stake is allocated to other forks.
-
-   What happens if our tower is out of sync with the cluster
-   supermajority root (SMR)?
-
-   - We detect this by seeing that our latest vote no longer descends
-     from the SMR. Consider 2 cases:
-
-     1. We are stuck on a minority fork.  In this case, we will observe
-        that our latest vote slot > SMR, but its ancestry does not
-        connect back to the SMR.  This can happen if we get locked out
-        for a long time by voting for (and confirming) a minority fork.
-
-        when we don't vote for a while (e.g. this validator was not
-        running or we were stuck waiting for lockouts.) */
+   The TowerBFT rules, on the other hand, run after transaction
+   execution. Also unlike the Vote Program, the TowerBFT rules do not
+   take the vote transactions as inputs: rather the inputs are the
+   towers that have already been written to the ledger by the Vote
+   Program. As described above, the Vote Program validates every tower,
+   and in this way, the TowerBFT rules leverage the validation already
+   done by the Vote Program to (mostly) assume each tower is valid.
+   Every validator runs TowerBFT to update their own tower with votes
+   based on the algorithm documented above. Importantly, TowerBFT has a
+   view of all forks, and the validator makes a voting decision based on
+   all forks. */
 
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
@@ -469,6 +465,7 @@ fd_tower_delete( void * tower );
 
    In general, this should be called by the same process that formatted
    tower's memory, ie. the caller of fd_tower_new. */
+
 void
 fd_tower_init( fd_tower_t *                tower,
                fd_pubkey_t const *         vote_acc_addr,
@@ -543,26 +540,25 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_fork_t const *  fork,
                         fd_ghost_t const * ghost );
 
-/* fd_tower_switch_check checks if we can switch to fork.  Returns 1 if
-   we can switch, 0 otherwise.
+/* fd_tower_switch_check checks if we can switch to `fork`.  Returns 1
+   if we can switch, 0 otherwise.
 
-   The switch rule is based on the percentage of validators whose: 1.
-   last vote slot is for fork and 2. lockout prevents them from voting
-   for our last vote slot.
+   There are two forks of interest: our last vote fork ("vote fork") and
+   the fork we want to switch to ("switch fork"). The switch fork is
+   what the caller passes in as `fork`.
 
-   A validator is locked out from voting for our last vote slot when
-   their last vote slot is on a different fork, and that vote's
-   expiration slot > our last vote slot.
+   In order to switch, FD_TOWER_SWITCH_PCT of stake must have voted for
+   a different descendant of the GCA of vote_fork and switch_fork, and
+   also must be locked out from our last vote slot.
+
+   Recall from the lockout check a validator is locked out from voting
+   for our last vote slot when their last vote slot is on a different
+   fork, and that vote's expiration slot > our last vote slot.
 
    The following pseudocode describes the algorithm:
 
    ```
-   find the greatest common ancestor (gca) of our fork and fork
-   for all validators v
-      if v's latest vote is for fork
-         add v's stake to switch stake
-
-
+   find the greatest common ancestor (gca) of vote_fork and switch_fork
    for all validators v
       if v's  locked out[1] from voting for our latest vote slot
          add v's stake to switch stake
@@ -612,9 +608,7 @@ fd_tower_threshold_check( fd_tower_t const * tower,
    fork head containing the highest stake-weight in its ancestry.
    Returns a non-NULL fork.  Assumes forks->frontier is non-empty.  Note
    this is not necessarily the same fork as the one we vote on, as we
-   might be locked out on a different fork.
-
-   Does not modify tower. */
+   might be locked out on a different fork.  Does not modify `tower`. */
 
 fd_fork_t const *
 fd_tower_best_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost_t const * ghost );
@@ -622,9 +616,35 @@ fd_tower_best_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost
 /* fd_tower_reset_fork picks which fork to reset PoH to for our next
    leader slot.  Returns a non-NULL fork.  Note this is not necessarily
    the same fork as the one we vote on, as we do not always vote for the
-   fork we reset to.
+   fork we reset to.  Does not modify `tower`.
 
-   Does not modify tower. */
+   In general our reset fork is our last vote fork.  See the top-level
+   documentation in this file for a detailed explanation why.  The one
+   exception is when our last vote fork does not descend from the reset
+   fork. Consider two cases:
+
+   1. Our last vote slot > SMR, but is not a descendant of the SMR. This
+      can happen if we get stuck on a minority fork with a long lockout.
+      In the worst case, lockout duration is 2^{threshold_check_depth}
+      ie. 2^8 = 256 slots.  In other words, we voted for and confirmed a
+      minority fork 8 times in a row.  While waiting for 256 slots, it
+      is possible a supermajority (ie. >2/3) of the cluster actually
+      roots that supermajority fork different from ours, and our last
+      vote slot no longer connects back to the SMR.
+
+   2. Our last vote slot < SMR.  In this case we simply cannot determine
+      whether our last vote slot is compatible with the SMR (ie. on the
+      same fork) because we no longer have ancestry information (we
+      depend on ghost for that, and SMR > last vote slot implies ghost
+      has published past our last vote).  This eventually happens as a
+      result of what's described in case 1, because the validator waits
+      for lockout to expire before voting again.  This can also happen
+      when we don't vote for a long time (eg. this validator was not
+      running).
+
+   Either way, it only makes sense to reset to the best fork to build
+   our next block, because it does not make sense build blocks off a
+   minority fork that doesn't descend from the SMR. */
 
 fd_fork_t const *
 fd_tower_reset_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost_t const * ghost );
@@ -714,13 +734,10 @@ fd_tower_publish( fd_tower_t * tower ) {
    279803914 | 5
    279803913 | 6
    279803912 | 7
-
-   */
+*/
 
 void
 fd_tower_print( fd_tower_t const * tower );
-
-/* Vote state API */
 
 /* fd_tower_vote_state_cmp compares tower with vote_state.  Conceptually
    this is comparing our local view of our tower with the cluster's view

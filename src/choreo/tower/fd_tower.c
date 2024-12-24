@@ -482,14 +482,15 @@ fd_tower_reset_fork( fd_tower_t const * tower,
   /* In general our reset fork is our last vote fork, but there are 2
      cases in which that doesn't apply:
 
-     1. If our latest vote slot is older than SMR, we know we don't have
-        ancestry information about our latest vote slot anymore, so we
-        build off the best fork.
+     1. If our latest vote slot is older than the ghost root (which is
+        the SMR), we know we don't have stake ancestry information about
+        our latest vote slot anymore, so we build off the best fork.
 
      2. If we are locked out on a minority fork that does not chain back
-        to the SMR, we know that we should definitely not build off this
-        fork given a supermajority of the cluster has already rooted a
-        different fork.  So build off the best fork instead.
+        to the SMR, we know that we should definitely not continue build
+        off this minority fork given a supermajority of the cluster has
+        already rooted a different fork.  So build off the best fork
+        instead.
 
     See the top-level documentation in fd_tower.h for more context. */
   fd_ghost_node_t const * root = fd_ghost_root_node( ghost );
@@ -541,12 +542,10 @@ fd_tower_vote_fork( fd_tower_t *       tower,
 
   fd_fork_t const * best = fd_tower_best_fork( tower, forks, ghost );
 
-  /* If the tower is empty (we haven't voted or every vote was expired),
-     we simply vote for the best fork. */
+  /* If the tower is empty (we haven't ever voted or all our votes have
+     expired), we simply vote for the best fork. */
 
-  if( FD_UNLIKELY( fd_tower_votes_empty( tower->votes ) ) ) {
-    return best;
-  }
+  if( FD_UNLIKELY( fd_tower_votes_empty( tower->votes ) ) ) return best;
 
   fd_tower_vote_t const * latest_vote = fd_tower_votes_peek_tail_const( tower->votes );
 
