@@ -203,7 +203,7 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   fd_ghost_node_t * root = fd_ghost_node_pool_ele( node_pool, ghost->root_idx );
   FD_TEST( root->slot == 3 );
   FD_TEST( fd_ghost_node_pool_ele( node_pool, root->child_idx )->slot == 5 );
-  FD_TEST( fd_ghost_child_node( ghost, fd_ghost_child_node( ghost, root ) )->slot == 6 );
+  FD_TEST( fd_ghost_child( ghost, fd_ghost_child( ghost, root ) )->slot == 6 );
   FD_TEST( fd_ghost_node_pool_free( node_pool ) == node_max - 3 );
   fd_ghost_print( ghost );
 
@@ -412,8 +412,8 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
   int j = 0;
   for( ulong i = 0; i < node_max - 1; i++){
     fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
-    if ( i == node_max - 2) FD_TEST( node->stake == 10 );
-    else  FD_TEST( node->stake == 0 );
+    if ( i == node_max - 2) FD_TEST( node->replay_stake == 10 );
+    else  FD_TEST( node->replay_stake == 0 );
 
     if ( i == path[j] ){ // if on fork
       FD_TEST( node->weight == 10 );
@@ -433,10 +433,10 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
   for( ulong i = 0; i < node_max - 1; i++){
     fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
     if ( i >= first_leaf){
-      FD_TEST( node->stake == 10 );
+      FD_TEST( node->replay_stake == 10 );
       FD_TEST( node->weight == 10 );
     } else {
-      FD_TEST( node->stake == 0 );
+      FD_TEST( node->replay_stake == 0 );
       FD_TEST( node->weight > 10);
     }
   }
@@ -467,7 +467,7 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
 
   for ( ulong i = 0; i < node_max - 1; i++ ) {
     fd_ghost_node_t const * node = fd_ghost_query( ghost, i );
-    FD_TEST( node->stake == i );
+    FD_TEST( node->replay_stake == i );
   }
 
   FD_TEST( fd_ghost_verify( ghost ) );
@@ -515,7 +515,7 @@ test_rooted_vote( fd_wksp_t * wksp ){
   fd_ghost_rooted_vote( ghost, 1, &pk2, 10 );
 
   fd_ghost_node_t const * node = fd_ghost_query( ghost, 1 );
-  FD_TEST( node->stake == 20 );
+  FD_TEST( node->replay_stake == 20 );
   FD_TEST( node->weight == 20 );
   FD_TEST( node->rooted_stake == 10 );
 

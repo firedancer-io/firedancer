@@ -2,68 +2,39 @@
 
 #include <string.h>
 
-void *
-fd_voter_new( void * shmem ) {
-  if( FD_UNLIKELY( !shmem ) ) {
-    FD_LOG_WARNING( ( "NULL mem" ) );
+fd_voter_state_t const *
+fd_voter_state( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t const * key ) {
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, key, NULL );
+  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
     return NULL;
   }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_voter_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned mem" ) );
-    return NULL;
-  }
-
-  ulong footprint = fd_voter_footprint();
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING( ( "bad mem" ) );
-    return NULL;
-  }
-
-  return shmem;
+  fd_account_meta_t const * meta = fd_funk_val_const( rec, fd_funk_wksp(funk) );
+  FD_TEST( meta->magic == FD_ACCOUNT_META_MAGIC );
+  fd_voter_state_t const * state = fd_type_pun_const( (uchar const *)meta + meta->hlen );
+  #if FD_TOWER_USE_HANDHOLDING
+  FD_TEST( state->discriminant <= fd_vote_state_versioned_enum_current );
+  #endif
+  return state;
 }
 
-fd_voter_t *
-fd_voter_join( void * shvoter ) {
+void
+fd_voter_state_tower( fd_voter_state_t const * state, fd_tower_t * tower ) {
+  #if FD_TOWER_USE_HANDHOLDING
+  if( FD_UNLIKELY( fd_tower_votes_cnt( tower->votes ) ) ) FD_LOG_ERR(( "[%s] cannot write to non-empty tower", __func__ ));
+  if( FD_UNLIKELY( tower->root != 0 && tower->root != FD_SLOT_NULL ) ) FD_LOG_ERR(( "[%s] cannot write to tower with a root", __func__ ));
+  #endif
 
-  if( FD_UNLIKELY( !shvoter ) ) {
-    FD_LOG_WARNING( ( "NULL voter" ) );
-    return NULL;
+  fd_tower_vote_t vote = { 0 };
+  ulong vote_sz = sizeof(ulong) /* slot */ + sizeof(uint); /* conf */
+  for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
+    if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+      memcpy( (uchar *)&vote, (uchar *)&state->v0_23_5.tower.votes[i], vote_sz );
+    } else {
+      memcpy( (uchar *)&vote, (uchar *)&state->tower.votes[i] + sizeof(uchar) /* latency */, vote_sz );
+    }
+    fd_tower_votes_push_tail( tower->votes, vote );
   }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shvoter, fd_voter_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned voter" ) );
-    return NULL;
-  }
-
-  return (fd_voter_t *)shvoter;
-}
-
-void *
-fd_voter_leave( fd_voter_t const * voter ) {
-
-  if( FD_UNLIKELY( !voter ) ) {
-    FD_LOG_WARNING( ( "NULL voter" ) );
-    return NULL;
-  }
-
-  return (void *)voter;
-}
-
-void *
-fd_voter_delete( void * voter ) {
-
-  if( FD_UNLIKELY( !voter ) ) {
-    FD_LOG_WARNING( ( "NULL voter" ) );
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)voter, fd_voter_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned voter" ) );
-    return NULL;
-  }
-
-  return voter;
+  tower->root = fd_voter_state_root( state );
 }
 
 ulong
@@ -72,7 +43,7 @@ fd_voter_txn_generate( fd_voter_t const *                     voter,
                        fd_hash_t const *                      recent_blockhash,
                        uchar                                  txn_meta_out[static FD_TXN_MAX_SZ],
                        uchar                                  txn_out[static FD_TXN_MTU] ) {
-  FD_LOG_NOTICE(( "[%s]: vote acc addr %s", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->vote_acc_addr ) ));
+  FD_LOG_NOTICE(( "[%s]: vote acc addr %s", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->addr ) ));
 
   int same_addr = !memcmp( &voter->validator_identity,
                            &voter->vote_authority,
@@ -90,7 +61,7 @@ fd_voter_txn_generate( fd_voter_t const *                     voter,
     accts.acct_cnt              = 3;
     accts.signers_w             = &voter->validator_identity;
     accts.signers_r             = NULL;
-    accts.non_signers_w         = &voter->vote_acc_addr;
+    accts.non_signers_w         = &voter->addr;
     accts.non_signers_r         = &fd_solana_vote_program_id;
     FD_TEST( fd_txn_base_generate( txn_meta_out,
                                    txn_out,
@@ -111,7 +82,7 @@ fd_voter_txn_generate( fd_voter_t const *                     voter,
     accts.acct_cnt              = 4;
     accts.signers_w             = &voter->validator_identity;
     accts.signers_r             = &voter->vote_authority;
-    accts.non_signers_w         = &voter->vote_acc_addr;
+    accts.non_signers_w         = &voter->addr;
     accts.non_signers_r         = &fd_solana_vote_program_id;
     FD_TEST( fd_txn_base_generate( txn_meta_out,
                                    txn_out,
