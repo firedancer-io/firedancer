@@ -60,7 +60,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.73.0
+      - uses: dtolnay/rust-toolchain@1.81.0
 
       - name: Build command line args
         run: |
@@ -74,11 +74,11 @@ jobs:
             ARGS="$ARGS --exit-on-err"
           fi
           # machine
-          if [ "${{ inputs.machine }}" != "all" ]; then
+          if [ ! -z "${{ inputs.machine }}" ] && [ "${{ inputs.machine }}" != "all" ]; then
             ARGS="$ARGS --machines ${{ inputs.machine }}"
           fi
           # gcc
-          if [ "${{ inputs.gcc }}" != "all" ]; then
+          if [ ! -z "${{ inputs.gcc }}" ] && [ "${{ inputs.gcc }}" != "all" ]; then
             ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
           fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
@@ -95,7 +95,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.73.0
+      - uses: dtolnay/rust-toolchain@1.81.0
 
       - name: Build command line args
         run: |
@@ -109,11 +109,11 @@ jobs:
             ARGS="$ARGS --exit-on-err"
           fi
           # machine
-          if [ "${{ inputs.machine }}" != "all" ]; then
+          if [ ! -z "${{ inputs.machine }}" ] && [ "${{ inputs.machine }}" != "all" ]; then
             ARGS="$ARGS --machines ${{ inputs.machine }}"
           fi
           # clang
-          if [ "${{ inputs.clang }}" != "all" ]; then
+          if [ ! -z "${{ inputs.clang }}" ] && [ "${{ inputs.clang }}" != "all" ]; then
             ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
           fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
