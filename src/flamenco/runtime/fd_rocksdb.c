@@ -739,12 +739,12 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         FD_BLOCK_FLAG_FINALIZED );
   }
 
-  fd_blockstore_end_write(blockstore);
+  fd_blockstore_end_write( blockstore );
   return 0;
 }
 
 int
-fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
+fd_rocksdb_import_block_shredcap( fd_rocksdb_t *               db,
                                     fd_slot_meta_t *           metadata,
                                     fd_io_buffered_ostream_t * ostream,
                                     fd_io_buffered_ostream_t * bank_hash_ostream ) {
