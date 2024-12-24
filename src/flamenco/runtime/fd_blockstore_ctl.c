@@ -44,7 +44,7 @@ sudo /data/emwang/agave/release/agave-ledger-tool -l /data/emwang/rocksdb.tar.zs
 
 struct fd_batch_row {
   ulong slot;
-  uchar ref_tick;
+  int   ref_tick;
   ulong sz;        /* bytes */
   ulong shred_cnt;
 };
@@ -53,7 +53,7 @@ typedef struct fd_batch_row fd_batch_row_t;
 struct fd_entry_row {
   ulong slot;
   ulong batch_idx;
-  uchar ref_tick;
+  int   ref_tick;
   ulong sz;        /* bytes */
   ulong txn_cnt;
 };
@@ -102,7 +102,7 @@ void batch_append_csv( const char * filename, fd_batch_row_t * row ) {
     }
 
     // Write the row data to the CSV file
-    fprintf(file, "%lu,%u,%lu,%lu\n", 
+    fprintf(file, "%lu,%d,%lu,%lu\n", 
             row->slot, row->ref_tick, row->sz, row->shred_cnt);
 
     // Close the file
@@ -118,7 +118,7 @@ void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
     }
 
     // Write the row data to the CSV file
-    fprintf(file, "%lu,%lu,%u,%lu,%lu\n", 
+    fprintf(file, "%lu,%lu,%d,%lu,%lu\n", 
             row->slot, row->batch_idx, row->ref_tick, row->sz, row->txn_cnt);
 
     // Close the file
@@ -204,7 +204,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
 
         //fd_block_shred_t * shred = &shreds[curr_shred_idx];
 
-        row.ref_tick = (uchar) curr_batch_tick; //(uchar)( (int)shred->hdr.data.flags &
+        row.ref_tick = curr_batch_tick; //(uchar)( (int)shred->hdr.data.flags &
                                                 //                     (int)FD_SHRED_DATA_REF_TICK_MASK );
         
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (uchar *)data + micro->off );
@@ -236,7 +236,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
 
         entry_append_csv(csv, &row);
         FD_LOG_NOTICE(( "Entry | slot: %lu, payload_sz: %lu txn_cnt: %lu, ref_tick: %d",
-                        row.slot, row.sz, row.txn_cnt, (int) row.ref_tick ));
+                        row.slot, row.sz, row.txn_cnt, row.ref_tick ));
       }
     }
 }
@@ -303,10 +303,10 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
         /* because the last shred of a block can have ref_tick 0,
            we can check if the previous shred was  a part of this
           last shreds FEC set, and use that ref_tick instead. */
-        row.ref_tick  = (uchar)( (int)shred->hdr.data.flags &
+        row.ref_tick  = ( (int)shred->hdr.data.flags &
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
         if ( row.ref_tick == 0 && shred_idx > 0 && shred_idx - 1 >= batch_start ) {
-          row.ref_tick = (uchar)( (int)shreds[shred_idx - 1].hdr.data.flags &
+          row.ref_tick = ( (int)shreds[shred_idx - 1].hdr.data.flags &
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
         }
 
@@ -317,7 +317,7 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
         batch_append_csv(csv, &row);
 
         FD_LOG_NOTICE(( "Batch | slot: %lu, ref_tick: %d, payload_sz: %lu, shred_cnt: %lu",
-                row.slot, (int) row.ref_tick, row.sz, row.shred_cnt ));
+                row.slot, row.ref_tick, row.sz, row.shred_cnt ));
       }
     }
   }
