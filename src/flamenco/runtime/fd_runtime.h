@@ -304,8 +304,9 @@ fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                fd_tpool_t * tpool );
 
 int
-fd_runtime_block_prepare( void const * buf,
-                          ulong buf_sz,
+fd_runtime_block_prepare( fd_blockstore_t const * blockstore,
+                          fd_block_t const * block,
+                          ulong slot,
                           fd_valloc_t valloc,
                           fd_block_info_t * out_block_info );
 
@@ -316,8 +317,6 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              fd_capture_ctx_t * capture_ctx,
-                             const void * block,
-                             ulong blocklen,
                              fd_tpool_t * tpool,
                              ulong scheduler,
                              ulong * txn_cnt,
