@@ -211,11 +211,23 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
         
         row.txn_cnt = hdr->txn_cnt;
 
-        if( micro_idx + 1 < block->micros_cnt ) {
-          row.sz = (ulong) (micros[micro_idx + 1].off) - micro->off;
-        } else {
-          row.sz = block->data_sz - micro->off;
+        ulong total_sz = 0;
+        ulong blockoff = micro->off + sizeof( fd_microblock_hdr_t );
+        
+        for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+          ulong raw_mblk = (ulong) data + blockoff;
+          uchar txn_out[FD_TXN_MAX_SZ];
+          ulong pay_sz = 0;
+          fd_txn_parse_core( (uchar const *) raw_mblk,
+                             fd_ulong_min( block->data_sz - blockoff, FD_TXN_MTU ),
+                             txn_out,
+                             NULL,
+                             &pay_sz );
+          blockoff += pay_sz;
+          total_sz += pay_sz;
         }
+
+        row.sz = total_sz;
 
         if ( row.txn_cnt == 0 ) { /* truncate payload sz to 48 at all times */
           /* sometimes you get gotchad by reappring mcounts */
