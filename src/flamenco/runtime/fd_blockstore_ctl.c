@@ -211,7 +211,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
         
         row.txn_cnt = hdr->txn_cnt;
 
-        ulong total_sz = 0;
+        ulong total_sz = sizeof( fd_microblock_hdr_t );
         ulong blockoff = micro->off + sizeof( fd_microblock_hdr_t );
         
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
