@@ -9,10 +9,10 @@ fd_deshredder_init( fd_deshredder_t *   shredder,
                     ulong               shred_cnt ) {
   shredder->shreds    = shreds;
   shredder->shred_cnt = (uint)shred_cnt;
-  shredder->data_off  = 0U;
   shredder->buf       = buf;
   shredder->bufsz     = bufsz;
-  shredder->result    = -FD_SHRED_EPIPE;
+  shredder->result    = FD_SHRED_EPIPE;
+  fd_memset( shredder->batch_info, 0, sizeof(shredder->batch_info[ 0 ]) );
 }
 
 long
@@ -23,8 +23,10 @@ fd_deshredder_next( fd_deshredder_t * const shredder ) {
   /* Consume shreds, appending each shred buffer into entry buffer */
   for(;;) {
     /* Sanity check: No unexpected "end of shred batch" */
-    if( FD_UNLIKELY( shredder->shred_cnt == 0U ) )
+    if( FD_UNLIKELY( shredder->shred_cnt == 0U ) ) {
+      shredder->result = FD_SHRED_EPIPE;
       break;
+    }
 
     fd_shred_t const * shred = *shredder->shreds;
 
@@ -49,16 +51,26 @@ fd_deshredder_next( fd_deshredder_t * const shredder ) {
     shredder->buf   += payload_sz;
     shredder->bufsz -= payload_sz;
 
+    /* Update batch boundary markers */
+    fd_deshredder_entry_batch_info_t * batch_info = shredder->batch_info;
+    batch_info->batch_end_off[ batch_info->batch_cnt ] += payload_sz;
+
     /* Seek forward src cursor */
     shredder->shreds   ++;
     shredder->shred_cnt--;
 
     /* Terminate loop if shred/entry batch is complete */
     if( FD_UNLIKELY( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) {
+      batch_info->batch_start_off[ batch_info->batch_cnt+1UL ] = batch_info->batch_end_off[ batch_info->batch_cnt ];
+      batch_info->batch_cnt++;
+      batch_info->batch_end_off[ batch_info->batch_cnt ] = batch_info->batch_start_off[ batch_info->batch_cnt ];
       shredder->result = FD_SHRED_ESLOT;
       break;
     }
     if( FD_UNLIKELY( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) ) {
+      batch_info->batch_start_off[ batch_info->batch_cnt+1UL ] = batch_info->batch_end_off[ batch_info->batch_cnt ];
+      batch_info->batch_cnt++;
+      batch_info->batch_end_off[ batch_info->batch_cnt ] = batch_info->batch_start_off[ batch_info->batch_cnt ];
       shredder->result = FD_SHRED_EBATCH;
       break;
     }

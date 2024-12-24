@@ -142,6 +142,9 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
 
+/* Maximum number of entry batches per block.  The agave deshredder performs bincode deserialization on a per-batch basis. */
+#define FD_SHRED_MAX_BATCHES_PER_BLOCK (64UL)
+
 /* Offset of the shred variant. Used for parsing. */
 #define FD_SHRED_VARIANT_OFF 0x40
 

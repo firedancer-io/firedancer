@@ -704,7 +704,7 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
 }
 
 /* This is also the maximum number of microblock batches per block */
-#define FD_MAX_DATA_SHREDS_PER_SLOT (32768UL)
+#define FD_MAX_DATA_SHREDS_PER_SLOT (FD_SHRED_MAX_PER_SLOT)
 
 int fd_runtime_block_prepare(void const *buf,
                              ulong buf_sz,
@@ -725,6 +725,7 @@ int fd_runtime_block_prepare(void const *buf,
   block_info.microblock_batch_infos = fd_valloc_malloc(valloc, alignof(fd_microblock_batch_info_t), FD_MAX_DATA_SHREDS_PER_SLOT * sizeof(fd_microblock_batch_info_t));
   while (buf_off < buf_sz)
   {
+    FD_LOG_WARNING(("buf_off %lu buf_sz %lu", buf_off, buf_sz));
     fd_microblock_batch_info_t *microblock_batch_info = &block_info.microblock_batch_infos[microblock_batch_cnt];
     if (fd_runtime_microblock_batch_prepare((uchar const *)buf + buf_off, buf_sz - buf_off, valloc, microblock_batch_info) != 0)
     {

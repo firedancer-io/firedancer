@@ -451,7 +451,10 @@ fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
 }
 
 static void
-fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t * block ) {
+fd_blockstore_scan_block( fd_blockstore_t *                        blockstore,
+                          ulong                                    slot,
+                          fd_block_t *                             block,
+                          fd_deshredder_entry_batch_info_t const * batch_info ) {
 
 #define MAX_MICROS ( 1 << 17 )
   fd_block_micro_t micros[MAX_MICROS];
@@ -460,20 +463,29 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
   fd_block_txn_t txns[MAX_TXNS];
   ulong              txns_cnt = 0;
 
-  uchar * data = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-  ulong   sz   = block->data_sz;
-  FD_LOG_DEBUG(( "scanning slot %lu, ptr %p, sz %lu", slot, (void *)data, sz ));
+  /*
+   * Agave decodes precisely one array of microblocks from each batch.
+   * As of bincode version 1.3.3, the default deserializer used when
+   * decoding a batch in the blockstore allows for trailing bytes to be
+   * ignored.
+   * https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore.rs#L3764
+   */
+  uchar allow_trailing = 1UL;
 
-  ulong blockoff = 0;
-  while( blockoff < sz ) {
-    if( blockoff + sizeof( ulong ) > sz ) FD_LOG_ERR(( "premature end of block" ));
+  uchar * data = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
+  FD_LOG_DEBUG(( "scanning slot %lu, ptr %p, sz %lu", slot, (void *)data, block->data_sz ));
+
+  for( ulong batch_i = 0UL; batch_i < batch_info->batch_cnt; batch_i++ ) {
+    ulong blockoff      = batch_info->batch_start_off[ batch_i ];
+    ulong batch_end_off = batch_info->batch_end_off[ batch_i ];
+    if( blockoff + sizeof( ulong ) > batch_end_off ) FD_LOG_ERR(( "premature end of batch" ));
     ulong mcount = FD_LOAD( ulong, (const uchar *)data + blockoff );
     blockoff += sizeof( ulong );
 
     /* Loop across microblocks */
     for( ulong mblk = 0; mblk < mcount; ++mblk ) {
-      if( blockoff + sizeof( fd_microblock_hdr_t ) > sz )
-        FD_LOG_ERR(( "premature end of block" ));
+      if( blockoff + sizeof( fd_microblock_hdr_t ) > batch_end_off )
+        FD_LOG_ERR(( "premature end of batch" ));
       if( micros_cnt < MAX_MICROS ) {
         fd_block_micro_t * m = micros + ( micros_cnt++ );
         m->off               = blockoff;
@@ -487,7 +499,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
         uchar const * raw    = (uchar const *)data + blockoff;
         ulong         pay_sz = 0;
         ulong         txn_sz = fd_txn_parse_core( (uchar const *)raw,
-                                          fd_ulong_min( sz - blockoff, FD_TXN_MTU ),
+                                          fd_ulong_min( batch_end_off - blockoff, FD_TXN_MTU ),
                                           txn_out,
                                           NULL,
                                           &pay_sz );
@@ -533,6 +545,17 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
         }
 
         blockoff += pay_sz;
+      }
+    }
+    if( FD_UNLIKELY( blockoff>batch_end_off ) ) {
+      FD_LOG_ERR(( "parser error: shouldn't have been allowed to read past batch boundary" ));
+    }
+    if( FD_UNLIKELY( blockoff<batch_end_off ) ) {
+      if( FD_LIKELY( allow_trailing ) ) {
+        FD_LOG_NOTICE(( "ignoring %lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));
+      }
+      if( FD_UNLIKELY( !allow_trailing ) ) {
+        FD_LOG_ERR(( "%lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));
       }
     }
   }
@@ -1004,9 +1027,8 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   block->shreds_cnt   = shred_cnt;
 
   /* deshred the shreds into the block mem */
-  fd_deshredder_t    deshredder = { 0 };
-  fd_shred_t const * shreds[1]  = { 0 };
-  fd_deshredder_init( &deshredder, data_laddr, block->data_sz, shreds, 0 );
+  fd_deshredder_t    deshredder;
+  fd_deshredder_init( &deshredder, data_laddr, block->data_sz, NULL, 0 );
   long  rc  = -FD_SHRED_EPIPE;
   ulong off = 0;
   for( uint i = 0; i < shred_cnt; i++ ) {
@@ -1015,6 +1037,10 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     fd_buf_shred_t const * query =
         fd_buf_shred_map_ele_query_const( shred_map, &key, NULL, shred_pool );
     if( FD_UNLIKELY( !query ) ) FD_LOG_ERR(( "missing shred idx %u during deshred. slot %lu.", i, slot ));
+    /* This is a hack to set up the internal state of the deshreddder
+       such that it processes exactly one shred.
+       TODO improve deshredder API
+     */
     fd_shred_t const * shred = &query->hdr;
     deshredder.shreds        = &shred;
     deshredder.shred_cnt     = 1;
@@ -1048,12 +1074,13 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     err = FD_BLOCKSTORE_ERR_SHRED_INVALID;
     goto fail_deshred;
   case -FD_SHRED_ENOMEM:
+    err = FD_BLOCKSTORE_ERR_NO_MEM;
     FD_LOG_ERR(( "should have alloc'd enough memory above. likely indicates memory corruption." ));
   }
 
   switch( deshredder.result ) {
   case FD_SHRED_ESLOT:
-    fd_blockstore_scan_block( blockstore, slot, block );
+    fd_blockstore_scan_block( blockstore, slot, block, deshredder.batch_info );
 
     /* Do this last when it's safe */
     FD_COMPILER_MFENCE();
@@ -1072,12 +1099,6 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   case FD_SHRED_EPIPE:
     FD_LOG_WARNING(( "deshredding slot %lu produced invalid block", slot ));
     err = FD_BLOCKSTORE_ERR_DESHRED_INVALID;
-    goto fail_deshred;
-  case FD_SHRED_EINVAL:
-    err = FD_BLOCKSTORE_ERR_SHRED_INVALID;
-    goto fail_deshred;
-  case FD_SHRED_ENOMEM:
-    err = FD_BLOCKSTORE_ERR_NO_MEM;
     goto fail_deshred;
   default:
     err = FD_BLOCKSTORE_ERR_UNKNOWN;
