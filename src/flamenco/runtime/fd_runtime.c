@@ -703,54 +703,65 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
   return block_info->txn_cnt;
 }
 
-/* This is also the maximum number of microblock batches per block */
-#define FD_MAX_DATA_SHREDS_PER_SLOT (32768UL)
+int fd_runtime_block_prepare( fd_blockstore_t const * blockstore,
+                              fd_block_t const *      block,
+                              ulong                   slot,
+                              fd_valloc_t             valloc,
+                              fd_block_info_t *       out_block_info ) {
+  uchar const *                  buf         = fd_blockstore_block_data_laddr( blockstore, block );
+  ulong const                    buf_sz      = block->data_sz;
+  fd_block_entry_batch_t const * batch_laddr = fd_blockstore_block_batch_laddr( blockstore, block );
+  ulong const                    batch_cnt   = block->batch_cnt;
 
-int fd_runtime_block_prepare(void const *buf,
-                             ulong buf_sz,
-                             fd_valloc_t valloc,
-                             fd_block_info_t *out_block_info) {
   fd_block_info_t block_info = {
-      .raw_block = buf,
-      .signature_cnt = 0,
-      .txn_cnt = 0,
+      .raw_block    = buf,
+      .raw_block_sz = buf_sz,
   };
-  ulong buf_off = 0;
 
-  ulong microblock_batch_cnt = 0;
-  ulong microblock_cnt = 0;
-  ulong signature_cnt = 0;
-  ulong txn_cnt = 0;
-  ulong account_cnt = 0;
-  block_info.microblock_batch_infos = fd_valloc_malloc(valloc, alignof(fd_microblock_batch_info_t), FD_MAX_DATA_SHREDS_PER_SLOT * sizeof(fd_microblock_batch_info_t));
-  while (buf_off < buf_sz)
+  ulong microblock_batch_cnt = 0UL;
+  ulong microblock_cnt       = 0UL;
+  ulong signature_cnt        = 0UL;
+  ulong txn_cnt              = 0UL;
+  ulong account_cnt          = 0UL;
+  block_info.microblock_batch_infos = fd_valloc_malloc( valloc, alignof(fd_microblock_batch_info_t), block->batch_cnt * sizeof(fd_microblock_batch_info_t) );
+
+  ulong buf_off = 0UL;
+  for( ; microblock_batch_cnt < batch_cnt; microblock_batch_cnt++ )
   {
-    fd_microblock_batch_info_t *microblock_batch_info = &block_info.microblock_batch_infos[microblock_batch_cnt];
-    if (fd_runtime_microblock_batch_prepare((uchar const *)buf + buf_off, buf_sz - buf_off, valloc, microblock_batch_info) != 0)
+    ulong const batch_end_off = batch_laddr[ microblock_batch_cnt ].end_off;
+    fd_microblock_batch_info_t * microblock_batch_info = block_info.microblock_batch_infos + microblock_batch_cnt;
+    if ( FD_UNLIKELY( fd_runtime_microblock_batch_prepare( buf + buf_off, batch_end_off - buf_off, valloc, microblock_batch_info) != 0 ) )
     {
       return -1;
     }
 
-    signature_cnt += microblock_batch_info->signature_cnt;
-    txn_cnt += microblock_batch_info->txn_cnt;
-    account_cnt += microblock_batch_info->account_cnt;
-    buf_off += microblock_batch_info->raw_microblock_batch_sz;
-    microblock_batch_cnt++;
+    signature_cnt  += microblock_batch_info->signature_cnt;
+    txn_cnt        += microblock_batch_info->txn_cnt;
+    account_cnt    += microblock_batch_info->account_cnt;
     microblock_cnt += microblock_batch_info->microblock_cnt;
+
+    uchar allow_trailing = 1UL;
+    buf_off += microblock_batch_info->raw_microblock_batch_sz;
+    if( FD_UNLIKELY( buf_off > batch_end_off ) ) {
+      FD_LOG_ERR(( "parser error: shouldn't have been allowed to read past batch boundary" ));
+    }
+    if( FD_UNLIKELY( buf_off < batch_end_off ) ) {
+      if( FD_LIKELY( allow_trailing ) ) {
+        FD_LOG_NOTICE(( "ignoring %lu trailing bytes in slot %lu batch %lu", batch_end_off-buf_off, slot, microblock_batch_cnt ));
+      }
+      if( FD_UNLIKELY( !allow_trailing ) ) {
+        FD_LOG_WARNING(( "%lu trailing bytes in slot %lu batch %lu", batch_end_off-buf_off, slot, microblock_batch_cnt ));
+        return -1;
+      }
+    }
+    buf_off = batch_end_off;
   }
 
   block_info.microblock_batch_cnt = microblock_batch_cnt;
-  block_info.microblock_cnt = microblock_cnt;
-  block_info.signature_cnt = signature_cnt;
-  block_info.txn_cnt = txn_cnt;
-  block_info.account_cnt += account_cnt;
-  block_info.raw_block_sz = buf_off;
-
-  if (buf_off != buf_sz)
-  {
-    FD_LOG_WARNING(("junk at end of block - consumed: %lu, size: %lu", buf_off, buf_sz));
-    return -1;
-  }
+  block_info.microblock_cnt       = microblock_cnt;
+  block_info.signature_cnt        = signature_cnt;
+  block_info.txn_cnt              = txn_cnt;
+  block_info.account_cnt          = account_cnt;
 
   *out_block_info = block_info;
 
@@ -2820,8 +2831,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              fd_capture_ctx_t *   capture_ctx,
-                             void const *         block,
-                             ulong                blocklen,
                              fd_tpool_t *         tpool,
                              ulong                scheduler,
                              ulong *              txn_cnt,
@@ -2836,16 +2845,17 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
 
+  ulong slot = slot_ctx->slot_bank.slot;
+
   long block_eval_time = -fd_log_wallclock();
   fd_block_info_t block_info;
-  int ret = fd_runtime_block_prepare(block, blocklen, slot_ctx->valloc, &block_info);
+  int ret = fd_runtime_block_prepare( slot_ctx->blockstore, slot_ctx->block, slot, slot_ctx->valloc, &block_info );
   *txn_cnt = block_info.txn_cnt;
 
   /* Use the blockhash as the funk xid */
   fd_funk_txn_xid_t xid;
 
   fd_blockstore_start_read(slot_ctx->blockstore);
-  ulong slot = slot_ctx->slot_bank.slot;
   fd_hash_t const * hash = fd_blockstore_block_hash_query(slot_ctx->blockstore, slot);
   if( hash == NULL ) {
     ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;

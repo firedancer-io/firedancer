@@ -135,6 +135,27 @@ struct fd_block_shred {
 };
 typedef struct fd_block_shred fd_block_shred_t;
 
+/*
+ * fd_block_entry_batch_t is a microblock/entry batch within a block.
+ * The offset is relative to the start of the block's data region,
+ * and indicates where the batch ends.  The (exclusive) end offset of
+ * batch i is the (inclusive) start offset of batch i+1.  The 0th batch
+ * always starts at offset 0.
+ * On the wire, the presence of one of the COMPLETE flags in a data
+ * shred marks the end of a batch.
+ * In other words, batch ends are aligned with shred ends, and batch
+ * starts are aligned with shred starts.  Usually a batch comprises
+ * multiple shreds, and a block comprises multiple batches.
+ * This information is useful because bincode deserialization needs to
+ * be performed on a per-batch basis.  Precisely a single array of
+ * microblocks/entries is expected to be deserialized from a batch.
+ * Trailing bytes in each batch are ignored by default.
+ */
+struct fd_block_entry_batch {
+  ulong end_off; /* exclusive */
+};
+typedef struct fd_block_entry_batch fd_block_entry_batch_t;
+
 /* fd_block_micro_t is a microblock ("entry" in Solana parlance) within
    a block. The microblock begins at `off` relative to the start of the
    block's data region. */
@@ -195,9 +216,11 @@ struct fd_block {
 
   /* data region
 
-  A block's data region is indexed to support iterating by shred, microblock, or
-  transaction. This is done by iterating the headers for each, stored in allocated memory. To
-  iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
+  A block's data region is indexed to support iterating by shred,
+  microblock/entry batch, microblock/entry, or transaction.
+  This is done by iterating the headers for each, stored in allocated
+  memory.
+  To iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
   (offsetting by the bytes indicated in the shred header).
 
   Note random access of individual shred indices is not performant, due to the variable-length
@@ -207,6 +230,8 @@ struct fd_block {
   ulong data_sz;      /* block size */
   ulong shreds_gaddr; /* ptr to the first fd_block_shred_t */
   ulong shreds_cnt;
+  ulong batch_gaddr;  /* list of fd_block_entry_batch_t */
+  ulong batch_cnt;
   ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
   ulong micros_cnt;
   ulong txns_gaddr;   /* ptr to the list of fd_blockstore_txn_ref_t */
@@ -445,7 +470,7 @@ fd_blockstore_fini( fd_blockstore_t * blockstore );
    local join. */
 
 FD_FN_PURE static inline fd_wksp_t *
-fd_blockstore_wksp( fd_blockstore_t * blockstore ) {
+fd_blockstore_wksp( fd_blockstore_t const * blockstore ) {
   return (fd_wksp_t *)( ( (ulong)blockstore ) - blockstore->blockstore_gaddr );
 }
 
@@ -454,7 +479,7 @@ fd_blockstore_wksp( fd_blockstore_t * blockstore ) {
    blockstore is a current local join. */
 
 FD_FN_PURE static inline ulong
-fd_blockstore_wksp_tag( fd_blockstore_t * blockstore ) {
+fd_blockstore_wksp_tag( fd_blockstore_t const * blockstore ) {
   return blockstore->wksp_tag;
 }
 
@@ -462,7 +487,7 @@ fd_blockstore_wksp_tag( fd_blockstore_t * blockstore ) {
    functions.  Arbitrary value.  Assumes blockstore is a current local join.
    TODO: consider renaming hash_seed? */
 FD_FN_PURE static inline ulong
-fd_blockstore_seed( fd_blockstore_t * blockstore ) {
+fd_blockstore_seed( fd_blockstore_t const * blockstore ) {
   return blockstore->seed;
 }
 
@@ -472,7 +497,7 @@ fd_blockstore_seed( fd_blockstore_t * blockstore ) {
    pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_buf_shred_t *
-fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
+fd_blockstore_shred_pool( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shred_pool_gaddr );
 }
 
@@ -482,7 +507,7 @@ fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
    of the local join. */
 
 FD_FN_PURE static inline fd_buf_shred_map_t *
-fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
+fd_blockstore_shred_map( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shred_map_gaddr );
 }
 
@@ -491,7 +516,7 @@ fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
    join.  Lifetime of the returned pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_block_map_t *
-fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
+fd_blockstore_block_map( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->block_map_gaddr );
 }
 
@@ -500,7 +525,7 @@ fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
    join.  Lifetime of the returned pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_block_idx_t *
-fd_blockstore_block_idx( fd_blockstore_t * blockstore ) {
+fd_blockstore_block_idx( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->block_idx_gaddr );
 }
 
@@ -509,7 +534,7 @@ fd_blockstore_block_idx( fd_blockstore_t * blockstore ) {
    join.  Lifetime of the returned pointer is that of the local join. */
 
 FD_FN_PURE static inline ulong *
-fd_blockstore_slot_deque( fd_blockstore_t * blockstore ) {
+fd_blockstore_slot_deque( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->slot_deque_gaddr );
 }
 
@@ -518,7 +543,7 @@ fd_blockstore_slot_deque( fd_blockstore_t * blockstore ) {
    local join. */
 
 FD_FN_PURE static inline fd_txn_map_t *
-fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
+fd_blockstore_txn_map( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->txn_map_gaddr );
 }
 
@@ -526,7 +551,7 @@ fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
    the blockstore's allocator. */
 
 FD_FN_PURE static inline fd_alloc_t * /* Lifetime is that of the local join */
-fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
+fd_blockstore_alloc( fd_blockstore_t const * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->alloc_gaddr );
 }
 
@@ -534,8 +559,13 @@ fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
  * lifetime is until the block is removed. Check return value for error info. */
 
 FD_FN_PURE static inline uchar *
-fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
+fd_blockstore_block_data_laddr( fd_blockstore_t const * blockstore, fd_block_t const * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
+}
+
+FD_FN_PURE static inline fd_block_entry_batch_t *
+fd_blockstore_block_batch_laddr( fd_blockstore_t const * blockstore, fd_block_t const * block ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
 }
 
 /* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in

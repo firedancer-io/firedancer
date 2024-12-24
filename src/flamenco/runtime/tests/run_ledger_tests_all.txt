@@ -79,3 +79,5 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l enable-get-epoch-stake-syscall 
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257181032 -s snapshot-257181030-BiZi1ye6MeW8iq2xUBDrYYPSNuBVrXvzsHjPWvQ8ZytE.tar.zst -p 50 -y 16 -m 5000000 -e 257181035 -c 1.19.0
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257047660 -s snapshot-257047658-Cp4XkpXueDWep78NCTQHCWmG5VszMBjKbGdAoXYLHBfh.tar.zst -p 50 -y 16 -m 5000000 -e 257047662 -c 1.19.0
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257047659 -s snapshot-257047655-5r7etGHT6fJ5edRijJMtYr8xYJpE98ECWF8n7CCZUhDN.tar.zst -p 50 -y 16 -m 5000000 -e 257047660 -c 1.19.0
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-308445707 -s snapshot-308445706-EUsKyaEYAN9VZDSAeBhFET9sdTicGCsghwEF1y1BhTvU.tar.zst -p 50 -y 16 -m 5000000 -e 308445711 -c 2.0.18
+src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-307395181 -s snapshot-307395180-D41gdV5niSbDdwsfb8381krY5pDK4oGeHeS2V1A8ttFr.tar.zst -p 50 -y 16 -m 5000000 -e 307395190 -c 2.1.1

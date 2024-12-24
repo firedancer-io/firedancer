@@ -235,21 +235,16 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     fd_blockstore_start_read( blockstore );
     fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
+    fd_blockstore_end_read( blockstore );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
-      fd_blockstore_end_read( blockstore );
       continue;
     }
-
-    uchar * val = fd_blockstore_block_data_laddr( blockstore, blk );
-    ulong   sz  = blk->data_sz;
-    fd_blockstore_end_read( blockstore );
+    ledger_args->slot_ctx->block = blk;
 
     ulong blk_txn_cnt = 0;
     FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
                                           ledger_args->capture_ctx,
-                                          val,
-                                          sz,
                                           ledger_args->tpool,
                                           1,
                                           &blk_txn_cnt,

@@ -15,16 +15,13 @@ struct fd_deshredder {
   /* Number of shreds left in buffer */
   uint shred_cnt;
 
-  /* Data offset in next shred */
-  uint data_off;
-
   /* Cursor to target buffer
 
      Note that this points to the end of the data
      that was previously deserialized. */
   uchar * buf;
 
-  /* Free space in target target buffer */
+  /* Free space in target buffer */
   ulong bufsz;
 
   /* Cached return code */
@@ -59,26 +56,31 @@ fd_deshredder_init( fd_deshredder_t *          shredder,
    `fd_deshredder_init`.
 
    Note that it usually takes multiple calls to process to process all
-   provided shreds because each block can have up to 64 batches.
+   provided shreds because each block can have numerous batches.
 
-   If a new batch was created, returns the number of bytes written to
-   `buf` which the caller previously provided in `fd_deshredder_init`.
+   If at least one shred was consumed, returns the number of bytes
+   written to `buf` which the caller previously provided in
+   `fd_deshredder_init`.  In such cases, result code is set to reflect
+   the reason that the deshredder returned.
+
+   Set to `FD_SHRED_EBATCH` if no more shreds are available
+   and the end of the current batch has been reached.
+   Also implies that there are more shreds/batches in this slot.
+
+   Set to `FD_SHRED_ESLOT` if no more shreds are available
+   and the end of the current slot has been reached.
+
+   Set to `FD_SHRED_EPIPE` if no more shreds are available
+   but we are in the middle of concatenating a batch.
 
    Otherwise, returns a negative value indicating the error code.
    In the error case, the caller must not make any further calls to
    `fd_deshredder_next` on this shredder.
 
-   Returns `-FD_SHRED_EBATCH` if no more shreds are available
-   and the end of the current batch has been reached.
-   Also implies that there are more shreds/batches in this slot.
+   Returns `-FD_SHRED_ENOMEM` if the target buffer is too small.
 
-   Returns `-FD_SHRED_ESLOT`  if no more shreds are available
-   and the end of the current slot has been reached.
-
-   Returns `-FD_SHRED_EPIPE`  if no more shreds are available
-   but we are in the middle of concatenating a batch.
-
-   Returns `-FD_SHRED_ENOMEM` if the target buffer is too small. */
+   Returns `-FD_SHRED_EINVAL` if shred type is not a data shred.
+ */
 long
 fd_deshredder_next( fd_deshredder_t * shredder );
 
