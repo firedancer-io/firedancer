@@ -6,7 +6,7 @@ Installation guide for `XDP`/`AF_XDP` based networking.
 Prerequisites
 -------------
 
-This guide assumes the steps in [getting-started.md](./getting-started.md)
+This guide assumes the steps in [README.md#developing](../README.md#developing)
 have been completed.
 
 Requires recent Linux kernel and headers (version >=4.18). `XDP` and related
@@ -51,7 +51,7 @@ get sent back to `AF_XDP`, which forwards directly to the driver (skipping
                       └───────────┘
 ```
 
-See also [fd_xsk.h](../src/tango/xdp/fd_xsk.h)
+See also [fd_xsk.h](../src/waltz/xdp/fd_xsk.h)
 
 `XDP` and `AF_XDP` require the `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`
 capabilities for configuration.  `CAP_SYS_ADMIN` is also required at
