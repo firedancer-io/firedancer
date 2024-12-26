@@ -40,7 +40,7 @@ static char const help_str[] =
 static uint
 get_first_ip4_addr( char const * iface ) {
   struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, iface, IFNAMSIZ );
+  strncpy( ifr.ifr_name, iface, IFNAMSIZ-1 );
   ifr.ifr_addr.sa_family = AF_INET;
 
   int fd        = socket( AF_INET, SOCK_DGRAM, 0 );
