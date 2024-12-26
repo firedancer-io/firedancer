@@ -12,6 +12,7 @@ ifdef FD_USING_CLANG
 CPPFLAGS+=-Wimplicit-fallthrough
 # See with-clang.mk
 CPPFLAGS+=-Wno-address-of-packed-member -Wno-unused-command-line-argument -Wno-bitwise-instead-of-logical
+CPPFLAGS+=-Wno-gnu-zero-variadic-macro-arguments
 endif
 
 ifdef FD_USING_GCC
