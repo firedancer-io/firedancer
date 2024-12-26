@@ -25,6 +25,7 @@
 #include <unistd.h>  /* for keylog close(2) */
 
 #include "../../ballet/hex/fd_hex.h"
+#include "../../util/log/fd_dtrace.h"
 
 /* Declare map type for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
@@ -954,12 +955,15 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   if( conn->state == FD_QUIC_CONN_STATE_DEAD ) return FD_QUIC_PARSE_FAIL;
   if( FD_UNLIKELY( buf_sz<1UL ) ) return FD_QUIC_PARSE_FAIL;
 
-  fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
-
   /* Frame ID is technically a varint but it's sufficient to look at the
      first byte. */
   uint id = buf[0];
+
+  FD_DTRACE_PROBE_4( quic_handle_frame, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
+
+  fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
+    FD_DTRACE_PROBE_4( quic_err_frame_not_allowed, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
     fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2772,12 +2776,13 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
     /* if TLS returns an error, we present that as reason:
           FD_QUIC_CONN_REASON_CRYPTO_BASE + tls-alert
         otherwise, send INTERNAL_ERROR */
-    uint alert = conn->tls_hs->alert;
+    uint alert  = conn->tls_hs->alert;
+    uint reason = conn->tls_hs->hs.base.reason;
+    FD_DTRACE_PROBE_3( quic_handle_crypto_frame, conn->our_conn_id, alert, reason );
     if( alert == 0u ) {
       fd_quic_frame_error( context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
     } else {
       FD_DEBUG(
-        uint reason = conn->tls_hs->hs.base.reason;
         FD_LOG_DEBUG(( "QUIC TLS handshake failed (alert %u-%s; reason %u-%s)",
                        alert,  fd_tls_alert_cstr( alert ),
                        reason, fd_tls_reason_cstr( reason ) ));
@@ -4933,6 +4938,7 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
   /* inclusive range */
   ulong hi = largest_ack;
   ulong lo = largest_ack - ack_range;
+  FD_DTRACE_PROBE_4( quic_process_ack_range, conn->our_conn_id, enc_level, lo, hi );
 
   /* start at oldest sent */
   fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
@@ -5205,6 +5211,8 @@ fd_quic_frame_handle_stream_frame(
   /* offset field is optional, implied 0 */
   ulong stream_id   = data->stream_id;
   ulong stream_type = stream_id & 3UL;
+
+  FD_DTRACE_PROBE_5( quic_handle_stream_frame, conn->our_conn_id, stream_id, offset, data_sz, fin );
 
   /* stream_id type check */
   if( FD_UNLIKELY( stream_type != ( conn->server ? FD_QUIC_STREAM_TYPE_UNI_CLIENT : FD_QUIC_STREAM_TYPE_UNI_SERVER ) ) ) {
