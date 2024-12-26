@@ -103,7 +103,7 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
      contact info, other than possibly some staked nodes with no contact
      info. */
   fd_shred_dest_t * existing_sdest    = info->epoch_info->sdest;
-  ulong             existing_dest_cnt = fd_shred_dest_cnt_all( existing_sdest );
+  ulong             existing_dest_cnt = fd_shred_dest_cnt_all( existing_sdest ); /* THIS IS NULL */
 
   /* Keep track of the destinations in existing_sdest that are not
      staked in this new epoch, i.e. the ones we don't hit in the loop

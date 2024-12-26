@@ -235,8 +235,10 @@ slot_ctx_restore( ulong                 slot,
 
   fd_slot_bank_destroy( &slot_ctx_out->slot_bank, &destroy_ctx );
   if( magic == FD_RUNTIME_ENC_BINCODE ) {
+    FD_LOG_WARNING(( "decoding slot bank" ));
     FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
   } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
+    FD_LOG_WARNING(( "decoding slot bank archival" ));
     FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx )==FD_BINCODE_SUCCESS );
   } else {
     FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
@@ -309,8 +311,10 @@ fd_forks_prepare( fd_forks_t const *    forks,
     }
 
     /* Restore and decode w/ funk */
-
+    /* FIXME: the vote accounts pool is null here, we need to set this up properly */
+    FD_TEST(( valloc.vt ));
     slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, valloc, slot_ctx );
+    FD_TEST(( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool ));
 
     /* Add to frontier */
 

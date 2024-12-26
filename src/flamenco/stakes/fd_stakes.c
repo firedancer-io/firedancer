@@ -119,7 +119,7 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
     /* Estimate size required to store temporary data structures */
 
     /* TODO size is the wrong method name for this */
-    ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool, accs->vote_accounts_root );
+    ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool, accs->vote_accounts_root ); /* accs->vote_accounts_pool is NULL  */
 
     ulong rb_align     = fd_stake_weight_t_map_align();
     ulong rb_footprint = fd_stake_weight_t_map_footprint( vote_acc_cnt );

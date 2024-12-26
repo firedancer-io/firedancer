@@ -368,7 +368,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   if( slot_ctx->slot_bank.epoch_stakes.vote_accounts_root!=NULL ) {
     ulong * stake_weights_msg         = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
     fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[5];
-    ulong stake_weight_idx            = fd_stake_weights_by_node( &ctx->slot_ctx->slot_bank.epoch_stakes, stake_weights );
+    ulong stake_weight_idx            = fd_stake_weights_by_node( &ctx->slot_ctx->slot_bank.epoch_stakes, stake_weights ); /* slot_ctx->slot_bank.epoch_stakes.vote_accounts_root is not null, but slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool is NULL. immediately after the epoch boundary */
 
     stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot ) - 1; /* epoch */
     stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
@@ -828,6 +828,8 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   // fork is advancing
   FD_LOG_NOTICE(( "new block execution - slowt: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
+
+  FD_TEST(( fork->slot_ctx.slot_bank.epoch_stakes.vote_accounts_pool ));
 
   /* if it is an epoch boundary, push out stake weights */
   if( fork->slot_ctx.slot_bank.slot != 0 ) {
