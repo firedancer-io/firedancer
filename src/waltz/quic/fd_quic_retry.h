@@ -212,6 +212,7 @@ fd_quic_retry_create(
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
+    fd_quic_conn_id_t const * src_conn_id,
     ulong                     retry_src_conn_id,
     ulong                     wallclock /* ns since unix epoch */
 );

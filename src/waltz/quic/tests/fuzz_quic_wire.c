@@ -24,6 +24,7 @@
 #include "../fd_quic_private.h"
 
 #include <assert.h>
+#include <stdlib.h> /* putenv, atexit */
 
 static FD_TL ulong g_clock;
 

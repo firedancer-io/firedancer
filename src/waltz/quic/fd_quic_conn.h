@@ -3,11 +3,9 @@
 
 #include "fd_quic.h"
 #include "fd_quic_ack_tx.h"
-#include "fd_quic_retry.h"
 #include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
-#include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */

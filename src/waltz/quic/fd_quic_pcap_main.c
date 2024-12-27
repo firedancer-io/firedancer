@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdio.h> /* fputs, fprintf */
 #include <stdlib.h> /* aligned_alloc */
+#include <string.h> /* memcmp */
 #include <unistd.h> /* pread */
 
 #include "fd_quic.h"

@@ -63,6 +63,7 @@ fd_quic_retry_create(
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
+    fd_quic_conn_id_t const * src_conn_id,
     ulong                     new_conn_id,
     ulong                     wallclock /* ns since unix epoch */
 ) {
@@ -75,12 +76,12 @@ fd_quic_retry_create(
   fd_quic_retry_hdr_t retry_hdr[1] = {{
     .h0              = 0xf0,
     .version         = 1,
-    .dst_conn_id_len = pkt->long_hdr->src_conn_id_len,
+    .dst_conn_id_len = src_conn_id->sz,
     // .dst_conn_id (initialized below)
     .src_conn_id_len = FD_QUIC_CONN_ID_SZ,
     // .src_conn_id (initialized below)
   }};
-  memcpy( retry_hdr->dst_conn_id, pkt->long_hdr->src_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
+  memcpy( retry_hdr->dst_conn_id, src_conn_id->conn_id, FD_QUIC_MAX_CONN_ID_SZ );
   FD_STORE( ulong, retry_hdr->src_conn_id, new_conn_id );
   ulong rc = fd_quic_encode_retry_hdr( retry, FD_QUIC_RETRY_LOCAL_SZ, retry_hdr );
   assert( rc!=FD_QUIC_PARSE_FAIL );
