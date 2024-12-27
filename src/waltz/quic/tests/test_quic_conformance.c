@@ -304,6 +304,78 @@ test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->srx->rx_max_data      == 987654321UL );
 }
 
+__attribute__((noinline)) void
+test_quic_rx_max_data_frame( fd_quic_sandbox_t * sandbox,
+                             fd_rng_t *          rng ) {
+  uchar buf[128];
+  ulong sz;
+  fd_quic_max_data_frame_t frame = {0};
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  sandbox->quic->config.initial_rx_max_stream_data = 1UL;
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  frame.max_data = 0x30;
+  sz = fd_quic_encode_max_data_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_max_data == 0x30 );
+
+  conn->ack_gen->is_elicited = 0;
+  frame.max_data = 0x10;
+  sz = fd_quic_encode_max_data_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_max_data == 0x30 );
+}
+
+__attribute__((noinline)) void
+test_quic_rx_max_streams_frame( fd_quic_sandbox_t * sandbox,
+                                fd_rng_t *          rng ) {
+  uchar buf[128];
+  ulong sz;
+  fd_quic_max_streams_frame_t frame = {0};
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  sandbox->quic->config.initial_rx_max_stream_data = 1UL;
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  frame.type        = 0x13; /* unidirectional */
+  frame.max_streams = 0x30;
+  sz = fd_quic_encode_max_streams_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  FD_TEST( sz>=2UL );
+  FD_TEST( buf[0]==0x13 );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_sup_stream_id == 0xc2 );
+
+  conn->ack_gen->is_elicited = 0;
+  frame.max_streams = 0x10; /* decrease limit */
+  sz = fd_quic_encode_max_streams_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
+
+  frame.type        = 0x12; /* bidirectional */
+  frame.max_streams = 0x60;
+  sz = fd_quic_encode_max_streams_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  FD_TEST( sz>=2UL );
+  FD_TEST( buf[0]==0x12 );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
+}
+
 static __attribute__((noinline)) void
 test_quic_parse_path_challenge( void ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
@@ -377,6 +449,8 @@ main( int     argc,
   test_quic_server_alpn_fail             ( sandbox, rng );
   test_quic_pktnum_skip                  ( sandbox, rng );
   test_quic_conn_initial_limits          ( sandbox, rng );
+  test_quic_rx_max_data_frame            ( sandbox, rng );
+  test_quic_rx_max_streams_frame         ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */
