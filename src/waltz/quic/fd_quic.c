@@ -967,6 +967,8 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   }
   quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
 
+  pkt->ack_flag |= fd_uint_if( fd_quic_frame_type_flags[ id ]&FD_QUIC_FRAME_FLAG_N, 0U, ACK_FLAG_RQD );
+
   /* tail call to frame handler */
   switch( id ) {
 
@@ -2705,7 +2707,6 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                    uchar const *            p,
                                    ulong                    p_sz ) {
   fd_quic_frame_context_t const * context = vp_context;
-  context->pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* determine whether any of the data was already provided */
   fd_quic_conn_t *   conn      = context->conn;
@@ -4424,11 +4425,10 @@ fd_quic_frame_handle_ping_frame(
     fd_quic_ping_frame_t * data,
     uchar const *          p,
     ulong                  p_sz ) {
+  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
   return 0;
 }
 
@@ -5101,9 +5101,7 @@ fd_quic_frame_handle_reset_stream_frame(
     fd_quic_reset_stream_frame_t * data,
     uchar const *                  p,
     ulong                          p_sz ) {
-  (void)data; (void)p; (void)p_sz;
-  fd_quic_frame_context_t * context = vp_context;
-  context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
+  (void)vp_context; (void)data; (void)p; (void)p_sz;
   /* TODO implement */
   return 0UL;
 }
@@ -5114,9 +5112,7 @@ fd_quic_frame_handle_stop_sending_frame(
     fd_quic_stop_sending_frame_t * data,
     uchar const *                  p,
     ulong                          p_sz ) {
-  (void)data; (void)p; (void)p_sz;
-  fd_quic_frame_context_t * context = vp_context;
-  context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
+  (void)vp_context; (void)data; (void)p; (void)p_sz;
   return 0UL;
 }
 
@@ -5179,9 +5175,6 @@ fd_quic_frame_handle_stream_frame(
   fd_quic_t *               quic    = context->quic;
   fd_quic_conn_t *          conn    = context->conn;
   fd_quic_pkt_t *           pkt     = context->pkt;
-
-  /* ack-eliciting */
-  pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* If !data->{length,offset}_opt then data->{length,offset} may be
      uninitialized.  GCC 13 falsely reports a 'maybe-uninitialized'
@@ -5250,9 +5243,6 @@ fd_quic_frame_handle_max_data_frame(
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
-
   ulong tx_max_data  = context.conn->tx_max_data;
   ulong new_max_data = data->max_data;
 
@@ -5271,8 +5261,6 @@ fd_quic_frame_handle_max_stream_data_frame(
     ulong                             p_sz ) {
   /* FIXME unsupported for now */
   (void)vp_context; (void)data; (void)p; (void)p_sz;
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
   return 0;
 }
 
@@ -5286,9 +5274,6 @@ fd_quic_frame_handle_max_streams_frame(
   (void)p_sz;
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   if( data->type == 1 ) {
     /* Only handle unidirectional streams */
@@ -5306,14 +5291,10 @@ fd_quic_frame_handle_data_blocked_frame(
       fd_quic_data_blocked_frame_t * data,
       uchar const *                  p,
       ulong                          p_sz ) {
+  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
-
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* Since we do not do runtime allocations, we will not attempt
      to find more memory in the case of DATA_BLOCKED
@@ -5328,14 +5309,10 @@ fd_quic_frame_handle_stream_data_blocked_frame(
       fd_quic_stream_data_blocked_frame_t * data,
       uchar const *                         p,
       ulong                                 p_sz ) {
+  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
-
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* Since we do not do runtime allocations, we will not attempt
      to find more memory in the case of STREAM_DATA_BLOCKED
@@ -5350,14 +5327,10 @@ fd_quic_frame_handle_streams_blocked_frame(
     fd_quic_streams_blocked_frame_t * data,
     uchar const *                     p,
     ulong                             p_sz ) {
+  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
-
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* STREAMS_BLOCKED should be sent by client when it wants
      to use a new stream, but is unable to due to the max_streams
@@ -5376,14 +5349,10 @@ fd_quic_frame_handle_new_conn_id_frame(
     fd_quic_new_conn_id_frame_t * data,
     uchar const *                 p,
     ulong                         p_sz ) {
+  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
-
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* FIXME implement */
 
@@ -5401,11 +5370,6 @@ fd_quic_frame_handle_retire_conn_id_frame(
   (void)p;
   (void)p_sz;
   FD_DEBUG( FD_LOG_DEBUG(( "retire_conn_id requested" )); )
-
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* FIXME implement */
 
@@ -5439,13 +5403,9 @@ fd_quic_frame_handle_conn_close_frame(
     void *                       vp_context ) {
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
-
   /* frame type 0x1c means no error, or only error at quic level
      frame type 0x1d means error at application layer
      TODO provide APP with this info */
-  (void)context;
   FD_DEBUG( FD_LOG_DEBUG(( "peer requested close" )) );
 
   switch( context.conn->state ) {
@@ -5540,9 +5500,6 @@ fd_quic_frame_handle_handshake_done_frame(
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
   fd_quic_conn_t *        conn    = context.conn;
-
-  /* ack-eliciting */
-  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* servers must treat receipt of HANDSHAKE_DONE as a protocol violation */
   if( FD_UNLIKELY( conn->server ) ) {
