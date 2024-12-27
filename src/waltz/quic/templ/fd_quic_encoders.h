@@ -1,4 +1,5 @@
 // QUIC encoders
+#include "../../../util/log/fd_log.h"
 
 /* TODO replace FD_QUIC_PARSE_FAIL with FD_QUIC_ENCODE_FAIL */
 
@@ -48,13 +49,6 @@
     if( buf >= buf_end ) return FD_QUIC_PARSE_FAIL;                    \
     buf[0] = ID_LO;                                                    \
     type_ptr = buf++;
-
-/* encodes frame->NAME into the type field */
-#define FD_TEMPL_MBR_FRAME_TYPE_FLAG(NAME,MASK)                        \
-    if( type_ptr ) {                                                   \
-      type_ptr[0] = (uchar)( ( type_ptr[0] & ~(uint)(MASK) )           \
-                           | ( frame->NAME &  (uint)(MASK) ) );        \
-    }
 
 
 /* encodes aligned bytes into output */
@@ -152,11 +146,7 @@
       buf += FD_TEMPL_ENCODE(TYPE,frame->NAME[j],buf);                 \
     }
 
-/* TODO remove abort() once tested */
 #define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)                           \
-    if( !type_ptr ) {                                                  \
-      abort();                                                         \
-    }                                                                  \
     if( frame->NAME##_opt ) {                                          \
       type_ptr[0] |= (uchar)(MASK);                                    \
       __VA_ARGS__                                                      \

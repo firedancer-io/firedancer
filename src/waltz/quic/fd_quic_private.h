@@ -131,6 +131,14 @@ struct fd_quic_pkt {
 # define ACK_FLAG_CANCEL  2
 };
 
+struct fd_quic_frame_ctx {
+  fd_quic_t *      quic;
+  fd_quic_conn_t * conn;
+  fd_quic_pkt_t *  pkt;
+};
+
+typedef struct fd_quic_frame_ctx fd_quic_frame_ctx_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_quic_get_state returns a pointer to private state area given a

@@ -54,7 +54,6 @@
 #define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,ELEMS)                         \
     buf += ELEMS * sizeof( fd_quic_##TYPE );
 
-/* TODO remove abort() once tested */
 #define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)                             \
     if( frame->NAME##_opt ) {                                            \
       __VA_ARGS__                                                        \

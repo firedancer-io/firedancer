@@ -38,9 +38,9 @@ fd_quic_frame_metric_id[ FD_QUIC_FRAME_TYPE_CNT ] = {
 
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                   \
   static ulong fd_quic_interpret_##NAME(                                  \
-      void *        const ctx,                                            \
-      uchar const * const buf,                                            \
-      ulong         const buf_sz                                          \
+      fd_quic_frame_ctx_t * const ctx,                                    \
+      uchar const *         const buf,                                    \
+      ulong                 const buf_sz                                  \
   ) {                                                                     \
     fd_quic_##NAME##_t frame[1];                                          \
     uchar const *       p0 = buf;                                         \
@@ -51,7 +51,7 @@ fd_quic_frame_metric_id[ FD_QUIC_FRAME_TYPE_CNT ] = {
     if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;\
     p0 += rc;                                                             \
                                                                           \
-    rc = fd_quic_frame_handle_##NAME( ctx, frame, p0, (ulong)(p1-p0) );   \
+    rc = fd_quic_handle_##NAME( ctx, frame, p0, (ulong)(p1-p0) );         \
     if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;\
     p0 += rc;                                                             \
                                                                           \

@@ -10,6 +10,7 @@
 #include "fd_quic_proto.c"
 #include "fd_quic_retry.h"
 
+#define FD_TEMPL_FRAME_CTX fd_quic_frame_ctx_t
 #include "templ/fd_quic_frame_handler_decl.h"
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
@@ -792,18 +793,10 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
   fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
 }
 
-struct fd_quic_frame_context {
-  fd_quic_t *      quic;
-  fd_quic_conn_t * conn;
-  fd_quic_pkt_t *  pkt;
-};
-
-typedef struct fd_quic_frame_context fd_quic_frame_context_t;
-
 static void
-fd_quic_frame_error( fd_quic_frame_context_t const * ctx,
-                     uint                            reason,
-                     uint                            error_line ) {
+fd_quic_frame_error( fd_quic_frame_ctx_t const * ctx,
+                     uint                        reason,
+                     uint                        error_line ) {
   fd_quic_t *           quic  = ctx->quic;
   fd_quic_conn_t *      conn  = ctx->conn;
   fd_quic_pkt_t const * pkt   = ctx->pkt;
@@ -959,7 +952,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
 
   FD_DTRACE_PROBE_4( quic_handle_frame, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
 
-  fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
+  fd_quic_frame_ctx_t frame_context[1] = {{ quic, conn, pkt }};
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
     FD_DTRACE_PROBE_4( quic_err_frame_not_allowed, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
     fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
@@ -2702,12 +2695,10 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 }
 
 static ulong
-fd_quic_frame_handle_crypto_frame( void *                   vp_context,
-                                   fd_quic_crypto_frame_t * crypto,
-                                   uchar const *            p,
-                                   ulong                    p_sz ) {
-  fd_quic_frame_context_t const * context = vp_context;
-
+fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
+                             fd_quic_crypto_frame_t * crypto,
+                             uchar const *            p,
+                             ulong                    p_sz ) {
   /* determine whether any of the data was already provided */
   fd_quic_conn_t *   conn      = context->conn;
   fd_quic_tls_hs_t * tls_hs    = conn->tls_hs;
@@ -3268,7 +3259,7 @@ fd_quic_gen_max_streams_frame( fd_quic_conn_t *     conn,
   conn->flags = flags & (~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR);
 
   fd_quic_max_streams_frame_t max_streams = {
-    .stream_type = 1,
+    .type        = 0x13, /* unidirectional */
     .max_streams = max_streams_unidir
   };
   ulong frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
@@ -4407,12 +4398,11 @@ fd_quic_get_next_wakeup( fd_quic_t * quic ) {
 
 /* frame handling function default definitions */
 static ulong
-fd_quic_frame_handle_padding_frame(
-    void * context,
-    fd_quic_padding_frame_t * data,
-    uchar const * const p0,
-    ulong               p_sz ) {
-  (void)context; (void)data;
+fd_quic_handle_padding_frame(
+    fd_quic_frame_ctx_t *     ctx  FD_PARAM_UNUSED,
+    fd_quic_padding_frame_t * data FD_PARAM_UNUSED,
+    uchar const * const       p0,
+    ulong                     p_sz ) {
   uchar const *       p     = p0;
   uchar const * const p_end = p + p_sz;
   while( p<p_end && p[0]==0 ) p++;
@@ -4420,15 +4410,12 @@ fd_quic_frame_handle_padding_frame(
 }
 
 static ulong
-fd_quic_frame_handle_ping_frame(
-    void *                 vp_context,
-    fd_quic_ping_frame_t * data,
-    uchar const *          p,
-    ulong                  p_sz ) {
-  (void)vp_context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
+fd_quic_handle_ping_frame(
+    fd_quic_frame_ctx_t *  ctx,
+    fd_quic_ping_frame_t * data FD_PARAM_UNUSED,
+    uchar const *          p    FD_PARAM_UNUSED,
+    ulong                  p_sz FD_PARAM_UNUSED ) {
+  FD_DTRACE_PROBE_1( quic_handle_ping_frame, ctx->conn->our_conn_id );
   return 0;
 }
 
@@ -4966,29 +4953,26 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
 }
 
 static ulong
-fd_quic_frame_handle_ack_frame(
-    void * vp_context,
+fd_quic_handle_ack_frame(
+    fd_quic_frame_ctx_t * context,
     fd_quic_ack_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  uint enc_level = context.pkt->enc_level;
+    uchar const *         p,
+    ulong                 p_sz ) {
+  fd_quic_conn_t * conn = context->conn;
+  uint enc_level = context->pkt->enc_level;
 
   if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
     /* this is a protocol violation, so inform the peer */
-    fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
   /* track lowest packet acked */
   ulong low_ack_pkt_number = data->largest_ack - data->first_ack_range;
 
-  /* ack packets are not ack-eliciting (they are acked with other things) */
-
   /* process ack range
      applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
-  fd_quic_process_ack_range( context.conn, enc_level, data->largest_ack, data->first_ack_range );
+  fd_quic_process_ack_range( conn, enc_level, data->largest_ack, data->first_ack_range );
 
   uchar const * p_str = p;
   uchar const * p_end = p + p_sz;
@@ -5003,14 +4987,14 @@ fd_quic_frame_handle_ack_frame(
   /* walk thru ack ranges */
   for( ulong j = 0UL; j < ack_range_count; ++j ) {
     if( FD_UNLIKELY( p_end <= p ) ) {
-      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
     fd_quic_ack_range_frag_t ack_range[1];
     ulong rc = fd_quic_decode_ack_range_frag( ack_range, p, (ulong)( p_end - p ) );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -5023,7 +5007,7 @@ fd_quic_frame_handle_ack_frame(
                      ( length > ( ~0x3UL ) ) ) ) {
       /* This is an unreasonably large value, so fail with protocol violation
          It's also likely impossible due to the encoding method */
-      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -5036,7 +5020,7 @@ fd_quic_frame_handle_ack_frame(
     /* verify the skip and length values are valid */
     if( FD_UNLIKELY( skip + length > cur_pkt_number ) ) {
       /* this is a protocol violation, so inform the peer */
-      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -5045,7 +5029,7 @@ fd_quic_frame_handle_ack_frame(
     low_ack_pkt_number = fd_ulong_min( low_ack_pkt_number, lo_pkt_number );
 
     /* process ack range */
-    fd_quic_process_ack_range( context.conn, enc_level, cur_pkt_number - skip, length );
+    fd_quic_process_ack_range( conn, enc_level, cur_pkt_number - skip, length );
 
     /* Find the next lowest processed and acknowledged packet number
        This should get us to the next lowest processed and acknowledged packet
@@ -5057,7 +5041,7 @@ fd_quic_frame_handle_ack_frame(
 
   /* process lost packets */
   {
-    fd_quic_pkt_meta_pool_t * pool     = &context.conn->pkt_meta_pool;
+    fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
     fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[enc_level];
     fd_quic_pkt_meta_t *      pkt_meta = sent->head;
 
@@ -5069,7 +5053,7 @@ fd_quic_frame_handle_ack_frame(
       }
 
       if( FD_UNLIKELY( skipped > 3 ) ) {
-        fd_quic_process_lost( context.conn, enc_level, skipped - 3 );
+        fd_quic_process_lost( conn, enc_level, skipped - 3 );
       }
     }
   }
@@ -5078,14 +5062,14 @@ fd_quic_frame_handle_ack_frame(
      we currently ignore them, but we must process them to get to the following bytes */
   if( data->type & 1U ) {
     if( FD_UNLIKELY( p_end <= p ) ) {
-      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
     fd_quic_ecn_counts_frag_t ecn_counts[1];
     ulong rc = fd_quic_decode_ecn_counts_frag( ecn_counts, p, (ulong)( p_end - p ) );
     if( rc == FD_QUIC_PARSE_FAIL ) {
-      fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -5096,35 +5080,37 @@ fd_quic_frame_handle_ack_frame(
 }
 
 static ulong
-fd_quic_frame_handle_reset_stream_frame(
-    void *                         vp_context,
+fd_quic_handle_reset_stream_frame(
+    fd_quic_frame_ctx_t *          context,
     fd_quic_reset_stream_frame_t * data,
-    uchar const *                  p,
-    ulong                          p_sz ) {
-  (void)vp_context; (void)data; (void)p; (void)p_sz;
+    uchar const *                  p    FD_PARAM_UNUSED,
+    ulong                          p_sz FD_PARAM_UNUSED ) {
   /* TODO implement */
+  (void)data;
+  FD_DTRACE_PROBE_4( quic_handle_reset_stream_frame, context->conn->our_conn_id, data->stream_id, data->app_proto_err_code, data->final_size );
   return 0UL;
 }
 
 static ulong
-fd_quic_frame_handle_stop_sending_frame(
-    void *                         vp_context,
+fd_quic_handle_stop_sending_frame(
+    fd_quic_frame_ctx_t *          context,
     fd_quic_stop_sending_frame_t * data,
-    uchar const *                  p,
-    ulong                          p_sz ) {
-  (void)vp_context; (void)data; (void)p; (void)p_sz;
+    uchar const *                  p    FD_PARAM_UNUSED,
+    ulong                          p_sz FD_PARAM_UNUSED ) {
+  (void)data;
+  FD_DTRACE_PROBE_3( quic_handle_stop_sending_frame, context->conn->our_conn_id, data->stream_id, data->app_proto_err_code );
   return 0UL;
 }
 
 static ulong
-fd_quic_frame_handle_new_token_frame(
-    void * context,
+fd_quic_handle_new_token_frame(
+    fd_quic_frame_ctx_t *       context,
     fd_quic_new_token_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
+    uchar const *               p    FD_PARAM_UNUSED,
+    ulong                       p_sz FD_PARAM_UNUSED ) {
   /* FIXME A server MUST treat receipt of a NEW_TOKEN frame as a connection error of type PROTOCOL_VIOLATION. */
-  (void)context; (void)data; (void)p; (void)p_sz;
-  /* ack-eliciting */
+  FD_DTRACE_PROBE_1( quic_handle_new_token_frame, context->conn->our_conn_id );
+  (void)data;
   return 0UL;
 }
 
@@ -5165,13 +5151,11 @@ fd_quic_tx_stream_free( fd_quic_t *        quic,
 
 
 static ulong
-fd_quic_frame_handle_stream_frame(
-    void *                   vp_context,
+fd_quic_handle_stream_frame(
+    fd_quic_frame_ctx_t *    context,
     fd_quic_stream_frame_t * data,
     uchar const *            p,
     ulong                    p_sz ) {
-
-  fd_quic_frame_context_t * context = (fd_quic_frame_context_t *)vp_context;
   fd_quic_t *               quic    = context->quic;
   fd_quic_conn_t *          conn    = context->conn;
   fd_quic_pkt_t *           pkt     = context->pkt;
@@ -5232,199 +5216,171 @@ fd_quic_frame_handle_stream_frame(
 }
 
 static ulong
-fd_quic_frame_handle_max_data_frame(
-    void *                     vp_context,
+fd_quic_handle_max_data_frame(
+    fd_quic_frame_ctx_t *      context,
     fd_quic_max_data_frame_t * data,
-    uchar const *              p,
-    ulong                      p_sz ) {
-  /* unused */
-  (void)p;
-  (void)p_sz;
+    uchar const *              p    FD_PARAM_UNUSED,
+    ulong                      p_sz FD_PARAM_UNUSED ) {
+  fd_quic_conn_t * conn = context->conn;
 
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  ulong tx_max_data  = context.conn->tx_max_data;
-  ulong new_max_data = data->max_data;
+  ulong max_data_old = conn->tx_max_data;
+  ulong max_data_new = data->max_data;
+  FD_DTRACE_PROBE_3( quic_handle_max_data_frame, conn->our_conn_id, max_data_new, max_data_old );
 
   /* max data is only allowed to increase the limit. Transgressing frames
      are silently ignored */
-  context.conn->tx_max_data = new_max_data > tx_max_data ? new_max_data : tx_max_data;
-
+  conn->tx_max_data = fd_ulong_max( max_data_old, max_data_new );
   return 0; /* no additional bytes consumed from buffer */
 }
 
 static ulong
-fd_quic_frame_handle_max_stream_data_frame(
-    void *                            vp_context,
+fd_quic_handle_max_stream_data_frame(
+    fd_quic_frame_ctx_t *             context,
     fd_quic_max_stream_data_frame_t * data,
-    uchar const *                     p,
-    ulong                             p_sz ) {
+    uchar const *                     p    FD_PARAM_UNUSED,
+    ulong                             p_sz FD_PARAM_UNUSED ) {
   /* FIXME unsupported for now */
-  (void)vp_context; (void)data; (void)p; (void)p_sz;
+  FD_DTRACE_PROBE_3( quic_handle_max_stream_data_frame, context->conn->our_conn_id, data->stream_id, data->max_stream_data );
   return 0;
 }
 
 static ulong
-fd_quic_frame_handle_max_streams_frame(
-    void *                        vp_context,
+fd_quic_handle_max_streams_frame(
+    fd_quic_frame_ctx_t *         context,
     fd_quic_max_streams_frame_t * data,
-    uchar const *                 p,
-    ulong                         p_sz) {
-  (void)p;
-  (void)p_sz;
+    uchar const *                 p    FD_PARAM_UNUSED,
+    ulong                         p_sz FD_PARAM_UNUSED ) {
+  fd_quic_conn_t * conn = context->conn;
+  FD_DTRACE_PROBE_3( quic_handle_max_streams_frame, conn->our_conn_id, data->type, data->max_streams );
 
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
-  if( data->type == 1 ) {
+  if( data->type == 0x13 ) {
     /* Only handle unidirectional streams */
-    ulong type               = (ulong)context.conn->server | 2UL;
+    ulong type               = (ulong)conn->server | 2UL;
     ulong peer_sup_stream_id = data->max_streams * 4UL + type;
-    context.conn->tx_sup_stream_id = fd_ulong_max( peer_sup_stream_id, context.conn->tx_sup_stream_id );
+    conn->tx_sup_stream_id = fd_ulong_max( peer_sup_stream_id, conn->tx_sup_stream_id );
   }
 
   return 0;
 }
 
 static ulong
-fd_quic_frame_handle_data_blocked_frame(
-      void *                         vp_context,
-      fd_quic_data_blocked_frame_t * data,
-      uchar const *                  p,
-      ulong                          p_sz ) {
-  (void)vp_context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
+fd_quic_handle_data_blocked_frame(
+    fd_quic_frame_ctx_t *          context,
+    fd_quic_data_blocked_frame_t * data,
+    uchar const *                  p    FD_PARAM_UNUSED,
+    ulong                          p_sz FD_PARAM_UNUSED ) {
+  FD_DTRACE_PROBE_2( quic_handle_data_blocked, context->conn->our_conn_id, data->max_data );
 
   /* Since we do not do runtime allocations, we will not attempt
-     to find more memory in the case of DATA_BLOCKED
-     We return 0 (bytes consumed), since this frame does not
-     require any additional bytes from the packet */
+     to find more memory in the case of DATA_BLOCKED. */
+  (void)data;
   return 0;
 }
 
 static ulong
-fd_quic_frame_handle_stream_data_blocked_frame(
-      void *                                vp_context,
-      fd_quic_stream_data_blocked_frame_t * data,
-      uchar const *                         p,
-      ulong                                 p_sz ) {
-  (void)vp_context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
+fd_quic_handle_stream_data_blocked_frame(
+    fd_quic_frame_ctx_t *                 context,
+    fd_quic_stream_data_blocked_frame_t * data,
+    uchar const *                         p    FD_PARAM_UNUSED,
+    ulong                                 p_sz FD_PARAM_UNUSED ) {
+  FD_DTRACE_PROBE_3( quic_handle_stream_data_blocked, context->conn->our_conn_id, data->stream_id, data->max_stream_data );
 
   /* Since we do not do runtime allocations, we will not attempt
-     to find more memory in the case of STREAM_DATA_BLOCKED
-     We return 0 (bytes consumed), since this frame does not
-     require any additional bytes from the packet */
+     to find more memory in the case of STREAM_DATA_BLOCKED.*/
+  (void)data;
   return 0;
 }
 
 static ulong
-fd_quic_frame_handle_streams_blocked_frame(
-    void *                            vp_context,
+fd_quic_handle_streams_blocked_frame(
+    fd_quic_frame_ctx_t *             context,
     fd_quic_streams_blocked_frame_t * data,
-    uchar const *                     p,
-    ulong                             p_sz ) {
-  (void)vp_context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
+    uchar const *                     p    FD_PARAM_UNUSED,
+    ulong                             p_sz FD_PARAM_UNUSED ) {
+  FD_DTRACE_PROBE_2( quic_handle_streams_blocked_frame, context->conn->our_conn_id, data->max_streams );
 
   /* STREAMS_BLOCKED should be sent by client when it wants
      to use a new stream, but is unable to due to the max_streams
      value
-     We can support this in the future, but the solana-tpu client
-     does not currently use it
-     We could make a callback to allow the tile to choose whether
-     to force close a connection to free up streams */
-
+     We can support this in the future, but as of 2024-Dec, the
+     Agave TPU client does not currently use it */
+  (void)data;
   return 0;
 }
 
 static ulong
-fd_quic_frame_handle_new_conn_id_frame(
-    void *                        vp_context,
+fd_quic_handle_new_conn_id_frame(
+    fd_quic_frame_ctx_t *         context,
     fd_quic_new_conn_id_frame_t * data,
-    uchar const *                 p,
-    ulong                         p_sz ) {
-  (void)vp_context;
+    uchar const *                 p    FD_PARAM_UNUSED,
+    ulong                         p_sz FD_PARAM_UNUSED ) {
+  /* FIXME This is a mandatory feature but we don't support it yet */
+  FD_DTRACE_PROBE_1( quic_handle_new_conn_id_frame, context->conn->our_conn_id );
   (void)data;
-  (void)p;
-  (void)p_sz;
-
-  /* FIXME implement */
-
-  return FD_QUIC_SUCCESS;
-}
-
-static ulong
-fd_quic_frame_handle_retire_conn_id_frame(
-      void *                           vp_context,
-      fd_quic_retire_conn_id_frame_t * data,
-      uchar const *                    p,
-      ulong                            p_sz ) {
-  (void)vp_context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  FD_DEBUG( FD_LOG_DEBUG(( "retire_conn_id requested" )); )
-
-  /* FIXME implement */
-
   return 0;
 }
 
 static ulong
-fd_quic_frame_handle_path_challenge_frame(
-    void * context,
+fd_quic_handle_retire_conn_id_frame(
+    fd_quic_frame_ctx_t *            context,
+    fd_quic_retire_conn_id_frame_t * data,
+    uchar const *                    p    FD_PARAM_UNUSED,
+    ulong                            p_sz FD_PARAM_UNUSED ) {
+  /* FIXME This is a mandatory feature but we don't support it yet */
+  FD_DTRACE_PROBE_1( quic_handle_retire_conn_id_frame, context->conn->our_conn_id );
+  (void)data;
+  FD_DEBUG( FD_LOG_DEBUG(( "retire_conn_id requested" )); )
+  return 0;
+}
+
+static ulong
+fd_quic_handle_path_challenge_frame(
+    fd_quic_frame_ctx_t *            context,
     fd_quic_path_challenge_frame_t * data,
-    uchar const * p,
-    ulong  p_sz) {
+    uchar const *                    p    FD_PARAM_UNUSED,
+    ulong                            p_sz FD_PARAM_UNUSED ) {
   /* FIXME The recipient of this frame MUST generate a PATH_RESPONSE frame (Section 19.18) containing the same Data value. */
-  (void)context; (void)data; (void)p; (void)p_sz;
+  FD_DTRACE_PROBE_1( quic_handle_path_challenge_frame, context->conn->our_conn_id );
+  (void)data;
   return 0UL;
 }
 
 static ulong
-fd_quic_frame_handle_path_response_frame(
-    void * context,
+fd_quic_handle_path_response_frame(
+    fd_quic_frame_ctx_t *           context,
     fd_quic_path_response_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
+    uchar const *                   p    FD_PARAM_UNUSED,
+    ulong                           p_sz FD_PARAM_UNUSED ) {
   /* We don't generate PATH_CHALLENGE frames, so this frame should never arrive */
-  (void)context; (void)data; (void)p; (void)p_sz;
+  FD_DTRACE_PROBE_1( quic_handle_path_response_frame, context->conn->our_conn_id );
+  (void)data;
   return 0UL;
 }
 
 static void
-fd_quic_frame_handle_conn_close_frame(
-    void *                       vp_context ) {
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-
+fd_quic_handle_conn_close_frame( fd_quic_conn_t * conn ) {
   /* frame type 0x1c means no error, or only error at quic level
      frame type 0x1d means error at application layer
      TODO provide APP with this info */
   FD_DEBUG( FD_LOG_DEBUG(( "peer requested close" )) );
 
-  switch( context.conn->state ) {
+  switch( conn->state ) {
     case FD_QUIC_CONN_STATE_PEER_CLOSE:
     case FD_QUIC_CONN_STATE_ABORT:
     case FD_QUIC_CONN_STATE_CLOSE_PENDING:
       return;
 
     default:
-      context.conn->state = FD_QUIC_CONN_STATE_PEER_CLOSE;
+      conn->state = FD_QUIC_CONN_STATE_PEER_CLOSE;
   }
 
-  context.conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-  fd_quic_svc_schedule1( context.conn, FD_QUIC_SVC_INSTANT );
+  conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
 }
 
 static ulong
-fd_quic_frame_handle_conn_close_0_frame(
-    void *                         vp_context,
+fd_quic_handle_conn_close_0_frame(
+    fd_quic_frame_ctx_t *          context,
     fd_quic_conn_close_0_frame_t * data,
     uchar const *                  p,
     ulong                          p_sz ) {
@@ -5432,7 +5388,7 @@ fd_quic_frame_handle_conn_close_0_frame(
 
   ulong reason_phrase_length = data->reason_phrase_length;
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
-    fd_quic_frame_error( vp_context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5442,7 +5398,7 @@ fd_quic_frame_handle_conn_close_0_frame(
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
     memcpy( reason_buf, p, reason_len );
 
-    FD_LOG_WARNING(( "fd_quic_frame_handle_conn_close_frame - "
+    FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
         "frame_type: %lx  "
         "reason: %s",
@@ -5451,14 +5407,14 @@ fd_quic_frame_handle_conn_close_0_frame(
         reason_buf ));
   );
 
-  fd_quic_frame_handle_conn_close_frame( vp_context );
+  fd_quic_handle_conn_close_frame( context->conn );
 
   return reason_phrase_length;
 }
 
 static ulong
-fd_quic_frame_handle_conn_close_1_frame(
-    void *                         vp_context,
+fd_quic_handle_conn_close_1_frame(
+    fd_quic_frame_ctx_t *          context,
     fd_quic_conn_close_1_frame_t * data,
     uchar const *                  p,
     ulong                          p_sz ) {
@@ -5466,7 +5422,7 @@ fd_quic_frame_handle_conn_close_1_frame(
 
   ulong reason_phrase_length = data->reason_phrase_length;
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
-    fd_quic_frame_error( vp_context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -5476,40 +5432,36 @@ fd_quic_frame_handle_conn_close_1_frame(
     ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
     memcpy( reason_buf, p, reason_len );
 
-    FD_LOG_WARNING(( "fd_quic_frame_handle_conn_close_frame - "
+    FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
         "reason: %s",
         data->error_code,
         reason_buf ));
   );
 
-  fd_quic_frame_handle_conn_close_frame( vp_context );
+  fd_quic_handle_conn_close_frame( context->conn );
 
   return reason_phrase_length;
 }
 
 static ulong
-fd_quic_frame_handle_handshake_done_frame(
-    void *                           vp_context,
+fd_quic_handle_handshake_done_frame(
+    fd_quic_frame_ctx_t *            context,
     fd_quic_handshake_done_frame_t * data,
-    uchar const *                    p,
-    ulong                            p_sz) {
+    uchar const *                    p    FD_PARAM_UNUSED,
+    ulong                            p_sz FD_PARAM_UNUSED ) {
+  fd_quic_conn_t * conn = context->conn;
   (void)data;
-  (void)p;
-  (void)p_sz;
-
-  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-  fd_quic_conn_t *        conn    = context.conn;
 
   /* servers must treat receipt of HANDSHAKE_DONE as a protocol violation */
   if( FD_UNLIKELY( conn->server ) ) {
-    fd_quic_frame_error( &context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
   if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ) {
     /* still handshaking... assume packet was reordered */
-    context.pkt->ack_flag |= ACK_FLAG_CANCEL;
+    context->pkt->ack_flag |= ACK_FLAG_CANCEL;
     return 0UL;
   } else if( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
     /* duplicate frame or conn closing? */

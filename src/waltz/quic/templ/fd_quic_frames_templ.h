@@ -197,8 +197,7 @@ FD_TEMPL_DEF_STRUCT_END(max_stream_data_frame)
    Figure 35: MAX_STREAMS Frame Format */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(max_streams_frame)
-  FD_TEMPL_MBR_FRAME_TYPE( type, 0x12,0x13 )
-  FD_TEMPL_MBR_FRAME_TYPE_FLAG( stream_type, 0x01 )
+  FD_TEMPL_MBR_ELEM( type, uchar )
   FD_TEMPL_MBR_ELEM_VARINT( max_streams, ulong )
 FD_TEMPL_DEF_STRUCT_END(max_streams_frame)
 
