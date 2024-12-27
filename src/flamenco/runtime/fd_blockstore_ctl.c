@@ -208,6 +208,9 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
                                                 //                     (int)FD_SHRED_DATA_REF_TICK_MASK );
         
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (uchar *)data + micro->off );
+        //uchar* poh = hdr->hash;
+        ulong hashcnt = hdr->hash_cnt;
+        FD_LOG_NOTICE(("hash count since prev batch sent: %lu, curr batch tick: %d", hashcnt, curr_batch_tick));
         
         row.txn_cnt = hdr->txn_cnt;
 
