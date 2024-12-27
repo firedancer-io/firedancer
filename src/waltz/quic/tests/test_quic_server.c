@@ -1,14 +1,10 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
-#include "../../tls/test_tls_helper.h"
-#include "../../../ballet/x509/fd_x509_mock.h"
 
 int server_complete = 0;
 
 /* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
-
-extern FILE * fd_quic_test_pcap;
 
 int
 main( int argc, char ** argv ) {

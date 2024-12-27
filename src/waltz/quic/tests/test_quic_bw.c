@@ -153,14 +153,12 @@ main( int     argc,
   fd_quic_virtual_pair_init( &vp, /*a*/ client_quic, /*b*/ server_quic );
 
   fd_quic_netem_t _netem[1];
-  fd_aio_t        netem_aio;
   if( loss>=FLT_EPSILON || reorder>=FLT_EPSILON ) {
     FD_LOG_NOTICE(( "Adding client network emulation (loss=%g reorder=%g)", (double)loss, (double)reorder ));
     fd_quic_netem_t * netem = fd_quic_netem_init( _netem, loss, reorder );
     /* Inject a netem instance along the path */
-    netem_aio = client_quic->aio_tx;
     fd_quic_set_aio_net_tx( client_quic, &netem->local );
-    netem->dst = &netem_aio;
+    netem->dst = vp.aio_a2b;
   }
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
