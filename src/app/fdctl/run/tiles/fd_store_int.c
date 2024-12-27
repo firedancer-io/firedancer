@@ -406,8 +406,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
     out_buf += sizeof(fd_hash_t);
 
-    uchar * block_data = fd_blockstore_block_data_laddr( ctx->blockstore, block );
-
     FD_SCRATCH_SCOPE_BEGIN {
       ulong caught_up = slot > ctx->store->first_turbine_slot;
       ulong behind = ctx->store->curr_turbine_slot - slot;
@@ -432,18 +430,24 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                         slot,
                         caught_up ));
 
+        /* calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
+           sent to the replay tile, sending a maximum of 4096 transactions to the replay tile at a time */
         fd_raw_block_txn_iter_t iter;
         fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
         if( FD_LIKELY( query ) ) {
           iter = query->iter;
         } else {
-          iter = fd_raw_block_txn_iter_init( block_data, block->data_sz );
+          iter = fd_raw_block_txn_iter_init(
+            fd_blockstore_block_data_laddr( ctx->blockstore, block ),
+            fd_blockstore_block_batch_laddr( ctx->blockstore, block ),
+            block->batch_cnt
+          );
         }
 
-        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( block_data, iter ) ) {
+        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( iter ) ) {
           /* TODO: remove magic number for txns per send */
           if( txn_cnt == 4096 ) break;
-          fd_raw_block_txn_iter_ele( block_data, iter, txns + txn_cnt );
+          fd_raw_block_txn_iter_ele( iter, txns + txn_cnt );
           txn_cnt++;
         }
 
