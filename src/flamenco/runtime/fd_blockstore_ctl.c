@@ -9,10 +9,10 @@ sudo /data/emwang/agave/release/agave-ledger-tool -l /data/emwang/rocksdb.tar.zs
  */
 
 #define INITIALIZE_BLOCKSTORE( blockstore )                                              \
-    ulong shred_max = 1 << 15;                                                           \
-    ulong idx_max = 1 << 15;                                                             \
-    ulong block_max = 1 << 15;                                                           \
-    ulong txn_max = 1 << 15;                                                             \
+    ulong shred_max = 1 << 17;                                                           \
+    ulong idx_max = 1 << 12;                                                             \
+    ulong block_max = 1 << 17;                                                           \
+    ulong txn_max = 1 << 17;                                                             \
     void * mem = fd_wksp_alloc_laddr( wksp,                                              \
                                         fd_blockstore_align(),                           \
                                         fd_blockstore_footprint( shred_max,              \
@@ -429,6 +429,8 @@ main( int argc, char ** argv ) {
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
     batch_write_header(csv);
     aggregate_batch_entries( wksp, folder, csv );
+  } else if( fd_env_strip_cmdline_contains( &argc, &argv, "info")){
+    investigate_shred( wksp, folder );
   } else {
     FD_LOG_WARNING(("Please specify either microblock or batch in the command line. No action taken."));
   }
