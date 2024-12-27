@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_waltz_quic_fd_quic_common_h
 #define HEADER_fd_src_waltz_quic_fd_quic_common_h
 
-#include "../../util/fd_util.h"
+#include "../../util/fd_util_base.h"
 
 #define FD_QUIC_PARSE_FAIL (~(ulong)0)
 #define FD_QUIC_ENCODE_FAIL ( ~(ulong)0)

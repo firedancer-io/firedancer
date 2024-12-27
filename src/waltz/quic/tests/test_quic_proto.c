@@ -1,3 +1,4 @@
+#include "../../../util/fd_util.h"
 #include "../fd_quic_common.h"
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"

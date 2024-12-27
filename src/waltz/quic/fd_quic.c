@@ -1305,7 +1305,8 @@ fd_quic_gen_initial_secret_and_keys(
 static ulong
 fd_quic_send_retry( fd_quic_t *               quic,
                     fd_quic_pkt_t *           pkt,
-                    fd_quic_conn_id_t const * orig_dst_conn_id,
+                    fd_quic_conn_id_t const * odcid,
+                    fd_quic_conn_id_t const * scid,
                     ulong                     new_conn_id,
                     uchar const               dst_mac_addr_u6[ 6 ],
                     uint                      dst_ip_addr,
@@ -1314,7 +1315,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
-  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, orig_dst_conn_id, new_conn_id, state->now );
+  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, state->now );
 
   uchar * tx_ptr = retry_pkt         + retry_pkt_sz;
   ulong   tx_rem = sizeof(retry_pkt) - retry_pkt_sz;
@@ -1347,7 +1348,8 @@ ulong
 fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_t **         p_conn,
                            fd_quic_pkt_t *           pkt,
-                           fd_quic_conn_id_t const * conn_id,
+                           fd_quic_conn_id_t const * dcid,
+                           fd_quic_conn_id_t const * peer_scid,
                            uchar *                   cur_ptr,
                            ulong                     cur_sz ) {
   fd_quic_conn_t * conn = *p_conn;
@@ -1404,7 +1406,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   if( FD_UNLIKELY( !conn ) ) {
 
-    fd_quic_conn_id_t odcid = *conn_id;
+    fd_quic_conn_id_t odcid = *dcid;
 
     if( quic->config.role==FD_QUIC_ROLE_SERVER ) {
       /* According to RFC 9000 Section 14.1, INITIAL packets less than a certain length
@@ -1437,21 +1439,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       uint   dst_ip_addr        = FD_LOAD( uint, pkt->ip4->saddr_c );
       uchar  dst_mac_addr_u6[6] = {0};
       memcpy( dst_mac_addr_u6, pkt->eth->src, 6 );
-
-      /* TODO in the case of FD_IP_PROBE_RQD, we should initiate an ARP probe
-         But in this case, we don't want to keep a full connection state
-         Change this to allow a small queue of pending ARP requests to
-         be processed out-of-band */
-
-      /* For now, only supporting QUIC v1.
-         QUIC v2 is an active IETF draft as of 2023-Mar:
-         https://datatracker.ietf.org/doc/draft-ietf-quic-v2/ */
-
-      uint version = pkt->long_hdr->version;
-      if( FD_UNLIKELY( version != 1u ) ) {
-        /* FIXME this should already have been checked */
-        return FD_QUIC_PARSE_FAIL;
-      }
 
       /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
          Take template from state and mutate certain params in-place.
@@ -1492,7 +1479,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
-                &odcid, new_conn_id_u64,
+                &odcid, peer_scid, new_conn_id_u64,
                 dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
           }
@@ -1611,7 +1598,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn->tls_hs = tls_hs;
       quic->metrics.hs_created_cnt++;
 
-      fd_quic_gen_initial_secret_and_keys( conn, conn_id, /* is_server */ 1 );
+      fd_quic_gen_initial_secret_and_keys( conn, dcid, /* is_server */ 1 );
     } else {
       /* connection may have been torn down */
       FD_DEBUG( FD_LOG_DEBUG(( "unknown connection ID" )); )
@@ -2154,19 +2141,29 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
   /* hdr_form is 1 bit */
   if( hdr_form ) { /* long header */
-    fd_quic_long_hdr_t * long_hdr = pkt->long_hdr;
+    fd_quic_long_hdr_t long_hdr[1];
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr+1, cur_sz-1 );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_long_hdr failed" )); )
       return FD_QUIC_PARSE_FAIL;
     }
 
+    /* For now, only supporting QUIC v1.
+       QUIC v2 is an active IETF draft as of 2023-Mar:
+       https://datatracker.ietf.org/doc/draft-ietf-quic-v2/ */
+    uint version = long_hdr->version;
+    if( FD_UNLIKELY( version != 1u ) ) {
+      /* FIXME this should already have been checked */
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     /* extract the dst connection id */
-    fd_quic_conn_id_t dst_conn_id = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
-    if( dst_conn_id.sz == FD_QUIC_CONN_ID_SZ ) {
-      entry = fd_quic_conn_map_query( state->conn_map, fd_ulong_load_8( dst_conn_id.conn_id ), NULL );
+    fd_quic_conn_id_t dcid = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
+    if( dcid.sz == FD_QUIC_CONN_ID_SZ ) {
+      entry = fd_quic_conn_map_query( state->conn_map, fd_ulong_load_8( dcid.conn_id ), NULL );
       conn  = entry ? entry->conn : NULL;
     }
+    fd_quic_conn_id_t scid = fd_quic_conn_id_new( long_hdr->src_conn_id, long_hdr->src_conn_id_len );
 
     uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
 
@@ -2179,7 +2176,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* long_packet_type is 2 bits, so only four possibilities */
     switch( long_packet_type ) {
       case FD_QUIC_PKT_TYPE_INITIAL:
-        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
+        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dcid, &scid, cur_ptr, cur_sz );
         if( FD_UNLIKELY( !conn ) ) {
           /* FIXME not really a fail - Could be a retry */
           return FD_QUIC_PARSE_FAIL;

@@ -95,18 +95,19 @@ bench_retry_create( void ) {
   uchar retry[ FD_QUIC_RETRY_LOCAL_SZ ];
   fd_quic_pkt_t     const pkt = {0};
   fd_quic_conn_id_t const orig_dst_conn_id = { .sz = 8 };
+  fd_quic_conn_id_t const peer_src_conn_id = { .sz = 16 };
   ulong             const retry_src_conn_id = 1234UL;
 
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
 
-  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, retry_src_conn_id, 7315969UL );
+  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969UL );
   FD_LOG_HEXDUMP_INFO(( "Retry Token", retry+0x1f, sizeof(fd_quic_retry_token_t) ));
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
-    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, retry_src_conn_id, 1UL );
+    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1UL );
     FD_COMPILER_UNPREDICTABLE( retry[0] );
   }
   dt += fd_log_wallclock();

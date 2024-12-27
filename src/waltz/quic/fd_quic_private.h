@@ -121,7 +121,6 @@ struct fd_quic_pkt {
 
   /* the following are the "current" values only. There may be more QUIC packets
      in a UDP datagram */
-  fd_quic_long_hdr_t long_hdr[1];
   ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
   ulong              rcv_time;    /* time packet was received */
   uint               enc_level;   /* encryption level */
@@ -331,7 +330,8 @@ ulong
 fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_t **         p_conn,
                            fd_quic_pkt_t *           pkt,
-                           fd_quic_conn_id_t const * conn_id,
+                           fd_quic_conn_id_t const * dcid,
+                           fd_quic_conn_id_t const * scid,
                            uchar *                   cur_ptr,
                            ulong                     cur_sz );
 

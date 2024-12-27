@@ -1,5 +1,6 @@
 #include "fd_quic_trace.h"
 #include "../../../waltz/quic/log/fd_quic_log_user.h"
+#include <stdio.h>
 
 static int
 before_frag( void * _ctx   FD_FN_UNUSED,

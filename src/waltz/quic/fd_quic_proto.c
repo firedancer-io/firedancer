@@ -6,10 +6,6 @@
    TODO replace with code that passes these checks */
 #pragma GCC diagnostic ignored "-Wtype-limits"
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-
 #include "fd_quic_types.h"
 #include "fd_quic_common.h"
 
