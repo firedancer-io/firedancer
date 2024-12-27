@@ -1661,6 +1661,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                 pkt_number,
                                 &conn->keys[0][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
+    FD_DTRACE_PROBE_3( "quic_err_decrypt_initial_pkt", pkt->ip4, conn->our_conn_id, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -1742,7 +1743,7 @@ fd_quic_handle_v1_handshake(
   }
 
   if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_handshake_id ) ) ) {
-    quic->metrics.pkt_decrypt_fail_cnt++;
+    quic->metrics.pkt_no_key_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1811,6 +1812,7 @@ fd_quic_handle_v1_handshake(
                                 &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
+    FD_DTRACE_PROBE_3( "quic_err_decrypt_handshake_pkt", pkt->ip4, conn->our_conn_id, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2028,7 +2030,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   pkt->enc_level = fd_quic_enc_level_appdata_id;
   if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) {
-    quic->metrics.pkt_decrypt_fail_cnt++;
+    quic->metrics.pkt_no_key_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -2068,6 +2070,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                                 pkt_number,
                                 keys ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
+    FD_DTRACE_PROBE_3( "quic_err_decrypt_1rtt_pkt", pkt->ip4, conn->our_conn_id, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
