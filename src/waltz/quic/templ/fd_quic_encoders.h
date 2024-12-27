@@ -78,19 +78,19 @@
 
 
 // VAR currently assumed to be aligned bytes
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)                   \
     tmp_len = frame->LEN_NAME;                                         \
-    if( FD_UNLIKELY( tmp_len*8 < BITS_MIN || tmp_len*8 > BITS_MAX ) ) {\
+    if( FD_UNLIKELY( tmp_len<(MIN) || tmp_len>(MAX) ) ) {              \
       FD_LOG_DEBUG(( "buffer overflow encoding variable length field." \
             "  field: " #NAME                                          \
-            "  BITS_MIN: %lu"                                          \
-            "  BITS_MAX: %lu"                                          \
+            "  MIN: %lu"                                               \
+            "  MAX: %lu"                                               \
             "  " #LEN_NAME ": %lu"                                     \
-            "  tmp_len*8: %lu\n",                                      \
-            (ulong)BITS_MIN,                                           \
-            (ulong)BITS_MAX,                                           \
+            "  tmp_len: %lu\n",                                        \
+            (ulong)MIN,                                                \
+            (ulong)MAX,                                                \
             (ulong)frame->LEN_NAME,                                    \
-            (ulong)( tmp_len * 8 ) ));                                 \
+            (ulong)tmp_len ));                                         \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( (ulong)buf + tmp_len > (ulong)buf_end ) ) {       \
@@ -101,26 +101,8 @@
 
 
 // VAR currently assumed to be aligned bytes
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
-    tmp_len = frame->LEN_NAME;                                         \
-    if( FD_UNLIKELY( tmp_len*8 < BITS_MIN || tmp_len*8 > BITS_MAX ) ) {\
-      FD_LOG_DEBUG(( "buffer overflow encoding variable length field." \
-            "  field: " #NAME                                          \
-            "  BITS_MIN: %lu"                                          \
-            "  BITS_MAX: %lu"                                          \
-            "  " #LEN_NAME ": %lu"                                     \
-            "  tmp_len*8: %lu\n",                                      \
-            (ulong)BITS_MIN,                                           \
-            (ulong)BITS_MAX,                                           \
-            (ulong)frame->LEN_NAME,                                    \
-            (ulong)( tmp_len * 8 ) ));                                 \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    if( FD_UNLIKELY( (ulong)buf + tmp_len > (ulong)buf_end ) ) {       \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    fd_memcpy( buf, frame->NAME, tmp_len );                            \
-    buf += tmp_len;
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)     \
+    FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)
 
 /* ARRAY is an array of elements, each of the same size,
    with length implied by the packet size

@@ -15,11 +15,11 @@
 
 /* long header except first byte */
 FD_TEMPL_DEF_STRUCT_BEGIN(long_hdr)
-  FD_TEMPL_MBR_ELEM    ( version,         uint                   )
-  FD_TEMPL_MBR_ELEM    ( dst_conn_id_len, uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR( dst_conn_id,     0,160, dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM    ( src_conn_id_len, uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR( src_conn_id,     0,160, src_conn_id_len )
+  FD_TEMPL_MBR_ELEM    ( version,         uint                  )
+  FD_TEMPL_MBR_ELEM    ( dst_conn_id_len, uchar                 )
+  FD_TEMPL_MBR_ELEM_VAR( dst_conn_id,     0,20, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM    ( src_conn_id_len, uchar                 )
+  FD_TEMPL_MBR_ELEM_VAR( src_conn_id,     0,20, src_conn_id_len )
 FD_TEMPL_DEF_STRUCT_END(long_hdr)
 
 
@@ -37,14 +37,14 @@ FD_TEMPL_DEF_STRUCT_END(long_hdr)
    Figure 14: Version Negotiation Packet */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(version_neg)
-  FD_TEMPL_MBR_ELEM      ( h0,                 uchar                          )
-  FD_TEMPL_MBR_ELEM      ( version,            uint                           )
-  FD_TEMPL_MBR_ELEM      ( dst_conn_id_len,    uchar                          )
-  FD_TEMPL_MBR_ELEM_VAR  ( dst_conn_id,        0,2040, dst_conn_id_len        )
-  FD_TEMPL_MBR_ELEM      ( src_conn_id_len,    uchar                          )
-  FD_TEMPL_MBR_ELEM_VAR  ( src_conn_id,        0,2040, src_conn_id_len        )
+  FD_TEMPL_MBR_ELEM        ( h0,                 uchar                      )
+  FD_TEMPL_MBR_ELEM        ( version,            uint                       )
+  FD_TEMPL_MBR_ELEM        ( dst_conn_id_len,    uchar                      )
+  FD_TEMPL_MBR_ELEM_VAR_RAW( dst_conn_id,        0,255, dst_conn_id_len     )
+  FD_TEMPL_MBR_ELEM        ( src_conn_id_len,    uchar                      )
+  FD_TEMPL_MBR_ELEM_VAR_RAW( src_conn_id,        0,255, src_conn_id_len     )
   /* TODO determine proper range here */
-  FD_TEMPL_MBR_ELEM_ARRAY( supported_versions, uint,   1,FD_QUIC_MAX_VERSIONS )
+  FD_TEMPL_MBR_ELEM_ARRAY( supported_versions, uint, 1,FD_QUIC_MAX_VERSIONS )
 FD_TEMPL_DEF_STRUCT_END(version_neg)
 
 
@@ -72,19 +72,18 @@ FD_TEMPL_DEF_STRUCT_END(version_neg)
    The first CRYPTO frame sent always begins at an offset of 0 */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(initial)
-  FD_TEMPL_MBR_ELEM          ( h0,               uchar                   )
-  FD_TEMPL_MBR_ELEM          ( version,          uint                    )
-  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                   )
-  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160,  dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                   )
-  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160,  src_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( h0,               uchar                  )
+  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,20,  dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,20,  src_conn_id_len )
 
-  /* FIXME use a pointer here */
-  FD_TEMPL_MBR_ELEM_VARINT   ( token_len,        ulong                   )
-  FD_TEMPL_MBR_ELEM_VAR      ( token,            0,2048, token_len       )
+  FD_TEMPL_MBR_ELEM_VARINT   ( token_len,        ulong                  )
+  FD_TEMPL_MBR_ELEM_VAR_RAW  ( token,            0,256, token_len       )
 
-  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                   )
-  FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                   )
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                  )
+  FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                  )
 
   // CRYPTO frames, etc, may start here
 FD_TEMPL_DEF_STRUCT_END(initial)
@@ -109,15 +108,15 @@ FD_TEMPL_DEF_STRUCT_END(initial)
    Figure 17: Handshake Protected Packet */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(handshake)
-  FD_TEMPL_MBR_ELEM          ( h0,               uchar                  )
-  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
-  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( h0,               uchar                 )
+  FD_TEMPL_MBR_ELEM          ( version,          uint                  )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                 )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,20, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                 )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,20, src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                  )
-  FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                  )
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                 )
+  FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                 )
 
   // payload starts here
 FD_TEMPL_DEF_STRUCT_END(handshake)
@@ -139,12 +138,12 @@ FD_TEMPL_DEF_STRUCT_END(handshake)
    }
  Figure 18: Retry Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_hdr)
-  FD_TEMPL_MBR_ELEM          ( h0,                  uchar                  )
-  FD_TEMPL_MBR_ELEM          ( version,             uint                   )
-  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,     uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,         0,160, dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         8,160, src_conn_id_len )
+  FD_TEMPL_MBR_ELEM    ( h0,              uchar                 )
+  FD_TEMPL_MBR_ELEM    ( version,         uint                  )
+  FD_TEMPL_MBR_ELEM    ( dst_conn_id_len, uchar                 )
+  FD_TEMPL_MBR_ELEM_VAR( dst_conn_id,     0,20, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM    ( src_conn_id_len, uchar                 )
+  FD_TEMPL_MBR_ELEM_VAR( src_conn_id,     0,20, src_conn_id_len )
 FD_TEMPL_DEF_STRUCT_END(retry_hdr)
 
 
@@ -163,9 +162,9 @@ FD_TEMPL_DEF_STRUCT_END(retry_hdr)
    }
    Figure 19: 1-RTT Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(one_rtt)
-  FD_TEMPL_MBR_ELEM       ( h0,              uchar                  )
-  FD_TEMPL_MBR_ELEM_HIDDEN( dst_conn_id_len, uint                   )
-  FD_TEMPL_MBR_ELEM_VAR   ( dst_conn_id,     0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM       ( h0,              uchar                 )
+  FD_TEMPL_MBR_ELEM_HIDDEN( dst_conn_id_len, uint                  )
+  FD_TEMPL_MBR_ELEM_VAR   ( dst_conn_id,     0,20, dst_conn_id_len )
 
   FD_TEMPL_MBR_ELEM_PKTNUM( pkt_num,         ulong                  )
 
@@ -192,7 +191,7 @@ FD_TEMPL_DEF_STRUCT_END(one_rtt)
 FD_TEMPL_DEF_STRUCT_BEGIN(transport_param_entry)
   FD_TEMPL_MBR_ELEM_VARINT ( param_id,  ulong             )
   FD_TEMPL_MBR_ELEM_VARINT ( param_len, ulong             )
-  FD_TEMPL_MBR_ELEM_VAR_RAW( param_val, 0,8192, param_len )
+  FD_TEMPL_MBR_ELEM_VAR_RAW( param_val, 0,1024, param_len )
 FD_TEMPL_DEF_STRUCT_END(transport_param_entry)
 
 
@@ -252,11 +251,11 @@ FD_TEMPL_DEF_STRUCT_END(ecn_counts_frag)
 /* 18.2. Transport Parameter Definitions > Preferred Address */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(preferred_address)
-  FD_TEMPL_MBR_ELEM_FIXED( ipv4_address, uchar,  4          )
-  FD_TEMPL_MBR_ELEM      ( ipv4_port,    ushort             )
-  FD_TEMPL_MBR_ELEM_FIXED( ipv6_address, uchar, 16          )
-  FD_TEMPL_MBR_ELEM      ( ipv6_port,    ushort             )
-  FD_TEMPL_MBR_ELEM      ( conn_id_len,  uchar              )
-  FD_TEMPL_MBR_ELEM_VAR  ( conn_id,      0,160, conn_id_len )
-  FD_TEMPL_MBR_ELEM_FIXED( reset_token,  uchar, 16          )
+  FD_TEMPL_MBR_ELEM_FIXED( ipv4_address, uchar,  4         )
+  FD_TEMPL_MBR_ELEM      ( ipv4_port,    ushort            )
+  FD_TEMPL_MBR_ELEM_FIXED( ipv6_address, uchar, 16         )
+  FD_TEMPL_MBR_ELEM      ( ipv6_port,    ushort            )
+  FD_TEMPL_MBR_ELEM      ( conn_id_len,  uchar             )
+  FD_TEMPL_MBR_ELEM_VAR  ( conn_id,      0,20, conn_id_len )
+  FD_TEMPL_MBR_ELEM_FIXED( reset_token,  uchar, 16         )
 FD_TEMPL_DEF_STRUCT_END(preferred_address)

@@ -18,13 +18,12 @@
    encoding still needs the member, and the length */
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                    \
     fd_quic_##TYPE NAME;                                       \
-    unsigned       NAME##_pnoff;                               \
-    unsigned       NAME##_bits;
+    unsigned       NAME##_pnoff;
 
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
-    uchar NAME[(BITS_MAX+7)>>3];
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME) \
+    uchar NAME[MAX];
 
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME) \
     uchar const * NAME;
 
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \

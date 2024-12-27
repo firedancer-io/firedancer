@@ -4,6 +4,7 @@
 /* test_quic_client_flood sends a flood of QUIC INITIAL frames. */
 
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"

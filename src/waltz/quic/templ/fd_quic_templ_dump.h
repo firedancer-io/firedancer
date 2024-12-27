@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                           \
   static inline                                                   \
   void                                                            \
@@ -31,27 +33,19 @@
     printf( "  " #NAME " offset: %u\n", data->NAME##_pnoff );
 
 
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME) \
     do { \
       printf( "  " #NAME ": " ); \
       ulong tmp_len = data->LEN_NAME; \
-      if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
+      if( tmp_len>(MAX) ) tmp_len = MAX; \
       for( ulong j = 0; j < tmp_len; ++j ) { \
         printf( " %2.2x", data->NAME[j] ); \
       } \
       printf( "\n" ); \
     } while(0);
 
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
-    do { \
-      printf( "  " #NAME ": " ); \
-      ulong tmp_len = data->LEN_NAME; \
-      if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
-      for( ulong j = 0; j < tmp_len; ++j ) { \
-        printf( " %2.2x", data->NAME[j] ); \
-      } \
-      printf( "\n" ); \
-    } while(0);
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME) \
+    FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)
 
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \
     printf( "  " #NAME " count: %u\n", data->NAME##_len ); \

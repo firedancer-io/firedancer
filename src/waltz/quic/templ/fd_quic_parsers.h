@@ -77,11 +77,9 @@
 
 
 // VAR currently assumed to be aligned bytes
-// BITS_MIN and BITS_MAX are always divisible by 8
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)                   \
     tmp_len = out->LEN_NAME;                                           \
-    if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
-                     ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
+    if( FD_UNLIKELY( tmp_len<(MIN) || tmp_len>(MAX) ) ) {              \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \
@@ -94,11 +92,9 @@
 
 
 // VAR currently assumed to be aligned bytes
-// BITS_MIN and BITS_MAX are always divisible by 8
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)               \
     tmp_len = out->LEN_NAME;                                           \
-    if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
-                     ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
+    if( FD_UNLIKELY( tmp_len<(MIN) || tmp_len>(MAX) ) ) {              \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \

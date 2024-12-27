@@ -37,13 +37,13 @@
 
 
 /* VAR currently assumed to be aligned bytes */
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)           \
-    char NAME[(BITS_MAX+7u)>>3u];
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)           \
+    char NAME[MAX];
 
 
 /* VAR_RAW currently assumed to be aligned bytes */
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)       \
-    char NAME[(BITS_MAX+7u)>>3u];
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)       \
+    char NAME[MAX];
 
 /* determine the footprint of encoded ARRAY */
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)           \
