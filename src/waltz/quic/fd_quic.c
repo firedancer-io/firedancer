@@ -3599,7 +3599,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       case fd_quic_enc_level_initial_id: {
         fd_quic_initial_t initial = {0};
         initial.h0               = fd_quic_initial_h0( pkt_num_len );
-        initial.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
         initial.version          = 1;
         initial.dst_conn_id_len  = peer_conn_id->sz;
         // .dst_conn_id
@@ -3613,11 +3612,11 @@ fd_quic_conn_tx( fd_quic_t *      quic,
         memcpy(    initial.src_conn_id, &conn_id,              FD_QUIC_CONN_ID_SZ );
 
         /* Initial packets sent by the server MUST set the Token Length field to 0. */
+        initial.token = conn->token;
         if( conn->quic->config.role == FD_QUIC_ROLE_CLIENT && conn->token_len ) {
-          initial.token_len       = conn->token_len;
-          fd_memcpy( initial.token, &conn->token, conn->token_len );
+          initial.token_len = conn->token_len;
         } else {
-          initial.token_len       = 0;
+          initial.token_len = 0;
         }
 
         hdr_sz = fd_quic_encode_initial( cur_ptr, cur_sz, &initial );
@@ -3627,9 +3626,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
       case fd_quic_enc_level_handshake_id: {
         fd_quic_handshake_t handshake = {0};
-        handshake.h0           = fd_quic_handshake_h0( pkt_num_len );
-        handshake.pkt_num_bits = 4 * 8;  /* actual number of bits to encode */
-        handshake.version      = 1;
+        handshake.h0      = fd_quic_handshake_h0( pkt_num_len );
+        handshake.version = 1;
 
         /* destination */
         fd_memcpy( handshake.dst_conn_id, peer_conn_id->conn_id, peer_conn_id->sz );
@@ -3650,8 +3648,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       case fd_quic_enc_level_appdata_id:
       {
         fd_quic_one_rtt_t one_rtt = {0};
-        one_rtt.h0           = fd_quic_one_rtt_h0( /* spin */ 0, !!key_phase_tx, pkt_num_len );
-        one_rtt.pkt_num_bits = 4 * 8;      /* actual number of bits to encode */
+        one_rtt.h0 = fd_quic_one_rtt_h0( /* spin */ 0, !!key_phase_tx, pkt_num_len );
 
         /* destination */
         fd_memcpy( one_rtt.dst_conn_id, peer_conn_id->conn_id, peer_conn_id->sz );

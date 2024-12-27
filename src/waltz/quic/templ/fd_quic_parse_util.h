@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "../fd_quic_common.h"
+#include "../../../util/bits/fd_bits.h"
 
 static inline uint
 fd_quic_varint_min_sz_unsafe( ulong val ) {

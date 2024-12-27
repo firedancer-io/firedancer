@@ -34,13 +34,13 @@
 
 
 /* VAR currently assumed to be aligned bytes */
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)           \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)                     \
     tmp_len = frame->LEN_NAME;                                           \
     buf += tmp_len;
 
 
 /* VAR_RAW currently assumed to be aligned bytes */
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)       \
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)                 \
     tmp_len = frame->LEN_NAME;                                           \
     buf += tmp_len;
 
