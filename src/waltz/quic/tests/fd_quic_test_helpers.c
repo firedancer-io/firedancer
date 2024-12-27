@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <net/if.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -209,6 +210,9 @@ fd_quic_virtual_pair_direct( fd_quic_virtual_pair_t * pair,
 
   fd_quic_set_aio_net_tx( quic_a, rx_b );
   fd_quic_set_aio_net_tx( quic_b, rx_a );
+
+  pair->aio_a2b = rx_b;
+  pair->aio_b2a = rx_a;
 }
 
 static void
@@ -229,13 +233,16 @@ fd_quic_virtual_pair_pcap( fd_quic_virtual_pair_t * pair,
 
   /* Install captures */
 
-  FD_TEST( fd_aio_pcapng_join( &pair->quic_b2a, rx_a, pcap ) );
-  FD_TEST( fd_aio_pcapng_join( &pair->quic_a2b, rx_b, pcap ) );
+  FD_TEST( fd_aio_pcapng_join( &pair->pcapng_b2a, rx_a, pcap ) );
+  FD_TEST( fd_aio_pcapng_join( &pair->pcapng_a2b, rx_b, pcap ) );
 
   /* Set send target */
 
-  fd_quic_set_aio_net_tx( quic_a, fd_aio_pcapng_get_aio( &pair->quic_a2b ) );
-  fd_quic_set_aio_net_tx( quic_b, fd_aio_pcapng_get_aio( &pair->quic_b2a ) );
+  fd_quic_set_aio_net_tx( quic_a, fd_aio_pcapng_get_aio( &pair->pcapng_a2b ) );
+  fd_quic_set_aio_net_tx( quic_b, fd_aio_pcapng_get_aio( &pair->pcapng_b2a ) );
+
+  pair->aio_a2b = &pair->pcapng_a2b.local;
+  pair->aio_b2a = &pair->pcapng_b2a.local;
 }
 
 void
@@ -251,9 +258,9 @@ fd_quic_virtual_pair_init( fd_quic_virtual_pair_t * pair,
 
 void
 fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair ) {
-  if( pair->quic_a2b.pcapng ) {
-    FD_TEST( fd_aio_pcapng_leave( &pair->quic_a2b ) );
-    FD_TEST( fd_aio_pcapng_leave( &pair->quic_b2a ) );
+  if( pair->pcapng_a2b.pcapng ) {
+    FD_TEST( fd_aio_pcapng_leave( &pair->pcapng_a2b ) );
+    FD_TEST( fd_aio_pcapng_leave( &pair->pcapng_b2a ) );
   }
   fd_quic_set_aio_net_tx( pair->quic_a, NULL );
   fd_quic_set_aio_net_tx( pair->quic_b, NULL );

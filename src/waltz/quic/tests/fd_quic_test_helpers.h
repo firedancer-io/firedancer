@@ -5,6 +5,7 @@
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
+#include <stdio.h>
 
 #if defined(__linux__)
 #include "../../xdp/fd_xdp.h"
@@ -23,12 +24,18 @@ struct fd_quic_virtual_pair {
   fd_quic_t * quic_a;
   fd_quic_t * quic_b;
 
-  fd_aio_pcapng_t quic_a2b;
-  fd_aio_pcapng_t quic_b2a;
+  /* aio_{a2b,b2a} point to the first hop of each aio chain */
+  fd_aio_t const * aio_a2b;
+  fd_aio_t const * aio_b2a;
+
+  fd_aio_pcapng_t pcapng_a2b;
+  fd_aio_pcapng_t pcapng_b2a;
 };
 typedef struct fd_quic_virtual_pair fd_quic_virtual_pair_t;
 
 FD_PROTOTYPES_BEGIN
+
+extern FILE * fd_quic_test_pcap;
 
 /* fd_quic_test_boot boots the QUIC test environment.
    Should be called after fd_boot().
