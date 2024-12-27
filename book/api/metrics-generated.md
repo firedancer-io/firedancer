@@ -112,6 +112,7 @@
 | quic_&#8203;service_&#8203;duration_&#8203;seconds | `histogram` | Duration spent in service |
 | quic_&#8203;receive_&#8203;duration_&#8203;seconds | `histogram` | Duration spent receiving packets |
 | quic_&#8203;frame_&#8203;fail_&#8203;parse | `counter` | Number of QUIC frames failed to parse. |
+| quic_&#8203;pkt_&#8203;no_&#8203;key | `counter` | Number of packets that failed decryption due to missing key. |
 
 ## Verify Tile
 | Metric | Type | Description |

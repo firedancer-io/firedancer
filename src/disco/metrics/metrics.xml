@@ -162,6 +162,7 @@ metric introduced.
     </histogram>
 
     <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
+    <counter name="PktNoKey" summary="Number of packets that failed decryption due to missing key." />
 </tile>
 
 <tile name="verify">
