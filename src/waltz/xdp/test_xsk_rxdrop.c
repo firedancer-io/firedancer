@@ -76,7 +76,8 @@ get_rx_queue_cnt( char const * iface ) {
   channels.cmd = ETHTOOL_GCHANNELS;
 
   struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, iface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, iface, IFNAMSIZ );
+  ifr.ifr_name[ IFNAMSIZ-1 ] = '\0';
   ifr.ifr_data = fd_type_pun( &channels );
 
   int fd        = socket( AF_INET, SOCK_DGRAM, 0 );
