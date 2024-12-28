@@ -110,7 +110,8 @@ listen_address( const char * interface ) {
   int fd = socket( AF_INET, SOCK_DGRAM, 0 );
   struct ifreq ifr = {0};
   ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  ifr.ifr_name[ IFNAMSIZ-1 ] = '\0';
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get IP address of interface `%s` (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
@@ -124,7 +125,7 @@ mac_address( const char * interface,
   int fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_IP );
   struct ifreq ifr;
   ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
