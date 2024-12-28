@@ -24,6 +24,8 @@
 #define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR 0
 #define FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH 0
 
+#if FD_HAS_ALLOCA
+
 /* FD_BASE58_ENC_{32,64}_ALLOCA is a shorthand for fd_base58_encode_{32,64},
    including defining a temp buffer.  With additional support for passing
    NULL.  Useful for printf-like functions.
@@ -70,6 +72,7 @@ fd_base58_enc_64_fmt( char *        out,
   fd_base58_enc_64_fmt( _out, (uchar const *)(x) );                    \
 })
 
+#endif /* FD_HAS_ALLOCA */
 
 /* Forward declarations */
 
