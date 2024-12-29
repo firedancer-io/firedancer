@@ -44,10 +44,6 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
 
   fd_quic_pkt_t pkt;
 
-  memcpy(pkt.eth->dst, "\x52\xF1\x7E\xDA\x2C\xE0", 6);
-  memcpy(pkt.eth->src, "\x52\xF1\x7E\xDA\x2C\xE0", 6);
-  pkt.eth->net_type = FD_ETH_HDR_TYPE_IP;
-
   pkt.ip4->verihl = FD_IP4_VERIHL(4,5);
   pkt.ip4->tos = 0;
   pkt.ip4->net_tot_len = (ushort)(20 + 8 + payload_sz);
@@ -62,15 +58,7 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
   pkt.udp->net_len = (ushort)(8 + payload_sz);
   pkt.udp->check = 0x0000;
 
-  ulong rc = fd_quic_encode_eth(cur_ptr, cur_sz, pkt.eth);
-  if (FD_UNLIKELY(rc == FD_QUIC_PARSE_FAIL)) {
-    return 1;
-  }
-
-  cur_ptr += rc;
-  cur_sz -= rc;
-
-  rc = fd_quic_encode_ip4(cur_ptr, cur_sz, pkt.ip4);
+  ulong rc = fd_quic_encode_ip4(cur_ptr, cur_sz, pkt.ip4);
   if (FD_UNLIKELY(rc == FD_QUIC_PARSE_FAIL)) {
     return 1;
   }

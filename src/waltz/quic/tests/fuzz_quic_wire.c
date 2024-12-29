@@ -16,7 +16,6 @@
 #include "../crypto/fd_quic_crypto_suites.h"
 #include "../templ/fd_quic_parse_util.h"
 #include "../../tls/test_tls_helper.h"
-#include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 #include "../fd_quic_proto.h"
@@ -65,12 +64,11 @@ send_udp_packet( fd_quic_t *   quic,
 
   uchar buf[16384];
 
-  ulong headers_sz = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+  ulong headers_sz = sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
 
   uchar * cur = buf;
   uchar * end = buf + sizeof(buf);
 
-  fd_eth_hdr_t eth = { .net_type = FD_ETH_HDR_TYPE_IP };
   fd_ip4_hdr_t ip4 = {
     .verihl      = FD_IP4_VERIHL(4,5),
     .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
@@ -84,7 +82,6 @@ send_udp_packet( fd_quic_t *   quic,
   };
 
   /* Guaranteed to not overflow */
-  fd_quic_encode_eth( cur, (ulong)( end-cur ), &eth ); cur += sizeof(fd_eth_hdr_t);
   fd_quic_encode_ip4( cur, (ulong)( end-cur ), &ip4 ); cur += sizeof(fd_ip4_hdr_t);
   fd_quic_encode_udp( cur, (ulong)( end-cur ), &udp ); cur += sizeof(fd_udp_hdr_t);
 

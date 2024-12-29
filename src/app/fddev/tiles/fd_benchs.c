@@ -126,41 +126,36 @@ service_quic( fd_benchs_ctx_t * ctx ) {
         int retval = recvmmsg( ctx->poll_fd[j].fd, ctx->rx_msgs, IO_VEC_CNT, 0, &timeout );
         if( FD_UNLIKELY( retval < 0 ) ) {
           FD_LOG_ERR(( "Error occurred on recvmmsg: %d %s", errno, strerror( errno ) ));
-        } else {
-          /* pass buffers to QUIC */
-          fd_aio_pkt_info_t pkt[IO_VEC_CNT];
-          ulong hdr_sz = 14 + 20 + 8;
-          for( ulong j = 0; j < (ulong)retval; ++j ) {
-            pkt[j].buf    = ctx->rx_bufs[j];
-            pkt[j].buf_sz = (ushort)( ctx->rx_msgs[j].msg_len + hdr_sz );
-
-            /* set some required values */
-            uint payload_len = ctx->rx_msgs[j].msg_len;
-            uint udp_len     = payload_len + 8;
-            uint ip_len      = udp_len + 20;
-
-            uchar * buf = (uchar*)pkt[j].buf;
-
-            /* set ethtype */
-            buf[12 + 0] = 0x08;
-            buf[12 + 1] = 0x00;
-
-            /* set ver and len */
-            buf[14] = 0x45;
-
-            /* set protocol */
-            buf[14 + 9] = 17;
-
-            /* set udp length */
-            buf[14 + 20 + 4] = (uchar)( udp_len >> 8 );
-            buf[14 + 20 + 5] = (uchar)( udp_len      );
-
-            /* set ip length */
-            buf[14 + 2] = (uchar)( ip_len >> 8 );
-            buf[14 + 3] = (uchar)( ip_len      );
-          }
-          fd_aio_send( ctx->quic_rx_aio, pkt, (ulong)retval, NULL, 1 );
         }
+        /* pass buffers to QUIC */
+        fd_aio_pkt_info_t pkt[IO_VEC_CNT];
+        ulong hdr_sz = 20 + 8;
+        for( ulong k = 0; k < (ulong)retval; k++ ) {
+          pkt[j].buf    = ctx->rx_bufs[k];
+          pkt[j].buf_sz = (ushort)( ctx->rx_msgs[k].msg_len + hdr_sz );
+
+          /* set some required values */
+          uint payload_len = ctx->rx_msgs[k].msg_len;
+          uint udp_len     = payload_len + 8;
+          uint ip_len      = udp_len + 20;
+
+          uchar * buf = pkt[k].buf;
+
+          /* set ver and len */
+          buf[0] = 0x45;
+
+          /* set protocol */
+          buf[9] = 17;
+
+          /* set udp length */
+          buf[20 + 4] = (uchar)( udp_len >> 8 );
+          buf[20 + 5] = (uchar)( udp_len      );
+
+          /* set ip length */
+          buf[2] = (uchar)( ip_len >> 8 );
+          buf[3] = (uchar)( ip_len      );
+        }
+        fd_aio_send( ctx->quic_rx_aio, pkt, (ulong)retval, NULL, 1 );
       } else if( FD_UNLIKELY( revents & POLLERR ) ) {
         int error = 0;
         socklen_t errlen = sizeof(error);
@@ -515,14 +510,12 @@ unprivileged_init( fd_topo_t *      topo,
 
     uint  quic_ip_addr             = 0;     /* TODO fetch the quic destination ip addr */
     ulong quic_idle_timeout_millis = 10000;  /* idle timeout in milliseconds */
-    uchar quic_src_mac_addr[6]     = {0};   /* source MAC address */
     quic->config.role                       = FD_QUIC_ROLE_CLIENT;
     quic->config.net.ip_addr                = quic_ip_addr;
     quic->config.net.listen_udp_port        = 42424; /* should be unused */
     quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
     quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */
-    fd_memcpy( quic->config.link.src_mac_addr, quic_src_mac_addr, 6 );
 
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
@@ -535,7 +528,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_quic_set_aio_net_tx( quic, quic_tx_aio );
     if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
-    ulong hdr_sz = 14 + 20 + 8;
+    ulong hdr_sz = 20 + 8;
     for( ulong i = 0; i < IO_VEC_CNT; i++ ) {
       /* leave space for headers */
       ctx->rx_iovecs[i].iov_base         = ctx->rx_bufs[i]         + hdr_sz;
@@ -575,11 +568,11 @@ quic_tx_aio_send( void *                    _ctx,
   (void)opt_batch_idx;
   (void)flush;
 
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
+  fd_benchs_ctx_t * ctx = _ctx;
 
-  /* quic adds eth, ip and udp headers which we don't need */
-  /* assume 14 + 20 + 8 for those */
-  ulong hdr_sz = 14+20+8;
+  /* quic adds ip and udp headers which we don't need */
+  /* assume 20 + 8 for those */
+  ulong hdr_sz = 20+8;
 
   if( FD_LIKELY( batch_cnt ) ) {
     /* do we have space? */

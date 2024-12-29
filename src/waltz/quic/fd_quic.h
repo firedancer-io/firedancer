@@ -195,17 +195,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* Network config ****************************************/
 
-  struct { /* Link layer config */
-    /* src_mac_addr: Source MAC address to set for outgoing traffic */
-    uchar src_mac_addr[6];
-
-    /* dst_mac_addr: Destination MAC address to set for outgoing traffic
-       Usually corresponds to the MAC address of the host's default gateway.
-       FIXME: Replace with ARP table
-       FIXME: This shouldn't be part of QUIC, but the fd_aio_out */
-    uchar dst_mac_addr[6];
-  } link;
-
   struct { /* Internet config */
     uint   ip_addr;         /* IP address (for outgoing traffic) */
     ushort listen_udp_port; /* UDP port (server only) */
@@ -619,7 +608,6 @@ fd_quic_tx_buffered_raw( fd_quic_t * quic,
                          uchar *     tx_buf,
                          ulong       tx_buf_sz,
                          ulong *     tx_sz,
-                         uchar const dst_mac_addr[ static 6 ],
                          ushort *    ipv4_id,
                          uint        dst_ipv4_addr,
                          ushort      src_udp_port,

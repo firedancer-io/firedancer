@@ -202,7 +202,7 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
   uchar *       resp_ptr = fd_chunk_to_laddr( sandbox, frag->chunk );
   uchar const * resp_end = resp_ptr + frag->sz;
-  resp_ptr += sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+  resp_ptr += sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
   FD_TEST( resp_ptr<resp_end );
 
   fd_quic_initial_t initial[1];

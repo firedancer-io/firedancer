@@ -26,44 +26,8 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
-#include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
-
-/* Parses an Ethernet header into out.  src, dst are kept in network
-   byte order.  ethertype is converted to host byte order.  buf points
-   to the first byte of the Ethernet header on the wire.  sz is the
-   size of input buffer region at buf. */
-
-static inline ulong
-fd_quic_decode_eth( fd_eth_hdr_t * FD_RESTRICT out,
-                    uchar const *  FD_RESTRICT buf,
-                    ulong                      sz ) {
-  if( FD_UNLIKELY( sz < sizeof(fd_eth_hdr_t) ) )
-    return FD_QUIC_PARSE_FAIL;
-  memcpy( out, buf, sizeof(fd_eth_hdr_t) );
-  out->net_type = (ushort)fd_ushort_bswap( (ushort)out->net_type );
-  return sizeof(fd_eth_hdr_t);
-}
-
-/* Encodes an Ethernet header into buf suitable for transmit over the
-   wire.  sz is the number of bytes that buf can hold.  frame is an
-   Ethernet header with {src,dst} in network byte order and ethertype
-   in host byte order.  Returns the number of bytes written or
-   FD_QUIC_PARSE_FAIL if sz is too small. */
-
-static inline ulong
-fd_quic_encode_eth( uchar *              buf,
-                    ulong                sz,
-                    fd_eth_hdr_t const * frame ) {
-  if( FD_UNLIKELY( sz < sizeof(fd_eth_hdr_t) ) ) {
-    return FD_QUIC_PARSE_FAIL;
-  }
-  fd_eth_hdr_t netorder = *frame;
-  netorder.net_type = (ushort)fd_ushort_bswap( (ushort)netorder.net_type );
-  memcpy( buf, &netorder, sizeof(fd_eth_hdr_t) );
-  return sizeof(fd_eth_hdr_t);
-}
 
 /* Parses an IPv4 header into out with host byte order.  buf points to
    the first byte of the IPv4 header on the wire. */
