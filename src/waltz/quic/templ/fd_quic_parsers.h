@@ -129,15 +129,6 @@
       cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);      \
     }
 
-#define FD_TEMPL_MBR_OPT(TYPE_NAME,NAME,MASK,...)   \
-    do {                                            \
-      _Bool cond = out->TYPE_NAME & (MASK);         \
-      out->NAME##_opt = cond;                       \
-      if( cond ) {                                  \
-        __VA_ARGS__                                 \
-      }                                             \
-    } while(0);
-
 
 // at end, return the number of bytes consumed
 #define FD_TEMPL_DEF_STRUCT_END(NAME) \

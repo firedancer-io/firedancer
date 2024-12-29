@@ -118,6 +118,13 @@ fd_quic_one_rtt_key_phase( uint h0 ) {
   return (uint)( (h0>>2) & 1 );
 }
 
+static inline uchar
+fd_quic_stream_type( uint has_off,
+                     uint has_len,
+                     uint fin ) {
+  return (uchar)( 0x08 + (has_off<<2) + (has_len<<1) + fin );
+}
+
 __attribute__((used)) static ulong
 fd_quic_varint_decode( uchar const * buf,
                        uint          msb2 ) {

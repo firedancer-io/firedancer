@@ -309,6 +309,61 @@ test_crypto_frame( void ) {
   FD_LOG_HEXDUMP_INFO(( "encoded", buf, rc ));
 }
 
+void
+test_stream_encode( void ) {
+  uchar buf[128];
+
+  /* For reference:
+     fd_quic_encode_stream_frame( buf, end, stream_id, offset, data_sz, fin ) */
+
+  /* Not enough space */
+  for( ulong j=0UL; j<=25UL; j++ ) {
+    FD_TEST( fd_quic_encode_stream_frame( buf, buf+j, 0, 0, 0, 0 )==FD_QUIC_ENCODE_FAIL );
+  }
+
+  FD_TEST( fd_quic_encode_stream_frame( buf, buf+sizeof(buf), 0x4000, 0, 0x40, 0 )==7 );
+  uchar const s_a[7] =
+    { 0x0a,
+      0x80, 0x00, 0x40, 0x00,
+      0x40, 0x40 };
+  FD_TEST( fd_memeq( buf, s_a, 7 ) );
+  fd_quic_stream_a_frame_t f_a[1];
+  FD_TEST( fd_quic_decode_stream_a_frame( f_a, s_a, 7 ) );
+  FD_TEST( f_a->type==0xa && f_a->stream_id==0x4000 && f_a->length==0x40 );
+
+  FD_TEST( fd_quic_encode_stream_frame( buf, buf+sizeof(buf), 0x4000, 0, 0x40, 1 )==7 );
+  uchar const s_b[7] =
+    { 0x0b,
+      0x80, 0x00, 0x40, 0x00,
+      0x40, 0x40 };
+  FD_TEST( fd_memeq( buf, s_b, 7 ) );
+  fd_quic_stream_a_frame_t f_b[1];
+  FD_TEST( fd_quic_decode_stream_a_frame( f_b, s_b, 7 ) );
+  FD_TEST( f_b->type==0xb && f_b->stream_id==0x4000 && f_b->length==0x40 );
+
+  FD_TEST( fd_quic_encode_stream_frame( buf, buf+sizeof(buf), 0x4000, 0x5060, 0x41, 0 )==11 );
+  uchar const s_e[11] =
+    { 0x0e,
+      0x80, 0x00, 0x40, 0x00,
+      0x80, 0x00, 0x50, 0x60,
+      0x40, 0x41 };
+  FD_TEST( fd_memeq( buf, s_e, 11 ) );
+  fd_quic_stream_e_frame_t f_e[1];
+  FD_TEST( fd_quic_decode_stream_e_frame( f_e, s_e, 11 ) );
+  FD_TEST( f_e->type==0xe && f_e->stream_id==0x4000 && f_e->offset==0x5060 && f_e->length==0x41 );
+
+  FD_TEST( fd_quic_encode_stream_frame( buf, buf+sizeof(buf), 0x4000, 0x5060, 0x42, 1 )==11 );
+  uchar const s_f[11] =
+    { 0x0f,
+      0x80, 0x00, 0x40, 0x00,
+      0x80, 0x00, 0x50, 0x60,
+      0x40, 0x42 };
+  FD_TEST( fd_memeq( buf, s_f, 11 ) );
+  fd_quic_stream_e_frame_t f_f[1];
+  FD_TEST( fd_quic_decode_stream_e_frame( f_f, s_f, 11 ) );
+  FD_TEST( f_f->type==0xf && f_f->stream_id==0x4000 && f_f->offset==0x5060 && f_f->length==0x42 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -319,6 +374,7 @@ main( int     argc,
   test_varint_parse();
   test_pktnum_parse();
   test_crypto_frame();
+  test_stream_encode();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -54,8 +54,6 @@
 #define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,ELEMS)                         \
     char NAME[ELEMS * sizeof( fd_quic_##TYPE )];
 
-#define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)
-
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                    \
   };

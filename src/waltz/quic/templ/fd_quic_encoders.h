@@ -128,16 +128,6 @@
       buf += FD_TEMPL_ENCODE(TYPE,frame->NAME[j],buf);                 \
     }
 
-#define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)                           \
-    if( frame->NAME##_opt ) {                                          \
-      type_ptr[0] |= (uchar)(MASK);                                    \
-      __VA_ARGS__                                                      \
-    }
-
-    /* TODO probably easier to split up relevant frames rather than
-       code a generic optional in macros */
-
-
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                  \
     return (ulong)( buf-orig_buf );                                    \

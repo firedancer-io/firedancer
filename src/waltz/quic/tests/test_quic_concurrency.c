@@ -136,10 +136,10 @@ main( int     argc,
     burst_idx--;
     fd_quic_conn_t * conn = conn_list[ conn_idx ];
 
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = conn->srx->rx_hi_stream_id,
-        .fin_opt    = 1 };
-    ulong sz = fd_quic_encode_stream_frame( frame_buf, sizeof(frame_buf), &stream_frame );
+    ulong sz = fd_quic_encode_stream_frame(
+        frame_buf, frame_buf+sizeof(frame_buf),
+        /* stream_id */ conn->srx->rx_hi_stream_id,
+        /* off */ 0, /* len */ 0, /* fin */ 1 );
     FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
     sz += 64;
 

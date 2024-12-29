@@ -28,14 +28,14 @@
   X(0x05,  3, stop_sending,        _, _, 0, 1, _)  /* Section 19.5  */  \
   X(0x06,  4, crypto,              I, H, _, 1, _)  /* Section 19.6  */  \
   X(0x07,  5, new_token,           _, _, _, 1, _)  /* Section 19.7  */  \
-  X(0x08,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x09,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x0a,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x0b,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x0c,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x0d,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x0e,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
-  X(0x0f,  6, stream,              _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x08,  6, stream_8,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x09,  6, stream_8,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x0a,  6, stream_a,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x0b,  6, stream_a,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x0c,  6, stream_c,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x0d,  6, stream_c,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x0e,  6, stream_e,            _, _, 0, 1, _)  /* Section 19.8  */  \
+  X(0x0f,  6, stream_e,            _, _, 0, 1, _)  /* Section 19.8  */  \
   X(0x10,  7, max_data,            _, _, 0, 1, _)  /* Section 19.9  */  \
   X(0x11,  8, max_stream_data,     _, _, 0, 1, _)  /* Section 19.10 */  \
   X(0x12,  9, max_streams,         _, _, 0, 1, _)  /* Section 19.11 */  \

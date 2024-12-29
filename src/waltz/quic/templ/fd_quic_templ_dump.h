@@ -69,9 +69,6 @@
       printf( "\n" ); \
     } while(0);
 
-#define FD_TEMPL_MBR_OPT(STRUCT,NAME,COND,TEMPL) \
-    TEMPL
-
 #define FD_TEMPL_DEF_STRUCT_END(NAME) \
   }
 
