@@ -3322,20 +3322,44 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
            fin_avail is 1 if no more bytes will get added to the stream. */
         ulong const data_avail = cur_stream->tx_buf.head - cur_stream->tx_sent;
         int   const fin_avail  = !!(cur_stream->state & FD_QUIC_STREAM_STATE_TX_FIN);
+        ulong const stream_id  = cur_stream->stream_id;
+        ulong const stream_off = cur_stream->tx_sent;
 
         /* No information to send? */
         if( data_avail==0u && !fin_avail ) break;
 
-        /* Encode stream header */
-        ulong stream_id  = cur_stream->stream_id;
-        ulong stream_off = cur_stream->tx_sent;
+        /* No space to write frame?
+          (Buffer should fit max stream header size and at least 1 byte of data) */
+        if( payload_ptr+FD_QUIC_MAX_FOOTPRINT( stream_e_frame )+1 > payload_end ) break;
+
+        /* Leave placeholder for frame/stream type */
+        uchar * const frame_type_p = payload_ptr++;
+        uint          frame_type   = 0x0a; /* stream frame with length */
+
+        /* Encode stream ID */
+        payload_ptr += fd_quic_varint_encode( payload_ptr, stream_id );
+
+        /* Optionally encode offset */
+        if( stream_off>0 ) {
+          frame_type |= 0x04; /* with offset field */
+          payload_ptr += fd_quic_varint_encode( payload_ptr, stream_off );
+        }
+
+        /* Leave placeholder for length length */
+        uchar * data_sz_p = payload_ptr;
+        payload_ptr += 2;
+
+        /* Stream metadata */
         ulong data_max   = (ulong)payload_end - (ulong)payload_ptr; /* assume no underflow */
         ulong data_sz    = fd_ulong_min( data_avail, data_max );
         /* */ data_sz    = fd_ulong_min( data_sz, 0x3fffUL ); /* max 2 byte varint */
         _Bool fin        = fin_avail && data_sz==data_avail;
-        payload_ptr += fd_quic_encode_stream_frame(
-            payload_ptr, payload_end, stream_id, stream_off, data_sz, fin );
-        if( FD_UNLIKELY( !payload_ptr ) ) break; /* no space for header */
+
+        /* Finish encoding stream header */
+        ushort data_sz_varint = fd_ushort_bswap( (ushort)( 0x4000u | (uint)data_sz ) );
+        FD_STORE( ushort, data_sz_p, data_sz_varint );
+        frame_type |= fin;
+        *frame_type_p = (uchar)frame_type;
 
         /* Write stream payload */
         fd_quic_buffer_t * tx_buf = &cur_stream->tx_buf;
