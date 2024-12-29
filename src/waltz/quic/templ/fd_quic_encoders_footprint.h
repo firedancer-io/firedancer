@@ -33,26 +33,17 @@
     buf += 8;                                                          \
 
 
-/* VAR currently assumed to be aligned bytes */
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)                     \
     tmp_len = frame->LEN_NAME;                                           \
     buf += tmp_len;
 
 
-/* VAR_RAW currently assumed to be aligned bytes */
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)                 \
     tmp_len = frame->LEN_NAME;                                           \
     buf += tmp_len;
 
-/* determine the footprint of encoded ARRAY */
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)           \
-    tmp_len = frame->NAME##_len * sizeof(fd_quic_##TYPE);                \
-    buf += tmp_len * FD_TEMPL_ENCODE_FP(TYPE);                           \
-
-/* FIXED is an array of elements, each of the same size,
-   with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,ELEMS)                         \
-    buf += ELEMS * sizeof( fd_quic_##TYPE );
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES) \
+    buf += (BYTES);
 
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                    \

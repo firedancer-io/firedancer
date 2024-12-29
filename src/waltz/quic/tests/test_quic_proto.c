@@ -364,6 +364,17 @@ test_stream_encode( void ) {
   FD_TEST( f_f->type==0xf && f_f->stream_id==0x4000 && f_f->offset==0x5060 && f_f->length==0x42 );
 }
 
+void
+test_path_response( void ) {
+  FD_TEST( FD_QUIC_MAX_FOOTPRINT(path_response_frame)==9 );
+  uchar buf[9];
+  fd_quic_path_response_frame_t frame[1] = {{ .data=0x0102030405060708UL }};
+  FD_TEST( fd_quic_encode_path_response_frame( buf, sizeof(buf), frame )==9 );
+  FD_TEST( fd_memeq( buf, "\x1b\x01\x02\x03\x04\x05\x06\x07\x08", 9 ) );
+  FD_TEST( fd_quic_decode_path_response_frame( frame, buf, sizeof(buf) )==9 );
+  FD_TEST( frame->data==0x0102030405060708UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -375,6 +386,7 @@ main( int     argc,
   test_pktnum_parse();
   test_crypto_frame();
   test_stream_encode();
+  test_path_response();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

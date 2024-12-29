@@ -2148,15 +2148,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       return FD_QUIC_PARSE_FAIL;
     }
 
-    /* For now, only supporting QUIC v1.
-       QUIC v2 is an active IETF draft as of 2023-Mar:
-       https://datatracker.ietf.org/doc/draft-ietf-quic-v2/ */
-    uint version = long_hdr->version;
-    if( FD_UNLIKELY( version != 1u ) ) {
-      /* FIXME this should already have been checked */
-      return FD_QUIC_PARSE_FAIL;
-    }
-
     /* extract the dst connection id */
     fd_quic_conn_id_t dcid = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
     if( dcid.sz == FD_QUIC_CONN_ID_SZ ) {

@@ -273,7 +273,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(new_conn_id_frame)
   FD_TEMPL_MBR_ELEM_VARINT ( retire_prior_to,       ulong              )
   FD_TEMPL_MBR_ELEM        ( conn_id_len,           uchar              )
   FD_TEMPL_MBR_ELEM_VAR_RAW( conn_id,               0,160, conn_id_len )
-  FD_TEMPL_MBR_ELEM_FIXED  ( stateless_reset_token, uchar, 16          )
+  FD_TEMPL_MBR_ELEM_RAW    ( stateless_reset_token, 16                 )
 FD_TEMPL_DEF_STRUCT_END(new_conn_id_frame)
 
 
@@ -301,7 +301,7 @@ FD_TEMPL_DEF_STRUCT_END(retire_conn_id_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(path_challenge_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1a,0x1a )
-  FD_TEMPL_MBR_ELEM_FIXED( data, ulong, 8 )
+  FD_TEMPL_MBR_ELEM( data, ulong )
 FD_TEMPL_DEF_STRUCT_END(path_challenge_frame)
 
 
@@ -315,7 +315,7 @@ FD_TEMPL_DEF_STRUCT_END(path_challenge_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(path_response_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1b,0x1b )
-  FD_TEMPL_MBR_ELEM_FIXED( data, ulong, 8 )
+  FD_TEMPL_MBR_ELEM( data, ulong )
 FD_TEMPL_DEF_STRUCT_END(path_response_frame)
 
 

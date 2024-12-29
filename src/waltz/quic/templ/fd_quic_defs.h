@@ -26,12 +26,8 @@
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME) \
     uchar const * NAME;
 
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \
-    fd_quic_uint   NAME##_len;                                 \
-    fd_quic_##TYPE NAME[BYTES_MAX];
-
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)               \
-    fd_quic_##TYPE NAME[BYTES];
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES) \
+    uchar NAME[BYTES];
 
 #define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)              \
     uchar NAME;
