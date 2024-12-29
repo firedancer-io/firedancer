@@ -3309,6 +3309,10 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
                            fd_quic_pkt_meta_t * pkt_meta,
                            ulong                pkt_number,
                            ulong                now ) {
+
+  /* stream_flags_mask are stream flags that trigger a STREAM frame to be sent */
+  uint const stream_flags_mask = FD_QUIC_STREAM_FLAGS_UNSENT | FD_QUIC_STREAM_FLAGS_TX_FIN;
+
   /* loop serves two purposes:
         1. finds a stream with data to send
         2. appends max_stream_data frames as necessary */
@@ -3319,103 +3323,53 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
     fd_quic_stream_t * nxt_stream = cur_stream->next;
 
     if( cur_stream->upd_pkt_number >= pkt_number ) {
-      uint stream_flags_mask = FD_QUIC_STREAM_FLAGS_UNSENT
-                              | FD_QUIC_STREAM_FLAGS_TX_FIN;
 
       /* any stream data? */
       if( FD_LIKELY( cur_stream->stream_flags & stream_flags_mask ) ) {
 
-        /* how much data to send */
-        ulong stream_data_sz = cur_stream->tx_buf.head - cur_stream->tx_sent;
+        /* data_avail is the number of stream bytes available for sending.
+           fin_avail is 1 if no more bytes will get added to the stream. */
+        ulong const data_avail = cur_stream->tx_buf.head - cur_stream->tx_sent;
+        int   const fin_avail  = !!(cur_stream->state & FD_QUIC_STREAM_STATE_TX_FIN);
 
-        int fin_state = !!(cur_stream->state & FD_QUIC_STREAM_STATE_TX_FIN);
+        /* No information to send? */
+        if( data_avail==0u && !fin_avail ) break;
 
-        /* initialize last_byte to fin_state */
-        int last_byte = fin_state;
-
-        /* offset of the first byte we're sending */
+        /* Encode stream header */
+        ulong stream_id  = cur_stream->stream_id;
         ulong stream_off = cur_stream->tx_sent;
+        ulong data_max   = (ulong)payload_end - (ulong)payload_ptr; /* assume no underflow */
+        ulong data_sz    = fd_ulong_min( data_avail, data_max );
+        /* */ data_sz    = fd_ulong_min( data_sz, 0x3fffUL ); /* max 2 byte varint */
+        _Bool fin        = fin_avail && data_sz==data_avail;
+        payload_ptr += fd_quic_encode_stream_frame(
+            payload_ptr, payload_end, stream_id, stream_off, data_sz, fin );
+        if( FD_UNLIKELY( !payload_ptr ) ) break; /* no space for header */
 
-        /* do we still have data we can send? */
-        if( stream_data_sz > 0u || last_byte ) {
-          fd_quic_stream_frame_t frame = {
-            .stream_id = cur_stream->stream_id,
+        /* Write stream payload */
+        fd_quic_buffer_t * tx_buf = &cur_stream->tx_buf;
+        fd_quic_buffer_load( tx_buf, stream_off, payload_ptr, data_sz );
+        payload_ptr += data_sz;
 
-            /* optional fields */
-            .offset_opt = ( stream_off != 0 ),
-            .offset     = stream_off,
+        /* Update stream metadata */
+        cur_stream->tx_sent += data_sz;
+        cur_stream->upd_pkt_number = fd_ulong_if( fin, pkt_number, FD_QUIC_PKT_NUM_PENDING );
+        cur_stream->stream_flags &= fd_uint_if( fin, ~stream_flags_mask, UINT_MAX );
 
-            .length_opt = 1, /* always include length */
-            .length     = stream_data_sz,
+        /* Packet metadata for potential retransmits */
+        pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_STREAM;
+        /* FIXME don't hardcode RTT */
+        pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+        pkt_meta->var[pkt_meta->var_sz].key =
+            FD_QUIC_PKT_META_KEY( FD_QUIC_PKT_META_TYPE_STREAM_DATA, 0, cur_stream->stream_id );
+        pkt_meta->var[pkt_meta->var_sz].range.offset_lo = stream_off;
+        pkt_meta->var[pkt_meta->var_sz].range.offset_hi = stream_off + data_sz;
+        pkt_meta->var_sz = (uchar)( pkt_meta->var_sz + 1 );
 
-            .fin_opt    = (uchar)last_byte
-          };
-
-          /* calc size of stream frame */
-          ulong frame_sz = stream_data_sz + fd_quic_encode_footprint_stream_frame( &frame );
-
-          /* over? */
-          ulong over = 0;
-          if( (long)frame_sz > payload_end - payload_ptr ) {
-            over = frame_sz - (ulong)( payload_end - payload_ptr );
-
-            /* since we are not sending the last byte of the stream
-                reset these values */
-            frame.fin_opt = (uchar)0;
-            last_byte            = 0;
-          }
-
-          if( FD_UNLIKELY( over >= stream_data_sz ) ) {
-            if( FD_UNLIKELY( over > stream_data_sz || !last_byte ) ) {
-              /* can't send anything in this packet */
-              break;
-            }
-          }
-
-          /* adjust to fit */
-          stream_data_sz -= over;
-          frame.length    = stream_data_sz;
-
-          /* do we still have data we can send? */
-          if( stream_data_sz > 0u || last_byte ) {
-            /* output */
-            frame_sz = fd_quic_encode_stream_frame( payload_ptr,
-                (ulong)( payload_end - payload_ptr ),
-                &frame );
-
-            if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
-              FD_LOG_WARNING(( "%s - fd_quic_encode_stream_frame failed, but space "
-                    "should have been available", __func__ ));
-              break;
-            }
-
-            /* move ptr up */
-            payload_ptr += frame_sz;
-
-            /* copy buffered data (tx_buf) into tx data (payload_ptr) */
-            fd_quic_buffer_t * tx_buf = &cur_stream->tx_buf;
-
-            /* load data from tx_buf into payload_ptr
-                stream_data_sz was already adjusted to fit
-                this loads but does not adjust tail pointer (consume) */
-            fd_quic_buffer_load( tx_buf, stream_off, payload_ptr, stream_data_sz );
-
-            /* adjust ptr and size */
-            payload_ptr += stream_data_sz;
-
-            /* packet metadata */
-            pkt_meta->flags           |= FD_QUIC_PKT_META_FLAGS_STREAM;
-            pkt_meta->expiry          = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
-
-            /* add max_data to pkt_meta->var */
-            pkt_meta->var[pkt_meta->var_sz].key =
-                FD_QUIC_PKT_META_KEY( FD_QUIC_PKT_META_TYPE_STREAM_DATA, 0, cur_stream->stream_id );
-            pkt_meta->var[pkt_meta->var_sz].range.offset_lo = stream_off;
-            pkt_meta->var[pkt_meta->var_sz].range.offset_hi = stream_off + stream_data_sz;
-            pkt_meta->var_sz = (uchar)( pkt_meta->var_sz + 1 );
-
-            cur_stream->upd_pkt_number = pkt_number;
-          }
+        /* Everything sent? */
+        if( fin ) {
+          FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
+          FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, cur_stream );
         }
       }
 
@@ -3788,47 +3742,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     pkt_meta->pkt_number = pkt_number;
     pkt_meta->pn_space   = (uchar)pn_space;
     pkt_meta->enc_level  = (uchar)enc_level;
-
-    /* did we send stream data? */
-    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
-
-      /* iterate thru the variable section of the pkt_meta
-       * and set the max_stream_data to resend for each
-       * appropriate entry */
-      ulong var_sz = pkt_meta->var_sz;
-      for( ulong j = 0UL; j < var_sz; ++j ) {
-        if( pkt_meta->var[j].key.type == FD_QUIC_PKT_META_TYPE_STREAM_DATA ) {
-          ulong stream_id = FD_QUIC_PKT_META_STREAM_ID( pkt_meta->var[j].key );
-
-          /* find the stream */
-          fd_quic_stream_t *     stream       = NULL;
-          fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-          if( FD_LIKELY( stream_entry && stream_entry->stream &&
-                ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
-            stream = stream_entry->stream;
-
-            /* move sent pointer up */
-            fd_quic_range_t range = pkt_meta->var[j].range;
-            ulong tx_sent = stream->tx_sent += range.offset_hi - range.offset_lo;
-
-            /* sent everything, may need to remove from action list */
-            if( FD_LIKELY( stream->tx_buf.head == tx_sent ) ) {
-              stream->stream_flags = stream->stream_flags & ~( FD_QUIC_STREAM_FLAGS_UNSENT
-                                                             | FD_QUIC_STREAM_FLAGS_TX_FIN );
-
-              /* remove from list */
-              FD_QUIC_STREAM_LIST_REMOVE( stream );
-              FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
-            } else {
-              /* didn't send everything, so reset upd_pkt_number */
-              stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-              FD_QUIC_STREAM_LIST_REMOVE( stream );
-              FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
-            }
-          }
-        }
-      }
-    }
 
     /* did we send handshake-done? */
     if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
@@ -5147,33 +5060,23 @@ fd_quic_tx_stream_free( fd_quic_t *        quic,
 }
 
 
-static ulong
+static inline __attribute__((always_inline)) ulong
 fd_quic_handle_stream_frame(
-    fd_quic_frame_ctx_t *    context,
-    fd_quic_stream_frame_t * data,
-    uchar const *            p,
-    ulong                    p_sz ) {
-  fd_quic_t *               quic    = context->quic;
-  fd_quic_conn_t *          conn    = context->conn;
-  fd_quic_pkt_t *           pkt     = context->pkt;
-
-  /* If !data->{length,offset}_opt then data->{length,offset} may be
-     uninitialized.  GCC 13 falsely reports a 'maybe-uninitialized'
-     warning here.  Suppress it. */
-  if( !data->length_opt ) __asm__( "#NOP" : "=rm" (data->length) );
-  if( !data->offset_opt ) __asm__( "#NOP" : "=rm" (data->offset) );
-
-  ulong offset  = fd_ulong_if( data->offset_opt, data->offset, 0UL  );
-  ulong data_sz = fd_ulong_if( data->length_opt, data->length, p_sz );
-  int   fin     = data->fin_opt;
-
-  /* offset field is optional, implied 0 */
-  ulong stream_id   = data->stream_id;
-  ulong stream_type = stream_id & 3UL;
+    fd_quic_frame_ctx_t * context,
+    uchar const *         p,
+    ulong                 p_sz,
+    ulong                 stream_id,
+    ulong                 offset,
+    ulong                 data_sz,
+    int                   fin ) {
+  fd_quic_t *      quic = context->quic;
+  fd_quic_conn_t * conn = context->conn;
+  fd_quic_pkt_t *  pkt  = context->pkt;
 
   FD_DTRACE_PROBE_5( quic_handle_stream_frame, conn->our_conn_id, stream_id, offset, data_sz, fin );
 
   /* stream_id type check */
+  ulong stream_type = stream_id & 3UL;
   if( FD_UNLIKELY( stream_type != ( conn->server ? FD_QUIC_STREAM_TYPE_UNI_CLIENT : FD_QUIC_STREAM_TYPE_UNI_SERVER ) ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Received forbidden stream type" )); )
     /* Technically should switch between STREAM_LIMIT_ERROR and STREAM_STATE_ERROR here */
@@ -5210,6 +5113,42 @@ fd_quic_handle_stream_frame(
 
   /* packet bytes consumed */
   return data_sz;
+}
+
+static ulong
+fd_quic_handle_stream_8_frame(
+    fd_quic_frame_ctx_t *      context,
+    fd_quic_stream_8_frame_t * data,
+    uchar const *              p,
+    ulong                      p_sz ) {
+  return fd_quic_handle_stream_frame( context, p, p_sz, data->stream_id, 0UL, p_sz, data->type&1 );
+}
+
+static ulong
+fd_quic_handle_stream_a_frame(
+    fd_quic_frame_ctx_t *      context,
+    fd_quic_stream_a_frame_t * data,
+    uchar const *              p,
+    ulong                      p_sz ) {
+  return fd_quic_handle_stream_frame( context, p, p_sz, data->stream_id, 0UL, data->length, data->type&1 );
+}
+
+static ulong
+fd_quic_handle_stream_c_frame(
+    fd_quic_frame_ctx_t *      context,
+    fd_quic_stream_c_frame_t * data,
+    uchar const *              p,
+    ulong                      p_sz ) {
+  return fd_quic_handle_stream_frame( context, p, p_sz, data->stream_id, data->offset, p_sz, data->type&1 );
+}
+
+static ulong
+fd_quic_handle_stream_e_frame(
+    fd_quic_frame_ctx_t *      context,
+    fd_quic_stream_e_frame_t * data,
+    uchar const *              p,
+    ulong                      p_sz ) {
+  return fd_quic_handle_stream_frame( context, p, p_sz, data->stream_id, data->offset, data->length, data->type&1 );
 }
 
 static ulong

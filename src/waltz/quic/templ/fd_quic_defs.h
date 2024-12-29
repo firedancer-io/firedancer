@@ -36,10 +36,6 @@
 #define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)              \
     uchar NAME;
 
-#define FD_TEMPL_MBR_OPT(STRUCT,NAME,COND,TEMPL)               \
-    uchar NAME##_opt;                                          \
-    TEMPL
-
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                          \
   };                                                           \
   typedef struct fd_quic_##NAME fd_quic_##NAME##_t;

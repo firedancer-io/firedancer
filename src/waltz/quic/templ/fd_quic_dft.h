@@ -36,10 +36,6 @@
 #  define FD_TEMPL_MBR_FRAME_TYPE(...)
 #endif
 
-#ifndef FD_TEMPL_MBR_OPT
-#  define FD_TEMPL_MBR_OPT(...)
-#endif
-
 #ifndef FD_TEMPL_MBR_ELEM_HIDDEN
 #  define FD_TEMPL_MBR_ELEM_HIDDEN(...)
 #endif

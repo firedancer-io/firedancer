@@ -142,20 +142,29 @@ FD_TEMPL_DEF_STRUCT_END(new_token_frame)
    The FIN bit (0x01) indicates that the frame marks the end of the stream. The
      final size of the stream is the sum of the offset and the length of this frame. */
 
-FD_TEMPL_DEF_STRUCT_BEGIN(stream_frame)
-  FD_TEMPL_MBR_FRAME_TYPE( type, 0x08,0x0f )
-
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_8_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
   FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_8_frame)
 
-  // optional data processed in code
-  FD_TEMPL_MBR_OPT( type, offset, 0x04,
-    FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong ) )
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_a_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
+  FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( length,    ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_a_frame)
 
-  FD_TEMPL_MBR_OPT( type, length,0x02,
-    FD_TEMPL_MBR_ELEM_VARINT( length,    ulong ) )
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_c_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
+  FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_c_frame)
 
-  FD_TEMPL_MBR_OPT( type, fin, 0x01, )
-FD_TEMPL_DEF_STRUCT_END(stream_frame)
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_e_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
+  FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( length,    ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_e_frame)
 
 
 /* Max Data Frame
