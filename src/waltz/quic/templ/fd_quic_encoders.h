@@ -100,33 +100,14 @@
     buf += tmp_len;
 
 
-// VAR currently assumed to be aligned bytes
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)     \
     FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)
 
-/* ARRAY is an array of elements, each of the same size,
-   with length implied by the packet size
-   caller has responsibility of ensuring the size of the array is not
-   too large for the space in a packet */
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)         \
-    tmp_len = frame->NAME##_len;                                       \
-    if( tmp_len * sizeof( fd_quic_##TYPE ) > BYTES_MAX ) {             \
-      return FD_QUIC_ENCODE_FAIL;                                      \
-    }                                                                  \
-    for( ulong j=0; j<tmp_len; ++j ) {                                 \
-      buf += FD_TEMPL_ENCODE(TYPE,frame->NAME[j],buf);                 \
-    }
-
-/* FIXED is an array of elements, each of the same size,
-   with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                       \
-    if( FD_UNLIKELY( BYTES > buf_end-buf ||                            \
-                     BYTES % sizeof(fd_quic_##TYPE) ) )                \
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES)                              \
+    if( FD_UNLIKELY( buf+(BYTES) > buf_end ) )                         \
       return FD_QUIC_PARSE_FAIL;                                       \
-    tmp_len = BYTES / sizeof(fd_quic_##TYPE);                          \
-    for( ulong j=0; j<tmp_len; ++j ) {                                 \
-      buf += FD_TEMPL_ENCODE(TYPE,frame->NAME[j],buf);                 \
-    }
+    memcpy( buf, frame->NAME, (BYTES) );                               \
+    buf += (BYTES);
 
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                  \

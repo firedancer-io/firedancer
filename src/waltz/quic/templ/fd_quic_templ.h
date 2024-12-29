@@ -43,8 +43,6 @@ FD_TEMPL_DEF_STRUCT_BEGIN(version_neg)
   FD_TEMPL_MBR_ELEM_VAR_RAW( dst_conn_id,        0,255, dst_conn_id_len     )
   FD_TEMPL_MBR_ELEM        ( src_conn_id_len,    uchar                      )
   FD_TEMPL_MBR_ELEM_VAR_RAW( src_conn_id,        0,255, src_conn_id_len     )
-  /* TODO determine proper range here */
-  FD_TEMPL_MBR_ELEM_ARRAY( supported_versions, uint, 1,FD_QUIC_MAX_VERSIONS )
 FD_TEMPL_DEF_STRUCT_END(version_neg)
 
 
@@ -251,11 +249,11 @@ FD_TEMPL_DEF_STRUCT_END(ecn_counts_frag)
 /* 18.2. Transport Parameter Definitions > Preferred Address */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(preferred_address)
-  FD_TEMPL_MBR_ELEM_FIXED( ipv4_address, uchar,  4         )
+  FD_TEMPL_MBR_ELEM_RAW  ( ipv4_address, 4                 )
   FD_TEMPL_MBR_ELEM      ( ipv4_port,    ushort            )
-  FD_TEMPL_MBR_ELEM_FIXED( ipv6_address, uchar, 16         )
+  FD_TEMPL_MBR_ELEM_RAW  ( ipv6_address, 16                )
   FD_TEMPL_MBR_ELEM      ( ipv6_port,    ushort            )
   FD_TEMPL_MBR_ELEM      ( conn_id_len,  uchar             )
   FD_TEMPL_MBR_ELEM_VAR  ( conn_id,      0,20, conn_id_len )
-  FD_TEMPL_MBR_ELEM_FIXED( reset_token,  uchar, 16         )
+  FD_TEMPL_MBR_ELEM_RAW  ( reset_token,  16                )
 FD_TEMPL_DEF_STRUCT_END(preferred_address)

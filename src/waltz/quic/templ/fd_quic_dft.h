@@ -24,12 +24,8 @@
 #  define FD_TEMPL_MBR_ELEM_VAR_RAW(...)
 #endif
 
-#ifndef FD_TEMPL_MBR_ELEM_ARRAY
-#  define FD_TEMPL_MBR_ELEM_ARRAY(...)
-#endif
-
-#ifndef FD_TEMPL_MBR_ELEM_FIXED
-#  define FD_TEMPL_MBR_ELEM_FIXED(...)
+#ifndef FD_TEMPL_MBR_ELEM_RAW
+#  define FD_TEMPL_MBR_ELEM_RAW(...)
 #endif
 
 #ifndef FD_TEMPL_MBR_FRAME_TYPE

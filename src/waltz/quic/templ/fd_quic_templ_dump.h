@@ -47,24 +47,12 @@
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME) \
     FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)
 
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \
-    printf( "  " #NAME " count: %u\n", data->NAME##_len ); \
-    do { \
-      printf( "  " #NAME ": " ); \
-      ulong tmp_len = data->NAME##_len; \
-      if( tmp_len > BYTES_MAX ) tmp_len = BYTES_MAX; \
-      for( ulong j = 0; j < tmp_len; ++j ) { \
-        printf( " %" FD_QUIC_HEX_FMT_##TYPE, data->NAME[j] ); \
-      } \
-      printf( "\n" ); \
-    } while(0);
-
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES) \
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES) \
     printf( "  " #NAME " count: %u\n", (uint)(BYTES) ); \
     do { \
       printf( "  " #NAME ": " ); \
       for( ulong j = 0; j < BYTES; ++j ) { \
-        printf( " %" FD_QUIC_HEX_FMT_##TYPE, data->NAME[j] ); \
+        printf( " %02x", data->NAME[j] ); \
       } \
       printf( "\n" ); \
     } while(0);
