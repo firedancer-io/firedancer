@@ -18,8 +18,6 @@
 
 FILE * fd_quic_test_pcap;
 
-/* Mac address counter, incremented for each new QUIC */
-static ulong test_mac_addr_seq = 0x0A0000000000;
 /* IP address counter, incremented for each new QUIC */
 static uint  test_ip_addr_seq  = FD_IP4_ADDR( 127, 10, 0, 0 );
 
@@ -110,15 +108,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
 
   fd_quic_config_t * config = &quic->config;
   config->role = role;
-
-  /* Generate MAC address */
-  test_mac_addr_seq++;
-  ulong mac_addr_be = fd_ulong_bswap( test_mac_addr_seq )>>16UL;
-  memcpy( config->link.src_mac_addr, &mac_addr_be, 6 );
-
-  /* Set destination MAC to dummy */
-  static uchar const dst_mac_addr[6] = "\x06\x00\xde\xad\xbe\xef";
-  memcpy( config->link.dst_mac_addr, dst_mac_addr, 6 );
 
   /* Generate IP address */
   test_ip_addr_seq = fd_uint_bswap( fd_uint_bswap( test_ip_addr_seq ) + 1 );
@@ -259,6 +248,59 @@ fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair ) {
   fd_quic_set_aio_net_tx( pair->quic_b, NULL );
 }
 
+int
+fd_aio_eth_wrap_send( void *                    ctx,
+                      fd_aio_pkt_info_t const * batch,
+                      ulong                     batch_cnt,
+                      ulong *                   opt_batch_idx FD_PARAM_UNUSED,
+                      int                       flush ) {
+  fd_aio_eth_wrap_t * wrap = ctx;
+  static FD_TL uchar frame[ 4096 ];
+  for( ulong j=0UL; j<batch_cnt; j++ ) {
+    int flush2 = flush && (j+1==batch_cnt);
+    fd_aio_pkt_info_t pkt = {
+      .buf    = frame,
+      .buf_sz = (ushort)fd_uint_min( batch[j].buf_sz+14U, sizeof(frame) )
+    };
+    fd_memcpy( frame,    &wrap->template, sizeof(fd_eth_hdr_t) );
+    fd_memcpy( frame+14, batch[j].buf,    batch[j].buf_sz  );
+    fd_aio_send( &wrap->wrap_next, &pkt, 1UL, NULL, flush2 );
+  }
+  return FD_AIO_SUCCESS;
+}
+
+fd_aio_t *
+fd_aio_eth_wrap( fd_aio_eth_wrap_t * wrap ) {
+  wrap->wrap_self.ctx       = wrap;
+  wrap->wrap_self.send_func = fd_aio_eth_wrap_send;
+  return &wrap->wrap_self;
+}
+
+int
+fd_aio_eth_unwrap_send( void *                    ctx,
+                        fd_aio_pkt_info_t const * batch,
+                        ulong                     batch_cnt,
+                        ulong *                   opt_batch_idx FD_PARAM_UNUSED,
+                        int                       flush ) {
+  fd_aio_eth_wrap_t * wrap = ctx;
+  for( ulong j=0UL; j<batch_cnt; j++ ) {
+    int flush2 = flush && (j+1==batch_cnt);
+    fd_aio_pkt_info_t pkt = {
+      .buf    = (uchar *)batch[j].buf+14,
+      .buf_sz = (ushort)( fd_ushort_max( batch[j].buf_sz, 14 )-14 )
+    };
+    fd_aio_send( &wrap->unwrap_next, &pkt, 1UL, NULL, flush2 );
+  }
+  return FD_AIO_SUCCESS;
+}
+
+fd_aio_t *
+fd_aio_eth_unwrap( fd_aio_eth_wrap_t * wrap ) {
+  wrap->unwrap_self.ctx       = wrap;
+  wrap->unwrap_self.send_func = fd_aio_eth_unwrap_send;
+  return &wrap->unwrap_self;
+}
+
 fd_quic_udpsock_t *
 fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
                               fd_wksp_t *      wksp,
@@ -279,7 +321,7 @@ fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
       .sin_addr   = { .s_addr = listen_ip },
       .sin_port   = 0,
   };
-  if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
+  if( FD_UNLIKELY( 0!=bind( sock_fd, fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
     FD_LOG_WARNING(( "bind(sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     close( sock_fd );
     return NULL;
@@ -301,6 +343,7 @@ fd_quic_client_create_udpsock(fd_quic_udpsock_t * udpsock,
     fd_wksp_free_laddr( sock_mem );
     return NULL;
   }
+  fd_udpsock_set_layer( sock, FD_UDPSOCK_LAYER_IP );
 
   udpsock->type            = FD_QUIC_UDPSOCK_TYPE_UDPSOCK;
   udpsock->wksp            = wksp;
@@ -323,13 +366,13 @@ fd_quic_udpsock_create( void *           _sock,
                         fd_wksp_t *      wksp,
                         fd_aio_t const * rx_aio ) {
 
-  /* This kinda sucks, should be cleaned up */
-
-  fd_quic_udpsock_t * quic_sock = (fd_quic_udpsock_t *)_sock;
+  /* FIXME simplify this / use fdctl tile architecture */
+  fd_quic_udpsock_t * quic_sock = _sock;
 
   char const * if_name       = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--iface",        NULL,      NULL );
   uint         if_queue      = fd_env_strip_cmdline_uint  ( pargc, pargv, "--ifqueue",      NULL,       0U  );
   char const * _src_mac      = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--src-mac",      NULL,      NULL );
+  char const * dst_mac       = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--dst-mac",      NULL,      NULL );
   ulong        mtu           = fd_env_strip_cmdline_ulong ( pargc, pargv, "--mtu",          NULL,    2048UL );
   ulong        rx_depth      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--rx-depth",     NULL,    1024UL );
   ulong        tx_depth      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--tx-depth",     NULL,    1024UL );
@@ -341,32 +384,6 @@ fd_quic_udpsock_create( void *           _sock,
 
   uint listen_ip = 0;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_ip, &listen_ip ) ) ) FD_LOG_ERR(( "invalid --listen-ip" ));
-
-  if( FD_UNLIKELY( !if_name ) ) FD_LOG_ERR(( "Missing --iface" ));  /* TODO relax this for regular sockets? */
-  uint if_idx = if_nametoindex( if_name );
-  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "invalid --iface: %s", if_name ));
-
-  static char mac_cstr[18];
-  if( FD_UNLIKELY( !_src_mac ) ) do {
-    char path[ 22 + IF_NAMESIZE ];
-    FILE * address_file;
-
-    snprintf( path, sizeof(path), "/sys/class/net/%s/address", if_name );
-
-    address_file = fopen( path, "r" );
-    if( FD_UNLIKELY( !address_file ) )
-      goto detect_fail;
-
-    if( FD_UNLIKELY( 17!=fread( mac_cstr, 1, 17UL, address_file ) ) )
-      goto detect_fail;
-    mac_cstr[17] = '\0';
-
-    _src_mac = mac_cstr;
-    fclose( address_file );
-    break;
-detect_fail:
-    FD_LOG_ERR(( "Missing --src-mac (auto detection failed)" ));
-  } while(0);
 
   int sock_type = 0;
   if( 0==strcmp( net_mode_cstr, "xdp" ) ) {
@@ -383,6 +400,10 @@ detect_fail:
 
   if( sock_type == FD_QUIC_UDPSOCK_TYPE_XSK ) {
 #   if defined(__linux__)
+    if( FD_UNLIKELY( !if_name ) ) FD_LOG_ERR(( "Missing --iface" ));
+    uint if_idx = if_nametoindex( if_name );
+    if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "invalid --iface: %s", if_name ));
+
     uint xdp_mode = 0;
     if( 0==strcmp( xdp_mode_cstr, "skb" ) ) {
       xdp_mode = XDP_FLAGS_SKB_MODE;
@@ -392,8 +413,36 @@ detect_fail:
       FD_LOG_ERR(( "Invalid --xdp-mode %s", xdp_mode_cstr ));
     }
 
+    static char mac_cstr[18];
+    if( FD_UNLIKELY( !_src_mac ) ) do {
+      char path[ 22 + IF_NAMESIZE ];
+      FILE * address_file;
+
+      snprintf( path, sizeof(path), "/sys/class/net/%s/address", if_name );
+
+      address_file = fopen( path, "r" );
+      if( FD_UNLIKELY( !address_file ) )
+        goto detect_fail;
+
+      if( FD_UNLIKELY( 17!=fread( mac_cstr, 1, 17UL, address_file ) ) )
+        goto detect_fail;
+      mac_cstr[17] = '\0';
+
+      _src_mac = mac_cstr;
+      fclose( address_file );
+      break;
+    detect_fail:
+      FD_LOG_ERR(( "Missing --src-mac (auto detection failed)" ));
+    } while(0);
+
+    fd_aio_eth_wrap_t * eth_wrap = &quic_sock->xdp.eth_wrap;
     FD_TEST( _src_mac );
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, quic_sock->self_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, eth_wrap->template.src ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( dst_mac,  eth_wrap->template.dst ) ) ) FD_LOG_ERR(( "invalid --dst-mac" ));
+    eth_wrap->template.net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+
+    FD_LOG_NOTICE(( "--src-mac " FD_ETH_MAC_FMT, FD_ETH_MAC_FMT_ARGS( eth_wrap->template.src ) ));
+    FD_LOG_NOTICE(( "--dst-mac " FD_ETH_MAC_FMT, FD_ETH_MAC_FMT_ARGS( eth_wrap->template.dst ) ));
 
     fd_xdp_session_t * session = fd_xdp_session_init( &quic_sock->xdp.session );
     if( FD_UNLIKELY( !session ) ) {
@@ -401,8 +450,6 @@ detect_fail:
       return NULL;
     }
 
-    FD_LOG_NOTICE(( "Adding UDP listener (" FD_IP4_ADDR_FMT ":%u)",
-                    FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
     if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_port( session, quic_sock->listen_ip, (ushort)quic_sock->listen_port, 0 ) ) ) {
       FD_LOG_WARNING(( "fd_xdp_listen_udp_port failed" ));
       fd_xdp_session_fini( session );
@@ -415,7 +462,7 @@ detect_fail:
       return NULL;
     }
 
-    FD_LOG_NOTICE(( "Creating XSK" ));
+    FD_LOG_NOTICE(( "Creating XSK --mtu %lu --rx-depth %lu --tx-depth %lu", mtu, rx_depth, tx_depth ));
     void * xsk_mem = fd_wksp_alloc_laddr( wksp, fd_xsk_align(), xsk_sz, 1UL );
     fd_xsk_t * xsk = fd_xsk_join( fd_xsk_new( xsk_mem, mtu, rx_depth, rx_depth, tx_depth, tx_depth ) );
     if( FD_UNLIKELY( !xsk ) ) {
@@ -426,13 +473,12 @@ detect_fail:
     }
 
     /* TODO merge this into new? */
-    FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", if_name, if_queue ));
+    FD_LOG_NOTICE(( "Binding XSK --iface %s, --ifqueue %u", if_name, if_queue ));
     if( FD_UNLIKELY( !fd_xsk_init( xsk, if_idx, if_queue, 0 /* flags */ ) ) ) {
       FD_LOG_WARNING(( "fd_xsk_init failed" ));
       return NULL;
     }
 
-    FD_LOG_NOTICE(( "Creating fd_xsk_aio" ));
     void * xsk_aio_mem =
       fd_wksp_alloc_laddr( wksp, fd_xsk_aio_align(), fd_xsk_aio_footprint( tx_depth, xsk_pkt_cnt ), 1UL );
     fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_xsk_aio_new( xsk_aio_mem, tx_depth, xsk_pkt_cnt ), xsk );
@@ -443,8 +489,6 @@ detect_fail:
       fd_xdp_session_fini( session );
       return NULL;
     }
-
-    FD_LOG_NOTICE(( "Joining fd_xsk_aio" ));
 
     if( FD_UNLIKELY( !xsk_aio ) ) {
       FD_LOG_WARNING(( "failed to join fd_xsk_aio" ));
@@ -458,8 +502,10 @@ detect_fail:
     quic_sock->wksp        = wksp;
     quic_sock->xdp.xsk     = xsk;
     quic_sock->xdp.xsk_aio = xsk_aio;
-    quic_sock->aio         = fd_xsk_aio_get_tx( quic_sock->xdp.xsk_aio );
-    fd_xsk_aio_set_rx( xsk_aio, rx_aio );
+    eth_wrap->wrap_next    = *fd_xsk_aio_get_tx( quic_sock->xdp.xsk_aio );
+    quic_sock->aio         = fd_aio_eth_wrap( eth_wrap );
+    eth_wrap->unwrap_next  = *rx_aio;
+    fd_xsk_aio_set_rx( xsk_aio, fd_aio_eth_unwrap( eth_wrap ) );
 
     fd_xdp_link_session_t * link_session =
         fd_xdp_link_session_init( &quic_sock->xdp.link_session, session, if_idx, xdp_mode );
@@ -471,10 +517,14 @@ detect_fail:
       return NULL;
     }
 
+    if( FD_UNLIKELY( !fd_xsk_activate( xsk, link_session->xsk_map_fd ) ) ) {
+      FD_LOG_ERR(( "fd_xsk_activate failed" ));
+    }
+
     FD_LOG_NOTICE(( "AF_XDP listening on " FD_IP4_ADDR_FMT ":%u",
                     FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
 #   else
-    (void)if_queue; (void)_src_mac; (void)xdp_mode_cstr; (void)xsk_pkt_cnt;
+    (void)if_name; (void)if_queue; (void)_src_mac; (void)dst_mac; (void)xdp_mode_cstr; (void)xsk_pkt_cnt;
     FD_LOG_ERR(( "AF_XDP not supported on this platform" ));
 #   endif
   } else {
@@ -489,7 +539,7 @@ detect_fail:
       .sin_addr   = { .s_addr = listen_ip },
       .sin_port   = (ushort)fd_ushort_bswap( (ushort)listen_port ),
     };
-    if( FD_UNLIKELY( 0!=bind( sock_fd, (struct sockaddr const *)fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
+    if( FD_UNLIKELY( 0!=bind( sock_fd, fd_type_pun_const( &listen_addr ), sizeof(struct sockaddr_in) ) ) ) {
       FD_LOG_WARNING(( "bind(sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       close( sock_fd );
       return NULL;
@@ -511,6 +561,7 @@ detect_fail:
       fd_wksp_free_laddr( sock_mem );
       return NULL;
     }
+    fd_udpsock_set_layer( sock, FD_UDPSOCK_LAYER_IP );
 
     quic_sock->type            = FD_QUIC_UDPSOCK_TYPE_UDPSOCK;
     quic_sock->wksp            = wksp;
@@ -582,16 +633,14 @@ int
 fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
                     fd_aio_pkt_info_t const * batch,
                     ulong                     batch_cnt,
-                    ulong *                   opt_batch_idx,
+                    ulong *                   opt_batch_idx FD_PARAM_UNUSED,
                     int                       flush ) {
-  (void)opt_batch_idx; /* FIXME fd_aio compliance */
-
-  fd_quic_netem_t * mitm_ctx = (fd_quic_netem_t *)ctx;
+  fd_quic_netem_t * mitm_ctx = ctx;
 
   /* go packet by packet */
   for( ulong j = 0UL; j < batch_cnt; ++j ) {
     /* generate a random number and compare with threshold, and either pass thru or drop */
-    static FD_TL uint seed = 0;
+    static FD_TL uint seed = 0; /* FIXME use fd_log_tid */
     ulong l = fd_rng_private_expand( seed++ );
     float rnd_num = (float)l * (float)0x1p-64;
 

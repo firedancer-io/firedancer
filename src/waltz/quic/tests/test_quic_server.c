@@ -1,11 +1,6 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 
-int server_complete = 0;
-
-/* server connection received in callback */
-fd_quic_conn_t * server_conn = NULL;
-
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -72,7 +67,6 @@ main( int argc, char ** argv ) {
   quic_config->retry = 0;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_config ) );
 
-  memcpy( quic_config->link.src_mac_addr, udpsock->self_mac, 6UL );
   quic_config->net.ip_addr         = udpsock->listen_ip;
   quic_config->net.listen_udp_port = udpsock->listen_port;
 
@@ -84,12 +78,12 @@ main( int argc, char ** argv ) {
   }
   fd_quic_set_aio_net_tx( quic, aio_tx );
 
-  FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );
 
   /* TODO support pcap if requested */
 
   /* do general processing */
+  FD_LOG_NOTICE(( "Running" ));
   while(1) {
     fd_quic_service( quic );
     fd_quic_udpsock_service( udpsock );

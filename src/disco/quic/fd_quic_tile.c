@@ -5,6 +5,7 @@
 #include "fd_tpu.h"
 #include "../../waltz/quic/fd_quic_private.h"
 #include "../../app/fdctl/run/tiles/generated/quic_seccomp.h"
+#include "../../util/net/fd_eth.h"
 
 #include <errno.h>
 #include <linux/unistd.h>
@@ -217,9 +218,13 @@ after_frag( fd_quic_ctx_t *     ctx,
   ulong proto = fd_disco_netmux_sig_proto( sig );
 
   if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
+    if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t) ) ) FD_LOG_ERR(( "QUIC packet too small" ));
+    uchar * ip_pkt = ctx->buffer + sizeof(fd_eth_hdr_t);
+    ulong   ip_sz  = sz - sizeof(fd_eth_hdr_t);
+
     fd_quic_t * quic = ctx->quic;
     long dt = -fd_tickcount();
-    fd_quic_process_packet( quic, ctx->buffer, sz );
+    fd_quic_process_packet( quic, ip_pkt, ip_sz );
     dt += fd_tickcount();
     fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
     quic->metrics.net_rx_byte_cnt += sz;
@@ -382,36 +387,22 @@ quic_tx_aio_send( void *                    _ctx,
                   int                       flush ) {
   (void)flush;
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  fd_quic_ctx_t * ctx = _ctx;
 
   for( ulong i=0; i<batch_cnt; i++ ) {
-    void * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-    fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
+    if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
 
-    uchar const * packet = dst;
-    uchar const * packet_end = packet + batch[i].buf_sz;
-    uchar const * iphdr = packet + 14U;
-
-    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-    uint   ip_dstaddr  = 0;
-    if( FD_LIKELY( test_ethip==0x080011 ) ) {
-      /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-      uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
-      uchar const * udp = iphdr + iplen;
-
-      /* Ignore if UDP header is too short */
-      if( FD_UNLIKELY( udp+8U>packet_end ) ) {
-        ctx->metrics.quic_pkt_too_small++;
-        continue;
-      }
-
-      /* Extract IP dest addr and UDP dest port */
-      ip_dstaddr  =                  *(uint   *)( iphdr+16UL );
-    }
+    uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
+    uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
+    memset( packet_l2, 0, 12 );
+    FD_STORE( ushort, packet_l2+offsetof( fd_eth_hdr_t, net_type ), fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+    fd_memcpy( packet_l3, batch[ i ].buf, batch[ i ].buf_sz );
+    ulong sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dstaddr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+    ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
     long tspub = fd_tickcount();
     fd_mcache_publish( ctx->net_out_mcache,
@@ -419,7 +410,7 @@ quic_tx_aio_send( void *                    _ctx,
                        ctx->net_out_seq,
                        sig,
                        ctx->net_out_chunk,
-                       batch[ i ].buf_sz,
+                       sz_l2,
                        fd_frag_meta_ctl( 0UL, 1, 1, 0 ),
                        0,
                        fd_frag_meta_ts_comp( tspub ) );
@@ -530,7 +521,6 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.ack_delay                  = tile->quic.ack_delay_millis * 1000000UL;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
-  fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
 
   quic->config.sign         = quic_tls_cv_sign;

@@ -1361,7 +1361,6 @@ fd_quic_send_retry( fd_quic_t *               quic,
                     fd_quic_conn_id_t const * odcid,
                     fd_quic_conn_id_t const * scid,
                     ulong                     new_conn_id,
-                    uchar const               dst_mac_addr_u6[ 6 ],
                     uint                      dst_ip_addr,
                     ushort                    dst_udp_port ) {
 
@@ -1382,7 +1381,6 @@ fd_quic_send_retry( fd_quic_t *               quic,
         retry_pkt_sz,
         &tx_rem,
         // encode buffer
-        dst_mac_addr_u6,
         &pkt->ip4->net_id,
         dst_ip_addr,
         quic->config.net.listen_udp_port,
@@ -1489,10 +1487,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       /* Save peer's network endpoint */
 
-      ushort dst_udp_port       = pkt->udp->net_sport;
-      uint   dst_ip_addr        = FD_LOAD( uint, pkt->ip4->saddr_c );
-      uchar  dst_mac_addr_u6[6] = {0};
-      memcpy( dst_mac_addr_u6, pkt->eth->src, 6 );
+      ushort dst_udp_port = pkt->udp->net_sport;
+      uint   dst_ip_addr  = FD_LOAD( uint, pkt->ip4->saddr_c );
 
       /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
          Take template from state and mutate certain params in-place.
@@ -1534,7 +1530,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
                 &odcid, peer_scid, new_conn_id_u64,
-                dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
+                dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
           }
           return (initial->pkt_num_pnoff + initial->len);
@@ -2305,24 +2301,7 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   pkt.rcv_time = state->now;
 
-  /* parse eth, ip, udp */
-  rc = fd_quic_decode_eth( pkt.eth, cur_ptr, cur_sz );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    /* TODO count failure */
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_eth failed" )) );
-    return;
-  }
-
-  /* TODO support for vlan? */
-
-  if( FD_UNLIKELY( pkt.eth->net_type != FD_ETH_HDR_TYPE_IP ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt.eth->net_type )) );
-    return;
-  }
-
-  /* update pointer + size */
-  cur_ptr += rc;
-  cur_sz  -= rc;
+  /* parse ip, udp */
 
   rc = fd_quic_decode_ip4( pkt.ip4, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
@@ -2963,7 +2942,6 @@ fd_quic_tx_buffered_raw(
     uchar *          tx_buf,
     ulong            tx_buf_sz,
     ulong *          tx_sz,
-    uchar const      dst_mac_addr[ static 6 ],
     ushort *         ipv4_id,
     uint             dst_ipv4_addr,
     ushort           src_udp_port,
@@ -2998,10 +2976,6 @@ fd_quic_tx_buffered_raw(
   /* TODO much of this may be prepared ahead of time */
   fd_quic_pkt_t pkt;
 
-  memcpy( pkt.eth->dst, dst_mac_addr,                   6 );
-  memcpy( pkt.eth->src, quic->config.link.src_mac_addr, 6 );
-  pkt.eth->net_type = FD_ETH_HDR_TYPE_IP;
-
   pkt.ip4->verihl       = FD_IP4_VERIHL(4,5);
   pkt.ip4->tos          = (uchar)(config->net.dscp << 2); /* could make this per-connection or per-stream */
   pkt.ip4->net_tot_len  = (ushort)( 20 + 8 + payload_sz );
@@ -3023,17 +2997,7 @@ fd_quic_tx_buffered_raw(
   memcpy( &pkt.ip4->saddr_c, &config->net.ip_addr, 4 );
   memcpy( &pkt.ip4->daddr_c, &dst_ipv4_addr,       4 );
 
-  /* todo use fd_util Ethernet / IPv4 impl */
-
-  ulong rc = fd_quic_encode_eth( cur_ptr, cur_sz, pkt.eth );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-    FD_LOG_ERR(( "fd_quic_encode_eth failed with buffer overrun" ));
-  }
-
-  cur_ptr += rc;
-  cur_sz  -= rc;
-
-  rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
+  ulong rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_ERR(( "fd_quic_encode_ip4 failed with buffer overrun" ));
   }
@@ -3095,14 +3059,12 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
                      fd_quic_conn_t * conn,
                      int              flush ) {
   fd_quic_net_endpoint_t const * endpoint = conn->peer;
-  uchar const default_mac[6] = {0};
   return fd_quic_tx_buffered_raw(
       quic,
       &conn->tx_ptr,
       conn->tx_buf,
       sizeof(conn->tx_buf),
       &conn->tx_sz,
-      default_mac,
       &conn->ipv4_id,
       endpoint->ip_addr,
       conn->host.udp_port,
