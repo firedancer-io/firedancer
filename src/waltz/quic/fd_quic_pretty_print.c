@@ -191,14 +191,39 @@ fd_quic_pretty_print_frame( char **           out_buf,
     case 0x0e:
     case 0x0f:
     {
+      ulong remain = (ulong)( buf_end - cur_buf );
+
       /* stream */
-      /* offset field is optional, implied 0 */
-      ulong offset      = fd_ulong_if( data.stream_frame.offset_opt, data.stream_frame.offset, 0UL );
-      ulong stream_id   = data.stream_frame.stream_id;
+      /* optional fields decoding */
+      ulong offset      = 0;
+      ulong stream_id   = 0;
+      ulong data_sz     = remain;
+      ulong fin         = 0;
+
+      switch( id ) {
+#       define _0(ELSE,...) ELSE
+#       define _1(ELSE,...) __VA_ARGS__
+#       define _CASE(OFF,LEN,FIN,NAME)       \
+        case OFF(0,4) + LEN(0,2) + FIN(0,1): \
+          OFF(,offset  = data.NAME.offset;)  \
+          LEN(,data_sz = data.NAME.length;)  \
+          FIN(,fin     = 1;)                 \
+          stream_id   = data.NAME.stream_id; \
+          break;
+        _CASE(_0,_0,_0,stream_8_frame)
+        _CASE(_0,_0,_1,stream_8_frame)
+        _CASE(_0,_1,_0,stream_a_frame)
+        _CASE(_0,_1,_1,stream_a_frame)
+        _CASE(_1,_0,_0,stream_c_frame)
+        _CASE(_1,_0,_1,stream_c_frame)
+        _CASE(_1,_1,_0,stream_e_frame)
+        _CASE(_1,_1,_1,stream_e_frame)
+#       undef _CASE
+#       undef _1
+#       undef _0
+      }
+
       ulong stream_type = stream_id & 3UL;
-      ulong remain      = (ulong)( buf_end - cur_buf );
-      ulong data_sz     = fd_ulong_if( data.stream_frame.length_opt, data.stream_frame.length, remain );
-      ulong fin         = (ulong)data.stream_frame.fin_opt;
 
       ulong out_sz = safe_snprintf(
                        *out_buf,
