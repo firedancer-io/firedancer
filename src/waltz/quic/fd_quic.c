@@ -3035,7 +3035,7 @@ fd_quic_tx_buffered_raw(
   pkt.ip4->verihl       = FD_IP4_VERIHL(4,5);
   pkt.ip4->tos          = (uchar)(config->net.dscp << 2); /* could make this per-connection or per-stream */
   pkt.ip4->net_tot_len  = (ushort)( 20 + 8 + payload_sz );
-  pkt.ip4->net_id       = *ipv4_id++;
+  pkt.ip4->net_id       = *ipv4_id;
   pkt.ip4->net_frag_off = 0x4000u; /* don't fragment */
   pkt.ip4->ttl          = 64; /* TODO make configurable */
   pkt.ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
@@ -3044,6 +3044,7 @@ fd_quic_tx_buffered_raw(
   pkt.udp->net_dport    = dst_udp_port;
   pkt.udp->net_len      = (ushort)( 8 + payload_sz );
   pkt.udp->check        = 0x0000;
+  *ipv4_id = (ushort)( *ipv4_id + 1 );
 
   /* TODO saddr could be zero -- should use the kernel routing table to
      determine an appropriate source address */
