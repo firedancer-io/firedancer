@@ -304,8 +304,8 @@ fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                fd_tpool_t * tpool );
 
 int
-fd_runtime_block_prepare( fd_blockstore_t const * blockstore,
-                          fd_block_t const * block,
+fd_runtime_block_prepare( fd_blockstore_t * blockstore,
+                          fd_block_t * block,
                           ulong slot,
                           fd_valloc_t valloc,
                           fd_block_info_t * out_block_info );

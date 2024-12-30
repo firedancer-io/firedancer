@@ -470,7 +470,7 @@ fd_blockstore_fini( fd_blockstore_t * blockstore );
    local join. */
 
 FD_FN_PURE static inline fd_wksp_t *
-fd_blockstore_wksp( fd_blockstore_t const * blockstore ) {
+fd_blockstore_wksp( fd_blockstore_t * blockstore ) {
   return (fd_wksp_t *)( ( (ulong)blockstore ) - blockstore->blockstore_gaddr );
 }
 
@@ -497,8 +497,8 @@ fd_blockstore_seed( fd_blockstore_t const * blockstore ) {
    pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_buf_shred_t *
-fd_blockstore_shred_pool( fd_blockstore_t const * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shred_pool_gaddr );
+fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->shred_pool_gaddr );
 }
 
 /* fd_blockstore_buf_shred_map returns a pointer in the caller's address
@@ -507,8 +507,8 @@ fd_blockstore_shred_pool( fd_blockstore_t const * blockstore ) {
    of the local join. */
 
 FD_FN_PURE static inline fd_buf_shred_map_t *
-fd_blockstore_shred_map( fd_blockstore_t const * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shred_map_gaddr );
+fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->shred_map_gaddr );
 }
 
 /* fd_block_map returns a pointer in the caller's address space to the
@@ -516,8 +516,8 @@ fd_blockstore_shred_map( fd_blockstore_t const * blockstore ) {
    join.  Lifetime of the returned pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_block_map_t *
-fd_blockstore_block_map( fd_blockstore_t const * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->block_map_gaddr );
+fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->block_map_gaddr );
 }
 
 /* fd_block_idx returns a pointer in the caller's address space to the
@@ -525,8 +525,8 @@ fd_blockstore_block_map( fd_blockstore_t const * blockstore ) {
    join.  Lifetime of the returned pointer is that of the local join. */
 
 FD_FN_PURE static inline fd_block_idx_t *
-fd_blockstore_block_idx( fd_blockstore_t const * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->block_idx_gaddr );
+fd_blockstore_block_idx( fd_blockstore_t * blockstore ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->block_idx_gaddr );
 }
 
 /* fd_slot_deque returns a pointer in the caller's address space to the
@@ -534,7 +534,7 @@ fd_blockstore_block_idx( fd_blockstore_t const * blockstore ) {
    join.  Lifetime of the returned pointer is that of the local join. */
 
 FD_FN_PURE static inline ulong *
-fd_blockstore_slot_deque( fd_blockstore_t const * blockstore ) {
+fd_blockstore_slot_deque( fd_blockstore_t * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->slot_deque_gaddr );
 }
 
@@ -543,7 +543,7 @@ fd_blockstore_slot_deque( fd_blockstore_t const * blockstore ) {
    local join. */
 
 FD_FN_PURE static inline fd_txn_map_t *
-fd_blockstore_txn_map( fd_blockstore_t const * blockstore ) {
+fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->txn_map_gaddr );
 }
 
@@ -551,7 +551,7 @@ fd_blockstore_txn_map( fd_blockstore_t const * blockstore ) {
    the blockstore's allocator. */
 
 FD_FN_PURE static inline fd_alloc_t * /* Lifetime is that of the local join */
-fd_blockstore_alloc( fd_blockstore_t const * blockstore ) {
+fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->alloc_gaddr );
 }
 
@@ -559,12 +559,12 @@ fd_blockstore_alloc( fd_blockstore_t const * blockstore ) {
  * lifetime is until the block is removed. Check return value for error info. */
 
 FD_FN_PURE static inline uchar *
-fd_blockstore_block_data_laddr( fd_blockstore_t const * blockstore, fd_block_t const * block ) {
+fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
 }
 
 FD_FN_PURE static inline fd_block_entry_batch_t *
-fd_blockstore_block_batch_laddr( fd_blockstore_t const * blockstore, fd_block_t const * block ) {
+fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
 }
 
