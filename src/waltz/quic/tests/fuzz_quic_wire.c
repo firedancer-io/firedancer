@@ -128,8 +128,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   fd_quic_config_anonymous( quic, role );
 
-  fd_tls_test_sign_ctx_t test_signer = fd_tls_test_sign_ctx( rng );
-  fd_quic_config_test_signer( quic, &test_signer );
+  fd_tls_test_sign_ctx_t test_signer[1];
+  fd_tls_test_sign_ctx( test_signer, rng );
+  fd_quic_config_test_signer( quic, test_signer );
 
   quic->cb.now = test_clock;
   quic->config.retry = enable_retry;

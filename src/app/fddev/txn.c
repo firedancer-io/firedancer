@@ -166,7 +166,7 @@ txn_cmd_fn( args_t *         args,
   /* Signer */
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
-  *sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx( sign_ctx, rng );
 
   fd_memcpy( quic->config.identity_public_key, sign_ctx->public_key, 32UL );
   quic->config.sign_ctx = sign_ctx;

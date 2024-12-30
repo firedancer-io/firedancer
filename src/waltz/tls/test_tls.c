@@ -167,9 +167,9 @@ static void
 prepare_tls_pair( fd_rng_t * rng,
                   fd_tls_t * client,
                   fd_tls_t * server ) {
-  static fd_tls_test_sign_ctx_t client_sign_ctx, server_sign_ctx;
-  client_sign_ctx = fd_tls_test_sign_ctx( rng );
-  server_sign_ctx = fd_tls_test_sign_ctx( rng );
+  static fd_tls_test_sign_ctx_t client_sign_ctx[1], server_sign_ctx[1];
+  fd_tls_test_sign_ctx( client_sign_ctx, rng );
+  fd_tls_test_sign_ctx( server_sign_ctx, rng );
 
   *client = (fd_tls_t) {
     .rand       = fd_tls_test_rand( rng ),
@@ -188,9 +188,9 @@ prepare_tls_pair( fd_rng_t * rng,
   /* Generate keys */
 
   for( ulong b=0; b<32UL; b++ ) server->kex_private_key [b] = fd_rng_uchar( rng );
-  fd_memcpy( server->cert_public_key, server_sign_ctx.public_key, 32UL );
+  fd_memcpy( server->cert_public_key, server_sign_ctx->public_key, 32UL );
   for( ulong b=0; b<32UL; b++ ) client->kex_private_key [b] = fd_rng_uchar( rng );
-  fd_memcpy( client->cert_public_key, client_sign_ctx.public_key, 32UL );
+  fd_memcpy( client->cert_public_key, client_sign_ctx->public_key, 32UL );
 
   fd_x509_mock_cert( server->cert_x509, server->cert_public_key );
   server->cert_x509_sz = FD_X509_MOCK_CERT_SZ;

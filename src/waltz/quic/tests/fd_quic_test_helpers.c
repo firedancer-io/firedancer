@@ -174,7 +174,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   fd_quic_config_anonymous( quic, role );
 
   fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
-  *sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx( sign_ctx, rng );
   fd_quic_config_test_signer( quic, sign_ctx );
 
   return quic;
