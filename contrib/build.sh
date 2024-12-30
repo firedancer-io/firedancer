@@ -1,5 +1,7 @@
 #!/bin/bash
 
+shopt -s nullglob
+
 # help message
 help() {
   echo
@@ -173,8 +175,8 @@ START=$(date +%s)
 
 if [[ $NO_GCC -ne 1 ]]; then
   if [[ ${#GCC[@]} -eq 0 ]]; then
-    for gcc in $(ls /opt/gcc); do
-      GCC+=( $gcc )
+    for gcc in /opt/gcc/*; do
+      GCC+=( $(basename "$gcc") )
     done
   fi
 else
@@ -183,30 +185,30 @@ fi
 
 if [[ $NO_CLANG -ne 1 ]]; then
   if [[ ${#CLANG[@]} -eq 0 ]]; then
-    for clang in $(ls /opt/clang); do
-      CLANG+=( $clang )
+    for clang in /opt/clang/*; do
+      CLANG+=( $(basename "$clang") )
     done
   fi
 else
   CLANG=()
 fi
 
-# If --machine is not supplied, compile for all machine
+# If --machine is not supplied, compile for all Linux
 # makefiles present in the config/machine directory.
 
 if [[ ${#MACHINES[@]} -eq 0 ]]; then
-  for machine in $(ls $FD_REPO_DIR/config/machine); do
-    MACHINES+=( $machine )
+  for machine in "$FD_REPO_DIR"/config/machine/linux_*.mk; do
+    MACHINES+=( $(basename "$machine") )
   done
 fi
 
 echo "*************************"
 echo "Starting Build Matrix..."
 echo "*************************"
-echo "machines=[ ${MACHINES[@]} ]"
-echo "clang=[ ${CLANG[@]} ]"
-echo "gcc=[ ${GCC[@]} ]"
-echo "targets=[ ${TARGETS[@]} ]"
+echo "machines=[ ${MACHINES[*]} ]"
+echo "clang=[ ${CLANG[*]} ]"
+echo "gcc=[ ${GCC[*]} ]"
+echo "targets=[ ${TARGETS[*]} ]"
 echo
 
 # Install rust and packages, also fetch the git repositories
