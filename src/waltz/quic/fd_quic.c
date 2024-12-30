@@ -15,6 +15,8 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
+#include "fd_quic_pretty_print.c"
+
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
 #include "templ/fd_quic_parse_util.h"
