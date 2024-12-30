@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# This commit hash was taken from flamenco/nanopb/README.md
-FD_NANOPB_COMMIT=839156b71c64b0a6073ad9c8d793f5913075d9bb
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+FD_NANOPB_TAG=$(cat ../../nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
 python3.11 -m venv nanopb_venv
@@ -12,13 +12,13 @@ pip install protobuf grpcio-tools
 if [ ! -d nanopb ]; then
   git clone --depth=1 -q https://github.com/nanopb/nanopb.git
   cd nanopb
-  git fetch --depth=1 -q origin $FD_NANOPB_COMMIT
-  git checkout -q $FD_NANOPB_COMMIT
+  git fetch --depth=1 -q origin $FD_NANOPB_TAG:refs/tags$FD_NANOPB_TAG
+  git checkout -q $FD_NANOPB_TAG
   cd ..
 else
   cd nanopb
-  git fetch --depth=1 -q origin $FD_NANOPB_COMMIT
-  git checkout -q $FD_NANOPB_COMMIT
+  git fetch --depth=1 -q origin $FD_NANOPB_TAG:refs/tags$FD_NANOPB_TAG
+  git checkout -q $FD_NANOPB_TAG
   cd ..
 fi
 
