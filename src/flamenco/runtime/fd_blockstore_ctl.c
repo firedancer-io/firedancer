@@ -56,6 +56,7 @@ struct fd_entry_row {
   int   ref_tick;
   ulong sz;        /* bytes */
   ulong txn_cnt;
+  ulong hashcnt_from_slot;
 };
 typedef struct fd_entry_row fd_entry_row_t;
 
@@ -78,7 +79,7 @@ void entry_write_header( const char *filename ) {
         perror("Error opening file");
         return;
     }
-    fprintf(file, "slot,batch_idx,ref_tick,sz,txn_cnt\n");
+    fprintf(file, "slot,batch_idx,ref_tick,hash_count_from_start,sz,txn_cnt\n");
     fclose(file);
 }
 
@@ -118,8 +119,8 @@ void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
     }
 
     // Write the row data to the CSV file
-    fprintf(file, "%lu,%lu,%d,%lu,%lu\n", 
-            row->slot, row->batch_idx, row->ref_tick, row->sz, row->txn_cnt);
+    fprintf(file, "%lu,%lu,%d,%lu,%lu,%lu\n", 
+            row->slot, row->batch_idx, row->ref_tick, row->hashcnt_from_slot,row->sz, row->txn_cnt);
 
     // Close the file
     fclose(file);
@@ -170,6 +171,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
     for( int i = 0; i < slot_idx; i++ ) {
       ulong slot = populated_slots[i];
       row.slot   = slot;
+      ulong hashcnt_from_slot_start = 0;
 
       block = fd_blockstore_block_query( blockstore, slot );
       FD_TEST( block );
@@ -182,8 +184,9 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
 
      /* iterate shreds, print offset */
       ulong curr_shred_idx = 0;
+      ulong next_batch_shred_idx = curr_shred_idx;
       int curr_batch_tick  = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
-      ulong next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx );
+      ulong next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &next_batch_shred_idx );
       row.batch_idx        = 0;
 
       for( ulong micro_idx = 0; micro_idx < block->micros_cnt; micro_idx++ ) {
@@ -197,22 +200,31 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
         }*/
         if ( micro->off >= next_batch_off ) {
           row.batch_idx++;
-          FD_TEST( curr_shred_idx < block->shreds_cnt );
-          curr_batch_tick = shreds[curr_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
-          next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &curr_shred_idx ); // advance shred idx to next batch
+          FD_TEST( next_batch_shred_idx < block->shreds_cnt );
+          curr_batch_tick = shreds[next_batch_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
+          curr_shred_idx = next_batch_shred_idx;
+          next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &next_batch_shred_idx ); // advance shred idx to next batch
+        }
+  
+
+        for ( ulong i = curr_shred_idx; i < next_batch_shred_idx; i++ ) {
+          fd_block_shred_t * s = &shreds[i];
+          FD_TEST((s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK) == curr_batch_tick);
         }
 
-        //fd_block_shred_t * shred = &shreds[curr_shred_idx];
+        row.ref_tick = curr_batch_tick; 
 
-        row.ref_tick = curr_batch_tick; //(uchar)( (int)shred->hdr.data.flags &
-                                                //                     (int)FD_SHRED_DATA_REF_TICK_MASK );
-        
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (uchar *)data + micro->off );
         //uchar* poh = hdr->hash;
         ulong hashcnt = hdr->hash_cnt;
-        FD_LOG_NOTICE(("hash count since prev batch sent: %lu, curr batch tick: %d", hashcnt, curr_batch_tick));
+        hashcnt_from_slot_start += hashcnt;
+        /*if ( hashcnt_from_slot_start > 62500*64 ) {
+          FD_LOG_NOTICE(("hash count is exceeding slot boundary, slot: %lu, hashcnt: %lu", slot, hashcnt_from_slot_start));
+        }*/
+        // if its the first microblock in slot, its hashcnt delta from 0. not from prev microblock
         
         row.txn_cnt = hdr->txn_cnt;
+        row.hashcnt_from_slot = hashcnt_from_slot_start;
 
         ulong total_sz = sizeof( fd_microblock_hdr_t );
         ulong blockoff = micro->off + sizeof( fd_microblock_hdr_t );
@@ -233,12 +245,13 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
         row.sz = total_sz;
 
         if ( row.txn_cnt == 0 ) { /* truncate payload sz to 48 at all times */
-          /* sometimes you get gotchad by reappring mcounts */
+          /* sometimes you get gotchad by reappearing mcounts, although this should
+            be solved by iterating txn counts above */
           row.sz = 48;
         }
 
         entry_append_csv(csv, &row);
-        FD_LOG_NOTICE(( "Entry | slot: %lu, payload_sz: %lu txn_cnt: %lu, ref_tick: %d",
+        FD_LOG_DEBUG(( "Entry | slot: %lu, payload_sz: %lu txn_cnt: %lu, ref_tick: %d",
                         row.slot, row.sz, row.txn_cnt, row.ref_tick ));
       }
     }
