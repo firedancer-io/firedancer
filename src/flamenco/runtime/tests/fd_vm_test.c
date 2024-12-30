@@ -1,5 +1,6 @@
 #include "fd_vm_test.h"
 #include "fd_exec_instr_test.h"
+#include "generated/vm.pb.h"
 
 int
 fd_vm_syscall_noop( void * _vm,
@@ -48,10 +49,12 @@ fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
 
 ulong
 fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
-                            fd_exec_test_syscall_context_t const *input,
-                            fd_exec_test_syscall_effects_t      **output,
+                            void const *                          input_,
+                            void **                               output_,
                             void *                                output_buf,
                             ulong                                 output_bufsz ) {
+  fd_exec_test_syscall_context_t const * input = fd_type_pun_const( input_ );
+  fd_exec_test_syscall_effects_t      ** output = fd_type_pun( output_ );
   fd_wksp_t  * wksp  = fd_wksp_attach( "wksp" );
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
@@ -89,8 +92,9 @@ do{
   if ( !input->vm_ctx.rodata ) {
     break;
   }
-  uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong   rodata_sz = input->vm_ctx.rodata->size;
+  uchar * rodata = fd_spad_alloc( spad, 8UL, rodata_sz );
+  memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
