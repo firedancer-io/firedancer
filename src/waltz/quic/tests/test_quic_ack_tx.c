@@ -9,6 +9,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  float tick_per_us = 1000.0f;
 
   fd_quic_ack_gen_t gen[1];
 
@@ -78,19 +79,19 @@ main( int     argc,
   gen->is_elicited = 1;
 
   /* requested wrong encryption level */
-  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 1U, 2009UL )==buf );
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 1U, 2009UL, tick_per_us )==buf );
   FD_TEST( gen->tail==0UL && gen->head==FD_QUIC_ACK_QUEUE_CNT );
   FD_TEST( gen->is_elicited==1 );
 
   /* not enough buffer space */
   for( ulong j=0UL; j<=4UL; j++ ) {
-    FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+j, 0U, 2009UL )==buf );
+    FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+j, 0U, 2009UL, tick_per_us )==buf );
     FD_TEST( gen->tail==0UL && gen->head==FD_QUIC_ACK_QUEUE_CNT );
     FD_TEST( gen->is_elicited==1 );
   }
 
   /* generate one frame */
-  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+16, 0U, 2011UL )==buf+5UL );
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+16, 0U, 2011UL, tick_per_us )==buf+5UL );
   FD_TEST( gen->tail==1UL && gen->head==FD_QUIC_ACK_QUEUE_CNT );
   fd_quic_ack_frame_t ack_frame[2];
   FD_TEST( fd_quic_decode_ack_frame( ack_frame, buf, 5UL )==5UL );
@@ -103,7 +104,7 @@ main( int     argc,
 
   /* generate two frames */
   gen->tail = 0UL;
-  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 0U, 2011UL )==buf+10UL );
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 0U, 2011UL, tick_per_us )==buf+10UL );
   FD_TEST( gen->tail==2UL && gen->head==FD_QUIC_ACK_QUEUE_CNT );
   FD_TEST( fd_quic_decode_ack_frame( ack_frame,   buf,     128UL )==5UL );
   FD_TEST( fd_quic_decode_ack_frame( ack_frame+1, buf+5UL, 128UL )==5UL );
@@ -116,7 +117,7 @@ main( int     argc,
 
   /* generate last frame */
   gen->tail = gen->head - 1;
-  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 2U, 1UL )==buf+6UL );
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 2U, 1UL, tick_per_us )==buf+6UL );
   FD_TEST( gen->tail==gen->head );
   FD_TEST( fd_quic_decode_ack_frame( ack_frame, buf, 128UL )==6UL );
   FD_TEST( ack_frame[0].type           ==0x02 );
@@ -128,7 +129,7 @@ main( int     argc,
 
   /* refuse to generate ACK frames when no ACK eliciting frame was received */
   gen->tail = gen->head - 1;
-  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 2U, 1UL )==buf );
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 2U, 1UL, tick_per_us )==buf );
   FD_TEST( gen->tail==gen->head-1 );
   FD_TEST( gen->is_elicited==0 );
 

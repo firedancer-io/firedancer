@@ -139,8 +139,7 @@ typedef struct fd_quic_layout fd_quic_layout_t;
 
 /* fd_quic_now_t is the clock source used internally by quic for
    scheduling events.  context is an arbitrary pointer earlier provided
-   by the caller during config.  Returns the time in ns since epoch.
-   epoch is arbitrary but must stay consistent. */
+   by the caller during config. */
 
 typedef ulong
 (*fd_quic_now_t)( void * context );
@@ -154,10 +153,13 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
   int role;
 
-   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
   int retry;
 
-  /* idle_timeout: Upper bound on conn idle timeout (ns).
+  /* tick_per_us: clock ticks per microsecond */
+  float tick_per_us;
+
+  /* idle_timeout: Upper bound on conn idle timeout.
      Also sent to peer via max_idle_timeout transport param.
      If the peer specifies a lower idle timeout, that is used instead. */
   ulong idle_timeout;
@@ -172,6 +174,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      unacknowledged stream bytes exceeds this value. */
   ulong ack_threshold;
 # define FD_QUIC_DEFAULT_ACK_THRESHOLD (65536UL) /* 64 KiB */
+
+  /* retry_ttl: time-to-live for retry tokens */
+  ulong retry_ttl;
+# define FD_QUIC_DEFAULT_RETRY_TTL (ulong)(1e9) /* 1s */
 
   /* TLS config ********************************************/
 
@@ -464,6 +470,20 @@ fd_quic_get_aio_net_rx( fd_quic_t * quic );
 FD_QUIC_API void
 fd_quic_set_aio_net_tx( fd_quic_t *      quic,
                         fd_aio_t const * aio_tx );
+
+/* fd_quic_set_clock sets the clock source.  Converts all timing values
+   in the config to the new time scale. */
+
+FD_QUIC_API void
+fd_quic_set_clock( fd_quic_t *   quic,
+                   fd_quic_now_t now_fn,
+                   void *        now_ctx,
+                   float         tick_per_us );
+
+/* fd_quic_set_clock_tickcount sets fd_tickcount as the clock source. */
+
+FD_QUIC_API void
+fd_quic_set_clock_tickcount( fd_quic_t * quic );
 
 /* Initialization *****************************************************/
 

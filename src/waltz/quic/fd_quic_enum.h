@@ -110,8 +110,6 @@
 #define FD_QUIC_RETRY_SECRET_SZ 16
 /* RETRY iv size in bytes */
 #define FD_QUIC_RETRY_IV_SZ 12
-/* Retry token lifetime in seconds */
-#define FD_QUIC_RETRY_TOKEN_LIFETIME (3)
 
 #define FD_QUIC_STREAM_ID_UNUSED (ULONG_MAX)
 

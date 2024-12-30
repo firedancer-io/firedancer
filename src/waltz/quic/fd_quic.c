@@ -24,6 +24,7 @@
 #include <unistd.h>  /* for keylog close(2) */
 
 #include "../../ballet/hex/fd_hex.h"
+#include "../../tango/tempo/fd_tempo.h"
 #include "../../util/log/fd_dtrace.h"
 
 /* Declare map type for stream_id -> stream* */
@@ -149,6 +150,16 @@ fd_quic_footprint( fd_quic_limits_t const * limits ) {
   return fd_quic_footprint_ext( limits, &layout );
 }
 
+static ulong
+fd_quic_clock_wallclock( void * ctx FD_PARAM_UNUSED ) {
+  return (ulong)fd_log_wallclock();
+}
+
+static ulong
+fd_quic_clock_tickcount( void * ctx FD_PARAM_UNUSED ) {
+  return (ulong)fd_tickcount();
+}
+
 FD_QUIC_API void *
 fd_quic_new( void * mem,
              fd_quic_limits_t const * limits ) {
@@ -186,10 +197,20 @@ fd_quic_new( void * mem,
     return NULL;
   }
 
-  fd_quic_t * quic  = (fd_quic_t *)mem;
+  fd_quic_t * quic = (fd_quic_t *)mem;
 
   /* Clear fd_quic_t memory region */
   fd_memset( quic, 0, footprint );
+
+  /* Defaults */
+  quic->config.idle_timeout = FD_QUIC_DEFAULT_IDLE_TIMEOUT;
+  quic->config.ack_delay    = FD_QUIC_DEFAULT_ACK_DELAY;
+  quic->config.retry_ttl    = FD_QUIC_DEFAULT_RETRY_TTL;
+
+  /* Default clock source */
+  quic->cb.now             = fd_quic_clock_wallclock;
+  quic->cb.now_ctx         = NULL;
+  quic->config.tick_per_us = 1000.0f;
 
   /* Copy layout descriptors */
   quic->limits = *limits;
@@ -275,6 +296,33 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
   }
 }
 
+FD_QUIC_API void
+fd_quic_set_clock( fd_quic_t *   quic,
+                   fd_quic_now_t now_fn,
+                   void *        now_ctx,
+                   float         tick_per_us ) {
+  fd_quic_config_t *    config = &quic->config;
+  fd_quic_callbacks_t * cb     = &quic->cb;
+
+  float ratio = config->tick_per_us / tick_per_us;
+
+  config->idle_timeout = (ulong)( ratio * (float)config->idle_timeout );
+  config->ack_delay    = (ulong)( ratio * (float)config->ack_delay    );
+  config->retry_ttl    = (ulong)( ratio * (float)config->retry_ttl    );
+  /* Add more timing config here */
+
+  config->tick_per_us = tick_per_us;
+  cb->now             = now_fn;
+  cb->now_ctx         = now_ctx;
+}
+
+FD_QUIC_API void
+fd_quic_set_clock_tickcount( fd_quic_t * quic ) {
+  /* FIXME log warning and return error if tickcount ticks too slow or fluctuates too much */
+  float tick_per_us = (float)fd_tempo_tick_per_ns( NULL ) * 1000.0f;
+  fd_quic_set_clock( quic, fd_quic_clock_tickcount, NULL, tick_per_us );
+}
+
 /* initialize everything that mutates during runtime */
 static void
 fd_quic_stream_init( fd_quic_stream_t * stream ) {
@@ -332,7 +380,10 @@ fd_quic_init( fd_quic_t * quic ) {
 
   if( FD_UNLIKELY( !config->role          ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
   if( FD_UNLIKELY( !config->idle_timeout  ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
+  if( FD_UNLIKELY( !config->ack_delay     ) ) { FD_LOG_WARNING(( "zero cfg.ack_delay"    )); return NULL; }
+  if( FD_UNLIKELY( !config->retry_ttl     ) ) { FD_LOG_WARNING(( "zero cfg.retry_ttl"    )); return NULL; }
   if( FD_UNLIKELY( !quic->cb.now          ) ) { FD_LOG_WARNING(( "NULL cb.now"           )); return NULL; }
+  if( FD_UNLIKELY( config->tick_per_us==0 ) ) { FD_LOG_WARNING(( "zero cfg.tick_per_us"  )); return NULL; }
 
   do {
     ulong x = 0U;
@@ -363,14 +414,6 @@ fd_quic_init( fd_quic_t * quic ) {
 
   if( FD_UNLIKELY( !config->ack_threshold ) ) {
     config->ack_threshold = FD_QUIC_DEFAULT_ACK_THRESHOLD;
-  }
-
-  if( FD_UNLIKELY( !config->ack_delay ) ) {
-    config->ack_delay = FD_QUIC_DEFAULT_ACK_DELAY;
-  }
-
-  if( FD_UNLIKELY( !config->idle_timeout ) ) {
-    config->idle_timeout = FD_QUIC_DEFAULT_IDLE_TIMEOUT;
   }
 
   fd_quic_layout_t layout = {0};
@@ -1013,8 +1056,7 @@ fd_quic_fini( fd_quic_t * quic ) {
 
   /* Clear join-lifetime memory regions */
 
-  memset( &quic->cb, 0, sizeof( fd_quic_callbacks_t  ) );
-  memset( state,     0, sizeof( fd_quic_state_t      ) );
+  memset( state, 0, sizeof(fd_quic_state_t) );
 
   return quic;
 }
@@ -1310,8 +1352,9 @@ fd_quic_send_retry( fd_quic_t *               quic,
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
+  ulong expire_at = state->now + quic->config.retry_ttl;
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
-  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, state->now );
+  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
 
   uchar * tx_ptr = retry_pkt         + retry_pkt_sz;
   ulong   tx_rem = sizeof(retry_pkt) - retry_pkt_sz;
@@ -1487,7 +1530,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            i.e. retry src conn id, ip, port */
 
         ulong retry_src_conn_id;
-        int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now );
+        int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &retry_src_conn_id, state->retry_secret, state->retry_iv, state->now, quic->config.retry_ttl );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
@@ -1732,14 +1775,20 @@ fd_quic_handle_v1_handshake(
   /* do parse here */
   fd_quic_handshake_t handshake[1];
   ulong rc = fd_quic_decode_handshake( handshake, cur_ptr, cur_sz );
-  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_handshake failed" )) );
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   /* check bounds on handshake */
 
   /* len indicated the number of bytes after the packet number offset
      so verify this value is within the packet */
   ulong len = (ulong)( handshake->pkt_num_pnoff + handshake->len );
-  if( FD_UNLIKELY( len > cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( len > cur_sz ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Handshake packet bounds check failed" )); )
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   /* connection ids should already be in the relevant structures */
 
@@ -1767,6 +1816,7 @@ fd_quic_handle_v1_handshake(
         fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                     pn_offset,
                                     &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
     quic->metrics.pkt_decrypt_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2227,6 +2277,7 @@ fd_quic_process_packet( fd_quic_t * quic,
                         ulong       data_sz ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
+  state->now = fd_quic_now( quic );
 
   ulong rc = 0;
 
@@ -2435,15 +2486,13 @@ fd_quic_aio_cb_receive( void *                    context,
                         int                       flush ) {
   (void)flush;
 
-  fd_quic_t *       quic  = (fd_quic_t*)context;
-  fd_quic_state_t * state = fd_quic_get_state( quic );
-
-  state->now = fd_quic_now( quic );
+  fd_quic_t * quic = context;
 
   /* need tickcount for metrics */
   long  now_ticks = fd_tickcount();
 
   FD_DEBUG(
+    fd_quic_state_t * state = fd_quic_get_state( quic );
     static ulong t0 = 0;
     static ulong t1 = 0;
     t0 = state->now;
@@ -3408,7 +3457,7 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
     closing = 1u;
   }
 
-  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, enc_level, now );
+  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, enc_level, now, conn->quic->config.tick_per_us );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   if( FD_UNLIKELY( closing ) ) {
@@ -3500,6 +3549,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       if( FD_UNLIKELY( !pkt_meta ) ) {
         /* when there is no pkt_meta, it's best to keep processing acks
            until some pkt_meta are returned */
+        FD_DEBUG( FD_LOG_DEBUG(( "Failed to alloc pkt_meta" )); )
         quic->metrics.pkt_tx_alloc_fail_cnt++;
         return;
       }

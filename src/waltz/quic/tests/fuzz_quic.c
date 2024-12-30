@@ -15,9 +15,6 @@
 #include "../fd_quic_proto.h"
 
 #include "fd_quic_test_helpers.h"
-#include "../../tls/test_tls_helper.h"
-
-#include "../../../ballet/x509/fd_x509_mock.h"
 
 fd_quic_t *server_quic = NULL;
 
@@ -25,12 +22,6 @@ uchar scratch[0x4000];
 size_t scratch_sz = 0x4000;
 
 fd_aio_t _aio[1];
-
-
-ulong test_clock(void *ctx) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
 
 int test_aio_send_func(void *ctx, fd_aio_pkt_info_t const *batch,
                        ulong batch_cnt, ulong *opt_batch_idx, int flush) {
@@ -122,9 +113,6 @@ void init_quic(void) {
   fd_aio_t *aio = fd_aio_join(shaio);
   assert(aio);
 
-  server_quic->cb.now     = test_clock;
-  server_quic->cb.now_ctx = NULL;
-
   fd_quic_set_aio_net_tx(server_quic, aio);
   fd_quic_init( server_quic );
 }
@@ -175,9 +163,6 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   fd_quic_config_t *server_config = &server_quic->config;
   server_config->idle_timeout = 5e6;
   server_config->retry = 1;
-
-  server_quic->cb.now = test_clock;
-  server_quic->cb.now_ctx = NULL;
 
   server_quic->config.initial_rx_max_stream_data = 1 << 14;
   // server_quic->config.retry = 1;

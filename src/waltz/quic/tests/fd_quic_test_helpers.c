@@ -74,12 +74,6 @@ fd_quic_test_cb_tls_keylog( void *       quic_ctx,
     fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), fd_quic_test_pcap );
 }
 
-ulong
-fd_quic_test_now( void * context ) {
-  (void)context;
-  return (ulong)fd_log_wallclock();
-}
-
 static void
 flush_pcap( void ) {
   fflush( fd_quic_test_pcap );
@@ -147,7 +141,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
   quic->cb.stream_rx        = fd_quic_test_cb_stream_rx;
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
-  quic->cb.now              = fd_quic_test_now;
   quic->cb.now_ctx          = NULL;
 }
 

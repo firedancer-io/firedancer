@@ -74,7 +74,6 @@ run_quic_client( fd_quic_t *         quic,
   quic->cb.conn_new         = cb_conn_new;
   quic->cb.conn_hs_complete = cb_conn_handshake_complete;
   quic->cb.conn_final       = cb_conn_final;
-  quic->cb.now              = fd_quic_test_now;
 
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
