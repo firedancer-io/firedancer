@@ -166,10 +166,10 @@ typedef struct {
 
     struct {
       int  enabled;
-      char interface0     [ 256 ];
+      char interface0     [ 16 ];
       char interface0_mac [ 32 ];
       char interface0_addr[ 32 ];
-      char interface1     [ 256 ];
+      char interface1     [ 16 ];
       char interface1_mac [ 32 ];
       char interface1_addr[ 32 ];
     } netns;
