@@ -273,6 +273,7 @@ func serverTest(fdQuic *C.fd_quic_t) {
 	defer cancel()
 
 	C.fd_quic_config_anonymous(fdQuic, C.FD_QUIC_ROLE_SERVER)
+	fdQuic.config.retry = 1
 	fdQuic.config.net.ip_addr = 0x0100007f
 	fdQuic.config.net.listen_udp_port = 8000
 	C.fd_quic_init(fdQuic)
@@ -365,8 +366,8 @@ func main() {
 	}
 
 	quic_limits := C.fd_quic_limits_t{
-		conn_cnt:         1,
-		handshake_cnt:    1,
+		conn_cnt:         4,
+		handshake_cnt:    4,
 		conn_id_cnt:      4,
 		stream_id_cnt:    64,
 		inflight_pkt_cnt: 64,
