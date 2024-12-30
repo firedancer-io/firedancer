@@ -29,6 +29,14 @@ help() {
   echo "   --clang-versions -c  Clang compiler versions to use for builds"
   echo "                        These should present on the host under /opt/clang"
   echo "                        For example: clang-15.0.6,clang-17.0.6"
+  echo "   --gcc-except         Comma separated group of gcc-compiler,machine,target to exclude"
+  echo "                        Use 'ALL' to exclude for all of any of the types."
+  echo "                        This argument can be supplied multiple times."
+  echo "                        For example: gcc-11.4.0,linux_gcc_zen4,ALL"
+  echo "   --clang-except       Comma separated group of clang-compiler,machine,target to exclude"
+  echo "                        Use 'ALL' to exclude for all of any of the types."
+  echo "                        For example: ALL,linux_clang_minimal,fdctl"
+  echo "                        This argument can be supplied multiple times."
   echo
   echo " Exit Codes:"
   echo "   0  all builds that ran were successful"
@@ -73,7 +81,9 @@ finish() {
 }
 
 GCC=()
+GCC_EXCEPT=()
 CLANG=()
+CLANG_EXCEPT=()
 TARGETS=()
 MACHINES=()
 
@@ -127,6 +137,16 @@ while [[ $# -gt 0 ]]; do
     # Clang versions to use for the builds
     "-c"|"--clang-versions")
       IFS=',' read -r -a CLANG <<< "$1"
+      shift 1
+      ;;
+    # GCC compiler exception groups
+    "--gcc-except")
+      GCC_EXCEPT+=($1)
+      shift 1
+      ;;
+    # Clang compiler exception groups
+    "--clang-except")
+      CLANG_EXCEPT+=($1)
       shift 1
       ;;
     "-h"|"--help")
@@ -212,13 +232,63 @@ echo "Starting Build Matrix..."
 echo "*************************"
 echo "machines=[ ${MACHINES[*]} ]"
 echo "clang=[ ${CLANG[*]} ]"
+echo "clang_except=[ ${CLANG_EXCEPT[*]} ]"
 echo "gcc=[ ${GCC[*]} ]"
+echo "gcc_except=[ ${GCC_EXCEPT[*]} ]"
 echo "targets=[ ${TARGETS[*]} ]"
 echo
 
 if [[ $DRY_RUN -eq 1 ]]; then
   exit 0
 fi
+
+skip_compiler() {
+  local compiler=$1
+  local compiler_type="${compiler%-*}"
+  local except_list="${compiler_type^^}_EXCEPT[@]"
+  for except in "${!except_list}"; do
+    C="$(cut -d',' -f1 <<<"$except")"
+    M="$(cut -d',' -f2 <<<"$except")"
+    T="$(cut -d',' -f3 <<<"$except")"
+    if [[ "$C" == "$compiler" ]] && [[ "$M" == "ALL" ]] && [[ "$T" == "ALL" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+skip_compiler_machine() {
+  local compiler=$1
+  local machine=$2
+  local compiler_type="${compiler%-*}"
+  local except_list="${compiler_type^^}_EXCEPT[@]"
+  for except in "${!except_list}"; do
+    C="$(cut -d',' -f1 <<<"$except")"
+    M="$(cut -d',' -f2 <<<"$except")"
+    T="$(cut -d',' -f3 <<<"$except")"
+    if [[ "$C" == "$compiler" || "$C" == "ALL" ]] && [[ "$M" == "$machine" ]] && [[ "$T" == "ALL" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+skip_compiler_machine_target() {
+  local compiler=$1
+  local machine=$2
+  local target=$3
+  local compiler_type="${compiler%-*}"
+  local except_list="${compiler_type^^}_EXCEPT[@]"
+  for except in "${!except_list}"; do
+    C="$(cut -d',' -f1 <<<"$except")"
+    M="$(cut -d',' -f2 <<<"$except")"
+    T="$(cut -d',' -f3 <<<"$except")"
+    if [[ "$C" == "$compiler" || "$C" == "ALL" ]] && [[ "$M" == "$machine" || "$M" == "ALL" ]] && [[ "$T" == "$target" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 # Install rust and packages, also fetch the git repositories
 # needed for compiling.
@@ -236,6 +306,11 @@ if [[ $NO_GCC -ne 1 ]]; then
   GCC_START=$(date +%s)
   inf "Starting gcc builds...\n\n"
   for compiler in "${GCC[@]}"; do
+    # Should we skip this compiler?
+    if skip_compiler $compiler; then
+      inf "Skipping all machines and targets for - $compiler\n"
+      continue
+    fi
     if [[ ! -f /opt/gcc/$compiler/activate ]]; then
       err "Environment activate script not found at /opt/gcc/$compiler... exiting.\n"
       finish 2
@@ -266,6 +341,11 @@ if [[ $NO_GCC -ne 1 ]]; then
     fi
     for machine in "${MACHINES[@]}"; do
       MACHINE="${machine%.mk}"
+      # Should we skip this compiler+machine?
+      if skip_compiler_machine $compiler $MACHINE; then
+        inf "Skipping all targets for - $compiler $MACHINE\n"
+        continue
+      fi
       if [[ "$MACHINE" != *"clang"* ]]; then
         # override any targets list with supplied --targets
         BUILD_TARGETS=()
@@ -293,6 +373,11 @@ if [[ $NO_GCC -ne 1 ]]; then
         # print it to stdout if there's a failure and --verbose
         # is specified. This keeps our output compact and readable.
         for target in "${BUILD_TARGETS[@]}"; do
+          # Should we skip this compiler+machine+target?
+          if skip_compiler_machine_target $compiler $MACHINE $target; then
+            inf "Skipping - $compiler $MACHINE $target\n"
+            continue
+          fi
           MACHINE=${MACHINE} CC=gcc make -j $target >> $LOG_FILE 2>&1
           if [[ $? -ne 0 ]]; then
             FAILED+=( $target )
@@ -338,6 +423,11 @@ if [[ $NO_CLANG -ne 1 ]]; then
   CLANG_START=$(date +%s)
   inf "Starting clang builds...\n\n"
   for compiler in "${CLANG[@]}"; do
+    # Should we skip this compiler?
+    if skip_compiler $compiler; then
+      inf "Skipping all machines and targets for - $compiler\n"
+      continue
+    fi
     if [[ ! -f /opt/clang/$compiler/activate ]]; then
       err "Environment activate script not found at /opt/clang/$compiler... exiting.\n"
       finish 2
@@ -368,6 +458,11 @@ if [[ $NO_CLANG -ne 1 ]]; then
     fi
     for machine in "${MACHINES[@]}"; do
       MACHINE="${machine%.mk}"
+      # Should we skip this compiler+machine?
+      if skip_compiler_machine $compiler $MACHINE; then
+        inf "Skipping all targets for - $compiler $MACHINE\n"
+        continue
+      fi
       if [[ "$MACHINE" != *"gcc"* ]]; then
         # override any targets list with supplied --targets
         BUILD_TARGETS=()
@@ -395,6 +490,11 @@ if [[ $NO_CLANG -ne 1 ]]; then
         # print it to stdout if there's a failure and --verbose
         # is specified. This keeps our output compact and readable.
         for target in "${BUILD_TARGETS[@]}"; do
+          # Should we skip this compiler+machine+target?
+          if skip_compiler_machine_target $compiler $MACHINE $target; then
+            inf "Skipping - $compiler $MACHINE $target\n"
+            continue
+          fi
           MACHINE=${MACHINE} CC=clang make -j $target >> $LOG_FILE 2>&1
           if [[ $? -ne 0 ]]; then
             FAILED+=( $target )

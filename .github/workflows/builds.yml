@@ -18,6 +18,14 @@ on:
         type: string
         description: Machines to build for
         default: all
+      gcc_exceptions:
+        type: string
+        description: Exception groups for gcc
+        default: none
+      clang_exceptions:
+        type: string
+        description: Exception groups for clang
+        default: none
       dry_run:
         type: boolean
         description: Print build matrix and exit
@@ -44,6 +52,14 @@ on:
         type: string
         description: Machines to build for (comma-separated | all)
         default: all
+      gcc_exceptions:
+        type: string
+        description: Exception groups for gcc (comma-separated and semi-colon delimited | none)
+        default: none
+      clang_exceptions:
+        type: string
+        description: Exception groups for clang (comma-separated and semi-colon delimited | none)
+        default: none
       dry_run:
         type: boolean
         description: Print build matrix and exit
@@ -93,6 +109,13 @@ jobs:
           if [ ! -z "${{ inputs.gcc }}" ] && [ "${{ inputs.gcc }}" != "all" ]; then
             ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
           fi
+          # exceptions
+          if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
+            IFS='|' read -r -a exceptions <<< "${{ inputs.gcc_exceptions }}"
+            for exception in ${exceptions[@]}; do
+              ARGS="$ARGS --gcc-except $exception"
+            done
+          fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
       - name: Run gcc builds
@@ -131,6 +154,13 @@ jobs:
           # clang
           if [ ! -z "${{ inputs.clang }}" ] && [ "${{ inputs.clang }}" != "all" ]; then
             ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
+          fi
+          # exceptions
+          if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then
+            IFS='|' read -r -a exceptions <<< "${{ inputs.clang_exceptions }}"
+            for exception in ${exceptions[@]}; do
+              ARGS="$ARGS --clang-except $exception"
+            done
           fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
