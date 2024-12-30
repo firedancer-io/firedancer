@@ -100,14 +100,15 @@ bench_retry_create( void ) {
 
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong ttl         = (ulong)3e9;
 
-  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969UL );
+  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969UL+(ulong)ttl );
   FD_LOG_HEXDUMP_INFO(( "Retry Token", retry+0x1f, sizeof(fd_quic_retry_token_t) ));
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
-    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1UL );
+    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1UL+(ulong)ttl );
     FD_COMPILER_UNPREDICTABLE( retry[0] );
   }
   dt += fd_log_wallclock();
@@ -145,12 +146,14 @@ bench_retry_server_verify( void ) {
 
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong now         = 50UL;
+  ulong ttl         = (ulong)3e9;
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
     FD_COMPILER_UNPREDICTABLE( aes_key[0] );
-    int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, 50UL );
+    int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
     FD_TEST( res==FD_QUIC_SUCCESS );
   }
   dt += fd_log_wallclock();
@@ -244,12 +247,14 @@ test_retry_token_malleability( void ) {
   fd_quic_pkt_t const pkt = {0};
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong now         = 50UL;
+  ulong ttl         = (ulong)3e9;
   for( ulong j=0; j<sizeof(token); j++ ) {
     for( int i=0; i<8; i++ ) {
       retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
       fd_quic_conn_id_t odcid;
       ulong             rscid;
-      int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, 50UL );
+      int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
       FD_TEST( res==FD_QUIC_SUCCESS );
       retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
     }
@@ -276,10 +281,11 @@ test_retry_token_time( void ) {
   fd_quic_pkt_t const pkt = {0};
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong ttl         = (ulong)3e9;
 
   fd_quic_conn_id_t odcid;
   ulong             rscid;
-# define TRY(ts,exp) FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, ts )==exp )
+# define TRY(ts,exp) FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, ts, ttl )==exp )
   TRY(          0UL, FD_QUIC_FAILED  );
   TRY(    7315968UL, FD_QUIC_FAILED  );
   TRY(    7315969UL, FD_QUIC_SUCCESS );

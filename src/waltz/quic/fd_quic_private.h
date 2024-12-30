@@ -159,7 +159,7 @@ fd_quic_get_state_const( fd_quic_t const * quic ) {
    args
      quic        managing quic
      conn        connection to service
-     now         the current time in ns */
+     now         the current timestamp */
 void
 fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,

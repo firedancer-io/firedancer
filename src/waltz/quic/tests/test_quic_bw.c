@@ -162,6 +162,8 @@ main( int     argc,
   }
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
+  fd_quic_set_clock_tickcount( server_quic );
+  fd_quic_set_clock_tickcount( client_quic );
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
 

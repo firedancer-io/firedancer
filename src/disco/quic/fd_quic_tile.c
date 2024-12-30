@@ -252,16 +252,8 @@ after_frag( fd_quic_ctx_t *     ctx,
 }
 
 static ulong
-quic_now( void * quic_ctx ) {
-  fd_quic_ctx_t * ctx = quic_ctx;
-  ulong  tick       = (ulong)fd_tickcount();
-  ulong  tick_delta = tick - ctx->last_tick;
-  double wall_delta = (double)tick_delta * ctx->ns_per_tick;
-  int    sync       = wall_delta > 1e6; /* sync every millisecond */
-  ulong  wall       = ctx->last_wall + (ulong)wall_delta;
-  fd_ulong_store_if( sync, &ctx->last_tick, tick );
-  fd_ulong_store_if( sync, &ctx->last_wall, wall );
-  return wall;
+quic_now( void * ctx FD_PARAM_UNUSED ) {
+  return (ulong)fd_tickcount();
 }
 
 static void
@@ -550,6 +542,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.quic_ctx         = ctx;
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
+  fd_quic_set_clock_tickcount( quic );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   fd_topo_link_t * net_in = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -588,11 +581,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
-
-  /* Train clock */
-  ctx->ns_per_tick = 1 / fd_tempo_tick_per_ns( NULL );
-  ctx->last_tick   = (ulong)fd_tickcount();
-  ctx->last_wall   = 0UL;
 }
 
 static ulong

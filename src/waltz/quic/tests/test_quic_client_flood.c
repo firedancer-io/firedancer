@@ -63,12 +63,6 @@ void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
   client_complete = 1;
 }
 
-ulong
-test_clock( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
-
 void
 run_quic_client(
   fd_quic_t *               quic,
@@ -91,8 +85,6 @@ run_quic_client(
     quic->cb.conn_final       = my_connection_closed;
     quic->cb.stream_rx        = my_stream_rx_cb;
     quic->cb.stream_notify    = my_stream_notify_cb;
-    quic->cb.now              = test_clock;
-    quic->cb.now_ctx          = NULL;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
     fd_quic_set_aio_net_tx( quic, udpsock->aio );

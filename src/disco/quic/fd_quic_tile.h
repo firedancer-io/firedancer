@@ -40,10 +40,6 @@ typedef struct {
 
   fd_wksp_t * verify_out_mem;
 
-  double ns_per_tick;
-  ulong  last_tick;
-  ulong  last_wall;
-
   struct {
     ulong txns_received_udp;
     ulong txns_received_quic_fast;
