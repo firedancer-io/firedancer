@@ -999,6 +999,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
         else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
         else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
+        if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
+        else                                       jsonp_ulong( gui, "tips", slot->tips );
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
