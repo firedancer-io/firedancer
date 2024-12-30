@@ -1,8 +1,4 @@
 #include "fd_vm_test.h"
-#include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../../vm/test_vm_util.h"
 #include "fd_exec_instr_test.h"
 
 int
@@ -263,7 +259,7 @@ do{
 
   if( vm->heap_max > 0 ) {
     effects->heap       = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
     effects->heap->size = (uint)vm->heap_max;
     fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
   }
@@ -277,13 +273,13 @@ do{
   }
   if( rtrim_sz > 0 || (vm->stack[0] != 0) ) {
     effects->stack       = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
     effects->stack->size = (uint)rtrim_sz+1;
     fd_memcpy( effects->stack->bytes, vm->stack, (ulong)rtrim_sz+1 );
   }
 
   effects->rodata       = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+    l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
   effects->rodata->size = (uint)rodata_sz;
   fd_memcpy( effects->rodata->bytes, rodata, rodata_sz );
 

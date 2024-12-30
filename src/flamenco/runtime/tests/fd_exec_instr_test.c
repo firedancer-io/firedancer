@@ -1884,7 +1884,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   }
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+    l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
       goto error;
     }
@@ -1893,7 +1893,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
       goto error;
     }
@@ -1910,7 +1910,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
      https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
   if( effects->error != -1 && log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
       goto error;
     }
