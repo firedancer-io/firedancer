@@ -891,6 +891,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->compute_units          = ULONG_MAX;
   slot->transaction_fee        = ULONG_MAX;
   slot->priority_fee           = ULONG_MAX;
+  slot->tips                   = ULONG_MAX;
   slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
   slot->completed_time         = LONG_MAX;
 
@@ -1171,15 +1172,16 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 static void
 fd_gui_handle_completed_slot( fd_gui_t * gui,
                               ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
-  ulong total_txn_count = msg[ 1 ];
-  ulong nonvote_txn_count = msg[ 2 ];
-  ulong failed_txn_count = msg[ 3 ];
+  ulong _slot                    = msg[ 0 ];
+  ulong total_txn_count          = msg[ 1 ];
+  ulong nonvote_txn_count        = msg[ 2 ];
+  ulong failed_txn_count         = msg[ 3 ];
   ulong nonvote_failed_txn_count = msg[ 4 ];
-  ulong compute_units = msg[ 5 ];
-  ulong transaction_fee = msg[ 6 ];
-  ulong priority_fee = msg[ 7 ];
-  ulong _parent_slot = msg[ 8 ];
+  ulong compute_units            = msg[ 5 ];
+  ulong transaction_fee          = msg[ 6 ];
+  ulong priority_fee             = msg[ 7 ];
+  ulong tips                     = msg[ 8 ];
+  ulong _parent_slot             = msg[ 9 ];
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
@@ -1206,6 +1208,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
   slot->transaction_fee        = transaction_fee;
   slot->priority_fee           = priority_fee;
+  slot->tips                   = tips;
   if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_UNSTARTED ) ) {
     /* If we were already leader for this slot, then the poh component
        calculated the CUs used and sent them there, rather than the
