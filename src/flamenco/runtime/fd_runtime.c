@@ -703,11 +703,12 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
   return block_info->txn_cnt;
 }
 
-int fd_runtime_block_prepare( fd_blockstore_t const * blockstore,
-                              fd_block_t const *      block,
-                              ulong                   slot,
-                              fd_valloc_t             valloc,
-                              fd_block_info_t *       out_block_info ) {
+int
+fd_runtime_block_prepare( fd_blockstore_t * blockstore,
+                          fd_block_t *      block,
+                          ulong             slot,
+                          fd_valloc_t       valloc,
+                          fd_block_info_t * out_block_info ) {
   uchar const *                  buf         = fd_blockstore_block_data_laddr( blockstore, block );
   ulong const                    buf_sz      = block->data_sz;
   fd_block_entry_batch_t const * batch_laddr = fd_blockstore_block_batch_laddr( blockstore, block );
