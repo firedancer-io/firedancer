@@ -3,14 +3,28 @@ on:
   workflow_dispatch:
   schedule:
     - cron: 30 11 * * *
+    - cron: 0 3 * * *
 jobs:
   tests:
     uses: ./.github/workflows/coverage_report_clusterfuzz.yml
     secrets: inherit
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '30 11 * * *' }}
   coverage-report:
     uses: ./.github/workflows/coverage_report.yml
     secrets: inherit
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '30 11 * * *' }}
   codeql:
     uses: ./.github/workflows/codeql.yml
     permissions:
       security-events: write
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '30 11 * * *' }}
+  builds:
+    uses: ./.github/workflows/builds.yml
+    with:
+        # compiler,machine,target
+      gcc_exceptions: |
+        ALL,linux_gcc_power9,ALL;
+        ALL,linux_gcc_arm_n1,ALL;
+        gcc-10.5.0,linux_gcc_zen4,ALL;
+        gcc-11.4.0,linux_gcc_zen4,ALL
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 3 * * *' }}

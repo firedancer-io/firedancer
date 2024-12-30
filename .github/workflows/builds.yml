@@ -2,8 +2,6 @@
 
 name: Builds
 on:
-  schedule:
-    - cron: 0 4 * * *
   workflow_call:
     inputs:
       gcc:
@@ -111,7 +109,8 @@ jobs:
           fi
           # exceptions
           if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
-            IFS='|' read -r -a exceptions <<< "${{ inputs.gcc_exceptions }}"
+            no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.gcc_exceptions }}")
+            IFS=';' read -r -a exceptions <<< "$no_spaces"
             for exception in ${exceptions[@]}; do
               ARGS="$ARGS --gcc-except $exception"
             done
@@ -157,7 +156,8 @@ jobs:
           fi
           # exceptions
           if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then
-            IFS='|' read -r -a exceptions <<< "${{ inputs.clang_exceptions }}"
+            no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.clang_exceptions }}")
+            IFS=';' read -r -a exceptions <<< "$no_spaces"
             for exception in ${exceptions[@]}; do
               ARGS="$ARGS --clang-except $exception"
             done
