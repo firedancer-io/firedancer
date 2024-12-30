@@ -903,6 +903,7 @@ initially replay one but the cluster votes on the other one.
 | compute_units | `number\|null`       | Total number of compute units used by the slot |
 | transaction_fee | `number\|null`     | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee    | `number\|null`     | Total amount of priority fees that this slot collects in lamports after any burning |
+| tips            | `number\|null`     | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
 | frequency | type | example |
