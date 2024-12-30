@@ -861,7 +861,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
 
       /* TODO consider this optimization... but we want to ack all handshakes, even if there is stream_data */
     case FD_QUIC_CONN_STATE_ACTIVE:
-      if( FD_LIKELY( conn->hs_data_empty ) ) {
+      if( FD_LIKELY( !conn->tls_hs ) ) {
         /* optimization for case where we have stream data to send */
 
         /* find stream data to send */
@@ -882,9 +882,8 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   }
 
   /* Check for handshake data to send */
-  /* hs_data_empty is used to optimize the test */
   uint peer_enc_level = conn->peer_enc_level;
-  if( FD_UNLIKELY( !conn->hs_data_empty ) ) {
+  if( FD_UNLIKELY( conn->tls_hs ) ) {
     fd_quic_tls_hs_data_t * hs_data   = NULL;
 
     for( uint i = peer_enc_level; i < 4 && i < enc_level; ++i ) {
@@ -904,9 +903,6 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
         }
       }
     }
-
-    /* no hs_data was found, so set hs_data_empty */
-    conn->hs_data_empty = 1;
   }
 
   /* if we have acks to send or handshake data, then use that enc_level */
@@ -1572,6 +1568,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         FD_DEBUG( FD_LOG_WARNING( ( "failed to allocate QUIC conn" ) ) );
         return FD_QUIC_PARSE_FAIL;
       }
+      FD_DEBUG( FD_LOG_DEBUG(( "new connection allocated" )) );
 
       /* set the value for the caller */
       *p_conn = conn;
@@ -1706,8 +1703,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   /* update expected packet number */
   conn->exp_pkt_number[0] = fd_ulong_max( conn->exp_pkt_number[0], pkt_number+1UL );
-
-  FD_DEBUG( FD_LOG_DEBUG(( "new connection success" )) );
 
   /* insert into service queue */
   fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
@@ -1910,7 +1905,6 @@ fd_quic_handle_v1_retry(
   /* have to rewind the handshake data */
   uint enc_level                 = fd_quic_enc_level_initial_id;
   conn->hs_sent_bytes[enc_level] = 0;
-  conn->hs_data_empty            = 0;
 
   /* send the INITIAL */
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
@@ -3428,7 +3422,7 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
         payload_ptr += fd_quic_gen_max_streams_frame( conn, payload_ptr, payload_end, pkt_meta, pkt_number, now );
         payload_ptr += fd_quic_gen_ping_frame       ( conn, payload_ptr, payload_end,           pkt_number      );
       }
-      if( FD_LIKELY( conn->hs_data_empty ) ) {
+      if( FD_LIKELY( !conn->tls_hs ) ) {
         payload_ptr = fd_quic_gen_stream_frames( conn, payload_ptr, payload_end, pkt_meta, pkt_number, now );
       }
     }
@@ -3804,8 +3798,9 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       break;
     }
 
-    /* choose enc_level to tx at */
+    /* Refresh enc_level in case we can coalesce another packet */
     enc_level = fd_quic_tx_enc_level( conn, 0 /* acks */ );
+    FD_DEBUG( if( enc_level!=~0u) FD_LOG_DEBUG(( "Attempting to append enc_level=%u packet", enc_level )); )
   }
 
   /* unused pkt_meta? deallocate */
@@ -4195,7 +4190,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->handshake_complete  = 0;
   conn->handshake_done_send = 0;
   conn->handshake_done_ackd = 0;
-  conn->hs_data_empty       = 0;
   conn->tls_hs              = NULL; /* created later */
 
   /* initialize stream_id members */
@@ -4595,7 +4589,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
     conn->handshake_done_ackd = 1;
     conn->handshake_done_send = 0;
-    conn->hs_data_empty       = 1;
     fd_quic_state_t * state = fd_quic_get_state( conn->quic );
     fd_quic_tls_hs_delete( conn->tls_hs );
     fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );

@@ -16,7 +16,6 @@ static uchar const test_tp[] =
 typedef struct my_quic_tls my_quic_tls_t;
 struct my_quic_tls {
   int is_server;
-  int is_flush;
   int is_hs_complete;
 
   int state;

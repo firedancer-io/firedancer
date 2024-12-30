@@ -1,5 +1,6 @@
 module github.com/firedancer-io/firedancer/contrib/quic/go_compat
 
+// Set this to Go 1.23 to enable post-quantum key exchange
 go 1.22
 
 require (

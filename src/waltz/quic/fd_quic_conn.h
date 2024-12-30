@@ -111,7 +111,6 @@ struct fd_quic_conn {
   uint               handshake_complete  : 1; /* have we completed a successful handshake? */
   uint               handshake_done_send : 1; /* do we need to send handshake-done to peer? */
   uint               handshake_done_ackd : 1; /* was handshake_done ack'ed? */
-  uint               hs_data_empty       : 1; /* has all hs_data been consumed? */
   fd_quic_tls_hs_t * tls_hs;
 
   /* amount of handshake data already sent from head of queue */
