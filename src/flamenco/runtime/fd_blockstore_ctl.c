@@ -127,7 +127,7 @@ void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
 }
 
 static void
-aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
+aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong start, ulong count ){
     INITIALIZE_BLOCKSTORE( blockstore );
 
     FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -147,8 +147,8 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
     uchar trash_hash_buf[32];
     memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
-    ulong st  = 308015637;
-    ulong end = 308016637;
+    ulong st  = start;
+    ulong end = start + count - 1;
 
     ulong populated_slots[end - st + 1];
     memset( populated_slots, -1, sizeof(populated_slots) );
@@ -258,7 +258,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
 }
 
 static void
-aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv ){
+aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong start, ulong count ){
   INITIALIZE_BLOCKSTORE( blockstore );
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -278,8 +278,8 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
-  ulong st  = 308015637;
-  ulong end = 308016637;
+  ulong st  = start;
+  ulong end = start + count - 1;
 
   ulong populated_slots[end - st + 1];
   memset( populated_slots, -1, sizeof(populated_slots) );
@@ -436,12 +436,15 @@ main( int argc, char ** argv ) {
   int err = ftruncate( csv_fd, 0);
   FD_TEST( err == 0 );
 
+  ulong start = fd_env_strip_cmdline_ulong( &argc, &argv, "st", NULL, 0);
+  ulong count = fd_env_strip_cmdline_ulong( &argc, &argv, "num", NULL, 10); 
+
   if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
     entry_write_header(csv);
-    aggregate_entries( wksp , folder, csv );
+    aggregate_entries( wksp , folder, csv, start, count);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
     batch_write_header(csv);
-    aggregate_batch_entries( wksp, folder, csv );
+    aggregate_batch_entries( wksp, folder, csv, start, count);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "info")){
     investigate_shred( wksp, folder );
   } else {
