@@ -12,6 +12,7 @@ help() {
   echo "   --no-clang           Do not run any clang builds"
   echo "   --no-deps            Do not install deps during any builds"
   echo "   --no-rust            Do not install rust"
+  echo "   --dry-run            Print build matrix and exit"
   echo "   --verbose            Show output from failed builds"
   echo "   --exit-on-err        Exit upon hitting the first failed build"
   echo "   --help           -h  Show this message and exit"
@@ -95,6 +96,10 @@ while [[ $# -gt 0 ]]; do
     # do not install rust
     "--no-rust")
       NO_RUST=1
+      ;;
+    # print build matrix and exit
+    "--dry-run")
+      DRY_RUN=1
       ;;
     # exit upon hitting the first error
     "--exit-on-err")
@@ -210,6 +215,10 @@ echo "clang=[ ${CLANG[*]} ]"
 echo "gcc=[ ${GCC[*]} ]"
 echo "targets=[ ${TARGETS[*]} ]"
 echo
+
+if [[ $DRY_RUN -eq 1 ]]; then
+  exit 0
+fi
 
 # Install rust and packages, also fetch the git repositories
 # needed for compiling.

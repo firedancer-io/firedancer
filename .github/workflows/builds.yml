@@ -18,6 +18,10 @@ on:
         type: string
         description: Machines to build for
         default: all
+      dry_run:
+        type: boolean
+        description: Print build matrix and exit
+        default: false
       verbose:
         type: boolean
         description: Show error outputs
@@ -40,6 +44,10 @@ on:
         type: string
         description: Machines to build for (comma-separated | all)
         default: all
+      dry_run:
+        type: boolean
+        description: Print build matrix and exit
+        default: false
       verbose:
         type: boolean
         description: Show error outputs
@@ -65,6 +73,10 @@ jobs:
       - name: Build command line args
         run: |
           ARGS=""
+          # dry-run
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
           # verbose
           if [ "${{ inputs.verbose }}" == "true" ]; then
             ARGS="$ARGS --verbose"
@@ -100,6 +112,10 @@ jobs:
       - name: Build command line args
         run: |
           ARGS=""
+          # dry-run
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
           # verbose
           if [ "${{ inputs.verbose }}" == "true" ]; then
             ARGS="$ARGS --verbose"
