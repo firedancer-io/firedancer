@@ -156,7 +156,6 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
   // set properties on self
   self->quic_tls  = quic_tls;
   self->is_server = is_server;
-  self->is_flush  = 0;
   self->context   = context;
 
   /* initialize handshake data */
@@ -266,7 +265,7 @@ fd_quic_tls_sendmsg( void const * handshake,
                      void const * data,
                      ulong        data_sz,
                      uint         enc_level,
-                     int          flush ) {
+                     int          flush FD_PARAM_UNUSED ) {
 
   uint buf_sz = FD_QUIC_TLS_HS_DATA_SZ;
   if( data_sz > buf_sz ) {
@@ -276,7 +275,6 @@ fd_quic_tls_sendmsg( void const * handshake,
   /* Safe because the fd_tls_estate_{srv,cli}_t object is the first
      element of fd_quic_tls_hs_t */
   fd_quic_tls_hs_t * hs = (fd_quic_tls_hs_t *)handshake;
-  hs->is_flush |= flush;
 
   /* add handshake data to handshake for retrieval by user */
 
