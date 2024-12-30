@@ -48,11 +48,11 @@ help() {
 
 # helper functions
 inf() {
-  printf "[INFO] $@"
+  printf "[INFO] $*"
 }
 
 err() {
-  printf "[ERROR] $@"
+  printf "[ERROR] $*"
 }
 
 # Calculates the elapsed time
@@ -61,7 +61,7 @@ err() {
 elapsed() {
   local start=$1
   local stop=$2
-  local diff=$(($stop-$start))
+  local diff=$((stop-start))
   local min=$((10#$diff / 60))
   local sec=$((10#$diff % 60))
   printf "%d:%02d" "$min" "$sec";
@@ -74,10 +74,10 @@ finish() {
   local CODE=$1
   local STOP=$(date +%s)
   inf "Total Elapsed Time: "
-  elapsed $START $STOP
+  elapsed "$START" "$STOP"
   echo
-  rm -f $LOG_FILE
-  exit $CODE
+  rm -f "$LOG_FILE"
+  exit "$CODE"
 }
 
 GCC=()
@@ -141,12 +141,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     # GCC compiler exception groups
     "--gcc-except")
-      GCC_EXCEPT+=($1)
+      GCC_EXCEPT+=("$1")
       shift 1
       ;;
     # Clang compiler exception groups
     "--clang-except")
-      CLANG_EXCEPT+=($1)
+      CLANG_EXCEPT+=("$1")
       shift 1
       ;;
     "-h"|"--help")
@@ -307,7 +307,7 @@ if [[ $NO_GCC -ne 1 ]]; then
   inf "Starting gcc builds...\n\n"
   for compiler in "${GCC[@]}"; do
     # Should we skip this compiler?
-    if skip_compiler $compiler; then
+    if skip_compiler "$compiler"; then
       inf "Skipping all machines and targets for - $compiler\n"
       continue
     fi
@@ -322,11 +322,11 @@ if [[ $NO_GCC -ne 1 ]]; then
       start=$(date +%s)
       inf "Installing dependencies with $compiler...\n"
       ./deps.sh nuke > /dev/null 2>&1
-      CC=gcc CXX=g++ ./deps.sh +dev fetch install > $LOG_FILE 2>&1
+      CC=gcc CXX=g++ ./deps.sh +dev fetch install > "$LOG_FILE" 2>&1
       if [[ $? -ne 0 ]]; then
         err "Failed to install deps with $compiler... exiting.\n"
         if [[ $VERBOSE -eq 1 ]]; then
-          cat $LOG_FILE
+          cat "$LOG_FILE"
         fi
         if [[ $EXIT_ON_ERR -eq 1 ]]; then
           finish 3
@@ -336,13 +336,13 @@ if [[ $NO_GCC -ne 1 ]]; then
       fi
       stop=$(date +%s)
       inf "Elapsed Time: "
-      elapsed $start $stop
+      elapsed "$start" "$stop"
       echo
     fi
     for machine in "${MACHINES[@]}"; do
       MACHINE="${machine%.mk}"
       # Should we skip this compiler+machine?
-      if skip_compiler_machine $compiler $MACHINE; then
+      if skip_compiler_machine "$compiler" "$MACHINE"; then
         inf "Skipping all targets for - $compiler $MACHINE\n"
         continue
       fi
@@ -366,7 +366,7 @@ if [[ $NO_GCC -ne 1 ]]; then
         # Truncate the LOG_FILE before every build (not every target)
         # so that if multiple targets fail, we can capture all the
         # errors that occur.
-        >$LOG_FILE
+        > "$LOG_FILE"
         # We compile each target separately and record if it
         # fails so that we can list exactly which targets failed.
         # The output is redirected to the LOG_FILE and we only
@@ -374,19 +374,19 @@ if [[ $NO_GCC -ne 1 ]]; then
         # is specified. This keeps our output compact and readable.
         for target in "${BUILD_TARGETS[@]}"; do
           # Should we skip this compiler+machine+target?
-          if skip_compiler_machine_target $compiler $MACHINE $target; then
+          if skip_compiler_machine_target "$compiler" "$MACHINE" "$target"; then
             inf "Skipping - $compiler $MACHINE $target\n"
             continue
           fi
-          MACHINE=${MACHINE} CC=gcc make -j $target >> $LOG_FILE 2>&1
+          MACHINE=${MACHINE} CC=gcc make -j "$target" >> "$LOG_FILE" 2>&1
           if [[ $? -ne 0 ]]; then
-            FAILED+=( $target )
+            FAILED+=( "$target" )
             FAIL=1
           fi
         done
         stop=$(date +%s)
         inf "Done... Elapsed Time: "
-        elapsed $start $stop
+        elapsed "$start" "$stop"
         echo
         if [[ ${#FAILED[@]} -gt 0 ]]; then
           err "Failed Targets: "
@@ -396,10 +396,10 @@ if [[ $NO_GCC -ne 1 ]]; then
           echo "  ./deps.sh nuke"
           echo "  FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  MACHINE=${MACHINE} CC=gcc make -j ${FAILED[@]}"
+          echo "  MACHINE=${MACHINE} CC=gcc make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
-            cat $LOG_FILE
+            cat "$LOG_FILE"
           fi
           if [[ $EXIT_ON_ERR -eq 1 ]]; then
             finish 1
@@ -415,7 +415,7 @@ if [[ $NO_GCC -ne 1 ]]; then
   done
   GCC_STOP=$(date +%s)
   inf "Done with gcc builds in "
-  elapsed $GCC_START $GCC_STOP
+  elapsed "$GCC_START" "$GCC_STOP"
   echo
 fi
 
@@ -424,7 +424,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
   inf "Starting clang builds...\n\n"
   for compiler in "${CLANG[@]}"; do
     # Should we skip this compiler?
-    if skip_compiler $compiler; then
+    if skip_compiler "$compiler"; then
       inf "Skipping all machines and targets for - $compiler\n"
       continue
     fi
@@ -439,11 +439,11 @@ if [[ $NO_CLANG -ne 1 ]]; then
       start=$(date +%s)
       inf "Installing dependencies with $compiler...\n"
       ./deps.sh nuke > /dev/null 2>&1
-      CC=clang CXX=clang++ ./deps.sh +dev fetch install > $LOG_FILE 2>&1
+      CC=clang CXX=clang++ ./deps.sh +dev fetch install > "$LOG_FILE" 2>&1
       if [[ $? -ne 0 ]]; then
         err "Failed to install deps with $compiler...\n"
         if [[ $VERBOSE -eq 1 ]]; then
-          cat $LOG_FILE
+          cat "$LOG_FILE"
         fi
         if [[ $EXIT_ON_ERR -eq 1 ]]; then
           finish 3
@@ -453,13 +453,13 @@ if [[ $NO_CLANG -ne 1 ]]; then
       fi
       stop=$(date +%s)
       inf "Elapsed Time: "
-      elapsed $start $stop
+      elapsed "$start" "$stop"
       echo
     fi
     for machine in "${MACHINES[@]}"; do
       MACHINE="${machine%.mk}"
       # Should we skip this compiler+machine?
-      if skip_compiler_machine $compiler $MACHINE; then
+      if skip_compiler_machine "$compiler" "$MACHINE"; then
         inf "Skipping all targets for - $compiler $MACHINE\n"
         continue
       fi
@@ -483,7 +483,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
         # Truncate the LOG_FILE before every build (not every target)
         # so that if multiple targets fail, we can capture all the
         # errors that occur.
-        >$LOG_FILE
+        > "$LOG_FILE"
         # We compile each target separately and record if it
         # fails so that we can list exactly which targets failed.
         # The output is redirected to the LOG_FILE and we only
@@ -491,19 +491,19 @@ if [[ $NO_CLANG -ne 1 ]]; then
         # is specified. This keeps our output compact and readable.
         for target in "${BUILD_TARGETS[@]}"; do
           # Should we skip this compiler+machine+target?
-          if skip_compiler_machine_target $compiler $MACHINE $target; then
+          if skip_compiler_machine_target "$compiler" "$MACHINE" "$target"; then
             inf "Skipping - $compiler $MACHINE $target\n"
             continue
           fi
-          MACHINE=${MACHINE} CC=clang make -j $target >> $LOG_FILE 2>&1
+          MACHINE=${MACHINE} CC=clang make -j "$target" >> "$LOG_FILE" 2>&1
           if [[ $? -ne 0 ]]; then
-            FAILED+=( $target )
+            FAILED+=( "$target" )
             FAIL=1
           fi
         done
         stop=$(date +%s)
         inf "Done... Elapsed Time: "
-        elapsed $start $stop
+        elapsed "$start" "$stop"
         echo
         if [[ ${#FAILED[@]} -gt 0 ]]; then
           err "Failed Targets: "
@@ -512,10 +512,10 @@ if [[ $NO_CLANG -ne 1 ]]; then
           echo "  ./deps.sh nuke"
           echo "  FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  MACHINE=${MACHINE} CC=clang make -j ${FAILED[@]}"
+          echo "  MACHINE=${MACHINE} CC=clang make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
-            cat $LOG_FILE
+            cat "$LOG_FILE"
           fi
           if [[ $EXIT_ON_ERR -eq 1 ]]; then
             finish 1
@@ -531,7 +531,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
   done
   CLANG_STOP=$(date +%s)
   inf "Done with clang builds in "
-  elapsed $CLANG_START $CLANG_STOP
+  elapsed "$CLANG_START" "$CLANG_STOP"
   echo
 fi
 
