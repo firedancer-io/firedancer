@@ -445,19 +445,24 @@ typedef fd_stake_history_entry_t fd_stake_activation_status_t;
 fd_stake_history_entry_t const *
 fd_stake_history_ele_query_const( fd_stake_history_t const * history,
                                   ulong epoch ) {
-  if( 0 == history->fd_stake_history_len )
+  if( 0 == history->fd_stake_history_len ) {
     return NULL;
+  }
 
-  if( epoch > history->fd_stake_history[0].epoch )
+  if( epoch > history->fd_stake_history[0].epoch ) {
     return NULL;
+  }
 
   ulong off = (history->fd_stake_history[0].epoch - epoch);
-  if( off >= history->fd_stake_history_len )
+  if( off >= history->fd_stake_history_len ) {
     return NULL;
+  }
 
   ulong e = (off + history->fd_stake_history_offset) & (history->fd_stake_history_size - 1);
 
-  FD_TEST(history->fd_stake_history[e].epoch == epoch);
+  if ( history->fd_stake_history[e].epoch != epoch ) {
+    return NULL;
+  }
 
   return &history->fd_stake_history[e];
 }
