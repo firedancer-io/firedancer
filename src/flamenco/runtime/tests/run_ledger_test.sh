@@ -21,6 +21,7 @@ INDEX_MAX="--index-max 5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
+TPOOL_WORKER_CNT="--tpool-worker-cnt 16"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
@@ -87,6 +88,11 @@ while [[ $# -gt 0 ]]; do
         ;;
     --tile-cpus)
         TILE_CPUS="--tile-cpus $2"
+        shift
+        shift
+        ;;
+    --tpool-worker-cnt)
+        TPOOL_WORKER_CNT="--tpool-worker-cnt $2"
         shift
         shift
         ;;
@@ -158,6 +164,7 @@ set -x
     $FUNK_PAGES \
     $SNAPSHOT \
     $ONE_OFFS \
+    $TPOOL_WORKER_CNT \
     --allocator wksp \
     $TILE_CPUS >& $LOG
 

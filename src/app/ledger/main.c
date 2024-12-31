@@ -98,6 +98,7 @@ struct fd_ledger_args {
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
+  ulong                 tpool_worker_cnt;        /* number of worker threads the execution tpool has */
   uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_spad_t *           spads[ 128UL ];          /* scratchpad allocators that are eventually assigned to each txn_ctx */
   ulong                 spad_cnt;                /* number of scratchpads, bounded by number of threads */
@@ -109,7 +110,7 @@ typedef struct fd_ledger_args fd_ledger_args_t;
 /* Runtime Replay *************************************************************/
 static int
 init_tpool( fd_ledger_args_t * ledger_args ) {
-  ulong tcnt = fd_tile_cnt();
+  ulong tcnt = fd_ulong_min( ledger_args->tpool_worker_cnt, fd_tile_cnt() );
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
   if( tcnt>=1UL ) {
@@ -1368,6 +1369,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
   char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
   char const * lthash                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",                  NULL, "false"   );
+  ulong tpool_worker_cnt               = fd_env_strip_cmdline_ulong( &argc, &argv, "--tpool-worker-cnt",            NULL, fd_tile_cnt() );
 
   if( FD_UNLIKELY( !verify_acc_hash ) ) {
     /* We've got full snapshots that contain all 0s for the account
@@ -1485,6 +1487,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   }
 
   args->lthash           = lthash;
+  args->tpool_worker_cnt = tpool_worker_cnt;
 
   return 0;
 }
