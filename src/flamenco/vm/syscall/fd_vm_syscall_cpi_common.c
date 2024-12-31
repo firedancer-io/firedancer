@@ -331,6 +331,30 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       }
       found = 1;
 
+      if ( vm->direct_mapping ) {
+        /* Check that the account's lamports Rc<RefCell<T>> is not stored in the account. Because a refcell is
+           only present if the Rust SDK is used, we only need to check this for the Rust SDK.
+
+         https://github.com/anza-xyz/agave/blob/c79c3c9e67274594ed4f43ed8386e9ddc60a99e9/programs/bpf_loader/src/syscalls/cpi.rs#L140 */
+        #ifdef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
+        VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, (account_infos + j), lamports_rc_vaddr )
+        if ( FD_UNLIKELY( lamports_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+        }
+        #endif
+
+        /* Check that the account's data Rc<RefCell<T>> is not stored in the account. Because a refcell is
+           only present if the Rust SDK is used, we only need to check this for the Rust SDK.
+
+         https://github.com/anza-xyz/agave/blob/c79c3c9e67274594ed4f43ed8386e9ddc60a99e9/programs/bpf_loader/src/syscalls/cpi.rs#L161 */
+        #ifdef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
+        VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR( vm, (account_infos + j), data_rc_vaddr )
+        if ( FD_UNLIKELY( data_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+        }
+        #endif
+      }
+
       /* Update the callee account to reflect any changes the caller has made */
       if( FD_UNLIKELY( VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller ) ) ) {
         return 1001;

@@ -615,6 +615,13 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
     /* Declare the size of the underlying data */                                                                \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
 
+/* The data and lamports fields are in an Rc<Refcell<T>> in the Rust SDK AccountInfo */
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, acc_info, decl ) \
+    ulong decl = acc_info->lamports_box_addr;
+
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR( vm, acc_info, decl ) \
+    ulong decl = acc_info->data_box_addr;
+
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len_ ) \
   FD_EXPAND_THEN_CONCAT2(decl, _box)->len = len_;
 
@@ -641,4 +648,6 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
+#undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
