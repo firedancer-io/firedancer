@@ -49,7 +49,7 @@ static int
 bounds_check_conn( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
   long conn_off = (long)((ulong)conn-(ulong)quic);
-  return conn_off >= (long)quic->layout.conn_map_off && conn_off < (long)quic->layout.hs_pool_off;
+  return conn_off >= (long)quic->layout.conns_off && conn_off < (long)quic->layout.conn_map_off;
 }
 
 static void
@@ -199,7 +199,7 @@ fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
                    ushort          udp_sport ) {
   /* FIXME: for now, only handle 1-RTT */
   int is_long = fd_quic_h0_hdr_form( data[0] );
-  if( !is_long ) {
+  if( is_long ) {
     switch( fd_quic_h0_long_packet_type( data[0] ) ) {
     case FD_QUIC_PKT_TYPE_INITIAL:
       fd_quic_trace_initial( ctx, data, data_sz, ip4_saddr, udp_sport );

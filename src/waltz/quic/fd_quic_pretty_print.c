@@ -94,7 +94,7 @@ fd_quic_pretty_print_frame( char **           out_buf,
 
 # define F(T,MID,NAME,...) \
     case T: { \
-      ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"frame_type\": \"%u-" #NAME "\", ", (uint)id ); \
+      ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"frame_type\": \"%u\", ", (uint)id ); \
       *out_buf    += sz; \
       *out_buf_sz -= sz; \
       consumed = fd_quic_pretty_print_frame_##NAME##_frame( &data.NAME##_frame, out_buf, out_buf_sz, cur_buf, (ulong)( buf_end - cur_buf ) ); \
@@ -203,12 +203,12 @@ fd_quic_pretty_print_frame( char **           out_buf,
       switch( id ) {
 #       define _0(ELSE,...) ELSE
 #       define _1(ELSE,...) __VA_ARGS__
-#       define _CASE(OFF,LEN,FIN,NAME)       \
-        case OFF(0,4) + LEN(0,2) + FIN(0,1): \
-          OFF(,offset  = data.NAME.offset;)  \
-          LEN(,data_sz = data.NAME.length;)  \
-          FIN(,fin     = 1;)                 \
-          stream_id   = data.NAME.stream_id; \
+#       define _CASE(OFF,LEN,FIN,NAME)           \
+        case 8 + OFF(0,4) + LEN(0,2) + FIN(0,1): \
+          OFF(,offset  = data.NAME.offset;)      \
+          LEN(,data_sz = data.NAME.length;)      \
+          FIN(,fin     = 1;)                     \
+          stream_id   = data.NAME.stream_id;     \
           break;
         _CASE(_0,_0,_0,stream_8_frame)
         _CASE(_0,_0,_1,stream_8_frame)
