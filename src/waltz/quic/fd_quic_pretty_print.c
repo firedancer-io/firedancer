@@ -552,7 +552,6 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
     if( pretty_print_buf[j] == '\0' ) pretty_print_buf[j] = '*';
   }
 
-  //FD_LOG_NOTICE(( "TRACE: [ %s ]", pretty_print_buf ));
   printf( "TRACE: [ %s ]\n", pretty_print_buf );
 
   return rc;
