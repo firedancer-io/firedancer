@@ -325,8 +325,8 @@ union fd_quic_metrics {
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
     /* Packet metrics */
-    ulong pkt_decrypt_fail_cnt;    /* number of packets that failed decryption due to auth tag */
-    ulong pkt_no_key_cnt;          /* number of packets that failed decryption due to missing key */
+    ulong pkt_decrypt_fail_cnt[4]; /* number of packets that failed decryption due to auth tag */
+    ulong pkt_no_key_cnt[4];       /* number of packets that failed decryption due to missing key */
     ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
     ulong pkt_tx_alloc_fail_cnt;   /* number of pkt_meta alloc fails */
 

@@ -75,7 +75,6 @@
 | quic_&#8203;connections_&#8203;retried | `counter` | Number of connections established with retry. |
 | quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots | `counter` | Number of connections that failed to create due to lack of slots. |
 | quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail | `counter` | Number of connections that failed during retry (e.g. invalid token). |
-| quic_&#8203;pkt_&#8203;crypto_&#8203;failed | `counter` | Number of packets that failed decryption. |
 | quic_&#8203;pkt_&#8203;no_&#8203;conn | `counter` | Number of packets with an unknown connection ID. |
 | quic_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail | `counter` | Number of packets failed to send because of metadata alloc fail. |
 | quic_&#8203;handshakes_&#8203;created | `counter` | Number of handshake flows created. |
@@ -112,7 +111,14 @@
 | quic_&#8203;service_&#8203;duration_&#8203;seconds | `histogram` | Duration spent in service |
 | quic_&#8203;receive_&#8203;duration_&#8203;seconds | `histogram` | Duration spent receiving packets |
 | quic_&#8203;frame_&#8203;fail_&#8203;parse | `counter` | Number of QUIC frames failed to parse. |
-| quic_&#8203;pkt_&#8203;no_&#8203;key | `counter` | Number of packets that failed decryption due to missing key. |
+| quic_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;initial | `counter` | Number of packets that failed decryption. (initial) |
+| quic_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;early | `counter` | Number of packets that failed decryption. (early data) |
+| quic_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;handshake | `counter` | Number of packets that failed decryption. (handshake) |
+| quic_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;app | `counter` | Number of packets that failed decryption. (app data) |
+| quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;initial | `counter` | Number of packets that failed decryption due to missing key. (initial) |
+| quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;early | `counter` | Number of packets that failed decryption due to missing key. (early data) |
+| quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;handshake | `counter` | Number of packets that failed decryption due to missing key. (handshake) |
+| quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;app | `counter` | Number of packets that failed decryption due to missing key. (app data) |
 
 ## Verify Tile
 | Metric | Type | Description |
