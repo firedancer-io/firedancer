@@ -177,4 +177,3 @@ fd_quic_conn_reason_name( uint reason ) {
 
   return name ? name : "N/A";
 }
-
