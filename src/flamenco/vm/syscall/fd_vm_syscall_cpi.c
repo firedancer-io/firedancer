@@ -516,9 +516,13 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
   FD_VM_MEM_HADDR_LD( vm, acc_meta->pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) )
 
 /* VM_SYSCALL_CPI_ACC_INFO_T accessors */
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, acc_info, decl ) \
+  ulong decl = acc_info->lamports_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
   ulong * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl ) \
+  ulong decl = acc_info->data_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
   uchar * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->data_addr, alignof(uchar), acc_info->data_sz ); \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
@@ -551,7 +555,9 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
 #undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
 #undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
 #undef VM_SYSCALL_CPI_ACC_META_PUBKEY
+#undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
@@ -586,12 +592,26 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
 /* VM_SYSCALL_CPI_ACC_INFO_T accessors */
 /* The lamports and the account data are stored behind RefCells,
    so we have an additional layer of indirection to unwrap. */
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, acc_info, decl )                                             \
+    /* Translate the pointer to the RefCell */                                                                   \
+    fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                    \
+      FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) ); \
+    /* Extract the vaddr the RefCell points to */                                                                \
+    ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;
+
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                         \
     /* Translate the pointer to the RefCell */                                                                          \
     fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                          \
       FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) );       \
     /* Translate the pointer to the underlying data */                                                                 \
     ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(ulong), sizeof(ulong) );
+
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                 \
+    /* Translate the pointer to the RefCell */                                                                   \
+    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
+      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
+    /* Extract the vaddr the RefCell points to */                                                                \
+    ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;
 
 /* TODO: possibly define a refcell unwrapping macro to simplify this? */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                       \
@@ -645,7 +665,9 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
 #undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
 #undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
 #undef VM_SYSCALL_CPI_ACC_META_PUBKEY
+#undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR

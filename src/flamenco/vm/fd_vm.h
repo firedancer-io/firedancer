@@ -29,14 +29,29 @@ struct __attribute__((aligned(8UL))) fd_vm_input_region {
 };
 typedef struct fd_vm_input_region fd_vm_input_region_t;
 
+/* Absolute vaddr pointers to the various fields of a serialized account,
+   used for direct mapping CPI security checks.
+   
+   https://github.com/anza-xyz/agave/blob/3aa7fdc2c726763402bf75586e2c21e24a518767/program-runtime/src/invoke_context.rs#L180 */
+struct __attribute__((aligned(8UL))) fd_vm_serialized_account_metadata {
+   /* vaddr of the serialized pubkey of the account */
+   ulong key_vaddr;
+   /* vaddr of the serialized lamport value of the account */
+   ulong lamports_vaddr;
+   /* vaddr of the serialized pubkey value of the account's owner */
+   ulong owner_vaddr;
+};
+typedef struct fd_vm_serialized_account_metadata fd_vm_serialized_account_metadata_t;
+
 /* fd_vm_acc_region_meta_t holds metadata about a given account.  An array of these
    structs will map an instruction account index to its respective input memory
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
-   uint  region_idx;
-   uchar has_data_region;
-   uchar has_resizing_region;        
+   uint                                region_idx;
+   uchar                               has_data_region;
+   uchar                               has_resizing_region;      
+   fd_vm_serialized_account_metadata_t serialized_acc_metadata;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
