@@ -2008,8 +2008,8 @@ fd_executor_txn_check( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845 */
-  if( FD_UNLIKELY( ending_lamports_l != starting_lamports_l && ending_lamports_h != starting_lamports_h ) ) {
-    FD_LOG_DEBUG(( "Lamport sum mismatch: starting %lu%lu ending %lu%lu", starting_lamports_h, starting_lamports_l, ending_lamports_h, ending_lamports_l ));
+  if( FD_UNLIKELY( ending_lamports_l != starting_lamports_l || ending_lamports_h != starting_lamports_h ) ) {
+    FD_LOG_DEBUG(( "Lamport sum mismatch: starting %lx%lx ending %lx%lx", starting_lamports_h, starting_lamports_l, ending_lamports_h, ending_lamports_l ));
     return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
   }
 
