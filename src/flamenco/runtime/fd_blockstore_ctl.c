@@ -62,7 +62,7 @@ typedef struct fd_entry_row fd_entry_row_t;
 
 static ulong
 get_next_batch_shred_off( fd_block_shred_t * shreds, ulong shreds_cnt, ulong * curr_shred_idx ) {
-  for( ulong i = *curr_shred_idx + 1; i < shreds_cnt; i++ ) {
+  for( ulong i = *curr_shred_idx; i < shreds_cnt; i++ ) {
     if( shreds[i].hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) {
       *curr_shred_idx = i + 1;
       if (i + 1 < shreds_cnt) return shreds[i + 1].off;
@@ -180,7 +180,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
       uchar * data              = fd_wksp_laddr_fast( wksp, block->data_gaddr );
       fd_block_micro_t * micros = fd_wksp_laddr_fast( wksp, block->micros_gaddr );
 
-      FD_LOG_NOTICE(( " shreds->off, micros->off: %lu, %lu", shreds->off, micros->off ));
+      FD_LOG_NOTICE(( " SLOT: %lu", slot ));
 
      /* iterate shreds, print offset */
       ulong curr_shred_idx = 0;
@@ -193,23 +193,27 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
         fd_block_micro_t * micro = &micros[micro_idx];
 
         /* as we iterate along microblocks, advance shred ptr with us */
-        /* we are looking for any shred that contains the microblock  */
-        /*while( shreds[curr_shred_idx].off < micro->off - sizeof(ulong) ) {
-          curr_shred_idx++;
-          FD_LOG_NOTICE(( "\t Shred | off: %lu", shreds[curr_shred_idx].off )); 
-        }*/
+        /* if we have reached a new batch  */
         if ( micro->off >= next_batch_off ) {
           row.batch_idx++;
           FD_TEST( next_batch_shred_idx < block->shreds_cnt );
           curr_batch_tick = shreds[next_batch_shred_idx].hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK;
           curr_shred_idx = next_batch_shred_idx;
           next_batch_off = get_next_batch_shred_off( shreds, block->shreds_cnt, &next_batch_shred_idx ); // advance shred idx to next batch
+          FD_LOG_NOTICE(("New Batch - shred idx start: %lu, end: %lu, ref_tick: %d, off : %lu", curr_shred_idx, next_batch_shred_idx, curr_batch_tick, shreds[curr_shred_idx].off));
+          if( next_batch_off == ULONG_MAX ) {
+            FD_LOG_NOTICE(("New Batch is last batch"));
+          }
         }
   
 
         for ( ulong i = curr_shred_idx; i < next_batch_shred_idx; i++ ) {
           fd_block_shred_t * s = &shreds[i];
-          FD_TEST((s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK) == curr_batch_tick);
+          if (( s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK  ) != curr_batch_tick ){
+            FD_LOG_WARNING(("shred ref tick mismatch, shred: %lu, curr_batch_tick: %d, shred_tick: %d, is last in batch: %d", i, curr_batch_tick, s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK, s->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE));
+          }
+
+          //FD_TEST((s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK) == curr_batch_tick);
         }
 
         row.ref_tick = curr_batch_tick; 
@@ -340,7 +344,7 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
 }
 
 static void
-investigate_shred( fd_wksp_t * wksp, const char * folder ){
+investigate_shred( fd_wksp_t * wksp, const char * folder, ulong start, ulong count ){
   INITIALIZE_BLOCKSTORE( blockstore );
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -360,8 +364,8 @@ investigate_shred( fd_wksp_t * wksp, const char * folder ){
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
-  ulong st  = 308015637;
-  ulong end = 308015637;
+  ulong st  = start;
+  ulong end = start + count - 1;
 
   ulong populated_slots[end - st + 1];
   memset( populated_slots, -1, sizeof(populated_slots) );
@@ -437,7 +441,7 @@ main( int argc, char ** argv ) {
   FD_TEST( err == 0 );
 
   ulong start = fd_env_strip_cmdline_ulong( &argc, &argv, "st", NULL, 0);
-  ulong count = fd_env_strip_cmdline_ulong( &argc, &argv, "num", NULL, 10); 
+  ulong count = fd_env_strip_cmdline_ulong( &argc, &argv, "ct", NULL, 10); 
 
   if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
     entry_write_header(csv);
@@ -446,7 +450,7 @@ main( int argc, char ** argv ) {
     batch_write_header(csv);
     aggregate_batch_entries( wksp, folder, csv, start, count);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "info")){
-    investigate_shred( wksp, folder );
+    investigate_shred( wksp, folder, start, count );
   } else {
     FD_LOG_WARNING(("Please specify either microblock or batch in the command line. No action taken."));
   }
@@ -454,5 +458,4 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 
-  investigate_shred( wksp, folder );
 }
