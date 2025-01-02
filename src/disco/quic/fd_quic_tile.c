@@ -146,9 +146,10 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
 
-  FD_MCNT_SET(   QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
-  FD_MCNT_SET(   QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
-  FD_MCNT_SET(   QUIC, PKT_TX_ALLOC_FAIL, ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,        ctx->quic->metrics.pkt_no_key_cnt );
+  FD_MCNT_SET(       QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(       QUIC, PKT_TX_ALLOC_FAIL, ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );

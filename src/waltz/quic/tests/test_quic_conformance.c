@@ -247,7 +247,7 @@ test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
     fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum );
     pktnum += 2UL;
   }
-  FD_TEST( metrics->pkt_decrypt_fail_cnt==0 );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==0 );
   FD_TEST( ack_gen->head - ack_gen->tail == FD_QUIC_ACK_QUEUE_CNT );
   FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NOOP   ] == 0                     );
   FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW    ] == FD_QUIC_ACK_QUEUE_CNT );
