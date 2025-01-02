@@ -1043,7 +1043,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
   /* push a new transaction on the stack */
   fd_funk_start_write( ctx->funk );
-  FD_TEST( !ctx->funk->speed_load );
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 

@@ -277,6 +277,7 @@ struct fake_funk {
       fake_publish_to_parent(txn);
     }
 
+    /*
     void fake_merge(fake_txn* txn) {
       fd_funk_start_write(_real);
       for (auto i : txn->_children) {
@@ -290,6 +291,7 @@ struct fake_funk {
       txn->_children.clear();
       fd_funk_end_write(_real);
     }
+    */
 
     void random_publish() {
       fd_funk_start_write(_real);
@@ -316,7 +318,10 @@ struct fake_funk {
       for (auto i : _txns)
         if (i.second->_key != ROOT_KEY)
           list[listlen++] = i.second;
-      if (!listlen) return;
+      if (!listlen) {
+        fd_funk_end_write(_real);
+        return;
+      }
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
@@ -345,6 +350,7 @@ struct fake_funk {
       fake_cancel_family(txn);
     }
 
+/*
     void random_merge() {
       fd_funk_start_write(_real);
       // Look for transactions with children but no grandchildren
@@ -359,7 +365,10 @@ struct fake_funk {
         list[listlen++] = i.second;
         no_good: continue;
       }
-      if (!listlen) return;
+      if (!listlen) {
+        fd_funk_end_write(_real);
+        return;
+      }
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
@@ -369,6 +378,7 @@ struct fake_funk {
       // Simulate merge
       fake_merge(txn);
     }
+*/
 
     void random_safe_read() {
       fd_funk_rec_key_t i;
@@ -428,6 +438,15 @@ struct fake_funk {
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
           assert(rec->part == rec2->_part);
         }
+
+        fd_funk_txn_t * txn_map = fd_funk_txn_map( _real, fd_funk_wksp( _real ) );
+        fd_funk_txn_t * txn = fd_funk_txn_query( xid, txn_map );
+        auto* rec3 = fd_funk_rec_query_global(_real, txn, rec->pair.key, NULL);
+        if( ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
+          assert(rec3 == NULL);
+        else
+          assert(rec == rec3);
+
         assert(!rec2->_touched);
         rec2->_touched = true;
       }
