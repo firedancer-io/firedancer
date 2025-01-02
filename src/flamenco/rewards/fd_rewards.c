@@ -315,7 +315,7 @@ get_minimum_stake_delegation( fd_exec_slot_ctx_t * slot_ctx ) {
         return 0UL;
     }
 
-    if ( !FD_FEATURE_ACTIVE( slot_ctx, stake_raise_minimum_delegation_to_1_sol ) ) {
+    if ( FD_FEATURE_ACTIVE( slot_ctx, stake_raise_minimum_delegation_to_1_sol ) ) {
         return LAMPORTS_PER_SOL;
     }
 
