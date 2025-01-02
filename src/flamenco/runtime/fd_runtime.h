@@ -266,6 +266,15 @@ FD_PROTOTYPES_BEGIN
 
 /* Runtime Helpers ************************************************************/
 
+/*
+   Returns 0 on success, and non zero otherwise.  On failure, the
+   out values will not be modified.
+ */
+int
+fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
+                                    ulong   slot,
+                                    ulong * out_max_tick_height /* out */ );
+
 void
 fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 
@@ -281,6 +290,30 @@ fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
                                       ulong                      epoch );
 
 /* Block Level Execution Prep/Finalize ****************************************/
+
+#define FD_BLOCK_OK                          (0UL)
+#define FD_BLOCK_ERR_INCOMPLETE              (1UL)
+#define FD_BLOCK_ERR_INVALID_ENTRY_HASH      (2UL)
+#define FD_BLOCK_ERR_INVALID_LAST_TICK       (3UL)
+#define FD_BLOCK_ERR_TOO_FEW_TICKS           (4UL)
+#define FD_BLOCK_ERR_TOO_MANY_TICKS          (5UL)
+#define FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT (6UL)
+#define FD_BLOCK_ERR_TRAILING_ENTRY          (7UL)
+#define FD_BLOCK_ERR_DUPLICATE_BLOCK         (8UL)
+
+/*
+   https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore_processor.rs#L1096
+   This function assumes a full block.
+   This needs to be called after epoch processing to get the up to date
+   hashes_per_tick.
+ */
+ulong
+fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
+                               ulong                    micro_cnt,
+                               uchar const *            block_data,
+                               ulong                    tick_height,
+                               ulong                    max_tick_height,
+                               ulong                    hashes_per_tick );
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx );
@@ -344,9 +377,16 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
                               ulong             curr_slot,
                               ulong             prev_slot );
 
-void
-fd_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                      ulong                parent_epoch );
+/*
+   This is roughly Agave's process_new_epoch() which gets called from
+   new_from_parent() for every slot.
+   https://github.com/anza-xyz/agave/blob/v1.18.26/runtime/src/bank.rs#L1483
+   This needs to be called after funk_txn_prepare() because the accounts
+   that we modify when processing a new epoch need to be hashed into
+   the bank hash.
+ */
+int
+fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Debugging Tools ************************************************************/
 

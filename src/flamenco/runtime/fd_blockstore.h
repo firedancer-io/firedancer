@@ -232,7 +232,7 @@ struct fd_block {
   ulong shreds_cnt;
   ulong batch_gaddr;  /* list of fd_block_entry_batch_t */
   ulong batch_cnt;
-  ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
+  ulong micros_gaddr; /* ptr to the list of fd_block_micro_t */
   ulong micros_cnt;
   ulong txns_gaddr;   /* ptr to the list of fd_block_txn_t */
   ulong txns_cnt;
@@ -570,6 +570,11 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block
 FD_FN_PURE static inline fd_block_entry_batch_t *
 fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
+}
+
+FD_FN_PURE static inline fd_block_micro_t *
+fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
 }
 
 /* fd_buf_shred_query queries the blockstore for shred at slot,
