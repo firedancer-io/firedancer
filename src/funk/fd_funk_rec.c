@@ -46,43 +46,59 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
                           fd_funk_rec_key_t const * key,
                           fd_funk_txn_t const **    txn_out ) {
-
   if( FD_UNLIKELY( (!funk) | (!key) ) ) return NULL;
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-  if( txn ) { /* Query txn and its in-prep ancestors */
+  /* For record ele in all records in chain that match key.  (This
+     code was adapted from the map_giant template ... ideally would
+     use a map chain iterator ala map_para template). */
 
-    fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  /* Note: the iteration order will be such that the record
+     for a key in a descendent of a transaction will be presented
+     before a record for that key in that transaction. This allows us
+     to succeed on the first hit (the newest transaction). It is
+     NECESSARY that fd_funk_rec_map_insert preserve this property. */
 
-    ulong txn_max = funk->txn_max;
+  fd_funk_rec_map_private_t * priv = fd_funk_rec_map_private( rec_map );
+  ulong   hash = fd_funk_rec_key_hash( key, priv->seed );
+  ulong * head = fd_funk_rec_map_private_list( priv ) + ( hash & (priv->list_cnt-1UL) );
+  ulong * cur = head;
 
-    ulong txn_idx = (ulong)(txn - txn_map);
+  for(;;) {
+    ulong ele_idx = fd_funk_rec_map_private_unbox_idx( *cur );
+    if( fd_funk_rec_map_private_is_null( ele_idx ) ) break;
+    fd_funk_rec_t * ele = rec_map + ele_idx;
+    if( FD_LIKELY( hash == ele->map_hash ) && FD_LIKELY( fd_funk_rec_key_eq( key, ele->pair.key ) ) ) {
 
-    if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) )
-      return NULL;
+      /* For cur_txn in path from [txn] to [root] where root is NULL */
 
-    /* TODO: const correct and/or fortify? */
-    do {
-      fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-      fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
-      if( FD_LIKELY( rec ) ) {
-        if( FD_UNLIKELY(NULL != txn_out  ) ) {
-          *txn_out = txn;
+      for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, txn_map ) ) {
+        /* If record ele is part of transaction cur_txn, we have a
+           match. According to the property above, this will be the
+           youngest descendent in the transaction stack. */
+
+        int match = FD_UNLIKELY( cur_txn ) ? /* opt for root find (FIXME: eliminate branch with cmov into txn_xid_eq?) */
+          fd_funk_txn_xid_eq( &cur_txn->xid, ele->pair.xid ) :
+          fd_funk_txn_xid_eq_root( ele->pair.xid );
+
+        if( FD_LIKELY( match ) ) {
+          if( txn_out ) *txn_out = cur_txn;
+          return ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL : ele );
         }
-        return rec;
-      }
-      txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
-    } while( FD_UNLIKELY( txn ) );
 
+        if( cur_txn == NULL ) break;
+      }
+
+    }
+    cur = &ele->map_next;
   }
 
-  /* Query the last published transaction */
-
-  fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-  return fd_funk_rec_map_query_const( rec_map, pair, NULL );
+  if( txn_out ) *txn_out = NULL;
+  return NULL;
 }
 
 void *
@@ -538,10 +554,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   /* Grow the record to the right size */
   rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
   if ( fd_funk_val_sz( rec ) < min_val_size ) {
-    if( funk->speed_load )
-      rec = fd_funk_val_speed_load( funk, rec, min_val_size, wksp, opt_err );
-    else
-      rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
+    rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
   }
 
   return rec;
@@ -605,6 +618,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )==txn_idx) && rec_map[ rec_idx ].tag==0U );
       rec_map[ rec_idx ].tag = 1U;
       cnt++;
+      fd_funk_rec_t const * rec2 = fd_funk_rec_query_global( funk, NULL, rec_map[ rec_idx ].pair.key, NULL );
+      if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+        TEST( rec2 == NULL );
+      else
+        TEST( rec2 = rec_map + rec_idx );
       ulong next_idx = rec_map[ rec_idx ].next_idx;
       if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_map[ next_idx ].prev_idx==rec_idx );
       rec_idx = next_idx;
@@ -620,6 +638,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )==txn_idx) && rec_map[ rec_idx ].tag==0U );
         rec_map[ rec_idx ].tag = 1U;
         cnt++;
+        fd_funk_rec_t const * rec2 = fd_funk_rec_query_global( funk, txn, rec_map[ rec_idx ].pair.key, NULL );
+        if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+          TEST( rec2 == NULL );
+        else
+          TEST( rec2 = rec_map + rec_idx );
         ulong next_idx = rec_map[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_map[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;

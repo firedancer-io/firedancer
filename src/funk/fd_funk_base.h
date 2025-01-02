@@ -230,17 +230,16 @@ fd_funk_txn_xid_set_root( fd_funk_txn_xid_t * x ) {
   return x;
 }
 
-/* fd_funk_xid_key_pair_hash provides a family of hashes that hash a
-   (xid,key) pair to by p to a uniform quasi-random 64-bit integer.
-   seed selects the particular hash function to use and can be an
-   arbitrary 64-bit value.  Returns the hash.  The hash functions are
-   high quality but not cryptographically secure.  Assumes p is in the
-   caller's address space and valid. */
+/* fd_funk_xid_key_pair_hash produces a 64-bit hash case for a
+   xid_key_pair. Assumes p is in the caller's address space and valid. */
 
 FD_FN_PURE static inline ulong
 fd_funk_xid_key_pair_hash( fd_funk_xid_key_pair_t const * p,
                            ulong                          seed ) {
-  return fd_funk_txn_xid_hash( p->xid, seed ) ^ fd_funk_rec_key_hash( p->key, seed );
+  /* We ignore the xid part of the key because we need all the instances
+     of a given record key to appear in the same hash
+     chain. fd_funk_rec_query_global depends on this. */
+  return fd_funk_rec_key_hash( p->key, seed );
 }
 
 /* fd_funk_xid_key_pair_eq returns 1 if (xid,key) pair pointed to by pa

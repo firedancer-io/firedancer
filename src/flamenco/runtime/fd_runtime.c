@@ -517,7 +517,7 @@ find_next_txn_in_raw_block( uchar const *                  orig_data,
   curr_offset = batches->end_off;
   batches++;
   batch_cnt = fd_ulong_sat_sub(batch_cnt, 1UL);
-  
+
   /* Case 2: need to find the next batch with a microblock in that has a non-zero number of txns */
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     /* Sanity-check that we have not over-shot the end of the batch */
@@ -1955,14 +1955,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "failed to save edits to accounts" ));
       return -1;
-    }
-
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
-    int ret = fd_funk_txn_merge_all_children( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0 );
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
-
-    if( FD_UNLIKELY( ret!=FD_FUNK_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed merging funk transaction: (%i-%s) ", ret, fd_funk_strerror(ret) ));
     }
 
     if( FD_LIKELY( slot_ctx->status_cache ) ) {
