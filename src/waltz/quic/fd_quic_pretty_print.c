@@ -36,11 +36,11 @@
 #include "templ/fd_quic_frame.h"
 
 
-#define safe_snprintf( out, sz, ... ) \
-  (__extension__({ \
+#define safe_snprintf( out, sz, ... )               \
+  (__extension__({                                  \
     int rtn = snprintf( (out), (sz), __VA_ARGS__ ); \
-    if( rtn < 0 ) rtn = 0; \
-    if( rtn > (int)(sz) ) rtn = (int)(sz); \
+    if( rtn < 0 ) rtn = 0;                          \
+    if( rtn > (int)(sz) ) rtn = (int)(sz);          \
     (ulong)rtn; }))
 
 ulong
