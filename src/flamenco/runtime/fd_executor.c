@@ -627,13 +627,131 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t const * slot_ctx,
   return 1;
 }
 
+static void
+compute_priority_fee( fd_exec_txn_ctx_t const * txn_ctx,
+                      ulong *                   fee,
+                      ulong *                   priority ) {
+  switch( txn_ctx->prioritization_fee_type ) {
+  case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED: {
+    if( !txn_ctx->compute_unit_limit ) {
+      *priority = 0UL;
+    }
+    else {
+      uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)MICRO_LAMPORTS_PER_LAMPORT;
+      uint128 _priority         = micro_lamport_fee / (uint128)txn_ctx->compute_unit_limit;
+      *priority                 = _priority > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_priority;
+    }
+
+    *fee = txn_ctx->compute_unit_price;
+    return;
+
+  } case FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE: {
+    uint128 micro_lamport_fee = (uint128)txn_ctx->compute_unit_price * (uint128)txn_ctx->compute_unit_limit;
+    *priority                 = txn_ctx->compute_unit_price;
+    uint128 _fee              = (micro_lamport_fee + (uint128)(MICRO_LAMPORTS_PER_LAMPORT - 1)) / (uint128)(MICRO_LAMPORTS_PER_LAMPORT);
+    *fee                      = _fee > (uint128)ULONG_MAX ? ULONG_MAX : (ulong)_fee;
+    return;
+
+  }
+  default:
+    __builtin_unreachable();
+  }
+}
+
+static ulong
+fd_executor_lamports_per_signature( fd_slot_bank_t const *slot_bank ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return slot_bank->fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+static void
+fd_executor_calculate_fee( fd_exec_txn_ctx_t *txn_ctx,
+                          fd_txn_t const *txn_descriptor,
+                          fd_rawtxn_b_t const *txn_raw,
+                          ulong *ret_execution_fee,
+                          ulong *ret_priority_fee) {
+
+  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L82
+  #define ACCOUNT_DATA_COST_PAGE_SIZE fd_ulong_sat_mul(32, 1024)
+
+  // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
+  ulong priority     = 0UL;
+  ulong priority_fee = 0UL;
+  compute_priority_fee( txn_ctx, &priority_fee, &priority );
+
+  // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
+  ulong num_signatures = txn_descriptor->signature_cnt;
+  for (ushort i=0; i<txn_descriptor->instr_cnt; ++i ) {
+    fd_txn_instr_t const * txn_instr  = &txn_descriptor->instr[i];
+    fd_pubkey_t *          program_id = &txn_ctx->accounts[txn_instr->program_id];
+    if( !memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) ||
+        !memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) ||
+        (!memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile )) ) {
+      if( !txn_instr->data_sz ) {
+        continue;
+      }
+      uchar * data   = (uchar *)txn_raw->raw + txn_instr->data_off;
+      num_signatures = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
+    }
+  }
+
+  ulong signature_fee = fd_executor_lamports_per_signature(&txn_ctx->slot_ctx->slot_bank) * num_signatures;
+
+  // TODO: as far as I can tell, this is always 0
+  //
+  //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
+  //                .saturating_mul(fee_structure.lamports_per_write_lock);
+  ulong lamports_per_write_lock = 0UL;
+  ulong write_lock_fee          = fd_ulong_sat_mul(fd_txn_account_cnt(txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE), lamports_per_write_lock);
+
+  // TODO: the fee_structure bin is static and default..
+  //        let loaded_accounts_data_size_cost = if include_loaded_account_data_size_in_fee {
+  //            FeeStructure::calculate_memory_usage_cost(
+  //                budget_limits.loaded_accounts_data_size_limit,
+  //                budget_limits.heap_cost,
+  //            )
+  //        } else {
+  //            0_u64
+  //        };
+  //        let total_compute_units =
+  //            loaded_accounts_data_size_cost.saturating_add(budget_limits.compute_unit_limit);
+  //        let compute_fee = self
+  //            .compute_fee_bins
+  //            .iter()
+  //            .find(|bin| total_compute_units <= bin.limit)
+  //            .map(|bin| bin.fee)
+  //            .unwrap_or_else(|| {
+  //                self.compute_fee_bins
+  //                    .last()
+  //                    .map(|bin| bin.fee)
+  //                    .unwrap_or_default()
+  //            });
+
+  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L203-L206
+  ulong execution_fee = fd_ulong_sat_add( signature_fee, write_lock_fee );
+
+  if( execution_fee >= ULONG_MAX ) {
+    *ret_execution_fee = ULONG_MAX;
+  } else {
+    *ret_execution_fee = execution_fee;
+  }
+
+  if( priority_fee >= ULONG_MAX ) {
+    *ret_priority_fee = ULONG_MAX;
+  } else {
+    *ret_priority_fee = priority_fee;
+  }
+
+  #undef ACCOUNT_DATA_COST_PAGE_SIZE
+}
+
 static int
 fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx, fd_borrowed_account_t * fee_payer_rec ) {
 
   ulong execution_fee = 0UL;
   ulong priority_fee  = 0UL;
 
-  fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+  fd_executor_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( txn_ctx->slot_ctx->epoch_ctx );
   ulong             total_fee  = fd_ulong_sat_add( execution_fee, priority_fee );
@@ -1437,45 +1555,6 @@ fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
 
     return 0;
   } FD_SCRATCH_SCOPE_END;
-}
-
-int
-fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_exec_txn_ctx_t *  txn_ctx,
-                               fd_txn_p_t *         txn ) {
-  /* TODO: These checks should be moved to phase2. */
-
-  if (FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, apply_cost_tracker_during_replay ) ) {
-    ulong est_cost = fd_pack_compute_cost( TXN(txn), txn->payload, &txn->flags, NULL, NULL, NULL );
-    if( slot_ctx->total_compute_units_requested + est_cost <= MAX_COMPUTE_UNITS_PER_BLOCK ) {
-      slot_ctx->total_compute_units_requested += est_cost;
-    } else {
-      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
-    }
-
-    fd_pubkey_t * tx_accs   = txn_ctx->accounts;
-    for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-         ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
-      ulong i = fd_txn_acct_iter_idx( ctrl );
-      fd_pubkey_t * acct = &tx_accs[i];
-      if (!fd_txn_account_is_writable_idx( txn_ctx, (int)i )) {
-        continue;
-      }
-      fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, acct, NULL );
-      if ( !elem ) {
-        elem = fd_account_compute_table_insert( slot_ctx->account_compute_table, acct );
-        elem->cu_consumed = 0;
-      }
-
-      if ( elem->cu_consumed + est_cost > MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT ) {
-        return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT;
-      }
-
-      elem->cu_consumed += est_cost;
-    }
-  }
-
-  return 0;
 }
 
 /* Creates a TxnContext Protobuf message from a provided txn_ctx.
