@@ -389,22 +389,6 @@ struct fake_funk {
       if( data ) free(data);
     }
 
-    void archive() {
-      assert(!fd_funk_archive(_real, "/tmp/tmparchive"));
-
-      fd_wksp_detach( _wksp );
-
-      ulong  numa_idx = fd_shmem_numa_idx( 0 );
-      _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-      void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-      ulong txn_max = 128;
-      ulong rec_max = 1<<16;
-      _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
-
-      assert(!fd_funk_unarchive(_real, "/tmp/tmparchive"));
-      unlink("/tmp/tmparchive");
-    }
-
     void verify() {
       assert(fd_funk_verify(_real) == FD_FUNK_SUCCESS);
 
