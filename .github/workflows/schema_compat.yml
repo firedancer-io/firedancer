@@ -1,0 +1,21 @@
+name: On Pull Request Schemas
+on:
+  merge_group:
+  pull_request:
+    types: [synchronize, opened, reopened, ready_for_review]
+    paths:
+      - 'src/disco/metrics/schema/**'
+concurrency:
+  group: on-pull-request_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  schema_compat:
+    timeout-minutes: 1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 'Check schemas are compatible'
+        run: python3 check_schemas.py
+        working-directory: src/disco/metrics
