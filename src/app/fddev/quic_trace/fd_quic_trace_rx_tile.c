@@ -152,11 +152,11 @@ _TRACE_QUIC_PKT(HANDSHAKE,handshake,0,1)
 /* as the server, we shouldn't be receiving RETRY packets */
 
 static void
-fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
-                    uchar * data,
-                    ulong   data_sz,
-                    uint    ip4_saddr,
-                    ushort  udp_sport ) {
+fd_quic_trace_1rtt( fd_quic_trace_ctx_t * _ctx,
+                    uchar *               data,
+                    ulong                 data_sz,
+                    uint                  ip4_saddr,
+                    ushort                udp_sport ) {
   fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
   fd_quic_t *          quic     = ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
@@ -195,7 +195,7 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
     .pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT
   };
 
-  if( ((fd_quic_trace_ctx_t*)_ctx)->dump ) {
+  if( _ctx->dump ) {
     fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
                                    state->now,
                                    data,
