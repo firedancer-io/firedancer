@@ -322,6 +322,14 @@ ulong
 fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
                                fd_txn_p_t * out_txns );
 
+ulong
+fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
+                               ulong                    micro_cnt,
+                               uchar const *            block_data,
+                               ulong                    tick_height,
+                               ulong                    max_tick_height,
+                               ulong                    hashes_per_tick );
+
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              fd_capture_ctx_t * capture_ctx,

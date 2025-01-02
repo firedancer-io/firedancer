@@ -827,25 +827,77 @@ fd_runtime_block_prepare( fd_blockstore_t * blockstore,
   return 0;
 }
 
-// TODO: this function doesnt do anything!
-int
-fd_runtime_block_verify_ticks( fd_block_info_t const * block_info,
-                               ulong                   tick_height,
-                               ulong                   max_tick_height ) {
-  (void)tick_height; (void)max_tick_height;
-  ulong tick_count = 0UL;
-  for( ulong i = 0UL; i < block_info->microblock_batch_cnt; i++ ) {
-    fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[ i ];
-    for( ulong j = 0UL; j < microblock_batch_info->microblock_cnt; j++ ) {
-      fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[ i ];
-      if( microblock_info->microblock_hdr.txn_cnt == 0UL ) {
-        /* if this mblk is a tick */
-        tick_count++;
+/*
+ * https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore_processor.rs#L1096
+ * This function assumes a full block.
+ */
+ulong
+fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
+                               ulong                    micro_cnt,
+                               uchar const *            block_data,
+                               ulong                    tick_height,
+                               ulong                    max_tick_height,
+                               ulong                    hashes_per_tick ) {
+  ulong tick_count              = 0UL;
+  ulong tick_hash_count         = 0UL;
+  uchar has_trailing_entry      = 0U;
+  uchar invalid_tick_hash_count = 0U;
+  /*
+    Iterate over microblocks/entries to
+    (1) count the number of ticks
+    (2) check whether the last entry is a tick
+    (3) check whether ticks align with hashes per tick
+
+    This precomputes everything we need in a single loop over the array.
+    In order to mimic the order of checks in Agave,
+    we cache the results of some checks but do not immediately return
+    an error.
+   */
+  for( ulong i = 0UL; i < micro_cnt; i++ ) {
+    fd_microblock_hdr_t const * hdr = fd_type_pun_const( ( block_data + micro[ i ].off ) );
+    tick_hash_count = fd_ulong_sat_add( tick_hash_count, hdr->hash_cnt );
+    if( hdr->txn_cnt == 0UL ) {
+      tick_count++;
+      if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
+        if( FD_UNLIKELY( tick_hash_count != hashes_per_tick ) ) {
+          invalid_tick_hash_count = 1U;
+        }
       }
+      tick_hash_count = 0UL;
+      continue;
+    }
+    /* This wasn't a tick entry, but it's the last entry. */
+    if( FD_UNLIKELY( i == micro_cnt - 1UL ) ) {
+      has_trailing_entry = 1U;
     }
   }
-  (void)tick_count;
-  return 0;
+
+  ulong next_tick_height = tick_height + tick_count;
+  if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
+    FD_LOG_WARNING(( "Too many ticks" ));
+    return FD_BLOCK_ERR_TOO_MANY_TICKS;
+  }
+  if( FD_UNLIKELY( next_tick_height < max_tick_height ) ) {
+    FD_LOG_WARNING(( "Too few ticks" ));
+    return FD_BLOCK_ERR_TOO_FEW_TICKS;
+  }
+  if( FD_UNLIKELY( has_trailing_entry ) ) {
+    FD_LOG_WARNING(( "Did not end with a tick" ));
+    return FD_BLOCK_ERR_TRAILING_ENTRY;
+  }
+
+  /* Not returning FD_BLOCK_ERR_INVALID_LAST_TICK because we assume the
+     slot is full. */
+
+  /* Don't care about low power hashing or no hashing. */
+  if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
+    if( FD_UNLIKELY( invalid_tick_hash_count ) ) {
+      FD_LOG_WARNING(( "Tick with invalid number of hashes found" ));
+      return FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT;
+    }
+  }
+
+  return FD_BLOCK_OK;
 }
 
 void
@@ -969,8 +1021,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
    pre-transactions checks in the v2.0.x Agave client from upstream
    to downstream is as follows:
 
-   confirm_slot_entries() which calls verify_ticks()
-   (which is currently unimplemented in firedancer) and
+   confirm_slot_entries() which calls verify_ticks() and
    verify_transaction(). verify_transaction() calls verify_and_hash_message()
    and verify_precompiles() which parallels fd_executor_txn_verify() and
    fd_executor_verify_precompiles().
@@ -2412,8 +2463,6 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
     }
 
-    slot_ctx->tick_count = 0UL;
-
     long block_execute_time = -fd_log_wallclock();
 
     int res = fd_runtime_block_execute_prepare( slot_ctx );
@@ -2424,7 +2473,6 @@ fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     ulong txn_cnt = block_info->txn_cnt;
     fd_txn_p_t * txn_ptrs = fd_scratch_alloc( alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
 
-    /* This now collects the tick entries in a block. */
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
     /* TODO: Currently the tick height is manually updated for each executed 
@@ -2951,6 +2999,20 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_block_info_t block_info;
   int ret = fd_runtime_block_prepare( slot_ctx->blockstore, slot_ctx->block, slot, slot_ctx->valloc, &block_info );
   *txn_cnt = block_info.txn_cnt;
+
+  fd_block_t * block = fd_blockstore_block_query( slot_ctx->blockstore, slot );
+  ulong tick_res = fd_runtime_block_verify_ticks(
+    fd_blockstore_block_micro_laddr( slot_ctx->blockstore, block ),
+    block->micros_cnt,
+    fd_blockstore_block_data_laddr( slot_ctx->blockstore, block ),
+    slot_ctx->slot_bank.tick_height,
+    slot_ctx->slot_bank.max_tick_height,
+    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick
+  );
+  if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
+    FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot ));
+    ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;
+  }
 
   /* Use the blockhash as the funk xid */
   fd_funk_txn_xid_t xid;

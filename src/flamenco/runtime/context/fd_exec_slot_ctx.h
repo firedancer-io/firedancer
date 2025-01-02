@@ -81,8 +81,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_txncache_t *             status_cache;
   fd_slot_history_t           slot_history[1];
 
-  ulong                       tick_count;
-
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                      recording, e.g. txn logs.  Analogue
                                                      of Agave's ExecutionRecordingConfig. */

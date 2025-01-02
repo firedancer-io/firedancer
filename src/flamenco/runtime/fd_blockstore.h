@@ -59,6 +59,16 @@
 #define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
 #define FD_BLOCKSTORE_ERR_UNKNOWN         -99
+
+#define FD_BLOCK_OK                          (0UL)
+#define FD_BLOCK_ERR_INCOMPLETE              (1UL)
+#define FD_BLOCK_ERR_INVALID_ENTRY_HASH      (2UL)
+#define FD_BLOCK_ERR_INVALID_LAST_TICK       (3UL)
+#define FD_BLOCK_ERR_TOO_FEW_TICKS           (4UL)
+#define FD_BLOCK_ERR_TOO_MANY_TICKS          (5UL)
+#define FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT (6UL)
+#define FD_BLOCK_ERR_TRAILING_ENTRY          (7UL)
+#define FD_BLOCK_ERR_DUPLICATE_BLOCK         (8UL)
 /* clang-format on */
 
 struct fd_shred_key {
@@ -232,7 +242,7 @@ struct fd_block {
   ulong shreds_cnt;
   ulong batch_gaddr;  /* list of fd_block_entry_batch_t */
   ulong batch_cnt;
-  ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
+  ulong micros_gaddr; /* ptr to the list of fd_block_micro_t */
   ulong micros_cnt;
   ulong txns_gaddr;   /* ptr to the list of fd_block_txn_t */
   ulong txns_cnt;
@@ -569,6 +579,11 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block
 FD_FN_PURE static inline fd_block_entry_batch_t *
 fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
+}
+
+FD_FN_PURE static inline fd_block_micro_t *
+fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
 }
 
 /* fd_buf_shred_query queries the blockstore for shred at slot,
