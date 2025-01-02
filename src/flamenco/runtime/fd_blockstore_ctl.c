@@ -127,7 +127,7 @@ void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
 }
 
 static void
-aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong start, ulong count ){
+aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong st, ulong end ){
     INITIALIZE_BLOCKSTORE( blockstore );
 
     FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -146,9 +146,6 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
     fd_slot_meta_t slot_meta = { 0 };
     uchar trash_hash_buf[32];
     memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
-
-    ulong st  = start;
-    ulong end = start + count - 1;
 
     ulong populated_slots[end - st + 1];
     memset( populated_slots, -1, sizeof(populated_slots) );
@@ -262,7 +259,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
 }
 
 static void
-aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong start, ulong count ){
+aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong st, ulong end ){
   INITIALIZE_BLOCKSTORE( blockstore );
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -281,9 +278,6 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
   fd_slot_meta_t slot_meta = { 0 };
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
-
-  ulong st  = start;
-  ulong end = start + count - 1;
 
   ulong populated_slots[end - st + 1];
   memset( populated_slots, -1, sizeof(populated_slots) );
@@ -344,7 +338,7 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
 }
 
 static void
-investigate_shred( fd_wksp_t * wksp, const char * folder, ulong start, ulong count ){
+investigate_shred( fd_wksp_t * wksp, const char * folder, ulong st, ulong end ){
   INITIALIZE_BLOCKSTORE( blockstore );
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
@@ -364,11 +358,9 @@ investigate_shred( fd_wksp_t * wksp, const char * folder, ulong start, ulong cou
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
-  ulong st  = start;
-  ulong end = start + count - 1;
-
   ulong populated_slots[end - st + 1];
   memset( populated_slots, -1, sizeof(populated_slots) );
+  
   int slot_idx = 0;
   for (ulong slot = st; slot <= end; slot++) {
     int err = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot, &slot_meta, valloc );
@@ -441,16 +433,16 @@ main( int argc, char ** argv ) {
   FD_TEST( err == 0 );
 
   ulong start = fd_env_strip_cmdline_ulong( &argc, &argv, "st", NULL, 0);
-  ulong count = fd_env_strip_cmdline_ulong( &argc, &argv, "ct", NULL, 10); 
+  ulong end = fd_env_strip_cmdline_ulong( &argc, &argv, "en", NULL, 0); 
 
   if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
     entry_write_header(csv);
-    aggregate_entries( wksp , folder, csv, start, count);
+    aggregate_entries( wksp , folder, csv, start, end);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
     batch_write_header(csv);
-    aggregate_batch_entries( wksp, folder, csv, start, count);
+    aggregate_batch_entries( wksp, folder, csv, start, end);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "info")){
-    investigate_shred( wksp, folder, start, count );
+    investigate_shred( wksp, folder, start, end );
   } else {
     FD_LOG_WARNING(("Please specify either microblock or batch in the command line. No action taken."));
   }
