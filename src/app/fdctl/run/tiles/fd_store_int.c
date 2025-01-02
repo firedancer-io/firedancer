@@ -432,7 +432,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                         slot,
                         caught_up ));
 
-        /* calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
+        /* Calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
            sent to the replay tile, sending a maximum of 4096 transactions to the replay tile at a time */
         fd_raw_block_txn_iter_t iter;
         fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
