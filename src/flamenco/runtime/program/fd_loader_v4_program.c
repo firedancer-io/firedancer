@@ -36,7 +36,7 @@ fd_loader_v4_set_state( fd_exec_instr_ctx_t *  instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  fd_loader_v4_state_t * out_state = (fd_loader_v4_state_t *)data;
+  fd_loader_v4_state_t * out_state = fd_type_pun( data );
   *out_state = *state;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -54,7 +54,9 @@ fd_loader_v4_get_state( fd_borrowed_account_t const * program,
   if( FD_UNLIKELY( program->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
-  *state = *( (fd_loader_v4_state_t *) program->const_data );
+
+  fd_loader_v4_state_t const * in_state = fd_type_pun_const( program->const_data );
+  *state = *in_state;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
