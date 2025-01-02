@@ -998,7 +998,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   FD_TEST( fork == child );
 
   // fork is advancing
-  FD_LOG_NOTICE(( "new block execution - slowt: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
+  FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
 
   /* if it is an epoch boundary, push out stake weights */
@@ -1006,8 +1006,12 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
   }
 
-  fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
-  fork->slot_ctx.slot_bank.slot      = curr_slot;
+  fork->slot_ctx.slot_bank.prev_slot   = fork->slot_ctx.slot_bank.slot;
+  fork->slot_ctx.slot_bank.slot        = curr_slot;
+  fork->slot_ctx.slot_bank.tick_height = fork->slot_ctx.slot_bank.max_tick_height;
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( epoch_bank->ticks_per_slot, curr_slot, &fork->slot_ctx.slot_bank.max_tick_height ) ) ) {
+    FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", curr_slot, epoch_bank->ticks_per_slot ));
+  }
   fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
 
   if( fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
@@ -1025,7 +1029,9 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     fd_exec_epoch_ctx_from_prev( epoch_fork->epoch_ctx, prev_epoch_ctx );
     fork->slot_ctx.epoch_ctx = epoch_fork->epoch_ctx;
   }
+
   fork->slot_ctx.status_cache        = ctx->status_cache;
+
   fd_funk_txn_xid_t xid = { 0 };
 
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -1038,6 +1044,25 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fd_funk_start_write( ctx->funk );
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
+
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx ) ) ) {
+    FD_LOG_ERR(( "couldn't process new epoch" ));
+  }
+
+  fd_blockstore_start_read( ctx->blockstore );
+  fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+  fd_blockstore_end_read( ctx->blockstore );
+  ulong tick_res = fd_runtime_block_verify_ticks(
+    fd_blockstore_block_micro_laddr( ctx->blockstore, block ),
+    block->micros_cnt,
+    fd_blockstore_block_data_laddr( ctx->blockstore, block ),
+    fork->slot_ctx.slot_bank.tick_height,
+    fork->slot_ctx.slot_bank.max_tick_height,
+    fork->slot_ctx.epoch_ctx->epoch_bank.hashes_per_tick
+  );
+  if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
+    FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu prev_slot %lu", tick_res, curr_slot, fork->slot_ctx.slot_bank.prev_slot ));
+  }
 
   int res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -1249,10 +1274,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
       fd_blockstore_end_read( ctx->blockstore );
       fork->slot_ctx.block = block_;
-
-      /* TODO:FIXME: This needs to be unhacked. */
-      fork->slot_ctx.slot_bank.max_tick_height += 64UL * (curr_slot - ctx->parent_slot);
-      fork->slot_ctx.slot_bank.tick_height     += 64UL * (curr_slot - ctx->parent_slot);
 
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
 

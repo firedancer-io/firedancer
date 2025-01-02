@@ -383,15 +383,14 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_blockstore_end_read( blockstore );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
-      /* TODO: This is currently a hack because ticks are not correctly
-         computed or handled in the runtime. It is neceesary to update ticks
-         for skipped slots for snapshot creation. */
-      ledger_args->slot_ctx->slot_bank.tick_height     += 64UL;
-      ledger_args->slot_ctx->slot_bank.max_tick_height += 64UL;
-
       continue;
     }
     ledger_args->slot_ctx->block = blk;
+
+    ledger_args->slot_ctx->slot_bank.tick_height = ledger_args->slot_ctx->slot_bank.max_tick_height;
+    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ledger_args->epoch_ctx->epoch_bank.ticks_per_slot, slot, &ledger_args->slot_ctx->slot_bank.max_tick_height ) ) ) {
+      FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, ledger_args->epoch_ctx->epoch_bank.ticks_per_slot ));
+    }
 
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 
