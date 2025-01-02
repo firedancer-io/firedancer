@@ -734,6 +734,21 @@ fd_quic_svc_validate( fd_quic_t * quic ) {
   }
 }
 
+fd_quic_conn_t *
+fd_quic_conn_query( fd_quic_conn_map_t * map,
+                    ulong                conn_id ) {
+  fd_quic_conn_map_t sentinel = {0};
+  if( !conn_id ) return NULL;
+  fd_quic_conn_map_t * entry = fd_quic_conn_map_query( map, conn_id, &sentinel );
+  fd_quic_conn_t *     conn  = entry->conn;
+  if( conn ) {
+    if( FD_UNLIKELY( conn->state==FD_QUIC_CONN_STATE_INVALID ) ) {
+      FD_LOG_ERR(( "Conn ID %016lx at %p is in map but in free state", conn_id, (void *)conn ));
+    }
+  }
+  return conn;
+}
+
 /* Helpers for generating fd_quic_log entries */
 
 static fd_quic_log_hdr_t
@@ -2196,9 +2211,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
   if( FD_UNLIKELY( cur_sz > 1500                 ) ) return FD_QUIC_PARSE_FAIL;
 
-  fd_quic_state_t *    state = fd_quic_get_state( quic );
-  fd_quic_conn_map_t * entry = NULL;
-  fd_quic_conn_t *     conn  = NULL;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_conn_t *  conn  = NULL;
 
 
   /* keep end */
@@ -2220,11 +2234,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       return FD_QUIC_PARSE_FAIL;
     }
 
-    /* extract the dst connection id */
-    fd_quic_conn_id_t dst_conn_id = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
-    if( dst_conn_id.sz == FD_QUIC_CONN_ID_SZ ) {
-      entry = fd_quic_conn_map_query( state->conn_map, fd_ulong_load_8( dst_conn_id.conn_id ), NULL );
-      conn  = entry ? entry->conn : NULL;
+    fd_quic_conn_id_t dcid = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
+    if( dcid.sz == FD_QUIC_CONN_ID_SZ ) {
+      conn = fd_quic_conn_query( state->conn_map, fd_ulong_load_8( dcid.conn_id ) );
     }
 
     uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
@@ -2238,7 +2250,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* long_packet_type is 2 bits, so only four possibilities */
     switch( long_packet_type ) {
       case FD_QUIC_PKT_TYPE_INITIAL:
-        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
+        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dcid, cur_ptr, cur_sz );
         if( FD_UNLIKELY( !conn ) ) {
           /* FIXME not really a fail - Could be a retry */
           return FD_QUIC_PARSE_FAIL;
@@ -2269,14 +2281,12 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
-    entry = fd_quic_conn_map_query( state->conn_map, dst_conn_id, NULL );
-    if( FD_UNLIKELY( !entry ) ) {
+    conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
+    if( FD_UNLIKELY( !conn ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
       quic->metrics.pkt_no_conn_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
-
-    conn = entry->conn;
 
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {

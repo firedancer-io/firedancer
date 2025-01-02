@@ -60,7 +60,7 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   /* Look up conn */
   ulong dst_conn_id = fd_ulong_load_8( data+1 );
   fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
-  if( !conn_entry ) return;
+  if( !conn_entry || !dst_conn_id ) return;
   fd_quic_conn_t *        conn = translate_ptr( conn_entry->conn );
   fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_appdata_id ][ 0 ];
 
