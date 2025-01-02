@@ -81,6 +81,7 @@ fd_quic_trace_initial( void *  _ctx FD_FN_UNUSED,
   fd_quic_crypto_keys_t const * keys = NULL;
   if( initial->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) {
     ulong dst_conn_id = fd_ulong_load_8( initial->dst_conn_id );
+    if( dst_conn_id==0 ) return;
     fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
     if( conn_entry ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
@@ -153,7 +154,7 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   /* Look up conn */
   ulong dst_conn_id = fd_ulong_load_8( data+1 );
   fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
-  if( !conn_entry ) return;
+  if( !conn_entry || !dst_conn_id ) return;
   fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
   if( FD_UNLIKELY( !bounds_check_conn( quic, conn ) ) ) return;
 
