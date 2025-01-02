@@ -42,6 +42,8 @@ quic_trace_cmd_args( int *    pargc,
   } else {
     FD_LOG_ERR(( "Unsupported QUIC event type \"%s\"", event ));
   }
+
+  args->quic_trace.dump = fd_env_strip_cmdline_contains( pargc, pargv, "--dump" );
 }
 
 void
@@ -130,7 +132,7 @@ quic_trace_cmd_fn( args_t *         args,
   FD_LOG_NOTICE(( "quic-trace starting ..." ));
   switch( args->quic_trace.event ) {
   case EVENT_STREAM:
-    fd_quic_trace_rx_tile( net_quic->mcache );
+    fd_quic_trace_rx_tile( net_quic->mcache, args->quic_trace.dump );
     break;
   case EVENT_ERROR:
     fd_quic_trace_log_tile( log_rx->mcache );

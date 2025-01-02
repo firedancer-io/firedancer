@@ -18,6 +18,12 @@ extern void const *          fd_quic_trace_log_base;
 
 extern ulong ** fd_quic_trace_target_fseq;
 
+struct fd_quic_trace_ctx {
+  int dump;
+};
+
+typedef struct fd_quic_trace_ctx fd_quic_trace_ctx_t;
+
 struct fd_quic_trace_frame_ctx {
   ulong  conn_id;
   uint   src_ip;
@@ -36,7 +42,7 @@ fd_quic_trace_frames( fd_quic_trace_frame_ctx_t * context,
                       ulong         data_sz );
 
 void
-fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache );
+fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache, int dump );
 
 void
 fd_quic_trace_log_tile( fd_frag_meta_t const * in_mcache );

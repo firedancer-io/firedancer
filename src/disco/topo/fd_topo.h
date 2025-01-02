@@ -340,6 +340,9 @@ typedef struct {
       char    identity_key_path[ PATH_MAX ];
     } rpcserv;
 
+    struct {
+      int dump;
+    };
   };
 } fd_topo_tile_t;
 

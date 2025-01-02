@@ -182,17 +182,23 @@ fd_quic_trace_1rtt( void *  _ctx FD_FN_UNUSED,
   };
   fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
 
-  fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
-                                 state->now,
-                                 data,
-                                 data_sz,
-                                 "inress" );
+#define TODO(...) do { } while(0)
+  TODO( "handle all enc levels" );
+  TODO( "condition this based on arguments" );
+  TODO( "condense stream data to an escaped string" );
+  if( ((fd_quic_trace_ctx_t*)_ctx)->dump ) {
+    fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
+                                   state->now,
+                                   data,
+                                   data_sz,
+                                   "inress" );
+  }
 
   (void)ip4_saddr; (void)conn;
 }
 
 static void
-fd_quic_trace_pkt( fd_quic_ctx_t * ctx,
+fd_quic_trace_pkt( void *          ctx,
                    uchar *         data,
                    ulong           data_sz,
                    uint            ip4_saddr,
@@ -247,12 +253,12 @@ after_frag( void * _ctx FD_FN_UNUSED,
 
   uint   ip4_saddr = fd_uint_load_4( ip4_hdr->saddr_c );
   ushort udp_sport = fd_ushort_bswap( udp_hdr->net_sport );
-  fd_quic_trace_pkt( ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport );
+  fd_quic_trace_pkt( _ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport );
 }
 
 
 #define STEM_BURST (1UL)
-#define STEM_CALLBACK_CONTEXT_TYPE  void
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_trace_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN 1
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
@@ -260,7 +266,7 @@ after_frag( void * _ctx FD_FN_UNUSED,
 #include "../../../disco/stem/fd_stem.c"
 
 void
-fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
+fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache, int dump ) {
   fd_frag_meta_t const * in_mcache_tbl[1] = { in_mcache };
 
   uchar   fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
@@ -271,6 +277,8 @@ fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
   FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_tickcount(), 0UL ) ) );
 
   uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
+
+  fd_quic_trace_ctx_t ctx[1] = {{ .dump = dump }};
 
   stem_run1( /* in_cnt     */ 1UL,
              /* in_mcache  */ in_mcache_tbl,
@@ -284,7 +292,7 @@ fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache ) {
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ NULL );
+             /* ctx        */ ctx );
 
   fd_fseq_delete( fd_fseq_leave( fseq ) );
 }

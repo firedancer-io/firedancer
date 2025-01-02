@@ -92,6 +92,7 @@ typedef union {
 
   struct {
     int event;
+    int dump;
   } quic_trace;
 } args_t;
 
