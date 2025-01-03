@@ -1361,7 +1361,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                                 PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      fd_exec_test_instr_context_destroy( runner, ctx );
+      fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
       return 0UL;
     }
     effects->return_data->size = (pb_size_t)return_data->len;
