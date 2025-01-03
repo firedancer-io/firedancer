@@ -1193,6 +1193,19 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
           fd_tpool_wait( ctx->tpool, i+1 );
         }
+        fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+        ulong tick_res = fd_runtime_block_verify_ticks(
+          fd_blockstore_block_micro_laddr( ctx->blockstore, block ),
+          block->micros_cnt,
+          fd_blockstore_block_data_laddr( ctx->blockstore, block ),
+          fork->slot_ctx.slot_bank.tick_height,
+          fork->slot_ctx.slot_bank.max_tick_height,
+          fork->slot_ctx.epoch_ctx->epoch_bank.hashes_per_tick
+        );
+        if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
+          FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu parent slot %lu", tick_res, curr_slot, parent_slot ));
+          return;
+        }
         res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx,
                                                       ctx->capture_ctx,
                                                       txns,
