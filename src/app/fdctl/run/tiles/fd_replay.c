@@ -1781,8 +1781,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
         fd_sysvar_slot_history_read( ctx->slot_ctx, fd_scratch_virtual(), ctx->slot_ctx->slot_history );
 
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-        fd_vote_accounts_t const * epoch_stakes[ RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
-                                                                          &epoch_bank->next_epoch_stakes };
+        fd_vote_accounts_t const * epoch_stakes[ FD_RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
+                                                                             &epoch_bank->next_epoch_stakes };
         fd_restart_init( ctx->restart,
                          ctx->slot_ctx->slot_bank.slot,
                          &ctx->slot_ctx->slot_bank.banks_hash,
@@ -2242,7 +2242,7 @@ unprivileged_init( fd_topo_t *      topo,
     void *     restart_mem = fd_wksp_alloc_laddr( ctx->wksp,
                                                   fd_restart_align(),
                                                   fd_restart_footprint(),
-                                                  RESTART_MAGIC_TAG );
+                                                  FD_RESTART_MAGIC_TAG );
     ctx->restart           = fd_restart_join( fd_restart_new( restart_mem ) );
   } else {
     ctx->restart           = NULL;
