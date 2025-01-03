@@ -313,7 +313,7 @@ typedef struct {
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
       ulong hash_tpool_thread_count;
-    } snaps;
+    } batch;
 
   } tiles;
 } config_t;

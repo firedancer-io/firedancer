@@ -554,7 +554,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
     }
     if( FD_UNLIKELY( blockoff < batch_end_off ) ) {
       if( FD_LIKELY( allow_trailing ) ) {
-        FD_LOG_NOTICE(( "ignoring %lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));
+        FD_LOG_DEBUG(( "ignoring %lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));
       }
       if( FD_UNLIKELY( !allow_trailing ) ) {
         FD_LOG_ERR(( "%lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));

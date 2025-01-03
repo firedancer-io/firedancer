@@ -353,7 +353,7 @@ typedef struct {
       int   full_snapshot_fd;
       int   incremental_snapshot_fd;
       ulong hash_tpool_thread_count;
-    } snaps;
+    } batch;
 
   };
 } fd_topo_tile_t;
