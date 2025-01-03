@@ -139,9 +139,7 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
-  fd_blockstore_start_read( store->blockstore );
   fd_block_t * parent_block = fd_blockstore_block_query( store->blockstore, parent_slot );
-  fd_blockstore_end_read( store->blockstore );
 
   /* We have a parent slot meta, and therefore have at least one shred of the parent block, so we
      have the ancestry and need to repair that block directly (as opposed to calling repair orphan).
@@ -353,7 +351,6 @@ fd_store_slot_repair( fd_store_t * store,
   backoff->last_repair_time = store->now;
 
   ulong repair_req_cnt = 0;
-  fd_blockstore_start_read( store->blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
   if( FD_LIKELY( !block_map_entry ) ) {
@@ -380,7 +377,6 @@ fd_store_slot_repair( fd_store_t * store,
     if( repair_req_cnt==out_repair_reqs_sz ) {
       backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
       FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
-      fd_blockstore_end_read( store->blockstore );
       return repair_req_cnt;
     }
 
@@ -399,13 +395,12 @@ fd_store_slot_repair( fd_store_t * store,
     }
 
     if( !good ) {
-      fd_blockstore_end_read( store->blockstore );
       return repair_req_cnt;
     }
 
     /* Fill in what's missing */
     for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
-      if( FD_UNLIKELY( fd_buf_shred_query( store->blockstore, slot, i ) != NULL) ) continue;
+      if( fd_buf_shred_query( store->blockstore, slot, i ) != NULL ) continue;
 
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
@@ -415,11 +410,9 @@ fd_store_slot_repair( fd_store_t * store,
       if( repair_req_cnt == out_repair_reqs_sz ) {
         backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
         FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
-        fd_blockstore_end_read( store->blockstore );
         return repair_req_cnt;
       }
     }
-    fd_blockstore_end_read( store->blockstore );
     if( repair_req_cnt ) {
       backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
       FD_LOG_INFO( ( "[repair] need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
