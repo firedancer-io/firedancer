@@ -99,11 +99,12 @@ class GaugeEnumMetric(Metric):
         return len(self.enum.values)
 
 class Metrics:
-    def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], link_out: List[Metric]):
+    def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], link_out: List[Metric], enums: List[MetricEnum]):
         self.common = common
         self.tiles = tiles
         self.link_in = link_in
         self.link_out = link_out
+        self.enums = enums
 
     def count(self):
         return sum([metric.count() for metric in self.common]) + \
@@ -209,4 +210,4 @@ def parse_metrics(xml_data: str) -> Metrics:
     assert link_out is not None
     link_out = [parse_metric(None, metric, enums) for metric in link_out]
         
-    return Metrics(common=common, tiles=tiles, link_in=link_in, link_out=link_out)
+    return Metrics(common=common, tiles=tiles, link_in=link_in, link_out=link_out, enums=enums)
