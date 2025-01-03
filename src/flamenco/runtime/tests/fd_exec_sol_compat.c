@@ -33,7 +33,7 @@ typedef struct {
 
 static sol_compat_features_t features;
 static       uchar *     smem;
-static const ulong       smax = 1UL<<30;
+static const ulong       smax = 1UL<<27;
 
 static       uchar *     spad_mem;
 
@@ -63,13 +63,13 @@ void
 sol_compat_wksp_init( void ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 8UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+  wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 18UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
   assert( wksp );
 
-  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, 3 ); /* 1342191744 B */
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, 3 ); /* 4738713960 B */
   assert( spad_mem );
 
-  smem = malloc( smax );  /* 1 GiB */
+  smem = malloc( smax );  /* 128 MB */
   assert( smem );
 
   features.struct_size         = sizeof(sol_compat_features_t);

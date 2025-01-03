@@ -219,8 +219,10 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                                    FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT                                   + \
                                                    FD_RUNTIME_MISC_FOOTPRINT)
 
-/* Convenience macros for common use cases. */
-#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT
+/* Convenience macros for common use cases. 
+   
+   TODO: If account lock limits are increased to 128, this macro will need to be updated. */
+#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 
 /* Helpers for runtime spad frame management. */

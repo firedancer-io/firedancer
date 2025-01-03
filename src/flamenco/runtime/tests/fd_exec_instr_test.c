@@ -225,7 +225,6 @@ int
 fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                    fd_exec_instr_ctx_t *                ctx,
                                    fd_exec_test_instr_context_t const * test_ctx,
-                                   fd_alloc_t *                         alloc,
                                    bool                                 is_syscall ) {
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
@@ -251,7 +250,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_spad_virtual( runner->spad ) ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   assert( epoch_ctx );
@@ -929,22 +928,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
 void
 fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
-                                    fd_exec_instr_ctx_t *         ctx,
-                                    fd_wksp_t *                   wksp,
-                                    fd_alloc_t *                  alloc ) {
+                                    fd_exec_instr_ctx_t *         ctx ) {
   if( !ctx ) return;
   fd_exec_slot_ctx_t *  slot_ctx  = (fd_exec_slot_ctx_t *)ctx->slot_ctx;
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  // Free alloc
-  if( alloc ) {
-    fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
-  }
-
-  // Detach from workspace
-  fd_wksp_detach( wksp );
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
@@ -959,20 +948,10 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
 
 static void
 _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
-                      fd_exec_slot_ctx_t *          slot_ctx,
-                      fd_wksp_t *                   wksp,
-                      fd_alloc_t *                  alloc ) {
+                      fd_exec_slot_ctx_t *          slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  // Free alloc
-  if( alloc ) {
-    fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
-  }
-
-  // Detach from workspace
-  fd_wksp_detach( wksp );
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
@@ -1224,11 +1203,9 @@ int
 fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
                            char const *                         log_name ) {
-  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
   fd_exec_instr_ctx_t ctx[1];
-  if( FD_UNLIKELY( !fd_exec_test_instr_context_create( runner, ctx, &test->input, alloc, false ) ) ) {
-    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  if( FD_UNLIKELY( !fd_exec_test_instr_context_create( runner, ctx, &test->input, false ) ) ) {
+    fd_exec_test_instr_context_destroy( runner, ctx );
     return 0;
   }
 
@@ -1255,7 +1232,7 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
     has_diff = diff.has_diff;
   } while(0);
 
-  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  fd_exec_test_instr_context_destroy( runner, ctx );
   return !has_diff;
 }
 
@@ -1267,13 +1244,11 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
                         ulong                         output_bufsz ) {
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
-  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  if( !fd_exec_test_instr_context_create( runner, ctx, input, alloc, false ) ) {
-    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  if( !fd_exec_test_instr_context_create( runner, ctx, input, false ) ) {
+    fd_exec_test_instr_context_destroy( runner, ctx );
     return 0UL;
   }
 
@@ -1291,7 +1266,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
                                 sizeof (fd_exec_test_instr_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, ctx );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
@@ -1312,7 +1287,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
                                 sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, ctx );
     return 0;
   }
   effects->modified_accounts       = modified_accts;
@@ -1337,7 +1312,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+      fd_exec_test_instr_context_destroy( runner, ctx );
       return 0UL;
     }
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
@@ -1355,14 +1330,14 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
   effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                               PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, ctx );
     return 0UL;
   }
   effects->return_data->size = (pb_size_t)return_data->len;
   fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  fd_exec_test_instr_context_destroy( runner, ctx );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
@@ -1379,15 +1354,13 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
   FD_SCRATCH_SCOPE_BEGIN {
     /* Initialize memory */
-    fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
-    fd_alloc_t *          alloc         = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
     uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_spad_virtual( runner->spad ) ) );
 
     /* Create and exec transaction */
     fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
     if( task_info == NULL ) {
-      _txn_context_destroy( runner, slot_ctx, wksp, alloc );
+      _txn_context_destroy( runner, slot_ctx );
       return 0UL;
     }
     fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
@@ -1436,7 +1409,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         */
       }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-      _txn_context_destroy( runner, slot_ctx, wksp, alloc );
+      _txn_context_destroy( runner, slot_ctx );
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
@@ -1522,7 +1495,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    _txn_context_destroy( runner, slot_ctx, wksp, alloc );
+    _txn_context_destroy( runner, slot_ctx );
 
     *output = txn_result;
     return actual_end - (ulong)output_buf;
@@ -1656,8 +1629,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                              ulong                         output_bufsz ) {
   fd_exec_test_syscall_context_t const * input =  fd_type_pun_const( input_ );
   fd_exec_test_syscall_effects_t **      output = fd_type_pun( output_ );
-  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
@@ -1666,7 +1637,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
   int skip_extra_checks = !is_cpi;
 
-  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
+  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_spad_t * spad = fd_exec_instr_test_runner_get_spad( runner );
@@ -1942,14 +1913,14 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
-  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  fd_exec_test_instr_context_destroy( runner, ctx );
   cpi_exec_effects = NULL;
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 
 error:
-  fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  fd_exec_test_instr_context_destroy( runner, ctx );
   cpi_exec_effects = NULL;
   return 0;
 }
