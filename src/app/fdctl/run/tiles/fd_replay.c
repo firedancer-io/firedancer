@@ -1130,19 +1130,17 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
   ulong bank_idx    = ctx->bank_idx;
-  if( FD_UNLIKELY( curr_slot < ctx->tower->root ) ) {
+  if ( FD_UNLIKELY( curr_slot < ctx->tower->root ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our root %lu.", curr_slot, parent_slot, ctx->tower->root ));
     return;
   }
 
-  if( FD_UNLIKELY( parent_slot < ctx->tower->root ) ) {
+  if ( FD_UNLIKELY( parent_slot < ctx->tower->root ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our root %lu.", curr_slot, parent_slot, ctx->tower->root ));
     return;
   }
 
-  fd_blockstore_start_write( ctx->blockstore );
   fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, parent_slot );
-  fd_blockstore_end_write( ctx->blockstore );
   if( FD_UNLIKELY( !parent_block_map_entry ) ) {
     FD_LOG_WARNING(( "[%s] unable to find slot %lu's parent block_map_entry", __func__, curr_slot ));
     return;
@@ -1164,7 +1162,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       fork->frozen = 0). */
 
   fd_fork_t * parent_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
-  if( FD_UNLIKELY( parent_fork && parent_fork->lock ) ) {
+  if( FD_UNLIKELY ( parent_fork && parent_fork->lock ) ) {
     FD_LOG_ERR(
         ( "parent slot is frozen in frontier. cannot execute. slot: %lu, parent_slot: %lu",
           curr_slot,
@@ -1212,11 +1210,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     if( res != 0UL && !( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
       FD_LOG_WARNING(( "block invalid - slot: %lu", curr_slot ));
 
-      fd_blockstore_start_write( ctx->blockstore );
-
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
 
+      fd_blockstore_start_write( ctx->blockstore );
 
       if( FD_LIKELY( block_ ) ) {
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
@@ -1250,11 +1247,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
         fd_tpool_wait( ctx->tpool, i+1 );
       }
-
-      fd_blockstore_start_read( ctx->blockstore );
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
-      fd_blockstore_end_read( ctx->blockstore );
       fork->slot_ctx.block = block_;
 
       /* TODO:FIXME: This needs to be unhacked. */

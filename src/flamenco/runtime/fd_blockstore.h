@@ -457,10 +457,7 @@ fd_blockstore_delete( void * shblockstore );
 fd_blockstore_t *
 fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank );
 
-/* fd_blockstore_fini finalizes a blockstore.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* fd_blockstore_fini finalizes a blockstore. */
 
 void
 fd_blockstore_fini( fd_blockstore_t * blockstore );
@@ -558,8 +555,8 @@ fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->alloc_gaddr );
 }
 
-/* fd_blockstore_block_data_laddr returns a local pointer to the block's
-   data.  The returned pointer lifetime is until the block is removed. */
+/* fd_blockstore_block_data_laddr returns a local pointer to the block's data. The returned pointer
+ * lifetime is until the block is removed. Check return value for error info. */
 
 FD_FN_PURE static inline uchar *
 fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
@@ -571,23 +568,21 @@ fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * bloc
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
 }
 
-/* fd_buf_shred_query queries the blockstore for shred at slot,
-   shred_idx.  Returns a pointer to the shred or NULL if not in
-   blockstore.  The returned pointer lifetime is until the shred is
-   removed.  Check return value for error info.  This API only works for
-   shreds from incomplete blocks.
-
-   Callers should hold the read lock during the entirety of its read to
-   ensure the pointer remains valid. */
+/* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
+ * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
+ * error info. This API only works for shreds from incomplete blocks.
+ *
+ * Callers should hold the read lock during the entirety of its read to ensure the pointer remains
+ * valid.
+ */
 fd_shred_t *
 fd_buf_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
 
-/* fd_buf_shred_query_copy_data queries the blockstore for shred at
-   slot, shred_idx. Copies the shred data to the given buffer and
-   returns the data size. Returns -1 on failure.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query blockstore for shred at slot, shred_idx. Copies the shred
+ * data to the given buffer and returns the data size. Returns -1 on failure.
+ *
+ * Callers should hold the read lock during the entirety of this call.
+ */
 long
 fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore,
                               ulong             slot,
@@ -595,46 +590,28 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore,
                               void *            buf,
                               ulong             buf_max );
 
-/* fd_blockstore_block_query queries blockstore for block at slot.
-   Returns a pointer to the block or NULL if not in blockstore.  The
-   returned pointer lifetime is until the block is removed.  Check
-   return value for error info.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query blockstore for block at slot. Returns a pointer to the block or NULL if not in
+ * blockstore. The returned pointer lifetime is until the block is removed. Check return value for
+ * error info. */
 fd_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_block_hash_query queries blockstore for the block hash
-   at slot. This is the final poh hash for a slot.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query blockstore for the block hash at slot. This is the final poh
+hash for a slot. */
 fd_hash_t const *
 fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_bank_hash_query query blockstore for the bank hash for
-   a given slot.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query blockstore for the bank hash for a given slot. */
 fd_hash_t const *
 fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_block_map_query queries the blockstore for the block
-   map entry at slot.  Returns a pointer to the slot meta or NULL if not
-   in blockstore.  The returned pointer lifetime is until the slot meta
-   is removed.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query blockstore for the block map entry at slot. Returns a pointer
+   to the slot meta or NULL if not in blockstore. The returned pointer
+   lifetime is until the slot meta is removed. */
 fd_block_map_t *
 fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_parent_slot_query queries the parent slot of slot.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query the parent slot of slot. */
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
@@ -643,20 +620,13 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
    on success, FD_BLOCKSTORE_ERR_SLOT_MISSING if slot is not in the
    blockstore.  The returned slot array is always <= the max size
    FD_BLOCKSTORE_CHILD_SLOT_MAX and contiguous.  Empty slots in the
-   array are set to FD_SLOT_NULL.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+   array are set to FD_SLOT_NULL. */
 
 int
 fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt );
 
-/* fd_blockstore_block_frontier_query query the frontier i.e. all the
-   blocks that need to be replayed that haven't been.  These are the
-   slot children of the current frontier that are shred complete.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
+   slot children of the current frontier that are shred complete. */
 fd_block_t *
 fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
                                     ulong *           parents,
@@ -695,11 +665,7 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
                                         ulong             slot,
                                         fd_block_map_t *  block_map_entry_out );
 
-/* fd_blockstore_txn_query queries the transaction data for the given
-   signature.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+/* Query the transaction data for the given signature */
 fd_txn_map_t *
 fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ] );
 
@@ -715,38 +681,25 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
                                   uchar *           blk_flags,
                                   uchar             txn_data_out[FD_TXN_MTU] );
 
-/* fd_blockstore_slot_remove removes slot from blockstore, including all
-   relevant internal structures.
-
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+/* Remove slot from blockstore, including all relevant internal structures. */
 void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* Operations */
 
-/* fd_buf_shred_insert inserts shred into the blockstore, fast O(1).
-   Fail if this shred is already in the blockstore or the blockstore is
-   full.  Returns an error code indicating success or failure.
-   TODO eventually this will need to support "upsert" duplicate shred handling.
-
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+/* Insert shred into the blockstore, fast O(1).  Fail if this shred is already in the blockstore or
+ * the blockstore is full. Returns an error code indicating success or failure.
+ *
+ * TODO eventually this will need to support "upsert" duplicate shred handling.
+ */
 int
 fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
 
-/* fd_blockstore_buffered_shreds_remove removes all the unassembled shreds
-   for a slot
-
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+/* Remove all the unassembled shreds for a slot */
 int
 fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_block_height_update sets the block height.
-
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+/* Set the block height. */
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
@@ -767,25 +720,25 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
 void
 fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr );
 
-/* fd_blockstore_start_read acquires the read lock */
+/* Acquire a read lock */
 static inline void
 fd_blockstore_start_read( fd_blockstore_t * blockstore ) {
   fd_rwseq_start_read( &blockstore->lock );
 }
 
-/* fd_blockstore_end_read releases the read lock */
+/* Release a read lock */
 static inline void
 fd_blockstore_end_read( fd_blockstore_t * blockstore ) {
   fd_rwseq_end_read( &blockstore->lock );
 }
 
-/* fd_blockstore_start_write acquire the write lock */
+/* Acquire a write lock */
 static inline void
 fd_blockstore_start_write( fd_blockstore_t * blockstore ) {
   fd_rwseq_start_write( &blockstore->lock );
 }
 
-/* fd_blockstore_end_write releases the write lock */
+/* Release a write lock */
 static inline void
 fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
   fd_rwseq_end_write( &blockstore->lock );
