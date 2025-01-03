@@ -50,8 +50,8 @@ $(call add-objs,run/tiles/fd_poh_int,fd_fdctl)
 $(call add-objs,run/tiles/fd_sender,fd_fdctl)
 $(call add-objs,run/tiles/fd_eqvoc,fd_fdctl)
 $(call add-objs,run/tiles/fd_rpcserv,fd_fdctl)
-$(call add-objs,run/tiles/fd_snapshot,fd_fdctl)
-$(call add-objs,run/tiles/fd_snapshot_thread,fd_fdctl)
+$(call add-objs,run/tiles/fd_batch,fd_fdctl)
+$(call add-objs,run/tiles/fd_batch_thread,fd_fdctl)
 endif
 
 # fdctl topologies
