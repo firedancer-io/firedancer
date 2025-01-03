@@ -486,6 +486,39 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
             || fd_vm_syscall_cpi_is_precompile(program_id, slot_ctx));
 }
 
+/* Helper functions to get the absolute vaddrs of the serialized accounts pubkey, lamports and owner. */
+#define VM_SERIALIZED_PUBKEY_OFFSET   (8UL)
+#define VM_SERIALIZED_OWNER_OFFSET    (40UL)
+#define VM_SERIALIZED_LAMPORTS_OFFSET (72UL)
+
+#define VM_SERIALIZED_UNALIGNED_PUBKEY_OFFSET   (3UL)
+#define VM_SERIALIZED_UNALIGNED_LAMPORTS_OFFSET (35UL)
+
+static inline
+ulong serialized_pubkey_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
+  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset +
+    (vm->is_deprecated ? VM_SERIALIZED_UNALIGNED_PUBKEY_OFFSET : VM_SERIALIZED_PUBKEY_OFFSET);
+}
+
+static inline
+ulong serialized_owner_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
+  if ( vm->is_deprecated ) {
+    /* For deprecated loader programs, the owner is serialized into the start of the region
+       following the account data region at a fixed offset. */
+    return FD_VM_MEM_MAP_INPUT_REGION_START + vm->input_mem_regions[
+      acc_region_meta->has_data_region ? acc_region_meta->region_idx+2 : acc_region_meta->region_idx+1
+    ].vaddr_offset;
+  }
+
+  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset + VM_SERIALIZED_OWNER_OFFSET;
+}
+
+static inline
+ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
+  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset + 
+    (vm->is_deprecated ? VM_SERIALIZED_UNALIGNED_LAMPORTS_OFFSET : VM_SERIALIZED_LAMPORTS_OFFSET);
+}
+
 /**********************************************************************
   CROSS PROGRAM INVOCATION (C ABI)
  **********************************************************************/

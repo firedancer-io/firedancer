@@ -337,14 +337,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
            in the serialized account metadata
            
            https://github.com/anza-xyz/agave/blob/c79c3c9e67274594ed4f43ed8386e9ddc60a99e9/programs/bpf_loader/src/syscalls/cpi.rs#L116 */
-        fd_vm_acc_region_meta_t acc_region_meta = vm->acc_region_metas[index_in_caller];
-        fd_vm_serialized_account_metadata_t serialized_acc_meta = acc_region_meta.serialized_acc_metadata;
-        if ( FD_UNLIKELY(( account_infos[j].pubkey_addr != serialized_acc_meta.key_vaddr )) ) {
+        fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[index_in_caller];
+        if ( FD_UNLIKELY(( account_infos[j].pubkey_addr != serialized_pubkey_vaddr( vm, acc_region_meta ) )) ) {
           return FD_VM_SYSCALL_ERR_INVALID_POINTER;
         }
 
         /* https://github.com/anza-xyz/agave/blob/c79c3c9e67274594ed4f43ed8386e9ddc60a99e9/programs/bpf_loader/src/syscalls/cpi.rs#L122 */
-        if ( FD_UNLIKELY(( account_infos[j].owner_addr != serialized_acc_meta.owner_vaddr )) ) {
+        if ( FD_UNLIKELY(( account_infos[j].owner_addr != serialized_owner_vaddr( vm, acc_region_meta ) )) ) {
           return FD_VM_SYSCALL_ERR_INVALID_POINTER;
         }
 
@@ -361,7 +360,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
 
         /* https://github.com/anza-xyz/agave/blob/c79c3c9e67274594ed4f43ed8386e9ddc60a99e9/programs/bpf_loader/src/syscalls/cpi.rs#L144 */
         VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, (account_infos + j), lamports_vaddr )
-        if ( FD_UNLIKELY(( lamports_vaddr != serialized_acc_meta.lamports_vaddr )) ) {
+        if ( FD_UNLIKELY(( lamports_vaddr != serialized_lamports_vaddr( vm, acc_region_meta ) )) ) {
           return FD_VM_SYSCALL_ERR_INVALID_POINTER;
         }
 
@@ -378,7 +377,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
 
         /* https://github.com/anza-xyz/agave/blob/c79c3c9e67274594ed4f43ed8386e9ddc60a99e9/programs/bpf_loader/src/syscalls/cpi.rs#L172 */
         ulong expected_data_region_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          vm->input_mem_regions[acc_region_meta.region_idx].vaddr_offset;
+          vm->input_mem_regions[acc_region_meta->region_idx].vaddr_offset;
         VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, (account_infos + j), data_vaddr )
         if ( FD_UNLIKELY(( data_vaddr != expected_data_region_vaddr )) ) {
           return FD_VM_SYSCALL_ERR_INVALID_POINTER;

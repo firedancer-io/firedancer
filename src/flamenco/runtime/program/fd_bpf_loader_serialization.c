@@ -214,6 +214,17 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(ulong);
     } else {
+      /* Calculate and store the start of the actual metadata region for this account,
+         excluding any duplicate account markers at the beginning.
+
+         We use this later for retrieving the serialized values later in the CPI security checks. */
+      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL : 
+        input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
+        input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
+
+      acc_region_metas[i].metadata_region_offset = metadata_region_offset_with_dups +
+        (ulong)(serialized_params - curr_serialized_params_start);
+
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
@@ -241,30 +252,14 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
 
       fd_pubkey_t key = *acc;
       FD_STORE( fd_pubkey_t, serialized_params, key );
-
-      /* Calculate the start of the metadata region */
-      ulong metadata_region_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          ( *input_mem_regions_cnt==0UL ? 0UL : (
-            input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
-             input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz ) );
-
-      /* Store the vaddrs of the serialized pubkey, owner and lamports for CPI security checks later.
-      
-      We calculate them in the serialization code for several reasons:
-      - It makes reasoning about the code simpler
-      - It's slightly more efficient
-      - It's what Agave does */
-      acc_region_metas[i].serialized_acc_metadata.key_vaddr = metadata_region_vaddr + (ulong)(serialized_params - curr_serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->info.owner;
       FD_STORE( fd_pubkey_t, serialized_params, owner );
-      acc_region_metas[i].serialized_acc_metadata.owner_vaddr = metadata_region_vaddr + (ulong)(serialized_params - curr_serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       ulong lamports = metadata->info.lamports;
       FD_STORE( ulong, serialized_params, lamports );
-      acc_region_metas[i].serialized_acc_metadata.lamports_vaddr = metadata_region_vaddr + (ulong)(serialized_params - curr_serialized_params_start);
       serialized_params += sizeof(ulong);
 
       ulong acc_data_len = metadata->dlen;
@@ -500,6 +495,17 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(uchar);
     } else {
+      /* Calculate and store the start of the actual metadata region for this account,
+         excluding any duplicate account markers at the beginning.
+
+         We use this later for retrieving the serialized values later in the CPI security checks. */
+      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL : 
+        input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
+        input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
+
+      acc_region_metas[i].metadata_region_offset = metadata_region_offset_with_dups +
+        (ulong)(serialized_params - curr_serialized_params_start);
+
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
@@ -514,20 +520,12 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, is_writable );
       serialized_params += sizeof(uchar);
 
-      ulong metadata_region_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          ( *input_mem_regions_cnt==0UL ? 0UL : (
-            input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
-             input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz ) );
-
       fd_pubkey_t key = *acc;
       FD_STORE( fd_pubkey_t, serialized_params, key );
-      /* Store the vaddrs of the serialized pubkey, owner and lamports for CPI security checks later */
-      acc_region_metas[i].serialized_acc_metadata.key_vaddr = metadata_region_vaddr + (ulong)(serialized_params - curr_serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       ulong lamports = metadata->info.lamports;
       FD_STORE( ulong, serialized_params, lamports );
-      acc_region_metas[i].serialized_acc_metadata.lamports_vaddr = metadata_region_vaddr + (ulong)(serialized_params - curr_serialized_params_start);
       serialized_params += sizeof(ulong);
 
       ulong acc_data_len = metadata->dlen;
@@ -539,13 +537,6 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
 
       fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->info.owner;
       FD_STORE( fd_pubkey_t, serialized_params, owner );
-
-      ulong second_metadata_region_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          ( *input_mem_regions_cnt==0UL ? 0UL : (
-            input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
-             input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz ) );
-      acc_region_metas[i].serialized_acc_metadata.owner_vaddr = second_metadata_region_vaddr +
-        (ulong)(serialized_params - curr_serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       uchar is_executable = (uchar)metadata->info.executable;
