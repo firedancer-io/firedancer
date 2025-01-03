@@ -11,6 +11,8 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
                                ulong             now,
                                uchar const *     buf,
                                ulong             buf_sz,
-                               char const *      flow );
+                               char const *      flow,
+                               uint              ip4_saddr,
+                               ushort            udp_sport );
 
 #endif

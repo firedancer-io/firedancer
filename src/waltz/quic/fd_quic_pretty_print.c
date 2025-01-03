@@ -488,14 +488,31 @@ fd_quic_pretty_print_quic_hdr( char **        out_buf,
 }
 
 
+/* 16 bytes allows for: xxx.xxx.xxx.xxx\0 */
+#define IP4_TO_STR_BUF_SZ 16
+static
+char const *
+ip4_to_str( char buf[IP4_TO_STR_BUF_SZ], uint ip4_addr ) {
+  /* can't use sizeof(buf) here, as technically typeof(buf) is char* */
+  ulong sz = safe_snprintf( buf, IP4_TO_STR_BUF_SZ, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4_addr ) );
+  /* should not be possible */
+  if( FD_UNLIKELY( sz >= IP4_TO_STR_BUF_SZ ) ) buf[IP4_TO_STR_BUF_SZ-1] = '\0';
+  return buf;
+}
+
+
 ulong
 fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
                                ulong                    now,
                                uchar const *            buf,
                                ulong                    buf_sz,
-                               char const *             flow ) {
+                               char const *             flow,
+                               uint                     ip4_saddr,
+                               ushort                   udp_sport ) {
   (void)pretty_print;
   (void)now;
+
+  char tmp_buf[16];
 
   if( buf == NULL ) return FD_QUIC_PARSE_FAIL;
 
@@ -510,6 +527,11 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
   ulong         frame_sz  = 0;
 
   ulong sz = safe_snprintf( out_buf, out_buf_sz, "{ \"type\": \"packet\", \"flow\": \"%s\", ", flow );
+  out_buf    += sz;
+  out_buf_sz -= sz;
+
+  /* */ sz = safe_snprintf( out_buf, out_buf_sz, "\"src_ip_addr\": \"%s\", \"src_udp_port\": \"%u\", ",
+                            ip4_to_str( tmp_buf, ip4_saddr ), fd_ushort_bswap( udp_sport ) );
   out_buf    += sz;
   out_buf_sz -= sz;
 

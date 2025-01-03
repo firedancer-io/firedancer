@@ -200,7 +200,9 @@ fd_quic_trace_1rtt( fd_quic_trace_ctx_t * _ctx,
                                    state->now,
                                    data,
                                    data_sz,
-                                   "inress" );
+                                   "ingress",
+                                   ip4_saddr,
+                                   udp_sport );
   } else {
     fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
   }
