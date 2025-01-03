@@ -128,6 +128,8 @@ fd_quic_stream_type( uint has_off,
 __attribute__((used)) static ulong
 fd_quic_varint_decode( uchar const * buf,
                        uint          msb2 ) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
   switch( msb2 ) {
   case 3:
     return __builtin_bswap64( FD_LOAD( ulong,  buf ) ) & 0x3fffffffffffffff;
@@ -140,6 +142,7 @@ fd_quic_varint_decode( uchar const * buf,
   default:
     __builtin_unreachable();
   }
+#pragma GCC diagnostic pop
 }
 
 static inline ulong

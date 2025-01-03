@@ -470,9 +470,12 @@ fdctl_cfg_from_env( int *      pargc,
   int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
   if( FD_UNLIKELY( netns ) ) {
     config->development.netns.enabled = 1;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
     strncpy( config->tiles.net.interface,
              config->development.netns.interface0,
              sizeof(config->tiles.net.interface) );
+#pragma GCC diagnostic pop
     config->tiles.net.interface[ sizeof(config->tiles.net.interface) - 1 ] = '\0';
   }
 
@@ -487,7 +490,10 @@ fdctl_cfg_from_env( int *      pargc,
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
   strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
+#pragma GCC diagnostic pop
   config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
   if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
