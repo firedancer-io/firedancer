@@ -772,12 +772,11 @@ interp_exec:
       } else {
 
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
-        if( FD_UNLIKELY( target_pc>text_cnt ) ){
+        if( FD_UNLIKELY( target_pc>text_cnt ) ) {
           /* ...to match state of Agave VM when faulting
-              Note: this check MUST be BEFORE fd_sbpf_calldests_test,
-              because it prevents overflowing calldests. */
-          FD_VM_INTERP_STACK_PUSH;
-          goto sigtextbr;
+             Note: this check MUST be BEFORE fd_sbpf_calldests_test,
+             because it prevents overflowing calldests. */
+          goto sigcall;
         }
 
         if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
@@ -1166,7 +1165,7 @@ interp_exec:
 
 sigtext:     err = FD_VM_ERR_SIGTEXT;     FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_SIGTEXT;     /* ic current */      /* cu current */  goto interp_halt;
-sigcall:     err = FD_VM_ERR_SIGCALL;     /* ic current */      /* cu current */  goto interp_halt;
+sigcall:     err = FD_VM_ERR_SIGILL;      /* ic current */      /* cu current */  goto interp_halt;
 sigstack:    err = FD_VM_ERR_SIGSTACK;    /* ic current */      /* cu current */  goto interp_halt;
 sigill:      err = FD_VM_ERR_SIGILL;      FD_VM_INTERP_FAULT;                     goto interp_halt;
 sigsegv:     err = FD_VM_ERR_SIGSEGV;     FD_VM_INTERP_FAULT;                     goto interp_halt;
