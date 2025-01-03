@@ -22,7 +22,7 @@
         cluster_version =  "1.18.0"
     [tiles.pack]
         use_consumed_cus = false
-    [tiles.snaps]
+    [tiles.batch]
         hash_tpool_thread_count = 2
 
 [consensus]

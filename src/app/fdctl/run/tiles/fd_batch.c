@@ -7,7 +7,7 @@
 #include "../../../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../../../funk/fd_funk_filemap.h"
 
-#include "generated/snapshot_seccomp.h"
+#include "generated/batch_seccomp.h"
 
 #define SCRATCH_MAX    (1024UL << 24 )  /* 24 MiB */
 #define SCRATCH_DEPTH  (256UL)          /* 256 scratch frames */
@@ -76,7 +76,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->batch.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -90,48 +90,48 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
      this to support multiple files. */
 
   char tmp_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
-  int err = snprintf( tmp_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->snaps.out_dir, FD_SNAPSHOT_TMP_ARCHIVE );
+  int err = snprintf( tmp_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->batch.out_dir, FD_SNAPSHOT_TMP_ARCHIVE );
   if( FD_UNLIKELY( err<0 ) ) {
     FD_LOG_ERR(( "Failed to format directory string" ));
   }
 
   char tmp_inc_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
-  err = snprintf( tmp_inc_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->snaps.out_dir, FD_SNAPSHOT_TMP_INCR_ARCHIVE );
+  err = snprintf( tmp_inc_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->batch.out_dir, FD_SNAPSHOT_TMP_INCR_ARCHIVE );
   if( FD_UNLIKELY( err<0 ) ) {
     FD_LOG_ERR(( "Failed to format directory string" ));
   }
 
   char zstd_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
-  err = snprintf( zstd_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->snaps.out_dir, FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
+  err = snprintf( zstd_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->batch.out_dir, FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD );
   if( FD_UNLIKELY( err<0 ) ) {
     FD_LOG_ERR(( "Failed to format directory string" ));
   }
 
   char zstd_inc_dir_buf[ FD_SNAPSHOT_DIR_MAX ];
-  err = snprintf( zstd_inc_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->snaps.out_dir, FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD );
+  err = snprintf( zstd_inc_dir_buf, FD_SNAPSHOT_DIR_MAX, "%s/%s", tile->batch.out_dir, FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD );
   if( FD_UNLIKELY( err<0 ) ) {
     FD_LOG_ERR(( "Failed to format directory string" ));
   }
 
   /* Create and open the relevant files for snapshots. */
 
-  tile->snaps.tmp_fd = open( tmp_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( tile->snaps.tmp_fd==-1 ) ) {
+  tile->batch.tmp_fd = open( tmp_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( tile->batch.tmp_fd==-1 ) ) {
     FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
   }
 
-  tile->snaps.tmp_inc_fd = open( tmp_inc_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( tile->snaps.tmp_inc_fd==-1 ) ) {
+  tile->batch.tmp_inc_fd = open( tmp_inc_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( tile->batch.tmp_inc_fd==-1 ) ) {
     FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
   }
 
-  tile->snaps.full_snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( tile->snaps.full_snapshot_fd==-1 ) ) {
+  tile->batch.full_snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( tile->batch.full_snapshot_fd==-1 ) ) {
     FD_LOG_WARNING(( "Failed to open the snapshot file (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  tile->snaps.incremental_snapshot_fd = open( zstd_inc_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( tile->snaps.incremental_snapshot_fd==-1 ) ) {
+  tile->batch.incremental_snapshot_fd = open( zstd_inc_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+  if( FD_UNLIKELY( tile->batch.incremental_snapshot_fd==-1 ) ) {
     FD_LOG_WARNING(( "Failed to open the snapshot file (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
@@ -151,35 +151,35 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapshot_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_snapshot_tile_ctx_t) );
-  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->snaps.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->batch.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX    ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
-  ctx->full_interval           = tile->snaps.full_interval;
-  ctx->incremental_interval    = tile->snaps.incremental_interval;
-  ctx->out_dir                 = tile->snaps.out_dir;
-  ctx->tmp_fd                  = tile->snaps.tmp_fd;
-  ctx->tmp_inc_fd              = tile->snaps.tmp_inc_fd;
-  ctx->full_snapshot_fd        = tile->snaps.full_snapshot_fd;
-  ctx->incremental_snapshot_fd = tile->snaps.incremental_snapshot_fd;
+  ctx->full_interval           = tile->batch.full_interval;
+  ctx->incremental_interval    = tile->batch.incremental_interval;
+  ctx->out_dir                 = tile->batch.out_dir;
+  ctx->tmp_fd                  = tile->batch.tmp_fd;
+  ctx->tmp_inc_fd              = tile->batch.tmp_inc_fd;
+  ctx->full_snapshot_fd        = tile->batch.full_snapshot_fd;
+  ctx->incremental_snapshot_fd = tile->batch.incremental_snapshot_fd;
 
   /**********************************************************************/
   /* tpool                                                              */
   /**********************************************************************/
 
-  FD_LOG_NOTICE(( "Number of threads in hash tpool: %lu", tile->snaps.hash_tpool_thread_count ));
+  FD_LOG_NOTICE(( "Number of threads in hash tpool: %lu", tile->batch.hash_tpool_thread_count ));
 
-  if( FD_LIKELY( tile->snaps.hash_tpool_thread_count>1UL ) ) {
-    tpool_snap_boot( topo, tile->snaps.hash_tpool_thread_count );
-    ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->snaps.hash_tpool_thread_count );
+  if( FD_LIKELY( tile->batch.hash_tpool_thread_count>1UL ) ) {
+    tpool_snap_boot( topo, tile->batch.hash_tpool_thread_count );
+    ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->batch.hash_tpool_thread_count );
   } else {
     ctx->tpool = NULL;
   }
 
-  if( FD_LIKELY( tile->snaps.hash_tpool_thread_count>1UL ) ) {
+  if( FD_LIKELY( tile->batch.hash_tpool_thread_count>1UL ) ) {
     /* Start the tpool workers */
-    for( ulong i=1UL; i<tile->snaps.hash_tpool_thread_count; i++ ) {
+    for( ulong i=1UL; i<tile->batch.hash_tpool_thread_count; i++ ) {
       if( FD_UNLIKELY( !fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) ) ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
@@ -373,14 +373,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   (void)topo;
 
-  populate_sock_filter_policy_snapshot( out_cnt, 
+  populate_sock_filter_policy_batch( out_cnt, 
                                      out,
                                      (uint)fd_log_private_logfile_fd(),
-                                     (uint)tile->snaps.tmp_fd,
-                                     (uint)tile->snaps.tmp_inc_fd,
-                                     (uint)tile->snaps.full_snapshot_fd,
-                                     (uint)tile->snaps.incremental_snapshot_fd );
-  return sock_filter_policy_snapshot_instr_cnt;
+                                     (uint)tile->batch.tmp_fd,
+                                     (uint)tile->batch.tmp_inc_fd,
+                                     (uint)tile->batch.full_snapshot_fd,
+                                     (uint)tile->batch.incremental_snapshot_fd );
+  return sock_filter_policy_batch_instr_cnt;
 }
 
 static ulong
@@ -399,10 +399,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
-  out_fds[ out_cnt++ ] = tile->snaps.tmp_fd;
-  out_fds[ out_cnt++ ] = tile->snaps.tmp_inc_fd;
-  out_fds[ out_cnt++ ] = tile->snaps.full_snapshot_fd;
-  out_fds[ out_cnt++ ] = tile->snaps.incremental_snapshot_fd;
+  out_fds[ out_cnt++ ] = tile->batch.tmp_fd;
+  out_fds[ out_cnt++ ] = tile->batch.tmp_inc_fd;
+  out_fds[ out_cnt++ ] = tile->batch.full_snapshot_fd;
+  out_fds[ out_cnt++ ] = tile->batch.incremental_snapshot_fd;
   return out_cnt;
 }
 
@@ -415,8 +415,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_snaps = {
-  .name                     = "snaps",
+fd_topo_run_tile_t fd_tile_batch = {
+  .name                     = "batch",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
