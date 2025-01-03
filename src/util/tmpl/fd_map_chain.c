@@ -635,6 +635,7 @@ MAP_(new)( void * shmap,
 
   ulong footprint = MAP_(footprint)( chain_cnt );
   if( FD_UNLIKELY( !footprint ) ) {
+    __asm__("int $3");
     FD_LOG_WARNING(( "bad footprint" ));
     return NULL;
   }
