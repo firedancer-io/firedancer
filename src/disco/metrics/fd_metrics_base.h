@@ -13,52 +13,57 @@
 
 #define MIDX( type, group, measurement ) (FD_METRICS_##type##_##group##_##measurement##_OFF)
 
-#define DECLARE_METRIC_GAUGE( GROUP, MEASUREMENT ) {              \
-    .name      = FD_METRICS_GAUGE_##GROUP##_##MEASUREMENT##_NAME, \
-    .type      = FD_METRICS_TYPE_GAUGE,                           \
-    .desc      = FD_METRICS_GAUGE_##GROUP##_##MEASUREMENT##_DESC, \
-    .offset    = FD_METRICS_GAUGE_##GROUP##_##MEASUREMENT##_OFF,  \
-    .converter = FD_METRICS_GAUGE_##GROUP##_##MEASUREMENT##_CVT   \
+#define DECLARE_METRIC( MEASUREMENT, TYPE ) {              \
+    .name      = FD_METRICS_##TYPE##_##MEASUREMENT##_NAME, \
+    .type      = FD_METRICS_TYPE_##TYPE,                   \
+    .desc      = FD_METRICS_##TYPE##_##MEASUREMENT##_DESC, \
+    .offset    = FD_METRICS_##TYPE##_##MEASUREMENT##_OFF,  \
+    .converter = FD_METRICS_##TYPE##_##MEASUREMENT##_CVT   \
   }
 
-#define DECLARE_METRIC_COUNTER( GROUP, MEASUREMENT ) {              \
-    .name      = FD_METRICS_COUNTER_##GROUP##_##MEASUREMENT##_NAME, \
-    .type      = FD_METRICS_TYPE_COUNTER,                           \
-    .desc      = FD_METRICS_COUNTER_##GROUP##_##MEASUREMENT##_DESC, \
-    .offset    = FD_METRICS_COUNTER_##GROUP##_##MEASUREMENT##_OFF,  \
-    .converter = FD_METRICS_COUNTER_##GROUP##_##MEASUREMENT##_CVT   \
+#define DECLARE_METRIC_ENUM( MEASUREMENT, TYPE, ENUM_NAME, ENUM_VARIANT ) { \
+    .name         = FD_METRICS_##TYPE##_##MEASUREMENT##_NAME,               \
+    .enum_name    = FD_METRICS_ENUM_##ENUM_NAME##_NAME,                     \
+    .enum_variant = FD_METRICS_ENUM_##ENUM_NAME##_V_##ENUM_VARIANT##_NAME,  \
+    .type         = FD_METRICS_TYPE_##TYPE,                                 \
+    .desc         = FD_METRICS_##TYPE##_##MEASUREMENT##_DESC,               \
+    .offset       = FD_METRICS_##TYPE##_##MEASUREMENT##_OFF +               \
+                    FD_METRICS_ENUM_##ENUM_NAME##_V_##ENUM_VARIANT##_IDX,   \
+    .converter    = FD_METRICS_##TYPE##_##MEASUREMENT##_CVT                 \
   }
 
-#define DECLARE_METRIC_HISTOGRAM_NONE( GROUP, MEASUREMENT ) {        \
-    .name = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_NAME,     \
-    .type = FD_METRICS_TYPE_HISTOGRAM,                               \
-    .desc = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_DESC,     \
-    .offset = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_OFF,    \
-    .converter = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_CVT, \
-    .histogram = {                                                   \
-      .none = {                                                      \
-        .min = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_MIN,   \
-        .max = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_MAX,   \
-      },                                                             \
-    },                                                               \
+#define DECLARE_METRIC_HISTOGRAM_NONE( MEASUREMENT ) {     \
+    .name = FD_METRICS_HISTOGRAM_##MEASUREMENT##_NAME,     \
+    .type = FD_METRICS_TYPE_HISTOGRAM,                     \
+    .desc = FD_METRICS_HISTOGRAM_##MEASUREMENT##_DESC,     \
+    .offset = FD_METRICS_HISTOGRAM_##MEASUREMENT##_OFF,    \
+    .converter = FD_METRICS_HISTOGRAM_##MEASUREMENT##_CVT, \
+    .histogram = {                                         \
+      .none = {                                            \
+        .min = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MIN,   \
+        .max = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MAX,   \
+      },                                                   \
+    },                                                     \
   }
 
-#define DECLARE_METRIC_HISTOGRAM_SECONDS( GROUP, MEASUREMENT ) {     \
-    .name = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_NAME,     \
-    .type = FD_METRICS_TYPE_HISTOGRAM,                               \
-    .desc = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_DESC,     \
-    .offset = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_OFF,    \
-    .converter = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_CVT, \
-    .histogram = {                                                   \
-      .seconds = {                                                   \
-        .min = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_MIN,   \
-        .max = FD_METRICS_HISTOGRAM_##GROUP##_##MEASUREMENT##_MAX,   \
-      },                                                             \
-    },                                                               \
+#define DECLARE_METRIC_HISTOGRAM_SECONDS( MEASUREMENT ) {  \
+    .name = FD_METRICS_HISTOGRAM_##MEASUREMENT##_NAME,     \
+    .type = FD_METRICS_TYPE_HISTOGRAM,                     \
+    .desc = FD_METRICS_HISTOGRAM_##MEASUREMENT##_DESC,     \
+    .offset = FD_METRICS_HISTOGRAM_##MEASUREMENT##_OFF,    \
+    .converter = FD_METRICS_HISTOGRAM_##MEASUREMENT##_CVT, \
+    .histogram = {                                         \
+      .seconds = {                                         \
+        .min = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MIN,   \
+        .max = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MAX,   \
+      },                                                   \
+    },                                                     \
   }
 
 typedef struct {
   char const * name;
+  char const * enum_name;
+  char const * enum_variant;
   int          type;
   char const * desc;
   ulong        offset;
