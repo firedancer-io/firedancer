@@ -355,7 +355,7 @@ fd_exec_packed_txns_task( void *tpool,
   void * bmtree = (void *)n0;
   fd_spad_t * spad = (fd_spad_t *)n1;
 
-  fd_runtime_execute_pack_txns( slot_ctx, spad, capture_ctx, txns, txn_cnt );
+  fd_runtime_process_txns( slot_ctx, spad, capture_ctx, txns, txn_cnt );
 
   fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
@@ -1193,7 +1193,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
           fd_tpool_wait( ctx->tpool, i+1 );
         }
-        res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx,
+        res = fd_runtime_process_txns_in_waves_tpool( &fork->slot_ctx,
                                                       ctx->capture_ctx,
                                                       txns,
                                                       txn_cnt,
