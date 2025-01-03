@@ -53,7 +53,7 @@ LOG=$LOG_PATH/test_elf_loader
 cat contrib/test/test-vectors-fixtures/elf-loader-fixtures/*.list | xargs -P 4 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_instr
-cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG
+cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P 8 -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 # check if ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed exists
 if [ -f ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed ]; then
