@@ -9,6 +9,30 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 
+
+/* The `Address` type in the Agave system program is logged in the format:
+   "Address { address: <pubkey>>, base: <pubkey | None> }" 
+   When this function is called, there are two cases:
+   1. address and base pubkey are the same. This means the address was not derived,
+      so we should log the base pubkey as `None`.
+   2. address and base are NOT the same. The address was derived, so we should log
+      the base pubkey as `Some(pubkey)`.
+
+   Max buffer length: 29 (string literal) + 90 (2 encoded pubkeys) + 6 (Some()) = 125
+   */
+#define FD_LOG_ADDRESS_TYPE_ALLOCA( a, b ) __extension__({                                                \
+  uchar _derived = ( 0!=memcmp( a, b, sizeof(fd_pubkey_t) ) );                                            \
+  char * _out = (char *)fd_alloca_check( 1UL, 125UL );                                                    \
+  char * _base_addr = (char*)fd_alloca_check( 1UL, 52UL );                                                \
+  if( _derived ) {                                                                                        \
+    snprintf( _base_addr, 52UL, "Some(%s)", FD_BASE58_ENC_32_ALLOCA( b ) );                               \
+  } else {                                                                                                \
+    snprintf( _base_addr, 52UL, "None" );                                                                 \
+  }                                                                                                       \
+  snprintf( _out, 125UL, "Address { address: %s, base: %s }", FD_BASE58_ENC_32_ALLOCA( a ), _base_addr ); \
+  _out;                                                                                                   \
+})
+
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
    Partial port of system_processor::Address::create, only covering the
@@ -150,9 +174,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
-    /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: 'to' account %s must sign", FD_BASE58_ENC_32_ALLOCA( authority ) );
+    /* Max msg_sz: 35 - 2 + 125 = 158 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Allocate: 'to' account %s must sign", FD_LOG_ADDRESS_TYPE_ALLOCA( account->pubkey, authority ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -160,9 +184,9 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( ( account->const_meta->dlen != 0UL ) |
                    ( 0!=memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, 32UL ) ) ) ) {
-    /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: account %s already in use", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) );
+    /* Max msg_sz: 35 - 2 + 125 = 158 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Allocate: account %s already in use", FD_LOG_ADDRESS_TYPE_ALLOCA( account->pubkey, authority ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -212,9 +236,9 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
-    /* Max msg_sz: 28 - 2 + 45 = 71 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Assign: account %s must sign", FD_BASE58_ENC_32_ALLOCA( authority ) );
+    /* Max msg_sz: 28 - 2 + 125 = 151 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Assign: account %s must sign", FD_LOG_ADDRESS_TYPE_ALLOCA( account->pubkey, authority ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -267,9 +291,9 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
 
   if( FD_UNLIKELY( to->const_meta->info.lamports ) ) {
-    /* Max msg_sz: 41 - 2 + 45 = 84 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx,
-      "Create Account: account %s already in use", FD_BASE58_ENC_32_ALLOCA( to->pubkey ) );
+    /* Max msg_sz: 41 - 2 + 125 = 164 */
+    fd_log_collector_printf_inefficient_max_512( ctx,
+      "Create Account: account %s already in use", FD_LOG_ADDRESS_TYPE_ALLOCA( to->pubkey, authority ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }

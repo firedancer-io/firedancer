@@ -216,7 +216,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       /* In this case the callee instruction is referencing an unknown account not listed in the
          transactions accounts. */
       FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
-      fd_log_collector_msg_many( instr_ctx, 2, "Unknown account ", 16UL, id_b58, id_b58_len );
+      fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -263,7 +263,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
       if( index_in_caller==USHORT_MAX ) {
         FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
-        fd_log_collector_msg_many( instr_ctx, 2, "Unknown account ", 16UL, id_b58, id_b58_len );
+        fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
@@ -289,11 +289,13 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable( instr_ctx->instr, pubkey ) ) ) {
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "%s's writable privilege escalated", FD_BASE58_ENC_32_ALLOCA( pubkey ) );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
     if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_instr_acc_is_signer( instr_ctx->instr, pubkey ) || fd_vm_syscall_cpi_is_signer( pubkey, signers, signers_cnt) ) ) ) {
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "%s's signer privilege escalated", FD_BASE58_ENC_32_ALLOCA( pubkey ) );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
