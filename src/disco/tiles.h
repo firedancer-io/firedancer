@@ -112,4 +112,95 @@ typedef struct __attribute__((packed)) {
   uchar  last_entry_hash[32];
 } fd_poh_init_msg_t;
 
+/* A fd_txnm_t is a parsed meta transaction, containing not just the
+   payload */
+
+struct fd_txnm {
+   /* The computed slot that this transaction is referencing, aka. the
+      slot number of the reference_blockhash.  If it could not be
+      determined, this will be a slot around 150 in the future. */
+   ulong    reference_slot;
+
+   ushort   payload_sz;
+
+   /* Can be computed from the txn_t but it's expensive to parse again,
+      so we just store this redundantly. */
+   ulong    txn_t_sz;
+
+   /* An 8 byte tag of the first signature in the transaction, for use
+      by dedup. */
+
+   /* There are three additional fields at the end here, which are
+      variable length and not included in the size of this struct.
+   uchar                  payload[ ]
+   fd_txn_t               txn_t[ ]
+   fd_txn_acct_addr_lut_t alut[ ] */
+};
+
+typedef struct fd_txnm fd_txnm_t;
+
+static FD_FN_CONST inline ulong
+fd_txnm_align( void ) {
+   return alignof( fd_txnm_t );
+}
+
+static inline ulong
+fd_txnm_footprint( ulong payload_sz,
+                   ulong instr_cnt,
+                   ulong addr_table_lookup_cnt,
+                   ulong addr_table_adtl_cnt ) {
+   ulong l = FD_LAYOUT_INIT;
+   l = FD_LAYOUT_APPEND( l, alignof(fd_txnm_t),      sizeof(fd_txnm_t) );
+   l = FD_LAYOUT_APPEND( l, 1UL,                     payload_sz );
+   l = FD_LAYOUT_APPEND( l, fd_txn_align(),          fd_txn_footprint( instr_cnt, addr_table_lookup_cnt ) );
+   l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t), addr_table_adtl_cnt*sizeof(fd_acct_addr_t) );
+   return FD_LAYOUT_FINI( l, fd_txnm_align() );
+}
+
+static inline uchar *
+fd_txnm_payload( fd_txnm_t * txnm ) {
+   return (uchar *)(txnm+1UL);
+}
+
+static inline fd_txn_t *
+fd_txnm_txn_t( fd_txnm_t * txnm ) {
+   return (fd_txn_t *)fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) );
+}
+
+static inline fd_txn_t const *
+fd_txnm_txn_t_const( fd_txnm_t const * txnm ) {
+   return (fd_txn_t const *)fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) );
+}
+
+static inline fd_acct_addr_t *
+fd_txnm_alut( fd_txnm_t * txnm ) {
+   return (fd_acct_addr_t *)fd_ulong_align_up( fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) )+txnm->txn_t_sz, alignof( fd_acct_addr_t ) );
+}
+
+static inline ulong
+fd_txnm_realized_footprint( fd_txnm_t const * txnm,
+                            int               include_alut ) {
+   return fd_txnm_footprint( txnm->payload_sz,
+                             fd_txnm_txn_t_const( txnm )->instr_cnt,
+                             fd_txnm_txn_t_const( txnm )->addr_table_lookup_cnt,
+                             include_alut ? fd_txnm_txn_t_const( txnm )->addr_table_adtl_cnt : 0UL );
+}
+
+#define FD_TPU_PARSED_MTU FD_ULONG_ALIGN_UP(                   \
+                              FD_ULONG_ALIGN_UP(               \
+                                 sizeof(fd_txnm_t)+FD_TPU_MTU, \
+                                 alignof(fd_txn_t) )           \
+                              +FD_TXN_MAX_SZ,                  \
+                              alignof(fd_txnm_t) )
+
+#define FD_TPU_RESOLVED_MTU FD_ULONG_ALIGN_UP(                    \
+                              FD_ULONG_ALIGN_UP(                  \
+                                 FD_ULONG_ALIGN_UP(               \
+                                    sizeof(fd_txnm_t)+FD_TPU_MTU, \
+                                    alignof(fd_txn_t) )           \
+                                 +FD_TXN_MAX_SZ,                  \
+                                 alignof(fd_acct_addr_t) )        \
+                              +256UL*sizeof(fd_acct_addr_t),      \
+                              alignof(fd_txnm_t) )
+
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */

@@ -60,9 +60,10 @@ during_frag( fd_verify_ctx_t * ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txnm_t * dst = (fd_txnm_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  fd_memcpy( dst, src, sz );
+  dst->payload_sz = (ushort)sz;
+  fd_memcpy( fd_txnm_payload( dst ), src, sz );
 }
 
 static inline void
@@ -76,54 +77,19 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)sz;
 
-  /* At this point, the payload only contains the serialized txn.
-     Beyond end of txn, but within bounds of msg layout, add a trailer
-     describing the txn layout.
+  fd_txnm_t * txnm = (fd_txnm_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_t *  txnt = fd_txnm_txn_t( txnm );
+  txnm->txn_t_sz = fd_txn_parse( fd_txnm_payload( txnm ), txnm->payload_sz, txnt, NULL );
 
-     [ payload          ] (payload_sz bytes)
-     [ pad: align to 2B ] (0-1 bytes)
-     [ fd_txn_t         ] (? bytes)
-     [ payload_sz       ] (2B) */
-
-  ulong payload_sz = sz;
-  ulong txnt_off   = fd_ulong_align_up( payload_sz, 2UL );
-
-  /* Ensure sufficient space to store trailer */
-
-  long txnt_maxsz = (long)FD_TPU_DCACHE_MTU -
-                    (long)txnt_off -
-                    (long)sizeof(ushort);
-  if( FD_UNLIKELY( txnt_maxsz<(long)FD_TXN_MAX_SZ ) ) FD_LOG_ERR(( "got malformed txn (sz %lu) does not fit in dcache", payload_sz ));
-
-  uchar const * txn   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  fd_txn_t *    txn_t = (fd_txn_t *)((ulong)txn + txnt_off);
-
-  /* Parse transaction */
-
-  ulong txn_t_sz = fd_txn_parse( txn, payload_sz, txn_t, NULL );
-  if( FD_UNLIKELY( !txn_t_sz ) ) {
+  if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
     ctx->metrics.parse_fail_cnt++;
     return;
   }
 
-  /* Write payload_sz */
-
-  /* fd_txn_parse always returns a multiple of 2 so this sz is
-     correctly aligned. */
-  ushort * payload_sz_p = (ushort *)( (ulong)txn_t + txn_t_sz );
-  *payload_sz_p = (ushort)payload_sz;
-
-  /* End of message */
-
-  ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)txn;
-  if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
-    FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
-                  payload_sz, txn_t_sz ));
-  }
-
-  ulong txn_sig;
-  int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t, &txn_sig );
+  ulong _txn_sig;
+  int res = fd_txn_verify( ctx, fd_txnm_payload( txnm ), txnm->payload_sz, txnt, &_txn_sig );
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
     if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.dedup_fail_cnt++;
     else                                        ctx->metrics.verify_fail_cnt++;
@@ -131,9 +97,10 @@ after_frag( fd_verify_ctx_t *   ctx,
     return;
   }
 
+  ulong realized_sz = fd_txnm_realized_footprint( txnm, 0 );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txn_sig, ctx->out_chunk, new_sz, 0UL, tsorig, tspub );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+  fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
 static void

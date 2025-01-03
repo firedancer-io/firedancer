@@ -638,7 +638,7 @@ during_frag( fd_pack_ctx_t * ctx,
     return;
   }
   case IN_KIND_RESOLV: {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_DCACHE_MTU ) )
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_slot) ) ) {
@@ -676,33 +676,20 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
 #endif
 
-    ulong payload_sz;
     /* We get transactions from the resolv tile.
       The transactions should have been parsed and verified. */
     FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
-    /* Assume that the dcache entry is:
-          Payload ....... (payload_sz bytes)
-          0 or 1 byte of padding (since alignof(fd_txn) is 2)
-          fd_txn ....... (size computed by fd_txn_footprint)
-          Optionally:
-              0 to 30 bytes of padding
-              expanded alt (32*txn->addr_table_adtl_cnt) bytes
-          payload_sz  (2B)
-      mline->sz includes all three or four fields and the padding */
-    payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-    uchar    const * payload   = dcache_entry;
-    fd_txn_t const * txn       = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-    ulong txn_footprint        = fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt );
-    fd_acct_addr_t const * alt = (fd_acct_addr_t const *)( (uchar const *)dcache_entry + fd_ulong_align_up( fd_ulong_align_up( payload_sz, 2UL ) + txn_footprint, 32UL ) );
-    fd_memcpy( ctx->cur_spot->txnp->payload, payload, payload_sz                     );
-    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,     txn_footprint                  );
-    fd_memcpy( ctx->cur_spot->alt_accts,     alt,     32UL*txn->addr_table_adtl_cnt  );
-    ctx->cur_spot->txnp->payload_sz = payload_sz;
+
+    fd_txnm_t * txnm = (fd_txnm_t *)dcache_entry;
+    fd_txn_t * txn  = fd_txnm_txn_t( txnm );
+    
+    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txnm_payload( txnm), txnm->payload_sz              );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                    txnm->txn_t_sz                );
+    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txnm_alut( txnm ),   32UL*txn->addr_table_adtl_cnt );
+    ctx->cur_spot->txnp->payload_sz = txnm->payload_sz;
 
   #if DETAILED_LOGGING
-    FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
-          fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )
-        ));
+    FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", txnm->payload_sz, txnm->txn_t_sz ));
   #endif
     break;
   }
