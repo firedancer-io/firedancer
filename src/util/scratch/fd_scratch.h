@@ -17,7 +17,7 @@
    to turn on additional run-time checks. */
 
 #ifndef FD_SCRATCH_USE_HANDHOLDING
-#define FD_SCRATCH_USE_HANDHOLDING 0
+#define FD_SCRATCH_USE_HANDHOLDING 1
 #endif
 
 /* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for

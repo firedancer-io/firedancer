@@ -1322,7 +1322,9 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
   for( ulong j=0UL; j < ctx->txn_ctx->accounts_cnt; j++ ) {
     fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[j];
-    if( !acc->meta ) continue;
+    if( !acc->const_meta ) {
+      continue;
+    }
 
     ulong modified_idx = effects->modified_accounts_count;
     assert( modified_idx < modified_acct_cnt );
@@ -1333,15 +1335,18 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
     memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
     out_acct->lamports     = acc->const_meta->info.lamports;
-    out_acct->data =
-      FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                  PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
-      return 0UL;
+
+    if( acc->const_meta->dlen>0UL ) {
+      out_acct->data =
+        FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+      if( FD_UNLIKELY( _l > output_end ) ) {
+        fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+        return 0UL;
+      }
+      out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
+      fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
     }
-    out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
-    fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
     out_acct->executable     = acc->const_meta->info.executable;
     out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;
@@ -1352,14 +1357,16 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Capture return data */
   fd_txn_return_data_t * return_data = &ctx->txn_ctx->return_data;
-  effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
-                              PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
-  if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
-    return 0UL;
+  if( return_data->len>0UL ) {
+    effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
+                                PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      fd_exec_test_instr_context_destroy( runner, ctx );
+      return 0UL;
+    }
+    effects->return_data->size = (pb_size_t)return_data->len;
+    fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
   }
-  effects->return_data->size = (pb_size_t)return_data->len;
-  fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
