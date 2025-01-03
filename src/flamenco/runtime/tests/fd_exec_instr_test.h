@@ -64,15 +64,12 @@ int
 fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                    fd_exec_instr_ctx_t *                ctx,
                                    fd_exec_test_instr_context_t const * test_ctx,
-                                   fd_alloc_t *                         alloc,
                                    bool                                 is_syscall );
 
 /* Frees an instr_ctx created by fd_exec_test_instr_context_create */
 void
 fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
-                                    fd_exec_instr_ctx_t *         ctx,
-                                    fd_wksp_t *                   wksp,
-                                    fd_alloc_t *                  alloc );
+                                    fd_exec_instr_ctx_t *         ctx );
 
 
 

@@ -55,19 +55,17 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
                             ulong                                 output_bufsz ) {
   fd_exec_test_syscall_context_t const * input = fd_type_pun_const( input_ );
   fd_exec_test_syscall_effects_t      ** output = fd_type_pun( output_ );
-  fd_wksp_t  * wksp  = fd_wksp_attach( "wksp" );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t instr_ctx[1];
-  if( !fd_exec_test_instr_context_create( runner, instr_ctx, input_instr_ctx, alloc, true /* is_syscall avoids certain checks we don't want */ ) ) {
-    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+  if( !fd_exec_test_instr_context_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ ) ) {
+    fd_exec_test_instr_context_destroy( runner, instr_ctx );
     return 0UL;
   }
 
   if( !( input->has_vm_ctx ) ) {
-    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, instr_ctx );
     return 0UL;
   }
 
@@ -83,7 +81,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, instr_ctx );
     return 0UL;
   }
 
@@ -302,7 +300,7 @@ do{
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   *output = effects;
-  fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+  fd_exec_test_instr_context_destroy( runner, instr_ctx );
   return actual_end - (ulong)output_buf;
 }
 
