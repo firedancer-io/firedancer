@@ -1,5 +1,6 @@
 #include "helper.h"
-
+#include <termios.h>
+#include <fcntl.h>
 #include <stdio.h>
 
 #define PRINT( ... ) do {                                                        \
@@ -173,4 +174,30 @@ printf_pct( char ** buf,
 
   if( pct<=999.999 ) { PRINT( " %7.3f", pct ); return; }
   /**/                 PRINT( ">999.999" );
+}
+
+
+int
+fd_getch()
+{
+  struct termios oldt, newt;
+  int ch;
+  int oldf;
+ /* Disables character echo and canonical mode since we want the input to be processes immediately.
+  * Terminal also set to non blocking in case the user doesn't send any input.
+  * */
+  tcgetattr(STDIN_FILENO, &oldt);
+  newt = oldt;
+  newt.c_lflag &= (tcflag_t)~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+  oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+  fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+ 
+  ch = getchar();
+ 
+  /*Restore the terminal back to it's original configuration*/
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+  fcntl(STDIN_FILENO, F_SETFL, oldf);
+ 
+  return ch;
 }
