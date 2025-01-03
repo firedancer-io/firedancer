@@ -24,7 +24,12 @@
 #define FD_SNAPSHOT_TMP_FULL_ARCHIVE_ZSTD (".tmp.tar.zst")
 #define FD_SNAPSHOT_TMP_INCR_ARCHIVE_ZSTD (".tmp_inc.tar.zst")
 
-#define FD_SNAPSHOT_APPEND_VEC_SZ_MAX     (16UL * 1024UL * 1024UL * 1024UL) /* 16 MiB */
+/* This is a relatively arbitrary constant. The max size of a snapshot append
+   vec file is 16MiB but this value can cause problems in practice according
+   to the Agave team. 
+   
+   TODO: Figure out exactly what those problems are. */
+#define FD_SNAPSHOT_APPEND_VEC_SZ_MAX     (2UL * 1024UL * 1024UL * 1024UL) /* 2 MiB */
 
 FD_PROTOTYPES_BEGIN
 
@@ -74,28 +79,54 @@ struct fd_snapshot_ctx {
 };
 typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
 
-/* fd_snapshot_create_populate_fseq, fd_snapshot_create_is_incremental, and
+/* TODO: These functions should be moved elsewhere to a more common file as
+   these functions are used by the replay tile and the batch tile for more
+   than just snapshot creation.
+
+   fd_snapshot_create_populate_fseq, fd_snapshot_create_is_incremental, and
    fd_snapshot_create_get_slot are helpers used to pack and unpack the fseq
    used to indicate if a snapshot is ready to be created and if the snapshot
    shoudl be incremental. The other bytes represent the slot that the snapshot
    will be created for. The most significant 8 bits determine if the snapshot
    is incremental and the least significant 56 bits are reserved for the slot.
+   
+   These functions are used for snapshot creation in the full client.
 
-   These functions are used for snapshot creation in the full client. */
+   fd_batch_fseq_pack, fd_batch_fseq_is_snapshot, fd_batch_fseq_is_eah,
+   fd_batch_fseq_is_incremental, and fd_batch_fseq_get_slot are helpers used
+   by the replay tile and the batch tile to communicate what work the 
+   batch tile should do. At the moment of this writing, the batch tile can 
+   either calculate the epoch account hash or create a snapshot. 
+
+   The msb is used to determine if the batch tile should calculate the epoch
+   account hash or produce a snapshot. The next msb is used to determine if
+   the snapshot is incremental, this bit is ignored if the epoch account
+   hash is being calculated. The remaining 62 bits are used to store the slot 
+   at which the snapshot/hash should be calculated for. */
 
 static ulong FD_FN_UNUSED
-fd_snapshot_create_pack_fseq( ulong is_incremental, ulong smr ) {
-  return (is_incremental << 56UL) | (smr & 0xFFFFFFFFFFFFFFUL);
+fd_batch_fseq_pack( ulong is_snapshot, ulong is_incremental, ulong smr ) {
+  return ((is_snapshot & 0x1UL) << 63UL) | ((is_incremental & 0x1UL) << 62UL) | (smr & 0x3FFFFFFFFFFFFFFUL);
 }
 
 static ulong FD_FN_UNUSED
-fd_snapshot_create_get_is_incremental( ulong fseq ) {
-  return (fseq >> 56UL) & 0xFF;
+fd_batch_fseq_is_snapshot( ulong fseq ) {
+  return (fseq >> 63UL) & 0x1UL;
 }
 
 static ulong FD_FN_UNUSED
-fd_snapshot_create_get_slot( ulong fseq ) {
-  return fseq & 0xFFFFFFFFFFFFFFUL;
+fd_batch_fseq_is_eah( ulong fseq ) {
+  return !((fseq >> 63UL) & 0x1UL);
+}
+
+static ulong FD_FN_UNUSED
+fd_batch_fseq_is_incremental( ulong fseq ) {
+  return (fseq >> 62UL) & 0x1UL;
+}
+
+static ulong FD_FN_UNUSED
+fd_batch_fseq_get_slot( ulong fseq ) {
+  return fseq & 0x3FFFFFFFFFFFFFFUL;
 }
 
 /* fd_snapshot_create_new_snapshot is responsible for creating the different
