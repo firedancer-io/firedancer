@@ -37,3 +37,17 @@ fd_ext_blockstore_create_block0( char const *  ledger_path FD_PARAM_UNUSED,
                                  uchar const * shred_bytes FD_PARAM_UNUSED,
                                  ulong         shred_sz FD_PARAM_UNUSED,
                                  ulong         stride FD_PARAM_UNUSED ) {}
+
+
+extern void
+plugin_bundle_poll( void *  plugin FD_PARAM_UNUSED,
+                    int *   out_type FD_PARAM_UNUSED,
+                    uchar * out_block_builder_pubkey FD_PARAM_UNUSED,
+                    ulong * out_block_builder_commission FD_PARAM_UNUSED,
+                    ulong * out_bundle_len FD_PARAM_UNUSED,
+                    uchar * out_data FD_PARAM_UNUSED ) {}
+
+extern void *
+plugin_bundle_init( char const * url FD_PARAM_UNUSED,
+                    char const * domain_name FD_PARAM_UNUSED,
+                    uchar *      identity_pubkey FD_PARAM_UNUSED ) { return NULL; }
