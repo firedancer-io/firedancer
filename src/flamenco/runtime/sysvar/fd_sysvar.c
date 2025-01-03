@@ -33,9 +33,9 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
   rec->meta->info.lamports = lamports_after;
 
   /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1826 */
-  if ( lamports_after > lamports_before ) {
+  if       ( lamports_after > lamports_before ) {
     slot_ctx->slot_bank.capitalization += ( lamports_after - lamports_before );
-  } else if ( lamports_before < lamports_after ) {
+  } else if( lamports_after < lamports_before ) {
     slot_ctx->slot_bank.capitalization -= ( lamports_before - lamports_after );
   }
 
