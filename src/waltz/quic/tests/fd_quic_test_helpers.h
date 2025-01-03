@@ -5,6 +5,7 @@
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
+#include "../../../util/net/fd_eth.h"
 #include <stdio.h>
 
 #if defined(__linux__)
@@ -101,6 +102,29 @@ fd_quic_test_cb_tls_keylog( void *       quic_ctx,
 
 FD_PROTOTYPES_END
 
+/* fd_aio_eth_wrap is an fd_aio middleware that translates between a L2 (Ethernet) and L3 fd_aio.
+   Provides a simplistic Ethernet layer with hardcoded MAC addresses. */
+
+struct fd_aio_eth_wrap {
+  fd_aio_t     wrap_self;
+  fd_aio_t     unwrap_self;
+  fd_aio_t     wrap_next;
+  fd_aio_t     unwrap_next;
+  fd_eth_hdr_t template;
+};
+
+typedef struct fd_aio_eth_wrap fd_aio_eth_wrap_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_aio_t *
+fd_aio_eth_wrap( fd_aio_eth_wrap_t * wrap );
+
+fd_aio_t *
+fd_aio_eth_unwrap( fd_aio_eth_wrap_t * wrap );
+
+FD_PROTOTYPES_END
+
 /* fd_quic_udpsock is a command-line helper for creating an UDP channel
    over AF_XDP or UDP sockets. */
 
@@ -109,7 +133,6 @@ struct fd_quic_udpsock {
 # define FD_QUIC_UDPSOCK_TYPE_XSK     1
 # define FD_QUIC_UDPSOCK_TYPE_UDPSOCK 2
 
-  uchar  self_mac[6];
   uint   listen_ip;
   ushort listen_port;
 
@@ -121,6 +144,7 @@ struct fd_quic_udpsock {
       fd_xdp_link_session_t link_session;
       fd_xsk_t *            xsk;
       fd_xsk_aio_t *        xsk_aio;
+      fd_aio_eth_wrap_t     eth_wrap;
     } xdp;
 #   endif
     struct {

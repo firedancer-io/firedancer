@@ -18,7 +18,8 @@ struct fd_udpsock {
   fd_aio_t         aio_self;  /* aio provided by udpsock */
   fd_aio_t const * aio_rx;    /* aio provided by receiver */
 
-  int fd;  /* file descriptor of actual socket */
+  int  fd; /* file descriptor of actual socket */
+  uint hdr_sz;
 
   /* Mock Ethernet fields */
 
@@ -189,6 +190,7 @@ fd_udpsock_new( void * shmem,
     msg[i].msg_hdr.msg_namelen = sizeof(struct sockaddr_in);
   }
 
+  fd_udpsock_set_layer( sock, FD_UDPSOCK_LAYER_ETH ); /* default */
   return shmem;
 }
 
@@ -272,19 +274,18 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
   for( ulong i=0UL; i<msg_cnt; i++ ) {
     struct sockaddr_in const * addr = (struct sockaddr_in const *)sock->rx_msg[i].msg_hdr.msg_name;
 
-    void * frame_base = (void *)( (ulong)sock->rx_iov[i].iov_base - FD_UDPSOCK_HEADROOM );
-    fd_eth_hdr_t * eth = (fd_eth_hdr_t *)frame_base;
-    memcpy( eth->dst, sock->eth_self_addr, 6 );
-    memcpy( eth->src, sock->eth_peer_addr, 6 );
-    eth->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+    void * frame_base = (void *)( (ulong)sock->rx_iov[i].iov_base - sock->hdr_sz );
+    fd_ip4_hdr_t * ip4;
+    if( sock->hdr_sz==42 ) {
+      fd_eth_hdr_t * eth = frame_base;
+      memcpy( eth->dst, sock->eth_self_addr, 6 );
+      memcpy( eth->src, sock->eth_peer_addr, 6 );
+      eth->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+      ip4 = (void *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
+    } else {
+      ip4 = frame_base;
+    }
 
-    /* copy to avoid alignment issues */
-    uchar saddr[4];
-    uchar daddr[4];
-    memcpy( saddr, &addr->sin_addr.s_addr, 4 );
-    memcpy( daddr, &sock->ip_self_addr,    4 );
-
-    fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)((ulong)eth + sizeof(fd_eth_hdr_t));
     *ip4 = (fd_ip4_hdr_t) {
       .verihl       = FD_IP4_VERIHL(4,5),
       .tos          = 0,
@@ -295,10 +296,11 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
       .net_frag_off = 0,
       .ttl          = 64,
       .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
-      .check        = 0,
-      .saddr_c      = { saddr[0], saddr[1], saddr[2], saddr[3] },
-      .daddr_c      = { daddr[0], daddr[1], daddr[2], daddr[3] }
+      .check        = 0
     };
+    /* copy to avoid alignment issues */
+    memcpy( ip4->saddr_c, &addr->sin_addr.s_addr, 4 );
+    memcpy( ip4->daddr_c, &sock->ip_self_addr,    4 );
 
     fd_ip4_hdr_bswap( ip4 );  /* convert to "network" byte order */
     ip4->check = fd_ip4_hdr_check_fast( ip4 );
@@ -314,7 +316,7 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
 
     sock->rx_pkt[i] = (fd_aio_pkt_info_t) {
       .buf    = frame_base,
-      .buf_sz = (ushort)( FD_UDPSOCK_HEADROOM + (ulong)sock->rx_msg[i].msg_len )
+      .buf_sz = (ushort)( sock->hdr_sz + (ulong)sock->rx_msg[i].msg_len )
     };
   }
 
@@ -343,31 +345,33 @@ fd_udpsock_send( void *                    ctx,
 
   ulong iov_idx = 0UL;
   for( ulong i=0UL; i<send_cnt; i++ ) {
-    if( FD_LIKELY( batch[i].buf_sz >= sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) {
-      /* skip packets that aren't IP (like ARP) */
-      /* TODO consider doing something with ARP probes here
-         it's an indication that the ARP table doesn't have an ARP entry for
-         the given IP */
+    if( FD_UNLIKELY( batch[i].buf_sz < sock->hdr_sz ) ) continue;
+
+    /* skip packets that aren't IP (like ARP) */
+    fd_ip4_hdr_t * ip4;
+    if( sock->hdr_sz==42 ) {
       fd_eth_hdr_t * eth = (fd_eth_hdr_t *)( (ulong)batch[i].buf );
-      if( FD_UNLIKELY( eth->net_type != htons( 0x0800 ) ) ) continue;
-
-      fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (ulong)batch[i].buf + sizeof(fd_eth_hdr_t) );
-      fd_ip4_hdr_bswap( ip4 );  /* convert to host byte order */
-      uint daddr = 0;
-      memcpy( &daddr, ip4->daddr_c, 4 );
-      fd_udp_hdr_t * udp = (fd_udp_hdr_t *)( (ulong)ip4 + (ulong)FD_IP4_GET_LEN(*ip4) );
-      fd_udp_hdr_bswap( udp );  /* convert to host byte order */
-      ushort dport = udp->net_dport;
-
-      void * payload = (void *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
-      sock->tx_iov[iov_idx].iov_base = payload;
-      sock->tx_iov[iov_idx].iov_len  = batch[i].buf_sz - (ulong)( (ulong)payload - (ulong)batch[i].buf );
-      struct sockaddr_in * addr = (struct sockaddr_in *)sock->tx_msg[iov_idx].msg_hdr.msg_name;
-      addr->sin_addr = (struct in_addr) { .s_addr = daddr };
-      addr->sin_port = (ushort)fd_ushort_bswap( (ushort)dport );
-
-      iov_idx++;
+      if( FD_UNLIKELY( eth->net_type != fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) continue;
+      ip4 = (fd_ip4_hdr_t *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
+    } else {
+      ip4 = batch[i].buf;
     }
+
+    fd_ip4_hdr_bswap( ip4 );  /* convert to host byte order */
+    uint daddr = 0;
+    memcpy( &daddr, ip4->daddr_c, 4 );
+    fd_udp_hdr_t * udp = (fd_udp_hdr_t *)( (ulong)ip4 + (ulong)FD_IP4_GET_LEN(*ip4) );
+    fd_udp_hdr_bswap( udp );  /* convert to host byte order */
+    ushort dport = udp->net_dport;
+
+    void * payload = (void *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+    sock->tx_iov[iov_idx].iov_base = payload;
+    sock->tx_iov[iov_idx].iov_len  = batch[i].buf_sz - (ulong)( (ulong)payload - (ulong)batch[i].buf );
+    struct sockaddr_in * addr = (struct sockaddr_in *)sock->tx_msg[iov_idx].msg_hdr.msg_name;
+    addr->sin_addr = (struct in_addr) { .s_addr = daddr };
+    addr->sin_port = (ushort)fd_ushort_bswap( (ushort)dport );
+
+    iov_idx++;
   }
   int  fd  = sock->fd;
   long res = sendmmsg( fd, sock->tx_msg, (uint)iov_idx, flush ? 0 : MSG_DONTWAIT );
@@ -395,4 +399,21 @@ fd_udpsock_get_ip4_address( fd_udpsock_t const * sock ) {
 uint
 fd_udpsock_get_listen_port( fd_udpsock_t const * sock ) {
   return sock->udp_self_port;
+}
+
+fd_udpsock_t *
+fd_udpsock_set_layer( fd_udpsock_t * sock,
+                      uint           layer ) {
+  switch( layer ) {
+  case FD_UDPSOCK_LAYER_ETH:
+    sock->hdr_sz = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+    break;
+  case FD_UDPSOCK_LAYER_IP:
+    sock->hdr_sz = sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+    break;
+  default:
+    FD_LOG_WARNING(( "invalid layer 0x%x", layer ));
+    return NULL;
+  }
+  return sock;
 }

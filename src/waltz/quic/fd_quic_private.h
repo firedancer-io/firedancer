@@ -10,7 +10,6 @@
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
 
-#include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 
@@ -115,7 +114,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 #define FD_QUIC_STATE_OFF (fd_ulong_align_up( sizeof(fd_quic_t), alignof(fd_quic_state_t) ))
 
 struct fd_quic_pkt {
-  fd_eth_hdr_t       eth[1];
   fd_ip4_hdr_t       ip4[1];
   fd_udp_hdr_t       udp[1];
 

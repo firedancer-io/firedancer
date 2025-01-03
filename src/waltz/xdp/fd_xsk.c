@@ -763,7 +763,7 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
   uint              mask = rx->depth - 1;
   struct xdp_desc * ring = rx->packet_ring;
 
-  TRACE_PACKET( "rx packets ring=%p seq=%u cnt=%lu", (void *)ring, cons, sz );
+  if( sz ) { TRACE_PACKET( "rx packets ring=%p seq=%u cnt=%lu", (void *)ring, cons, sz ); }
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
     batch[j].off   = ring[k].addr;

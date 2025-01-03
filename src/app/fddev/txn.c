@@ -178,7 +178,6 @@ txn_cmd_fn( args_t *         args,
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->link.dst_mac_addr, config->tiles.net.mac_addr, 6UL );
   client_cfg->net.ip_addr           = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
