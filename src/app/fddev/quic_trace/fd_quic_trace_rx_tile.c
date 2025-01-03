@@ -150,6 +150,7 @@ bounds_check_conn( fd_quic_t *      quic,
 _TRACE_QUIC_PKT(INITIAL,initial,1,0)
 _TRACE_QUIC_PKT(HANDSHAKE,handshake,0,1)
 /* as the server, we shouldn't be receiving RETRY packets */
+/* we don't support 0-RTT packets */
 
 static void
 fd_quic_trace_1rtt( fd_quic_trace_ctx_t * _ctx,

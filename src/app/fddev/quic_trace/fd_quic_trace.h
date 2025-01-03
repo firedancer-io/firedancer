@@ -19,7 +19,7 @@ extern void const *          fd_quic_trace_log_base;
 extern ulong ** fd_quic_trace_target_fseq;
 
 struct fd_quic_trace_ctx {
-  int dump;
+  int dump; /* whether the user requested --dump */
 };
 
 typedef struct fd_quic_trace_ctx fd_quic_trace_ctx_t;
