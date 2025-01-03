@@ -776,7 +776,7 @@ interp_exec:
           /* ...to match state of Agave VM when faulting
               Note: this check MUST be BEFORE fd_sbpf_calldests_test,
               because it prevents overflowing calldests. */
-          FD_VM_INTERP_STACK_PUSH;
+          ++frame_cnt;
           goto sigtextbr;
         }
 
