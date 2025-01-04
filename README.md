@@ -39,7 +39,7 @@ Frankendancer is currently in testing on the Solana testnet.
 Firedancer currently only supports Linux and requires a relatively new
 kernel, at least v4.18 to build. 
 
-```bash
+```console
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ ./deps.sh
