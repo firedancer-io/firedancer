@@ -698,8 +698,8 @@
      // map and underlying element store give a valid mapping of unique
      // keys to unique elements in the element store.  Assumes that
      // caller has a lock on all map chains or the map is otherwise
-     // known to be idle.  Returns FD_MAP_ERR_CORRUPT (negative)
-     // otherwise (no changes by this call, logs details).
+     // known to be idle.  Returns FD_MAP_ERR_INVAL (negative) otherwise
+     // (no changes by this call, logs details).
 
      int mymap_verify( mymap_t const * join );
 
@@ -1081,7 +1081,7 @@
 /* If MAP_MEMOIZE is defined to non-zero, elements have a field that
    can be used while in the map to hold the MAP_KEY_HASH for an
    element's key.  This is useful for accelerating user code that might
-   need a hash and accelerating various operations. */
+   need a hash and various map operations. */
 
 #ifndef MAP_MEMOIZE
 #define MAP_MEMOIZE 0
@@ -1089,8 +1089,8 @@
 
 /* If MAP_MEMOIZE is non-zero, MAP_MEMO is the memo element field.
    Should be a ulong.  Like MAP_KEY and MAP_NEXT, when an element is in
-   the map, this value is managed by the map and will contain contains
-   the MAP_KEY_HASH of the element's key and the map's seed. */
+   the map, this value is managed by the map and will contain the
+   MAP_KEY_HASH of the element's key and the map's seed. */
 
 #ifndef MAP_MEMO
 #define MAP_MEMO memo
@@ -1153,7 +1153,9 @@
 #define FD_MAP_ERR_INVAL   (-1)
 #define FD_MAP_ERR_AGAIN   (-2)
 #define FD_MAP_ERR_CORRUPT (-3)
-#define FD_MAP_ERR_KEY     (-4)
+//#define FD_MAP_ERR_EMPTY   (-4)
+//#define FD_MAP_ERR_FULL    (-5)
+#define FD_MAP_ERR_KEY     (-6)
 
 #define FD_MAP_FLAG_BLOCKING (1)
 #define FD_MAP_FLAG_ADAPTIVE (2)
@@ -1499,7 +1501,7 @@ MAP_(iter_ele_const)( MAP_(iter_t) iter ) {
 MAP_STATIC void *    MAP_(new)   ( void * shmem, ulong chain_cnt, ulong seed );
 MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele, ulong ele_max );
 MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
-MAP_STATIC void *    MAP_(delete)( void * map );
+MAP_STATIC void *    MAP_(delete)( void * shmap );
 
 MAP_STATIC int MAP_(insert)( MAP_(t) * join, MAP_ELE_T * ele, int flags );
 
@@ -2591,8 +2593,8 @@ MAP_(reset)( MAP_(t) * join ) {
 MAP_STATIC int
 MAP_(verify)( MAP_(t) const * join ) {
 
-# define MAP_TEST(c) do {                                                                        \
-    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_MAP_ERR_CORRUPT; } \
+# define MAP_TEST(c) do {                                                                      \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_MAP_ERR_INVAL; } \
   } while(0)
 
   /* Validate join */
