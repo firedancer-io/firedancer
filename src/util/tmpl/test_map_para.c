@@ -34,7 +34,7 @@ FD_STATIC_ASSERT( FD_MAP_SUCCESS    == 0, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_INVAL  ==-1, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_AGAIN  ==-2, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_CORRUPT==-3, unit_test );
-FD_STATIC_ASSERT( FD_MAP_ERR_KEY    ==-4, unit_test );
+FD_STATIC_ASSERT( FD_MAP_ERR_KEY    ==-6, unit_test );
 
 FD_STATIC_ASSERT( FD_MAP_FLAG_BLOCKING==1, unit_test );
 FD_STATIC_ASSERT( FD_MAP_FLAG_ADAPTIVE==2, unit_test );
@@ -62,7 +62,6 @@ static ulong      tile_go;
 static int
 tile_main( int     argc,
            char ** argv ) {
-  (void)argc; (void)argv;
 
   /* Init local tile context */
 
@@ -70,18 +69,16 @@ tile_main( int     argc,
   mymap_t *  map      = tile_map;
   ulong      ele_max  = tile_ele_max;
   ulong      iter_cnt = tile_iter_cnt;
-  ulong      tile_idx = fd_tile_idx();
-  ulong      tile_cnt = fd_tile_cnt();
+  ulong      tile_idx = (ulong)(uint)argc;
+  ulong      tile_cnt = (ulong)argv;
 
   /* Need to upgrade this if using more than 256 tiles or ~16.7M iterations */
 
   FD_TEST( tile_cnt<(1UL<< 8) );
   FD_TEST( iter_cnt<(1UL<<24) );
 
-  uint local_prefix  = (uint)(tile_idx << 24);
-  uint local_key     = 0U;
-  uint unused_prefix = (uint)(tile_cnt << 24);
-  uint unused_mask   = (~0U) >> 8;
+  uint local_prefix = (uint)(tile_idx << 24);
+  uint local_key    = 0U;
 
   myele_t   sentinel[1];
   myele_t * ele_stop = (myele_t *)mypool_shele( pool ) + ele_max;
@@ -142,6 +139,7 @@ tile_main( int     argc,
   for( ulong iter_idx=0UL; iter_idx<iter_cnt; iter_idx++ ) {
     if( FD_UNLIKELY( !diag_rem ) ) {
       if( !tile_idx ) FD_LOG_NOTICE(( "Iteration %lu of %lu (local map_cnt %lu)", iter_idx, iter_cnt, map_cnt ));
+      if( !tile_cnt ) FD_TEST( !mymap_verify( map ) );
       diag_rem = 1000000UL;
     }
     diag_rem--;
@@ -166,7 +164,8 @@ tile_main( int     argc,
       int       acq_err;
       myele_t * ele = mypool_acquire( pool, NULL, 0, &acq_err ); /* non-blocking acquire */
       if( FD_UNLIKELY( !ele ) ) {
-        FD_TEST( (acq_err==FD_POOL_ERR_EMPTY) | (acq_err==FD_POOL_ERR_AGAIN) );
+        if( acq_err==FD_POOL_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+        else                             FD_TEST( acq_err==FD_POOL_ERR_EMPTY );
         break;
       }
       uint key = (uint)(local_prefix | local_key);
@@ -181,6 +180,7 @@ tile_main( int     argc,
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
         FD_TEST( err==FD_MAP_ERR_AGAIN           );
+        FD_TEST( tile_cnt>1UL                    );
         FD_TEST( !mypool_release( pool, ele, 1 ) ); /* blocking release */
       } else {
         map_key[ map_cnt++ ] = key;
@@ -191,15 +191,19 @@ tile_main( int     argc,
 
     case 2: { /* bad remove */
       int  flags = (int)(r & 3UL); r >>= 2;
-      uint key   = unused_prefix | (((uint)r) & unused_mask); r >>= 32;
+      uint key   = local_prefix | local_key;
 
       mymap_query_t query[1];
       int           err = mymap_remove( map, &key, sentinel, query, flags );
       myele_t *     ele = mymap_query_ele( query );
 
       FD_TEST( ele==sentinel );
-      if( err==FD_MAP_ERR_AGAIN ) FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
-      else                        FD_TEST( err==FD_MAP_ERR_KEY             );
+      if( err==FD_MAP_ERR_AGAIN ) {
+        FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
+        FD_TEST( tile_cnt>1UL                    );
+      } else {
+        FD_TEST( err==FD_MAP_ERR_KEY );
+      }
       break;
     }
 
@@ -217,6 +221,7 @@ tile_main( int     argc,
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
         FD_TEST( err==FD_MAP_ERR_AGAIN           );
+        FD_TEST( tile_cnt>1UL                    );
         FD_TEST( ele==sentinel                   );
       } else {
         FD_TEST( ele->mykey== key                                               );
@@ -229,15 +234,19 @@ tile_main( int     argc,
 
     case 4: { /* bad modify */
       int  flags = (int)(r & 3UL); r >>= 2;
-      uint key   = unused_prefix | (((uint)r) & unused_mask); r >>= 32;
+      uint key   = local_prefix | local_key;
 
       mymap_query_t query[1];
       int           err = mymap_modify_try( map, &key, sentinel, query, flags );
       myele_t *     ele = mymap_query_ele( query );
 
       FD_TEST( ele==sentinel );
-      if( err==FD_MAP_ERR_AGAIN ) FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
-      else                        FD_TEST( err==FD_MAP_ERR_KEY             );
+      if( err==FD_MAP_ERR_AGAIN ) {
+        FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
+        FD_TEST( tile_cnt>1UL                    );
+      } else {
+        FD_TEST( err==FD_MAP_ERR_KEY );
+      }
       break;
     }
 
@@ -256,6 +265,7 @@ tile_main( int     argc,
         FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
         FD_TEST( ele==sentinel                   );
         FD_TEST( err==FD_MAP_ERR_AGAIN           );
+        FD_TEST( tile_cnt>1UL                    );
       } else {
         ulong ele_idx = mypool_idx( pool, ele );
         uint  mod     = ele->mod;
@@ -271,15 +281,15 @@ tile_main( int     argc,
     }
 
     case 6: { /* bad query */
-      uint key = unused_prefix | (((uint)r) & unused_mask); r >>= 32;
+      uint key = local_prefix | local_key;
 
       mymap_query_t   query[1];
       int             err = mymap_query_try( map, &key, sentinel, query );
       myele_t const * ele = mymap_query_ele_const( query );
 
       FD_TEST( ele==sentinel );
-      if( err==FD_MAP_ERR_AGAIN ) break;
-      FD_TEST( err==FD_MAP_ERR_KEY );
+      if( err==FD_MAP_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+      else                        FD_TEST( err==FD_MAP_ERR_KEY );
       break;
     }
 
@@ -295,6 +305,7 @@ tile_main( int     argc,
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( ele==sentinel         );
         FD_TEST( err==FD_MAP_ERR_AGAIN );
+        FD_TEST( tile_cnt>1UL          );
       } else {
         ulong ele_idx = mypool_idx( pool, ele );
         FD_TEST( ele_idx<ele_max );
@@ -307,6 +318,7 @@ tile_main( int     argc,
 
         if( FD_UNLIKELY( err ) ) {
           FD_TEST( err==FD_MAP_ERR_AGAIN );
+          FD_TEST( tile_cnt>1UL          );
         } else {
           FD_TEST( spec_key==  key                              );
           FD_TEST( spec_val==((key ^ spec_mod) ^ (uint)ele_idx) );
@@ -356,6 +368,7 @@ tile_main( int     argc,
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
         FD_TEST( err==FD_MAP_ERR_AGAIN           );
+        FD_TEST( tile_cnt>1UL                    );
       } else {
 
         /* Do all the operations in the transaction */
@@ -411,7 +424,8 @@ tile_main( int     argc,
             int       err;
             myele_t * ele = mypool_acquire( pool, NULL, 0, &err ); /* non-blocking acquire */
             if( FD_UNLIKELY( !ele ) ) {
-              FD_TEST( (err==FD_POOL_ERR_EMPTY) | (err==FD_POOL_ERR_AGAIN) );
+              if( err==FD_POOL_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+              else                         FD_TEST( err==FD_POOL_ERR_EMPTY );
               break;
             }
             uint mod = 0U;
@@ -495,8 +509,12 @@ tile_main( int     argc,
 
         err = mymap_txn_test( txn );
 
-        if( FD_UNLIKELY( canary | (!!err) ) ) FD_TEST( err==FD_MAP_ERR_AGAIN );
-        else                                  FD_TEST( good );
+        if( FD_UNLIKELY( canary | (!!err) ) ) {
+          FD_TEST( err==FD_MAP_ERR_AGAIN );
+          FD_TEST( tile_cnt>1UL          );
+        } else {
+          FD_TEST( good );
+        }
 
         /* FIXME: test reuse of existing or again failed transaction? */
 
@@ -523,6 +541,7 @@ tile_main( int     argc,
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
         FD_TEST( err==FD_MAP_ERR_AGAIN           );
+        FD_TEST( tile_cnt>1UL                    );
         break;
       }
 
@@ -585,9 +604,11 @@ main( int     argc,
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
 
   /* Create the shared element store */
+
   void * shele = shmem_alloc( alignof(myele_t), sizeof(myele_t)*ele_max );
 
   /* Create and join an element pool */
+
   void * shpool = mypool_new( shmem_alloc( mypool_align(), mypool_footprint() ) );
   mypool_t pool[1]; FD_TEST( mypool_join( pool, shpool, shele, ele_max )==pool );
   mypool_reset( pool, 0UL );
@@ -670,7 +691,8 @@ main( int     argc,
     FD_VOLATILE( tile_go ) = 0;
     FD_COMPILER_MFENCE();
 
-    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_new( tile_idx, tile_main, argc, argv );
+    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
+      fd_tile_exec_new( tile_idx, tile_main, (int)tile_idx, (char **)tile_cnt );
 
     fd_log_sleep( (long)0.1e9 );
 
@@ -678,10 +700,9 @@ main( int     argc,
     FD_VOLATILE( tile_go ) = 1;
     FD_COMPILER_MFENCE();
 
-    tile_main( argc, argv );
-    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_delete( fd_tile_exec( tile_idx ), NULL );
+    tile_main( 0, (char **)tile_cnt );
+    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )fd_tile_exec_delete( fd_tile_exec( tile_idx ), NULL );
 
-    /* FIXME: run these on non-empty maps too */
     FD_TEST( !mymap_verify( map ) );
     mymap_reset( map );
   }
