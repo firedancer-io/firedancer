@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "../fd_ballet.h"
 #include "../hex/fd_hex.h"

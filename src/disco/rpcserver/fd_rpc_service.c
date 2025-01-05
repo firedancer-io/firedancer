@@ -13,6 +13,7 @@
 #include "keywords.h"
 #include <errno.h>
 #include <stdlib.h>
+#include <stdio.h> /* snprintf */
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdarg.h>
