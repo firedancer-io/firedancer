@@ -43,3 +43,6 @@ FUZZFLAGS:=-max_total_time=600 -timeout=10 -runs=10
 # Obtain compiler version so that decisions can be made on disabling/enabling
 # certain flags
 CC_MAJOR_VERSION=$(shell $(CC) -dumpversion | cut -f1 -d.)
+
+# Default _FORTIFY_SOURCE level
+FORTIFY_SOURCE?=2
