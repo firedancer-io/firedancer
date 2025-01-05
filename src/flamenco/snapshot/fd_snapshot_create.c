@@ -4,9 +4,12 @@
 #include "../runtime/fd_hashes.h"
 #include "../runtime/fd_runtime.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <zstd.h>
 
 static uchar             padding[ FD_SNAPSHOT_ACC_ALIGN ] = {0};

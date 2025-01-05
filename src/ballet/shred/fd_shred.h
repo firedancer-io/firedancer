@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_ballet_shred_fd_shred_h
 #define HEADER_fd_src_ballet_shred_fd_shred_h
 
-#include <stdio.h>
 #include "../bmtree/fd_bmtree.h"
 
 /* Shreds form the on-wire representation of Solana block data

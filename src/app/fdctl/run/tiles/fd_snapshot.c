@@ -7,6 +7,10 @@
 #include "../../../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../../../funk/fd_funk_filemap.h"
 
+#include <errno.h>
+#include <sys/types.h> /* SEEK_SET */
+#include <unistd.h> /* readlink, lseek, ftruncate */
+
 #include "generated/snapshot_seccomp.h"
 
 #define SCRATCH_MAX    (1024UL << 24 )  /* 24 MiB */

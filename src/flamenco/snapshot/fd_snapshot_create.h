@@ -10,11 +10,6 @@
 #include "../../util/archive/fd_tar.h"
 #include "../types/fd_types.h"
 
-#include <stdio.h>
-#include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
-
 #define FD_BLOCKHASH_QUEUE_SIZE           (300UL)
 #define FD_TICKS_PER_SLOT                 (64UL)
 
@@ -37,7 +32,7 @@ FD_PROTOTYPES_BEGIN
    creation. It contains the snapshot slot, the snapshot directory,
    whether the snapshot is incremental, the tarball writer, the allocator,
    and holds the snapshot hash.
-   
+
   FIXME: The snapshot service will currently not correctly free memory that is
          allocated unless a bump allocator like fd_scratch or fd_spad are used. */
 
@@ -53,7 +48,7 @@ struct fd_snapshot_ctx {
   fd_txncache_t *   status_cache;              /* Status cache handle. */
 
   uchar             is_incremental;            /* If it is incremental, set the fields and pass in data from the previous full snapshot. */
-  ulong             last_snap_slot;            /* Full snapshot slot. */            
+  ulong             last_snap_slot;            /* Full snapshot slot. */
   ulong             last_snap_capitalization;  /* Full snapshot capitalization. */
   fd_hash_t *       last_snap_acc_hash;        /* Full snapshot account hash. */
 
@@ -70,7 +65,7 @@ struct fd_snapshot_ctx {
 
   /* This gets setup within the context and not by the user. */
   fd_tar_writer_t * writer;     /* Tar writer. */
-  fd_hash_t         snap_hash;  /* Snapshot hash. */  
+  fd_hash_t         snap_hash;  /* Snapshot hash. */
   fd_hash_t         acc_hash;   /* Account hash. */
   fd_slot_bank_t    slot_bank;  /* Obtained from funk. */
   fd_epoch_bank_t   epoch_bank; /* Obtained from funk. */
@@ -85,7 +80,7 @@ typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
    shoudl be incremental. The other bytes represent the slot that the snapshot
    will be created for. The most significant 8 bits determine if the snapshot
    is incremental and the least significant 56 bits are reserved for the slot.
-   
+
    These functions are used for snapshot creation in the full client. */
 
 static ulong FD_FN_UNUSED
@@ -109,25 +104,25 @@ fd_snapshot_create_get_slot( ulong fseq ) {
 
    1. Version - This is a file that contains the version of the snapshot.
    2. Manifest - The manifest contains data about the state of the network
-                 as well as the index of the append vecs. 
+                 as well as the index of the append vecs.
       a. The bank. This is the equivalent of the firedancer slot/epoch context.
          This contains almost all of the state of the network that is not
          encapsulated in the accounts.
       b. Append vec index. This is a list of all of the append vecs that are
          used to store the accounts. This is a slot indexed file.
-      c. The manifest also contains other relevant metadata including the 
+      c. The manifest also contains other relevant metadata including the
          account/snapshot hash.
-   3. Status cache - the status cache holds the transaction statuses for the 
+   3. Status cache - the status cache holds the transaction statuses for the
       last 300 rooted slots. This is a nested data structure which is indexed
       by blockhash. See fd_txncache.h for more details on the status cache.
    4. Accounts directory - the accounts directory contains the state of all
       of the accounts and is a set of files described by <slot#.id#>. These
       are described by the append vec index in the manifest.
-      
-  The files are written out into a tar archive which is then zstd compressed. 
-  
+
+  The files are written out into a tar archive which is then zstd compressed.
+
   This can produce either a full snapshot or an incremental snapshot depending
-  on the value of is_incremental. An incremental snapshot will contain all of 
+  on the value of is_incremental. An incremental snapshot will contain all of
   the information described above, except it will only contain accounts that
   have been modified or deleted since the creation of the last incremental
   snapshot. */

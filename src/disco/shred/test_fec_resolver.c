@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "fd_shredder.h"
 #include "fd_fec_resolver.h"
 #include "../../ballet/shred/fd_shred.h"

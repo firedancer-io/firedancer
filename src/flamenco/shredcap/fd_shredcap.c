@@ -1,5 +1,6 @@
 #include "fd_shredcap.h"
 #include "../runtime/fd_rocksdb.h"
+#include <stdio.h> /* rename */
 
 #define BUF_ALIGN               (16UL)
 #define WBUF_FOOTPRINT          (65536UL)

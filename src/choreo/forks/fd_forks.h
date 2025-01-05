@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
+#include <stdio.h> /* printf */
 
 /* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
