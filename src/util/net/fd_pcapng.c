@@ -549,10 +549,21 @@ fd_pcapng_iter_err( fd_pcapng_iter_t const * iter ) {
     }                                                                  \
     *(ushort *)( buf+cursor ) = ( (ushort)(t) ); cursor+=2UL;          \
     *(ushort *)( buf+cursor ) = ( (ushort)_sz ); cursor+=2UL;          \
-    fd_memcpy  ( buf+cursor, (v), _sz );                               \
-    fd_memset  ( buf+cursor+_sz, 0, _sz_align-_sz );                   \
+    if( _sz ) fd_memcpy( buf+cursor, (v), _sz );                       \
+    fd_memset( buf+cursor+_sz, 0, _sz_align-_sz );                     \
     cursor+=_sz_align;                                                 \
   } while(0);
+
+#define FD_PCAPNG_FWRITE_NULLOPT()                                     \
+  do {                                                                 \
+    if( FD_UNLIKELY( cursor+4UL > FD_PCAPNG_BLOCK_SZ ) ) {             \
+      FD_LOG_WARNING(( "oversz pcapng block" ));                       \
+      return 0UL;                                                      \
+    }                                                                  \
+    fd_memset( buf+cursor, 0, 4UL );                                   \
+    cursor+=4UL;                                                       \
+  } while(0);
+
 
 /* FD_PCAPNG_FWRITE_BLOCK_TERM terminates a block buffer being
    serialized in the context of an fwrite-style function. */
@@ -591,7 +602,7 @@ fd_pcapng_fwrite_shb( fd_pcapng_shb_opts_t const * opt,
     if( opt->os       ) FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_SHB_OPT_OS,       strlen( opt->os       ), opt->os       );
     if( opt->userappl ) FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_SHB_OPT_USERAPPL, strlen( opt->userappl ), opt->userappl );
   }
-  FD_PCAPNG_FWRITE_OPT( 0, 0, NULL );
+  FD_PCAPNG_FWRITE_NULLOPT();
 
   FD_PCAPNG_FWRITE_BLOCK_TERM();
 
@@ -634,7 +645,7 @@ fd_pcapng_fwrite_idb( uint                         link_type,
       FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_HARDWARE,  fd_cstr_nlen( opt->hardware, 64UL ), opt->hardware );
 
   }
-  FD_PCAPNG_FWRITE_OPT( 0, 0, NULL );
+  FD_PCAPNG_FWRITE_NULLOPT();
 
   FD_PCAPNG_FWRITE_BLOCK_TERM();
 
