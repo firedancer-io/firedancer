@@ -18,6 +18,16 @@
 #include <netinet/in.h>
 #include <stdarg.h>
 
+#ifdef __has_include
+#if __has_include("../../app/fdctl/version.h")
+#include "../../app/fdctl/version.h"
+#define FIREDANCER_VERSION FD_STRINGIFY(FIREDANCER_VERSION_MAJOR) "." FD_STRINGIFY(FIREDANCER_VERSION_MINOR) "." FD_STRINGIFY(FIREDANCER_VERSION_PATCH)
+#endif
+#endif
+#ifndef FIREDANCER_VERSION
+#define FIREDANCER_VERSION "dev"
+#endif
+
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
