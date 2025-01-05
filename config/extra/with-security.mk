@@ -9,5 +9,5 @@ LDFLAGS+=-fstack-protector-strong
 
 # _FORTIFY_SOURCE only works when optimization is enabled
 ifeq ($(FD_DISABLE_OPTIMIZATION),)
-CPPFLAGS+=-D_FORTIFY_SOURCE=2
+CPPFLAGS+=-D_FORTIFY_SOURCE=$(FORTIFY_SOURCE)
 endif
