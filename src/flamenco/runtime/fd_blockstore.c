@@ -369,6 +369,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
   blockstore->lps = smr;
   blockstore->hcs = smr;
   blockstore->smr = smr;
+  blockstore->wmk = smr;
 
   fd_block_map_t * block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ),
                                                           &smr );
@@ -892,27 +893,13 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
 }
 
 void
-fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
-  FD_LOG_NOTICE(( "[%s] curr smr: %lu, next smr: %lu", __func__, blockstore->smr, smr ));
+fd_blockstore_publish( fd_blockstore_t * blockstore, int fd ) {
+  FD_LOG_NOTICE(( "[%s] wmk %lu => smr %lu", __func__, blockstore->wmk, blockstore->smr ));
 
-  /* Warn if root is missing. */
+  /* Caller is incorrectly calling publish. */
 
-  if( FD_UNLIKELY( !fd_blockstore_block_map_query( blockstore, smr ) ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to publish SMR %lu not in blockstore", __func__, blockstore->smr ) );
-    return;
-  }
-
-  /* Warn if trying to re-publish current SMR. */
-
-  if( FD_UNLIKELY( smr == blockstore->smr ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to re-publish current SMR %lu", __func__, blockstore->smr ) );
-    return;
-  }
-
-  /* Warn if trying to publish an SMR < current SMR. */
-
-  if( FD_UNLIKELY( smr < blockstore->smr ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to publish SMR older than the current SMR %lu < %lu", __func__, smr, blockstore->smr ));
+  if( FD_UNLIKELY( blockstore->wmk == blockstore->smr ) ) {
+    FD_LOG_WARNING(( "[%s] attempting to re-publish when wmk %lu already at smr %lu", __func__, blockstore->wmk, blockstore->smr ));
     return;
   }
 
@@ -924,11 +911,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
   fd_slot_deque_remove_all( q );
 
-  /* Push the root onto the queue. */
+  /* Push the watermark onto the queue. */
 
-  fd_slot_deque_push_tail( q, blockstore->smr );
+  fd_slot_deque_push_tail( q, blockstore->wmk );
 
-  /* Conduct a BFS, stopping the search at the new root. */
+  /* Conduct a BFS to find slots to prune or archive. */
 
   while( !fd_slot_deque_empty( q ) ) {
     ulong slot = fd_slot_deque_pop_head( q );
@@ -939,9 +926,9 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
     for( ulong i = 0; i < block_map_entry->child_slot_cnt; i++ ) {
 
-      /* Stop upon reaching the new SMR. */
+      /* Stop upon reaching the SMR. */
 
-      if( FD_LIKELY( block_map_entry->child_slots[i] != smr ) ) {
+      if( FD_LIKELY( block_map_entry->child_slots[i] != blockstore->smr ) ) {
         fd_slot_deque_push_tail( q, block_map_entry->child_slots[i] );
       }
     }
@@ -971,11 +958,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
   /* Scan to clean up any orphaned blocks or shreds < new SMR. */
 
-  for (ulong slot = blockstore->smr; slot < smr; slot++) {
+  for (ulong slot = blockstore->wmk; slot < blockstore->smr; slot++) {
     fd_blockstore_slot_remove( blockstore, slot );
   }
 
-  blockstore->smr = smr;
+  blockstore->wmk = blockstore->smr;
 
   return;
 }
