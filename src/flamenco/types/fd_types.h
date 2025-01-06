@@ -40,7 +40,7 @@ typedef struct fd_fee_calculator_off fd_fee_calculator_off_t;
 #define FD_FEE_CALCULATOR_OFF_FOOTPRINT sizeof(fd_fee_calculator_off_t)
 #define FD_FEE_CALCULATOR_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (24 bytes) */
 struct __attribute__((aligned(8UL))) fd_hash_age {
   fd_fee_calculator_t fee_calculator;
   ulong hash_index;
@@ -59,7 +59,7 @@ typedef struct fd_hash_age_off fd_hash_age_off_t;
 #define FD_HASH_AGE_OFF_FOOTPRINT sizeof(fd_hash_age_off_t)
 #define FD_HASH_AGE_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (56 bytes) */
 struct __attribute__((aligned(8UL))) fd_hash_hash_age_pair {
   fd_hash_t key;
   fd_hash_age_t val;
@@ -263,7 +263,7 @@ typedef struct fd_epoch_schedule_off fd_epoch_schedule_off_t;
 #define FD_EPOCH_SCHEDULE_OFF_FOOTPRINT sizeof(fd_epoch_schedule_off_t)
 #define FD_EPOCH_SCHEDULE_OFF_ALIGN (1UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (66 bytes) */
 struct __attribute__((aligned(8UL))) fd_rent_collector {
   ulong epoch;
   fd_epoch_schedule_t epoch_schedule;
@@ -391,7 +391,7 @@ typedef struct fd_solana_account_meta_off fd_solana_account_meta_off_t;
 #define FD_SOLANA_ACCOUNT_META_OFF_FOOTPRINT sizeof(fd_solana_account_meta_off_t)
 #define FD_SOLANA_ACCOUNT_META_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (136 bytes) */
 struct __attribute__((packed)) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t info;
@@ -412,7 +412,7 @@ typedef struct fd_solana_account_hdr_off fd_solana_account_hdr_off_t;
 #define FD_SOLANA_ACCOUNT_HDR_OFF_FOOTPRINT sizeof(fd_solana_account_hdr_off_t)
 #define FD_SOLANA_ACCOUNT_HDR_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (104 bytes) */
 struct __attribute__((packed)) fd_account_meta {
   ushort magic;
   ushort hlen;
@@ -670,7 +670,7 @@ typedef struct fd_delegation_off fd_delegation_off_t;
 #define FD_DELEGATION_OFF_FOOTPRINT sizeof(fd_delegation_off_t)
 #define FD_DELEGATION_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (96 bytes) */
 struct __attribute__((aligned(8UL))) fd_delegation_pair {
   fd_pubkey_t account;
   fd_delegation_t delegation;
@@ -688,7 +688,7 @@ typedef struct fd_delegation_pair_off fd_delegation_pair_off_t;
 #define FD_DELEGATION_PAIR_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (72 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake {
   fd_delegation_t delegation;
   ulong credits_observed;
@@ -705,7 +705,7 @@ typedef struct fd_stake_off fd_stake_off_t;
 #define FD_STAKE_OFF_FOOTPRINT sizeof(fd_stake_off_t)
 #define FD_STAKE_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (104 bytes) */
 struct __attribute__((aligned(8UL))) fd_epoch_info_pair {
   fd_pubkey_t account;
   fd_stake_t stake;
@@ -738,7 +738,7 @@ typedef struct fd_epoch_info_off fd_epoch_info_off_t;
 #define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
 #define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (104 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_pair {
   fd_pubkey_t account;
   fd_stake_t stake;
@@ -866,7 +866,7 @@ typedef struct fd_stakes_stake_off fd_stakes_stake_off_t;
 #define FD_STAKES_STAKE_OFF_FOOTPRINT sizeof(fd_stakes_stake_off_t)
 #define FD_STAKES_STAKE_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (88 bytes) */
 struct __attribute__((aligned(8UL))) fd_bank_incremental_snapshot_persistence {
   ulong full_slot;
   fd_hash_t full_hash;
@@ -1203,7 +1203,7 @@ typedef struct fd_bank_hash_stats_off fd_bank_hash_stats_off_t;
 #define FD_BANK_HASH_STATS_OFF_FOOTPRINT sizeof(fd_bank_hash_stats_off_t)
 #define FD_BANK_HASH_STATS_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (104 bytes) */
 struct __attribute__((aligned(8UL))) fd_bank_hash_info {
   fd_hash_t accounts_delta_hash;
   fd_hash_t accounts_hash;
@@ -1222,7 +1222,7 @@ typedef struct fd_bank_hash_info_off fd_bank_hash_info_off_t;
 #define FD_BANK_HASH_INFO_OFF_FOOTPRINT sizeof(fd_bank_hash_info_off_t)
 #define FD_BANK_HASH_INFO_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (40 bytes) */
 struct __attribute__((aligned(8UL))) fd_slot_map_pair {
   ulong slot;
   fd_hash_t hash;
@@ -1371,7 +1371,7 @@ typedef struct fd_versioned_epoch_stakes_pair_off fd_versioned_epoch_stakes_pair
 #define FD_VERSIONED_EPOCH_STAKES_PAIR_OFF_ALIGN (8UL)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/reward_info.rs#L5 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (28 bytes) */
 struct __attribute__((aligned(8UL))) fd_reward_info {
   fd_reward_type_t reward_type;
   ulong lamports;
@@ -1651,7 +1651,7 @@ typedef struct fd_lockout_offset_off fd_lockout_offset_off_t;
 #define FD_LOCKOUT_OFFSET_OFF_ALIGN (8UL)
 
 /* https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L9 */
-/* Encoded Size: Fixed (72 bytes) */
+/* Encoded Size: Fixed (40 bytes) */
 struct __attribute__((aligned(8UL))) fd_vote_authorized_voter {
   ulong epoch;
   fd_pubkey_t pubkey;
@@ -1753,7 +1753,7 @@ typedef struct fd_vote_block_timestamp_off fd_vote_block_timestamp_off_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (1545 bytes) */
 struct __attribute__((aligned(8UL))) fd_vote_prior_voters {
   fd_vote_prior_voter_t buf[32];
   ulong idx;
@@ -1773,7 +1773,7 @@ typedef struct fd_vote_prior_voters_off fd_vote_prior_voters_off_t;
 #define FD_VOTE_PRIOR_VOTERS_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (1800 bytes) */
 struct __attribute__((aligned(8UL))) fd_vote_prior_voters_0_23_5 {
   fd_vote_prior_voter_0_23_5_t buf[32];
   ulong idx;
@@ -1791,7 +1791,7 @@ typedef struct fd_vote_prior_voters_0_23_5_off fd_vote_prior_voters_0_23_5_off_t
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (13 bytes) */
 struct __attribute__((aligned(8UL))) fd_landed_vote {
   uchar latency;
   fd_vote_lockout_t lockout;
@@ -2223,7 +2223,7 @@ typedef struct fd_slot_history_off fd_slot_history_off_t;
 #define FD_SLOT_HISTORY_OFF_FOOTPRINT sizeof(fd_slot_history_off_t)
 #define FD_SLOT_HISTORY_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (40 bytes) */
 struct __attribute__((aligned(8UL))) fd_slot_hash {
   ulong slot;
   fd_hash_t hash;
@@ -2268,7 +2268,7 @@ typedef struct fd_slot_hashes_off fd_slot_hashes_off_t;
 #define FD_SLOT_HASHES_OFF_FOOTPRINT sizeof(fd_slot_hashes_off_t)
 #define FD_SLOT_HASHES_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (40 bytes) */
 struct __attribute__((aligned(8UL))) fd_block_block_hash_entry {
   fd_hash_t blockhash;
   fd_fee_calculator_t fee_calculator;
@@ -2401,7 +2401,7 @@ typedef struct fd_clock_timestamp_votes_off fd_clock_timestamp_votes_off_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (8 bytes) */
 struct __attribute__((aligned(8UL))) fd_sysvar_fees {
   fd_fee_calculator_t fee_calculator;
 };
@@ -2417,7 +2417,7 @@ typedef struct fd_sysvar_fees_off fd_sysvar_fees_off_t;
 #define FD_SYSVAR_FEES_OFF_ALIGN (8UL)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (81 bytes) */
 struct __attribute__((aligned(8UL))) fd_sysvar_epoch_rewards {
   ulong distribution_starting_block_height;
   ulong num_partitions;
@@ -2783,7 +2783,7 @@ typedef struct fd_vote_authorize fd_vote_authorize_t;
 #define FD_VOTE_AUTHORIZE_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (36 bytes) */
 struct __attribute__((aligned(8UL))) fd_vote_authorize_pubkey {
   fd_pubkey_t pubkey;
   fd_vote_authorize_t vote_authorize;
@@ -3095,7 +3095,7 @@ typedef struct fd_stake_lockup_off fd_stake_lockup_off_t;
 #define FD_STAKE_LOCKUP_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (112 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_instruction_initialize {
   fd_stake_authorized_t authorized;
   fd_stake_lockup_t lockup;
@@ -3147,7 +3147,7 @@ typedef struct fd_stake_authorize fd_stake_authorize_t;
 #define FD_STAKE_AUTHORIZE_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (36 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_instruction_authorize {
   fd_pubkey_t pubkey;
   fd_stake_authorize_t stake_authorize;
@@ -3271,7 +3271,7 @@ typedef struct fd_stake_instruction fd_stake_instruction_t;
 #define FD_STAKE_INSTRUCTION_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (120 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_meta {
   ulong rent_exempt_reserve;
   fd_stake_authorized_t authorized;
@@ -3307,7 +3307,7 @@ typedef struct fd_stake_flags_off fd_stake_flags_off_t;
 #define FD_STAKE_FLAGS_OFF_ALIGN (8UL)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L135 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (120 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_state_v2_initialized {
   fd_stake_meta_t meta;
 };
@@ -3323,7 +3323,7 @@ typedef struct fd_stake_state_v2_initialized_off fd_stake_state_v2_initialized_o
 #define FD_STAKE_STATE_V2_INITIALIZED_OFF_ALIGN (8UL)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L136 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (193 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_state_v2_stake {
   fd_stake_meta_t meta;
   fd_stake_t stake;
@@ -3358,7 +3358,7 @@ typedef struct fd_stake_state_v2 fd_stake_state_v2_t;
 #define FD_STAKE_STATE_V2_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L17 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (72 bytes) */
 struct __attribute__((aligned(8UL))) fd_nonce_data {
   fd_pubkey_t authority;
   fd_hash_t durable_nonce;
@@ -3696,7 +3696,7 @@ typedef struct fd_loader_v4_state_off fd_loader_v4_state_off_t;
 #define FD_LOADER_V4_STATE_OFF_ALIGN (8UL)
 
 /* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (33 bytes) */
 struct __attribute__((aligned(8UL))) fd_frozen_hash_status {
   fd_hash_t frozen_hash;
   uchar is_duplicate_confirmed;
@@ -3851,7 +3851,7 @@ typedef struct fd_gossip_bitvec_u64_off fd_gossip_bitvec_u64_off_t;
 #define FD_GOSSIP_BITVEC_U64_OFF_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (128 bytes) */
 struct __attribute__((aligned(8UL))) fd_gossip_ping {
   fd_pubkey_t from;
   fd_hash_t token;
@@ -4525,7 +4525,7 @@ typedef struct fd_gossip_restart_last_voted_fork_slots_off fd_gossip_restart_las
 #define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_OFF_FOOTPRINT sizeof(fd_gossip_restart_last_voted_fork_slots_off_t)
 #define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (90 bytes) */
 struct __attribute__((aligned(8UL))) fd_gossip_restart_heaviest_fork {
   fd_pubkey_t from;
   ulong wallclock;
@@ -4769,7 +4769,7 @@ typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 #define FD_ADDRLUT_INSTRUCTION_FOOTPRINT sizeof(fd_addrlut_instruction_t)
 #define FD_ADDRLUT_INSTRUCTION_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (140 bytes) */
 struct __attribute__((aligned(8UL))) fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
@@ -4792,7 +4792,7 @@ typedef struct fd_repair_request_header_off fd_repair_request_header_off_t;
 #define FD_REPAIR_REQUEST_HEADER_OFF_FOOTPRINT sizeof(fd_repair_request_header_off_t)
 #define FD_REPAIR_REQUEST_HEADER_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (156 bytes) */
 struct __attribute__((aligned(8UL))) fd_repair_window_index {
   fd_repair_request_header_t header;
   ulong slot;
@@ -4811,7 +4811,7 @@ typedef struct fd_repair_window_index_off fd_repair_window_index_off_t;
 #define FD_REPAIR_WINDOW_INDEX_OFF_FOOTPRINT sizeof(fd_repair_window_index_off_t)
 #define FD_REPAIR_WINDOW_INDEX_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (156 bytes) */
 struct __attribute__((aligned(8UL))) fd_repair_highest_window_index {
   fd_repair_request_header_t header;
   ulong slot;
@@ -4830,7 +4830,7 @@ typedef struct fd_repair_highest_window_index_off fd_repair_highest_window_index
 #define FD_REPAIR_HIGHEST_WINDOW_INDEX_OFF_FOOTPRINT sizeof(fd_repair_highest_window_index_off_t)
 #define FD_REPAIR_HIGHEST_WINDOW_INDEX_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (148 bytes) */
 struct __attribute__((aligned(8UL))) fd_repair_orphan {
   fd_repair_request_header_t header;
   ulong slot;
@@ -4847,7 +4847,7 @@ typedef struct fd_repair_orphan_off fd_repair_orphan_off_t;
 #define FD_REPAIR_ORPHAN_OFF_FOOTPRINT sizeof(fd_repair_orphan_off_t)
 #define FD_REPAIR_ORPHAN_OFF_ALIGN (8UL)
 
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (148 bytes) */
 struct __attribute__((aligned(8UL))) fd_repair_ancestor_hashes {
   fd_repair_request_header_t header;
   ulong slot;
@@ -5043,7 +5043,7 @@ typedef struct fd_bank_slot_deltas_off fd_bank_slot_deltas_off_t;
 #define FD_BANK_SLOT_DELTAS_OFF_ALIGN (8UL)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L85 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (60 bytes) */
 struct __attribute__((aligned(8UL))) fd_pubkey_rewardinfo_pair {
   fd_pubkey_t pubkey;
   fd_reward_info_t reward_info;
