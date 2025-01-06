@@ -86,10 +86,7 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
   cur_ptr += (ulong)payload_sz;
   cur_sz -= (ulong)payload_sz;
 
-  fd_aio_pkt_info_t batch = {.buf = (void *)scratch,
-                             .buf_sz = (ushort)(scratch_sz - cur_sz)};
-
-  fd_quic_aio_cb_receive((void *)server_quic, &batch, 1, NULL, 0);
+  fd_quic_process_packet( server_quic, scratch, scratch_sz - cur_sz );
 
   return FD_QUIC_SUCCESS; /* success */
 }
@@ -114,6 +111,9 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   /* Set up shell without signal handlers */
   putenv("FD_LOG_BACKTRACE=0");
   fd_boot(argc, argv);
+# ifndef FD_DEBUG_MODE
+  fd_log_level_core_set(3); /* crash on warning log */
+# endif
   atexit(fd_halt);
 
   /* Use unoptimized wksp memory */
