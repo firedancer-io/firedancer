@@ -204,7 +204,7 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
           FD_LOG_DEBUG(("New Batch - shred idx start: %lu, end: %lu, ref_tick: %d, off : %lu", curr_shred_idx, next_batch_shred_idx, curr_batch_tick, shreds[curr_shred_idx].off));
 
           if( FD_UNLIKELY(next_batch_off == ULONG_MAX ) ) {
-            FD_LOG_DEBUG(("New Batch is last batch"));
+            FD_LOG_DEBUG(("New Batch is last batch in slot"));
           }
         }
   
@@ -329,6 +329,7 @@ investigate_shred( fd_wksp_t * wksp, const char * folder, ulong st, ulong end ){
       fd_block_micro_t * micro = &micros[micro_idx];
       FD_LOG_NOTICE(("Micro offset: %lu", micro->off));
     }
+    printf("Slot done %lu\n\n", slot);
   }
 
 }
