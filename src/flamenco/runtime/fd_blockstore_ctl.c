@@ -126,12 +126,13 @@ void entry_append_csv( const char * filename, fd_entry_row_t * row ) {
     fclose(file);
 }
 
-static void
-aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong st, ulong end ){
-    INITIALIZE_BLOCKSTORE( blockstore );
-
-    FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
-
+static int
+initialize_rocksdb( fd_wksp_t * wksp, 
+                    fd_blockstore_t * blockstore, 
+                    const char * folder, 
+                    ulong st, 
+                    ulong end, 
+                    ulong * populated_slots_out ) {
     fd_rocksdb_t           rocks_db         = {0};
     fd_rocksdb_root_iter_t iter             = {0};
 
@@ -147,8 +148,6 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
     uchar trash_hash_buf[32];
     memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
-    ulong populated_slots[end - st + 1];
-    memset( populated_slots, -1, sizeof(populated_slots) );
     int slot_idx = 0;
     for (ulong slot = st; slot <= end; slot++) {
       int err = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot, &slot_meta, valloc );
@@ -159,13 +158,25 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
       if( FD_UNLIKELY( err != 0) ) {
         FD_LOG_ERR(( "Failed to import block %lu", slot ));
       }
-      populated_slots[slot_idx++] = slot;
+      populated_slots_out[slot_idx++] = slot;
     }
+    return slot_idx;
+}
+
+static void
+aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulong st, ulong end ){
+    INITIALIZE_BLOCKSTORE( blockstore );
+
+    FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
+  
+    ulong populated_slots[end - st + 1];
+    memset( populated_slots, -1, sizeof(populated_slots) );
+    int slots_read = initialize_rocksdb( wksp, blockstore, folder, st, end, populated_slots );
 
     fd_entry_row_t row = {0};
     fd_block_t * block = NULL;
     // iterate the blocks:
-    for( int i = 0; i < slot_idx; i++ ) {
+    for( int i = 0; i < slots_read; i++ ) {
       ulong slot = populated_slots[i];
       row.slot   = slot;
       ulong hashcnt_from_slot_start = 0;
@@ -203,25 +214,20 @@ aggregate_entries( fd_wksp_t * wksp, const char * folder, const char * csv, ulon
           }
         }
   
-
+# if SANITY_CHECK
         for ( ulong i = curr_shred_idx; i < next_batch_shred_idx; i++ ) {
           fd_block_shred_t * s = &shreds[i];
           if (( s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK  ) != curr_batch_tick ){
             FD_LOG_WARNING(("shred ref tick mismatch, shred: %lu, curr_batch_tick: %d, shred_tick: %d, is last in batch: %d", i, curr_batch_tick, s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK, s->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE));
           }
-
-          //FD_TEST((s->hdr.data.flags & FD_SHRED_DATA_REF_TICK_MASK) == curr_batch_tick);
         }
-
+# endif
         row.ref_tick = curr_batch_tick; 
 
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (uchar *)data + micro->off );
         //uchar* poh = hdr->hash;
         ulong hashcnt = hdr->hash_cnt;
         hashcnt_from_slot_start += hashcnt;
-        /*if ( hashcnt_from_slot_start > 62500*64 ) {
-          FD_LOG_NOTICE(("hash count is exceeding slot boundary, slot: %lu, hashcnt: %lu", slot, hashcnt_from_slot_start));
-        }*/
         // if its the first microblock in slot, its hashcnt delta from 0. not from prev microblock
         
         row.txn_cnt = hdr->txn_cnt;
@@ -264,40 +270,14 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
 
-  fd_rocksdb_t           rocks_db         = {0};
-  fd_rocksdb_root_iter_t iter             = {0};
-
-  char * err = fd_rocksdb_init( &rocks_db, folder );
-  FD_LOG_NOTICE(( "rocksdb init: %s", err ));
-
-  fd_rocksdb_root_iter_new( &iter );
-  void *       alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );
-  fd_alloc_t * alloc     = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
-  fd_valloc_t  valloc    = fd_alloc_virtual( alloc );
-
-  fd_slot_meta_t slot_meta = { 0 };
-  uchar trash_hash_buf[32];
-  memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
-
   ulong populated_slots[end - st + 1];
   memset( populated_slots, -1, sizeof(populated_slots) );
-  int slot_idx = 0;
-  for (ulong slot = st; slot <= end; slot++) {
-    int err = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot, &slot_meta, valloc );
-
-    if( err < 0 ) continue;
-
-    err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, 1, trash_hash_buf );
-    if( FD_UNLIKELY( err != 0) ) {
-      FD_LOG_ERR(( "Failed to import block %lu", slot ));
-    }
-    populated_slots[slot_idx++] = slot;
-  }
+  int slots_read = initialize_rocksdb( wksp, blockstore, folder, st, end, populated_slots );
 
   fd_batch_row_t row = {0};
   fd_block_t * block = NULL;
   // iterate the blocks:
-  for( int i = 0; i < slot_idx; i++ ) {
+  for( int i = 0; i < slots_read; i++ ) {
     ulong slot = populated_slots[i];
     row.slot   = slot;
 
@@ -315,14 +295,16 @@ aggregate_batch_entries( fd_wksp_t * wksp, const char * folder, const char * csv
         row.shred_cnt = shred_idx - batch_start + 1;
 
         /* because the last shred of a block can have ref_tick 0,
-           we can check if the previous shred was  a part of this
+           we can check if the previous shred was a part of this
           last shreds FEC set, and use that ref_tick instead. */
         row.ref_tick  = ( (int)shred->hdr.data.flags &
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
+#if 0
         if ( row.ref_tick == 0 && shred_idx > 0 && shred_idx - 1 >= batch_start ) {
           row.ref_tick = ( (int)shreds[shred_idx - 1].hdr.data.flags &
                                       (int)FD_SHRED_DATA_REF_TICK_MASK );
         }
+#endif
 
         row.sz        = batch_sz;
         batch_sz      = 0;
@@ -343,40 +325,13 @@ investigate_shred( fd_wksp_t * wksp, const char * folder, ulong st, ulong end ){
 
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
 
-  fd_rocksdb_t           rocks_db         = {0};
-  fd_rocksdb_root_iter_t iter             = {0};
-
-  char * err = fd_rocksdb_init( &rocks_db, folder );
-  FD_LOG_NOTICE(( "rocksdb init: %s", err ));
-
-  fd_rocksdb_root_iter_new( &iter );
-  void *       alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );
-  fd_alloc_t * alloc     = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
-  fd_valloc_t  valloc    = fd_alloc_virtual( alloc );
-
-  fd_slot_meta_t slot_meta = { 0 };
-  uchar trash_hash_buf[32];
-  memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
-
   ulong populated_slots[end - st + 1];
   memset( populated_slots, -1, sizeof(populated_slots) );
-  
-  int slot_idx = 0;
-  for (ulong slot = st; slot <= end; slot++) {
-    int err = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot, &slot_meta, valloc );
-
-    if( err < 0 ) continue;
-
-    err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, 1, trash_hash_buf );
-    if( FD_UNLIKELY( err != 0) ) {
-      FD_LOG_ERR(( "Failed to import block %lu", slot ));
-    }
-    populated_slots[slot_idx++] = slot;
-  }
+  int slots_read = initialize_rocksdb( wksp, blockstore, folder, st, end, populated_slots );
 
   fd_block_t * block = NULL;
   // iterate the blocks:
-  for( int i = 0; i < slot_idx; i++ ) {
+  for( int i = 0; i < slots_read; i++ ) {
     ulong slot = populated_slots[i];
 
     block = fd_blockstore_block_query( blockstore, slot );
@@ -388,9 +343,10 @@ investigate_shred( fd_wksp_t * wksp, const char * folder, ulong st, ulong end ){
 
     for ( ulong shred_idx = 0; shred_idx < block->shreds_cnt; shred_idx++ ) {
       fd_block_shred_t * shred = &shreds[shred_idx];
-      FD_LOG_NOTICE(("Shred offset: %lu", shred->off));
+      
+      printf("Shred payload sz: %lu\n", fd_shred_payload_sz( &shred->hdr ));
       if( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) {
-        FD_LOG_NOTICE(( " -- BATCH DONE -- " ));
+        printf( " -- BATCH DONE -- \n" );
       }
     }
     for ( ulong micro_idx = 0; micro_idx < block->micros_cnt; micro_idx++ ) {
@@ -399,9 +355,45 @@ investigate_shred( fd_wksp_t * wksp, const char * folder, ulong st, ulong end ){
     }
   }
 
-  FD_LOG_NOTICE(( "size of ulong %lu", sizeof(ulong) ));
 }
 
+static int
+usage( void ) {
+  fprintf( stderr,
+    "Usage: fd_blockstore_ctl {microblock|batch|info} [options]\n"
+    "\n"
+    "Reads from a rocksdb path and tries to import all slots from st to en. \n"
+    "Will continue if the slot does not exist in the rocksdb folder. \n"
+    "It then aggregates the data into a csv file.\n"
+    "\n"
+    "If microblock is specified, it will aggregate the data into a csv file with the following columns:\n"
+    "\tslot, batch_idx, ref_tick, hash_cnt_from_slot_start, sz, txn_cnt\n"
+    "\n"
+    "If batch is specified, it will aggregate the data into a csv file with the following columns:\n"
+    "\tslot, ref_tick, sz, shred_cnt\n"
+    "\n"
+    "If info is specified, it will print the shred payload sizes and if the shred is the last in the batch to stdout\n"
+    "\n"
+    "Options:\n"
+    "  {microblock|batch|info}                  Type of aggregation         Required\n"
+    "  --rocksdb-path {path}                    Path of rocksdb/            Required\n"
+    "  --out          {out.csv}                 Output csv path             Required for {microblock|batch}\n"            
+    "  st             {start_slot}              Target start slot           Required\n"
+    "  en             {end_slot}                Target end slot             Required\n"
+    "\n" );
+  return 0;
+}
+
+const char *
+prepare_csv( int argc, char ** argv ) {
+  const char * csv = fd_env_strip_cmdline_cstr( &argc, &argv, "--out", NULL, NULL);
+  int csv_fd = open(csv, O_RDWR | O_CREAT, 0666);
+  FD_TEST( csv_fd > 0 );
+  int err = ftruncate( csv_fd, 0);
+  FD_TEST( err == 0 );
+
+  return csv;
+}
 
 int
 main( int argc, char ** argv ) {
@@ -421,21 +413,19 @@ main( int argc, char ** argv ) {
                                             0UL );
   FD_TEST( wksp );
 
+  if ( fd_env_strip_cmdline_contains( &argc, &argv, "--help" ) ) {
+    return usage();
+  }
+
   const char * folder = fd_env_strip_cmdline_cstr( &argc, &argv, "--rocksdb-path", NULL, NULL);
-  const char * csv    = fd_env_strip_cmdline_cstr( &argc, &argv, "--out", NULL, NULL);
   int fd = open(folder, O_RDONLY | O_DIRECTORY, 0666);
   FD_TEST( fd > 0 );
-
-  int csv_fd = open(csv, O_RDWR | O_CREAT, 0666);
-  FD_TEST( csv_fd > 0 );
-
-  int err = ftruncate( csv_fd, 0);
-  FD_TEST( err == 0 );
 
   ulong start = fd_env_strip_cmdline_ulong( &argc, &argv, "st", NULL, 0);
   ulong end = fd_env_strip_cmdline_ulong( &argc, &argv, "en", NULL, 0); 
 
   if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
+
     entry_write_header(csv);
     aggregate_entries( wksp , folder, csv, start, end);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
@@ -444,10 +434,9 @@ main( int argc, char ** argv ) {
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "info")){
     investigate_shred( wksp, folder, start, end );
   } else {
-    FD_LOG_WARNING(("Please specify either microblock or batch in the command line. No action taken."));
+    FD_LOG_WARNING(("Please specify either microblock, batch, or info in the command line. Check --help for usage." ));
   }
   
   fd_halt();
   return 0;
-
 }
