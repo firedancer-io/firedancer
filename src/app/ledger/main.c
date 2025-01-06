@@ -116,6 +116,7 @@ struct fd_ledger_args {
   fd_hash_t             last_snapshot_hash;      /* last snapshot hash */
   ulong                 last_snapshot_cap;       /* last snapshot account capitalization */
   int                   is_snapshotting;         /* determine if a snapshot is being created */
+  int                   snapshot_mismatch;       /* determine if a snapshot should be created on a mismatch */
 
   char const *      lthash;
 };
@@ -172,9 +173,7 @@ fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
   fd_snapshot_create_new_snapshot( snapshot_ctx,
                                    &ledger_args->last_snapshot_hash,
                                    &ledger_args->last_snapshot_cap );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "failed to create snapshot" ));
-  }
+
   FD_LOG_NOTICE(( "Successfully produced a snapshot at directory=%s", ledger_args->snapshot_dir ));
 
   ledger_args->slot_ctx->epoch_ctx->constipate_root = 0;
@@ -463,6 +462,18 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       if( ledger_args->checkpt_mismatch ) {
         fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
       }
+      if( ledger_args->snapshot_mismatch ) {
+        fd_snapshot_ctx_t snapshot_ctx = {
+          .slot           = ledger_args->slot_ctx->root_slot,
+          .out_dir        = ledger_args->snapshot_dir,
+          .is_incremental = 0,
+          .valloc         = ledger_args->slot_ctx->valloc,
+          .funk           = ledger_args->slot_ctx->acc_mgr->funk,
+          .status_cache   = ledger_args->slot_ctx->status_cache,
+          .tpool          = ledger_args->snapshot_tpool
+        };
+        fd_create_snapshot_task( NULL, (ulong)&snapshot_ctx, (ulong)ledger_args, NULL, NULL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+      }
       if( ledger_args->abort_on_mismatch ) {
         fd_blockstore_end_read( blockstore );
         return 1;
@@ -488,6 +499,18 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
       if( ledger_args->checkpt_mismatch ) {
         fd_runtime_checkpt( ledger_args->capture_ctx, ledger_args->slot_ctx, ULONG_MAX );
+      }
+      if( ledger_args->snapshot_mismatch ) {
+        fd_snapshot_ctx_t snapshot_ctx = {
+          .slot           = ledger_args->slot_ctx->root_slot,
+          .out_dir        = ledger_args->snapshot_dir,
+          .is_incremental = 0,
+          .valloc         = ledger_args->slot_ctx->valloc,
+          .funk           = ledger_args->slot_ctx->acc_mgr->funk,
+          .status_cache   = ledger_args->slot_ctx->status_cache,
+          .tpool          = ledger_args->snapshot_tpool
+        };
+        fd_create_snapshot_task( NULL, (ulong)&snapshot_ctx, (ulong)ledger_args, NULL, NULL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
       }
       if( ledger_args->abort_on_mismatch ) {
         fd_blockstore_end_read( blockstore );
@@ -1577,6 +1600,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * snapshot_dir            = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot-dir",            NULL, NULL      );
   ulong        snapshot_tcnt           = fd_env_strip_cmdline_ulong ( &argc, &argv, "--snapshot-tcnt",           NULL, 2UL       );
   double       allowed_mem_delta       = fd_env_strip_cmdline_double( &argc, &argv, "--allowed-mem-delta",       NULL, 0.1       );
+  int          snapshot_mismatch       = fd_env_strip_cmdline_int   ( &argc, &argv, "--snapshot-mismatch",       NULL, 0         );
 
   if( FD_UNLIKELY( !verify_acc_hash ) ) {
     /* We've got full snapshots that contain all 0s for the account
@@ -1682,6 +1706,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->snapshot_tcnt           = snapshot_tcnt;
   args->allowed_mem_delta       = allowed_mem_delta;
   args->lthash                  = lthash;
+  args->snapshot_mismatch       = snapshot_mismatch;
   parse_one_off_features( args, one_off_features );
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
