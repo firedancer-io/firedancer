@@ -12,7 +12,7 @@ abbreviated log output to `stderr` and nothing will be written to
 
 | Arguments | Description |
 |----------|-------------|
-| `--config` | Path to a configuation TOML file to run the validator with |
+| `--config` | Path to a configuration TOML file to run the validator with |
 
 ::: details Capabilities
 
