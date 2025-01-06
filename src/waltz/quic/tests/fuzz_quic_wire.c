@@ -40,6 +40,9 @@ LLVMFuzzerInitialize( int *    pargc,
   atexit( fd_halt );
   fd_log_level_logfile_set(0);
   fd_log_level_stderr_set(0);
+# ifndef FD_DEBUG_MODE
+  fd_log_level_core_set(3); /* crash on warning log */
+# endif
   return 0;
 }
 
