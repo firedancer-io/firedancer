@@ -256,7 +256,10 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   curr_query.blockhash = blockhash->uc;
   fd_blake3_t b3[1];
 
+  /* Compute the blake3 hash of the transaction message
+     https://github.com/anza-xyz/agave/blob/v2.1.7/sdk/program/src/message/versions/mod.rs#L159-L167 */
   fd_blake3_init( b3 );
+  fd_blake3_append( b3, "solana-tx-message-v1", 20UL );
   fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off),(ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
   curr_query.txnhash = txn_ctx->blake_txn_msg_hash.uc;
