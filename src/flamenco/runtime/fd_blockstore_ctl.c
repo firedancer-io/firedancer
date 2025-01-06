@@ -391,7 +391,6 @@ prepare_csv( int argc, char ** argv ) {
   FD_TEST( csv_fd > 0 );
   int err = ftruncate( csv_fd, 0);
   FD_TEST( err == 0 );
-
   return csv;
 }
 
@@ -425,10 +424,11 @@ main( int argc, char ** argv ) {
   ulong end = fd_env_strip_cmdline_ulong( &argc, &argv, "en", NULL, 0); 
 
   if ( fd_env_strip_cmdline_contains( &argc, &argv, "microblock")){
-
+    const char * csv = prepare_csv(argc, argv);
     entry_write_header(csv);
     aggregate_entries( wksp , folder, csv, start, end);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "batch")){
+    const char * csv = prepare_csv(argc, argv);
     batch_write_header(csv);
     aggregate_batch_entries( wksp, folder, csv, start, end);
   } else if( fd_env_strip_cmdline_contains( &argc, &argv, "info")){
