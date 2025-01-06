@@ -191,7 +191,7 @@ fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
                                 ulong       in_sz ) {
   /* Expected 96-byte input (1 point + 1 scalar). Pad input with 0s.
      Note: Agave checks for 128 bytes instead of 96. We have to do the same check.
-     https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L17 */
+     https://github.com/anza-xyz/agave/blob/v1.18.6/sdk/program/src/alt_bn128/mod.rs#L17 */
   if( FD_UNLIKELY( in_sz > 128UL ) ) {
     return -1;
   }
@@ -220,7 +220,7 @@ int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz ) {
-  /* https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L242
+  /* https://github.com/anza-xyz/agave/blob/v1.18.6/sdk/program/src/alt_bn128/mod.rs#L244
      Note: this check doesn't do anything because
      192usize.checked_rem(192) = Some(0)
      i.e., this is NOT checking that in_sz % 192 == 0.

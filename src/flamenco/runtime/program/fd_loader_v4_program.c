@@ -343,7 +343,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   fd_loader_v4_state_t          program_state          = {0};
   fd_sol_sysvar_clock_t const * clock                  = fd_sysvar_cache_clock( instr_ctx->slot_ctx->sysvar_cache );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.r s#L217-L219 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L217-L219 */
   fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L216 */
