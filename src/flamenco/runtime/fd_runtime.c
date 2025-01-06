@@ -2185,7 +2185,7 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx, fd_epoch_info_t * te
     }
     slot_ctx->epoch_ctx->total_epoch_stake = total_epoch_stake;
 
-    fd_bincode_destroy_ctx_t destroy_slot = {.valloc = slot_ctx->valloc};
+    fd_bincode_destroy_ctx_t destroy_slot = { .valloc = slot_ctx->valloc };
     fd_vote_accounts_destroy( &slot_ctx->slot_bank.vote_account_keys, &destroy_slot );
     fd_stake_accounts_destroy(&slot_ctx->slot_bank.stake_account_keys, &destroy_slot );
 
@@ -3204,44 +3204,6 @@ fd_runtime_block_prepare( fd_blockstore_t * blockstore,
   return 0;
 }
 
-/* Helpers for fd_runtime_block_destroy */
-
-static void
-fd_runtime_microblock_destroy( fd_valloc_t valloc,
-                               fd_microblock_info_t * microblock_info ) {
-  if( FD_UNLIKELY( !microblock_info ) ) {
-    return;
-  }
-
-  fd_valloc_free( valloc, microblock_info->txns );
-}
-
-static void
-fd_runtime_microblock_batch_destroy( fd_valloc_t valloc,
-                                      fd_microblock_batch_info_t * microblock_batch_info ) {
-  if( FD_UNLIKELY( microblock_batch_info ) ) {
-    return;
-  }
-
-  for( ulong i=0UL; i<microblock_batch_info->microblock_cnt; i++ ) {
-    fd_runtime_microblock_destroy( valloc, &microblock_batch_info->microblock_infos[i] );
-  }
-
-  fd_valloc_free( valloc, microblock_batch_info->microblock_infos );
-}
-
-/* API for destroying and freeing a parsed block in offline replay. */
-
-static void
-fd_runtime_block_destroy( fd_valloc_t valloc,
-                          fd_block_info_t * block_info ) {
-  for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
-    fd_runtime_microblock_batch_destroy( valloc, &block_info->microblock_batch_infos[i] );
-  }
-
-  fd_valloc_free( valloc, block_info->microblock_batch_infos );
-}
-
 /* Block collecting (Only for offline replay) */
 
 static ulong
@@ -3355,7 +3317,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes =
                                          deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  fd_block_block_hash_entry_t * elem   = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
+  fd_block_block_hash_entry_t * elem   = deq_fd_block_block_hash_entry_t_push_head_nocopy( hashes );
   fd_block_block_hash_entry_new( elem );
   fd_memcpy( elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ );
   elem->fee_calculator.lamports_per_signature = 0UL;
@@ -3854,7 +3816,7 @@ fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                fd_hash_t       const * in_poh_hash,
                                fd_hash_t *             out_poh_hash,
                                fd_valloc_t             valloc,
-                               fd_tpool_t *            tpool) {
+                               fd_tpool_t *            tpool ) {
   long block_verify_time = -fd_log_wallclock();
 
   fd_hash_t                    tmp_in_poh_hash           = *in_poh_hash;
@@ -4009,6 +3971,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong                spad_cnt ) {
   (void)scheduler;
 
+  FD_SCRATCH_SCOPE_BEGIN {
+
   int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx, tpool );
   if( err != 0 ) {
     return err;
@@ -4020,7 +3984,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   long block_eval_time = -fd_log_wallclock();
   fd_block_info_t block_info;
-  int ret = fd_runtime_block_prepare( slot_ctx->blockstore, slot_ctx->block, slot, slot_ctx->valloc, &block_info );
+  int ret = fd_runtime_block_prepare( slot_ctx->blockstore, slot_ctx->block, slot, fd_scratch_virtual(), &block_info );
   *txn_cnt = block_info.txn_cnt;
 
   /* Use the blockhash as the funk xid */
@@ -4042,13 +4006,11 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_blockstore_end_read( slot_ctx->blockstore );
 
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
-    ret = fd_runtime_block_verify_tpool( &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool );
+    ret = fd_runtime_block_verify_tpool( &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, fd_scratch_virtual(), tpool );
   }
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
     ret = fd_runtime_block_execute_tpool( slot_ctx, capture_ctx, &block_info, tpool, spads, spad_cnt );
   }
-
-  fd_runtime_block_destroy( slot_ctx->valloc, &block_info );
 
   // FIXME: better way of using starting slot
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != ret ) ) {
@@ -4079,6 +4041,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->slot_bank.prev_slot = slot;
   // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though
   slot_ctx->slot_bank.slot = slot+1UL;
+
+  } FD_SCRATCH_SCOPE_END;
 
   return 0;
 }
