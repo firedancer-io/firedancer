@@ -578,9 +578,9 @@ struct fd_status_check_ctx {
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
 static void
-blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
+blockstore_publish( fd_replay_tile_ctx_t * ctx ) {
   fd_blockstore_start_write( ctx->blockstore );
-  fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, smr );
+  fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd );
   fd_blockstore_end_write( ctx->blockstore );
 }
 
@@ -1858,8 +1858,8 @@ static void
 during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
-  /* Update watermark. The publish watermark is the minimum of the SMR
-     and the tower root. */
+  /* Update watermark. The publish watermark is the minimum of the tower
+     root and blockstore smr. */
 
   fd_blockstore_start_read( ctx->blockstore );
   ulong wmk = fd_ulong_min( ctx->tower->root , ctx->blockstore->smr );
@@ -1868,7 +1868,7 @@ during_housekeeping( void * _ctx ) {
   if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->wmk ), wmk ));
 
-  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, wmk );
+  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost );
   if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_and_txncache_publish( ctx, wmk );
   if( FD_LIKELY( ctx->ghost ) ) {

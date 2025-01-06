@@ -366,7 +366,8 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore {
 
   ulong lps; /* latest processed slot */
   ulong hcs; /* highest confirmed slot */
-  ulong smr; /* supermajority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
+  ulong smr; /* supermajority root. DO NOT MODIFY DIRECTLY. */
+  ulong wmk; /* watermark. DO NOT MODIFY DIRECTLY. */
 
   /* Config limits */
 
@@ -750,22 +751,23 @@ fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot )
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
-/* fd_blockstore_publish publishes `smr` as the new blockstore SMR,
-   removing any slots less than `smr`.  Publish also removes any blocks
-   that are not part of the same fork as `smr`.  This is known as
-   "pruning" (it is quite literally pruning branches ie. forks of a tree
-   that do not contain the SMR).  This might include slots that are
-   greater than `smr`.  
+/* fd_blockstore_publish publishes all blocks until the current
+   blockstore smr (`blockstore->smr`).  Publishing entails 1. pruning
+   and 2. archiving.  Pruning removes any blocks that are not part of
+   the same fork as the smr (hence the name pruning, like pruning the
+   branches of a tree).  Archiving removes from memory any slots < smr
+   that are on the same fork, but writes those blocks out to disk using
+   the provided file descriptor to the archival file `fd`.
 
-   `fd` is a file descriptor for the open blockstore archival file.
-   Removed blocks that are finalized (ie. ancestors of `smr`) are
-   archived into said file.  Blocks removed as a result of pruning are
-   not archived.
+   Note that slots < smr are ancestors of the smr, and are therefore
+   finalized slots which is why they are archived.  Blocks removed as a
+   result of pruning are not finalized, and therefore not archived.
 
    IMPORTANT!  Caller MUST hold the write lock when calling this
    function. */
+
 void
-fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr );
+fd_blockstore_publish( fd_blockstore_t * blockstore, int fd );
 
 /* fd_blockstore_start_read acquires the read lock */
 static inline void
