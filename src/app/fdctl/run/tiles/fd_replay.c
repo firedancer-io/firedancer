@@ -694,7 +694,7 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong smr, uchar is_constipat
 }
 
 static void
-funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
+funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xid_t const * xid ) {
 
   /* When we are trying to root for an smr that we want a snapshot for, we need
      to constipate funk as well as the txncache. The snapshot tile will notify
@@ -705,17 +705,8 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
      constipated state. The snapshot tile will be directly responsible for
      unconstipating the txncache. */
 
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, smr );
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
-  fd_blockstore_end_read( ctx->blockstore );
-
-  /* Generate a funk txn */
-
-  xid.ul[0]                = smr;
   fd_funk_txn_t * txn_map  = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_funk_txn_t * root_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_txn_t * root_txn = fd_funk_txn_query( xid, txn_map );
 
   /* Once all of the banking tiles have finished executing, grab a write
      lock on funk and publish the transaction.
@@ -755,15 +746,15 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
      funk is constipated. */
 
   if( !is_funk_constipated ) {
-    FD_LOG_NOTICE(( "Publishing slot=%lu", smr ));
+    FD_LOG_NOTICE(( "Publishing slot=%lu", wmk ));
 
     ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
     if( FD_UNLIKELY( !rc ) ) {
-      FD_LOG_ERR(( "failed to funk publish slot %lu", smr ));
+      FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
     }
 
   } else {
-    FD_LOG_WARNING(( "Publishing slot=%lu while constipated", smr ));
+    FD_LOG_WARNING(( "Publishing slot=%lu while constipated", wmk ));
 
     /* At this point, first collapse the current transaction that should be
        published into the oldest child transaction. */
@@ -784,16 +775,16 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
 
   /* TODO: This needs to get integrated into the snapshot tile. */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-  if( smr >= epoch_bank->eah_start_slot ) {
+  if( wmk >= epoch_bank->eah_start_slot ) {
     fd_accounts_hash( ctx->slot_ctx->acc_mgr->funk, &ctx->slot_ctx->slot_bank,
                       ctx->slot_ctx->valloc, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash );
     epoch_bank->eah_start_slot = FD_SLOT_NULL;
   }
 
-  snapshot_state_update( ctx, smr, is_funk_constipated );
+  snapshot_state_update( ctx, wmk, is_funk_constipated );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, smr );
+    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, wmk );
   }
 }
 
@@ -1868,13 +1859,21 @@ during_housekeeping( void * _ctx ) {
   if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->wmk ), wmk ));
 
+  fd_blockstore_start_read( ctx->blockstore );
+  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, wmk );
+  fd_funk_txn_xid_t xid;
+  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_blockstore_end_read( ctx->blockstore );
+  xid.ul[0] = wmk;
+
   if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost );
-  if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_and_txncache_publish( ctx, wmk );
+  if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmk, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {
     fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, wmk );
     fd_ghost_publish( ctx->ghost, wmk );
   }
+
   fd_fseq_update( ctx->wmk, wmk );
 
 
