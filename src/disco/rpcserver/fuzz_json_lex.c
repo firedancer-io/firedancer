@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -19,6 +18,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   putenv("FD_LOG_BACKTRACE=0");
   fd_boot(argc, argv);
   atexit(fd_halt);
+  fd_log_level_core_set(3); /* crash on warning log */
 
   lex_state = malloc(sizeof(struct json_lex_state));
   atexit(free_lex_state);
