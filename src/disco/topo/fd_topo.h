@@ -296,11 +296,13 @@ typedef struct {
     struct {
       ushort  repair_intake_listen_port;
       ushort  repair_serve_listen_port;
+      char    good_peer_cache_file[ PATH_MAX ];
 
       /* non-config */
 
       uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
+      int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
     } repair;
 
