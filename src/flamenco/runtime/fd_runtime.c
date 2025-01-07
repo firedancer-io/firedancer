@@ -2731,15 +2731,15 @@ void fd_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Change the speed of the poh clock
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6627-L6649 */
-  if( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick6 ) ) {
+  if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick6 ) ) {
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK6;
-  } else if( FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick5 ) ) {
+  } else if( FD_FEATURE_JUST_ACTIVATED(slot_ctx, update_hashes_per_tick5 ) ) {
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK5;
-  } else if( FD_FEATURE_ACTIVE( slot_ctx, update_hashes_per_tick4 ) ) {
+  } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick4 ) ) {
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK4;
-  } else if( FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick3 ) ) {
+  } else if( FD_FEATURE_JUST_ACTIVATED(slot_ctx, update_hashes_per_tick3 ) ) {
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK3;
-  } else if( FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick2 ) ) {
+  } else if( FD_FEATURE_JUST_ACTIVATED(slot_ctx, update_hashes_per_tick2 ) ) {
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
   }
 
