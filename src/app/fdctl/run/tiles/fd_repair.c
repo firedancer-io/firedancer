@@ -20,6 +20,7 @@
 #include <linux/unistd.h>
 #include <sys/random.h>
 #include <netdb.h>
+#include <errno.h>
 #include <netinet/in.h>
 
 #include "../../../../util/net/fd_net_headers.h"
@@ -485,6 +486,12 @@ privileged_init( fd_topo_t *      topo,
   ctx->repair_config.private_key = ctx->identity_private_key;
   ctx->repair_config.public_key  = &ctx->identity_public_key;
 
+  tile->repair.good_peer_cache_file_fd = open( tile->repair.good_peer_cache_file, O_RDWR | O_CREAT, 0644 );
+  if( FD_UNLIKELY( tile->repair.good_peer_cache_file_fd==-1 ) ) {
+    FD_LOG_WARNING(( "Failed to open the good peer cache file (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  ctx->repair_config.good_peer_cache_file_fd = tile->repair.good_peer_cache_file_fd;
+
   FD_TEST( sizeof(ulong) == getrandom( &ctx->repair_seed, sizeof(ulong), 0 ) );
 }
 
@@ -655,7 +662,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_repair( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_repair( 
+    out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)tile->repair.good_peer_cache_file_fd );
   return sock_filter_policy_repair_instr_cnt;
 }
 
@@ -673,6 +681,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( -1!=tile->repair.good_peer_cache_file_fd ) )
+    out_fds[ out_cnt++ ] = tile->repair.good_peer_cache_file_fd; /* good peer cache file */
   return out_cnt;
 }
 
