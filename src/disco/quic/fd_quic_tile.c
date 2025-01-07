@@ -83,10 +83,11 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   void *              base     = ctx->verify_out_mem;
   ulong               seq      = stem->seqs[0];
 
-  fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub );
-  ctx->metrics.txns_received_udp++;
-
-  fd_stem_advance( stem, 0UL );
+  int err = fd_tpu_reasm_publish_fast( reasm, packet, packet_sz, mcache, base, seq, tspub );
+  if( FD_LIKELY( err==FD_TPU_REASM_SUCCESS ) ) {
+    fd_stem_advance( stem, 0UL );
+    ctx->metrics.txns_received_udp++;
+  }
 }
 
 /* Because of the separate mcache for publishing network fragments

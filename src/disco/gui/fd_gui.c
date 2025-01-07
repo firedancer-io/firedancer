@@ -246,7 +246,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_INDEX ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, PRECOMPILE_VERIFY_FAILURE ) ];
   }
 
 
@@ -254,6 +255,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
   cur->out.pack_invalid =
+      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ] +
       pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ] +
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ] +
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ] +
