@@ -639,6 +639,24 @@ dynamic_port_range = "8900-9000"
     # determined automatically as well.
     agave_affinity = "auto"
 
+    # The number of threads to spawn per-fork for the unified scheduler.
+    # The replay stage, which is a part of the Agave subprocess, uses
+    # these threads for transaction execution.  The threads stay within
+    # the cores dedicated to the Agave subprocess.
+    #
+    # If set to 0, the default depends on the number of cores available
+    # to the agave subprocess.
+    #
+    #          agave_cores >= 8  =>  agave_cores - 4
+    #     4 <= agave_cores <  8  =>  4
+    #          agave_cores <  4  =>  agave_cores
+    #
+    # Increasing the value for this parameter might help during the
+    # start-up phase when the validator is trying to catchup to the
+    # cluster.  It may also help the node stay caught up if it keeps
+    # falling behind.
+    agave_unified_scheduler_handler_threads = 0
+
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
     # conditions but there is no need to run more than 1 net tile given
