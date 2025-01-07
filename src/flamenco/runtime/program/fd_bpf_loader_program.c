@@ -280,7 +280,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Load program */
   int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, deploy_mode );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -971,7 +970,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Failed to deploy program" )); // custom log
         return err;
       }
 
@@ -1227,7 +1225,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
       }
 
@@ -1759,7 +1756,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
       }
 
