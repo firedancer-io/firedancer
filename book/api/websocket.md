@@ -711,7 +711,7 @@ current epoch that the cluster is in, and the next epoch. From then on,
 new epochs are published live as they are calculated by the validator. For
 epoch T, it is published as `end_slot` in epoch T-2 is rooted. The
 epoch is speculatively known as soon as `end_slot` in epoch T-2 is
-compelted, rather than rooted, but no speculative epoch information is
+completed, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
 
 ### peers
