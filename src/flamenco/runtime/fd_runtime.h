@@ -38,6 +38,7 @@
 #define FD_RUNTIME_NUM_ROOT_BLOCKS (32UL)
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
+#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features. _feature_name)
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
