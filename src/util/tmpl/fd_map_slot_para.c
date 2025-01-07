@@ -51,6 +51,11 @@
      exploit CPU and storage caching, streaming and prefetching
      behaviors.
 
+   - Supports asynchronous execution (e.g. issue hints for keys that
+     will be accessed soon, do unrelated work while hints are
+     prefetching need info into local cache in the background, then do
+     key operations ... now all fast and local cache hits).
+
    - Supports non-plain-old-data keys and non-plain-old-data values
      (both of which are gross on real world computers but commonly done
      nevertheless).
@@ -237,6 +242,28 @@
      myele_t const * mymap_query_ele_const( mymap_query_t const * query );
      myele_t *       mymap_query_ele      ( mymap_query_t *       query );
 
+     // mymap_hint hints that the caller plans to do an operation
+     // involving key soon.  Assumes join is a current local join, key
+     // points to a valid key in the caller's address space for the
+     // duration of the call and query points to a local scratch to hold
+     // info about the hint.  Returns no interest in key.  On return,
+     // the query memo will be initialized.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If
+     // FD_MAP_FLAG_PREFETCH_META / FD_MAP_FLAG_PREFETCH_DATA is set,
+     // this will issue a prefetch for key's mymap metadata (i.e. lock
+     // version) / the element at the start of key's probe sequence
+     // (i.e. the location of key or contiguously shortly before it)
+     // FD_MAP_FLAG_PREFETCH combines both for convenience.  This can be
+     // used to overlap key access latency with unrelated operations.
+     // All other flags are ignored.
+
+     void
+     mymap_hint( MAP_(t) const *   join
+                 MAP_KEY_T const * key
+                 MAP_(query_t) *   query,
+                 int               flags );
+
      // mymap_prepare tries to start a insert/modify/blocking query
      // operation for key.  Assumes join is a current local join, key
      // points to valid key in the caller's address space for the
@@ -245,6 +272,11 @@
      // Returns FD_MAP_SUCCESS (0) and a FD_MAP_ERR (negative) on
      // failure.  This is a non-blocking fast O(1) (O(probe_max) worst
      // case) and supports highly concurrent operation.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_USE_HINT
+     // is set, this assumes query's memo is already initialized for
+     // key.  This can be used to avoid redundant expensive key hashing
+     // when prefetching.  All other flags are ignored.
      //
      // On success, the caller is in a prepare for key and query is
      // initialized with info about prepare.  ele=mymap_query_ele(query)
@@ -315,7 +347,7 @@
      // lifetime of the keys.  Thus the hash function used can be
      // constructed to create ordered iterators over groups of keys.
 
-     int  mymap_prepare( mymap_t * join, ulong const * key, myele_t * sentinel, mymap_query_t * query );
+     int  mymap_prepare( mymap_t * join, ulong const * key, myele_t * sentinel, mymap_query_t * query, int flags );
      void mymap_publish( mymap_query_t * query );
      void mymap_cancel ( mymap_query_t * query );
 
@@ -338,6 +370,8 @@
      //
      // IMPORTANT SAFETY TIP!  Do not nest or interleave prepares,
      // remove or queries for the same map on the same thread.
+     //
+     // FIXME: consider supporting USE_HINT flag for remove?
 
      int mymap_remove( mymap_t * join, ulong const * key );
 
@@ -350,6 +384,11 @@
      // sentinel or query.  This is a non-blocking fast O(1)
      // (O(probe_max) worst case) and supports highly concurrent
      // operation.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_USE_HINT
+     // is set, this assumes query's memo is already initialized for
+     // key.  This can be used to avoid redundant expensive key hashing
+     // when prefetching.  All other flags are ignored.
      //
      // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
      // (negative) on failure.  On success, key mapped to the element
@@ -402,7 +441,8 @@
      mymap_query_try( mymap_t const * join,
                       ulong const *   key,
                       myele_t const * sentinel,
-                      mymap_query_t * query );
+                      mymap_query_t * query,
+                      int             flags );
 
      int mymap_query_test( mymap_query_t const * query );
 
@@ -433,7 +473,7 @@
      mykey_t * key = ... key to insert / modify / blocking query
 
      mymap_query_t query[1];
-     int       err  = mymap_prepare( map, key, sentinel, query );
+     int       err  = mymap_prepare( map, key, sentinel, query, 0 );
      myele_t * ele  = mymap_query_ele ( query );
      ulong     memo = mymap_query_memo( query );
 
@@ -516,7 +556,7 @@
      mykey_t * key = ... key to query
 
      mymap_query_t query[1];
-     int             err  = mymap_query_try( join, key, sentinel, query );
+     int             err  = mymap_query_try( join, key, sentinel, query, 0 );
      myele_t const * ele  = mymap_query_ele_const( query );
      ulong           memo = mymap_query_memo     ( query );
 
@@ -838,6 +878,12 @@
 #define FD_MAP_ERR_FULL    (-5)
 #define FD_MAP_ERR_KEY     (-6)
 
+#define FD_MAP_FLAG_USE_HINT      (1<<2)
+#define FD_MAP_FLAG_PREFETCH_NONE (0<<3)
+#define FD_MAP_FLAG_PREFETCH_META (1<<3)
+#define FD_MAP_FLAG_PREFETCH_DATA (2<<3)
+#define FD_MAP_FLAG_PREFETCH      (3<<3)
+
 /* Implementation *****************************************************/
 
 #if MAP_IMPL_STYLE==0 /* local use only */
@@ -1098,7 +1144,8 @@ MAP_STATIC int
 MAP_(prepare)( MAP_(t) *         join,
                MAP_KEY_T const * key,
                MAP_ELE_T *       sentinel,
-               MAP_(query_t) *   query );
+               MAP_(query_t) *   query,
+               int               flags );
 
 static inline void
 MAP_(publish)( MAP_(query_t) * query ) {
@@ -1126,7 +1173,8 @@ MAP_STATIC int
 MAP_(query_try)( MAP_(t) const *   join,
                  MAP_KEY_T const * key,
                  MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query );
+                 MAP_(query_t) *   query,
+                 int               flags );
 
 static inline int
 MAP_(query_test)( MAP_(query_t) const * query ) {
@@ -1300,11 +1348,34 @@ MAP_(delete)( void * shmap ) {
   return (void *)map;
 }
 
+void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags ) {
+  MAP_ELE_T const *     ele0       = join->ele;
+  MAP_VERSION_T const * lock       = join->lock;
+  ulong                 ele_max    = join->ele_max;
+  ulong                 seed       = join->seed;
+  int                   lock_shift = join->lock_shift;
+
+  ulong key_hash = MAP_(key_hash)( key, seed );
+  ulong ele_idx  = key_hash & (ele_max-1UL);
+  ulong lock_idx = ele_idx >> lock_shift;
+
+  /* TODO: target specific prefetch hints */
+  if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_META ) ) FD_VOLATILE_CONST( lock[ lock_idx ] );
+  if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_DATA ) ) FD_VOLATILE_CONST( ele0[ ele_idx  ] );
+
+  query->memo = key_hash;
+}
+
 int
 MAP_(prepare)( MAP_(t) *         join,
                MAP_KEY_T const * key,
                MAP_ELE_T *       sentinel,
-               MAP_(query_t) *   query ) {
+               MAP_(query_t) *   query,
+               int               flags ) {
   MAP_ELE_T *     ele0       = join->ele;
   MAP_VERSION_T * lock       = join->lock;
   ulong           ele_max    = join->ele_max;
@@ -1314,7 +1385,7 @@ MAP_(prepare)( MAP_(t) *         join,
   int             lock_shift = join->lock_shift;
   void *          ctx        = join->ctx;
 
-  ulong key_hash      = MAP_(key_hash)( key, seed );
+  ulong key_hash      = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
   ulong ele_idx       = key_hash & (ele_max-1UL);
   ulong version_lock0 = ele_idx >> lock_shift;
   ulong version_cnt   = 0UL;
@@ -1358,11 +1429,11 @@ MAP_(prepare)( MAP_(t) *         join,
        other fields) and return the slot as free, and cancel to complete
        the failed insert (publish would also work ... cancel has
        theoretically lower risk of false contention).
-  
+
        Likewise, if slot ele_idx contains key, we return that slot to
        the caller.  The caller can tell the difference between the
        previous case because the slot will be marked as used.
-       
+
        On return, the caller can modify the slot's value arbitrarily.
        IMPORANT SAFETY TIP!  THE CALLER MUST NOT MODIFY THE SLOT'S KEY
        OR MARK THE SLOT AS FREE.  USE REMOVE BELOW TO REMOVE KEYS.  When
@@ -1654,7 +1725,8 @@ int
 MAP_(query_try)( MAP_(t) const *   join,
                  MAP_KEY_T const * key,
                  MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query ) {
+                 MAP_(query_t) *   query,
+                 int               flags ) {
 
   MAP_ELE_T *     ele0       = join->ele;
   MAP_VERSION_T * lock       = join->lock;
@@ -1665,7 +1737,7 @@ MAP_(query_try)( MAP_(t) const *   join,
   int             lock_shift = join->lock_shift;
   void const *    ctx        = join->ctx;
 
-  ulong key_hash      = MAP_(key_hash)( key, seed );
+  ulong key_hash      = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
   ulong ele_idx       = key_hash & (ele_max-1UL);
   ulong version_lock0 = ele_idx >> lock_shift;
   ulong version_cnt   = 0UL;
