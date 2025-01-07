@@ -122,7 +122,7 @@ do{
 
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-  fd_vm_syscall_register_all( syscalls, 0 );
+  fd_vm_syscall_register_slot( syscalls, instr_ctx->slot_ctx, 0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
     fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL );
