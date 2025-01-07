@@ -34,6 +34,12 @@ FD_STATIC_ASSERT( FD_MAP_ERR_AGAIN==-2, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_FULL ==-5, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_KEY  ==-6, unit_test );
 
+FD_STATIC_ASSERT( FD_MAP_FLAG_USE_HINT     ==(1<<2), unit_test );
+FD_STATIC_ASSERT( FD_MAP_FLAG_PREFETCH_NONE==(0<<3), unit_test );
+FD_STATIC_ASSERT( FD_MAP_FLAG_PREFETCH_META==(1<<3), unit_test );
+FD_STATIC_ASSERT( FD_MAP_FLAG_PREFETCH_DATA==(2<<3), unit_test );
+FD_STATIC_ASSERT( FD_MAP_FLAG_PREFETCH     ==(3<<3), unit_test );
+
 #define SHMEM_MAX (1UL<<20)
 
 static FD_TL uchar shmem[ SHMEM_MAX ];
@@ -99,7 +105,11 @@ tile_main( int     argc,
 
     ulong r = fd_rng_ulong( rng );
 
-    int op = (int)(r & 7UL); r >>= 3;
+    int op       = (int)(r & 7UL);            r >>= 3;
+    int prefetch = (int)(r & 1UL);            r >>= 1;
+    int use_hint = (int)(r & 1UL) & prefetch; r >>= 1;
+
+    mymap_query_t query[1];
 
     switch( op ) {
 
@@ -110,8 +120,9 @@ tile_main( int     argc,
       uint  key  = map_key[ idx ];
       ulong memo = mymap_key_hash( &key, seed );
 
-      mymap_query_t query[1];
-      int       err = mymap_prepare( map, &key, sentinel, query );
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
+
+      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
@@ -137,8 +148,9 @@ tile_main( int     argc,
       ulong memo = mymap_key_hash( &key, seed );
       uint  mod  = 0U;
 
-      mymap_query_t query[1];
-      int       err = mymap_prepare( map, &key, sentinel, query );
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
+
+      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
@@ -166,7 +178,10 @@ tile_main( int     argc,
 
     case 2: { /* bad remove (i.e. key not already in map) */
 
-      uint key = (uint)(local_prefix | local_key); /* not yet inserted */
+      uint  key  = (uint)(local_prefix | local_key); /* not yet inserted */
+      ulong memo = mymap_key_hash( &key, seed );
+
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
       int err = mymap_remove( map, &key );
 
@@ -181,8 +196,11 @@ tile_main( int     argc,
     case 3: { /* good remove (i.e. key already in map) */
 
       if( FD_UNLIKELY( !map_cnt ) ) break;
-      ulong idx = fd_rng_ulong_roll( rng, map_cnt );
-      uint  key = map_key[ idx ];
+      ulong idx  = fd_rng_ulong_roll( rng, map_cnt );
+      uint  key  = map_key[ idx ];
+      ulong memo = mymap_key_hash( &key, seed );
+
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
       int err = mymap_remove( map, &key );
 
@@ -201,8 +219,9 @@ tile_main( int     argc,
       uint  key  = (uint)(local_prefix | local_key);
       ulong memo = mymap_key_hash( &key, seed );
 
-      mymap_query_t query[1];
-      int       err = mymap_prepare( map, &key, sentinel, query );
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
+
+      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
@@ -226,8 +245,9 @@ tile_main( int     argc,
       uint  key  = map_key[ idx ];
       ulong memo = mymap_key_hash( &key, seed );
 
-      mymap_query_t query[1];
-      int       err = mymap_prepare( map, &key, sentinel, query );
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
+
+      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
@@ -255,11 +275,13 @@ tile_main( int     argc,
 
     case 6: { /* bad query (i.e. key not already in map) */
 
-      uint key = (uint)(local_prefix | local_key);
+      uint  key  = (uint)(local_prefix | local_key);
+      ulong memo = mymap_key_hash( &key, seed );
 
-      mymap_query_t   query[1];
-      int             err = mymap_query_try( map, &key, sentinel, query );
-      myele_t const * ele = mymap_query_ele_const( query );
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
+
+      int             err = mymap_query_try( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      myele_t const * ele = mymap_query_ele_const( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       FD_TEST( ele==sentinel );
       if( err==FD_MAP_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
@@ -271,12 +293,14 @@ tile_main( int     argc,
     case 7: { /* good query */
 
       if( FD_UNLIKELY( !map_cnt ) ) break;
-      ulong idx = fd_rng_ulong_roll( rng, map_cnt );
-      uint  key = map_key[ idx ];
+      ulong idx  = fd_rng_ulong_roll( rng, map_cnt );
+      uint  key  = map_key[ idx ];
+      ulong memo = mymap_key_hash( &key, seed );
 
-      mymap_query_t   query[1];
-      int             err = mymap_query_try( map, &key, sentinel, query );
-      myele_t const * ele = mymap_query_ele_const( query );
+      if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
+
+      int             err = mymap_query_try( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      myele_t const * ele = mymap_query_ele_const( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( ele==sentinel         );
