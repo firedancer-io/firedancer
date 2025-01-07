@@ -438,10 +438,11 @@ fd_restart_init( fd_restart_t * restart,
 void
 fd_restart_tower_checkpt( fd_hash_t const * vote_bank_hash,
                           fd_tower_t * tower,
+                          ulong root,
                           int tower_checkpt_fileno ) {
     lseek( tower_checkpt_fileno, 0, SEEK_SET );
     ulong wsz, total_wsz = 0;
-    ulong slots_cnt = fd_tower_votes_cnt( tower->votes )+1;
+    ulong slots_cnt = fd_tower_votes_cnt( tower )+1;
 
     fd_io_write( tower_checkpt_fileno, vote_bank_hash, sizeof(fd_hash_t), sizeof(fd_hash_t), &wsz );
     if( FD_UNLIKELY( wsz!=sizeof(fd_hash_t) ) ) goto checkpt_finish;
@@ -449,14 +450,14 @@ fd_restart_tower_checkpt( fd_hash_t const * vote_bank_hash,
     fd_io_write( tower_checkpt_fileno, &slots_cnt, sizeof(ulong), sizeof(ulong), &wsz );
     if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
     total_wsz += wsz;
-    fd_io_write( tower_checkpt_fileno, &tower->root, sizeof(ulong), sizeof(ulong), &wsz );
+    fd_io_write( tower_checkpt_fileno, &root, sizeof(ulong), sizeof(ulong), &wsz );
     if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
     total_wsz += wsz;
 
-    for( fd_tower_votes_iter_t tower_iter = fd_tower_votes_iter_init( tower->votes );
-         !fd_tower_votes_iter_done( tower->votes, tower_iter );
-         tower_iter = fd_tower_votes_iter_next( tower->votes, tower_iter ) ) {
-      ulong slot = fd_tower_votes_iter_ele( tower->votes, tower_iter )->slot;
+    for( fd_tower_votes_iter_t tower_iter = fd_tower_votes_iter_init( tower );
+         !fd_tower_votes_iter_done( tower, tower_iter );
+         tower_iter = fd_tower_votes_iter_next( tower, tower_iter ) ) {
+      ulong slot = fd_tower_votes_iter_ele( tower, tower_iter )->slot;
       fd_io_write( tower_checkpt_fileno, &slot, sizeof(ulong), sizeof(ulong), &wsz );
       if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
       total_wsz += wsz;

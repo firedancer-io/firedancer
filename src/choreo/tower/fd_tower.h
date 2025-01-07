@@ -436,7 +436,7 @@
 #define FD_TOWER_USE_HANDHOLDING 1
 #endif
 
-#define FD_TOWER_VOTE_MAX (32UL)
+#define FD_TOWER_VOTE_MAX (31UL)
 
 struct fd_tower_vote {
   ulong slot; /* vote slot */
@@ -449,51 +449,44 @@ typedef struct fd_tower_vote fd_tower_vote_t;
 #define DEQUE_MAX  FD_TOWER_VOTE_MAX
 #include "../../util/tmpl/fd_deque.c"
 
-/* fd_tower implements the TowerBFT algorithm and related consensus
-   rules. */
+/* fd_tower is a representation of a validator's "vote tower" (described
+   in detail in the preamble at the top of this file).  The votes in the
+   tower are stored in an fd_deque ordered from lowest to highest vote
+   slot (highest to lowest confirmation count) relative to the head and
+   tail .  There can be at most 31 votes in the tower.  This invariant
+   is upheld with every call to `fd_tower_vote`.
 
-struct __attribute__((aligned(128UL))) fd_tower {
+   The definition of `fd_tower_t` is a simple typedef alias for
+   `fd_tower_vote_t` and is a transparent wrapper around the vote deque.
+   Relatedly, the tower API takes a local pointer to the first vote in
+   the deque (the result of `fd_deque_join`) as a parameter in all its
+   function signatures. */
 
-  /* Owned memory */
+typedef fd_tower_vote_t fd_tower_t;
 
-  /* The votes currently in the tower, ordered from latest to earliest
-     vote slot (lowest to highest confirmation count). */
+/* FD_TOWER_{ALIGN,FOOTPRINT} specify the alignment and footprint needed
+   for tower.  ALIGN is double x86 cache line to mitigate various kinds
+   of false sharing (eg. ACLPF adjacent cache line prefetch).  FOOTPRINT
+   is the size of fd_deque including the private header's start and end
+   and an exact multiple of ALIGN.  These are provided to facilitate
+   compile time tower declarations. */
 
-  fd_tower_vote_t * votes;
-
-  /* The root is the most recent vote in the tower to reach max lockout
-     (ie. confirmation count 32).  It is no longer present in the tower
-     votes themselves. */
-
-  ulong root; /* FIXME wire with fseq */
-
-  /* smr is a non-NULL pointer to an fseq that always contains the
-     highest observed smr.  This value is initialized by replay tile.
-
-     Do not read or modify outside the fseq API. */
-
-  ulong * smr;
-};
-typedef struct fd_tower fd_tower_t;
+#define FD_TOWER_ALIGN     (128UL)
+#define FD_TOWER_FOOTPRINT (512UL)
+FD_STATIC_ASSERT( FD_TOWER_FOOTPRINT==sizeof(fd_tower_votes_private_t), FD_TOWER_FOOTPRINT );
 
 /* fd_tower_{align,footprint} return the required alignment and
-   footprint of a memory region suitable for use as tower.  align is
-   double cache line to mitigate false sharing. */
+   footprint of a memory region suitable for use as a tower.  align
+   returns FD_TOWER_ALIGN.  footprint returns FD_TOWER_FOOTPRINT. */
 
 FD_FN_CONST static inline ulong
 fd_tower_align( void ) {
-  return alignof(fd_tower_t);
+   return FD_TOWER_ALIGN;
 }
 
 FD_FN_CONST static inline ulong
 fd_tower_footprint( void ) {
-  return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_INIT,
-      alignof(fd_tower_t),    sizeof(fd_tower_t)         ),
-      fd_tower_votes_align(), fd_tower_votes_footprint() ),
-    alignof(fd_tower_t) );
+   return FD_TOWER_FOOTPRINT;
 }
 
 /* fd_tower_new formats an unused memory region for use as a tower.  mem
@@ -517,7 +510,7 @@ fd_tower_join( void * tower );
    details).  Reasons for failure include tower is NULL. */
 
 void *
-fd_tower_leave( fd_tower_t const * tower );
+fd_tower_leave( fd_tower_t * tower );
 
 /* fd_tower_delete unformats a memory region used as a tower.  Assumes
    only the local process is joined to the region.  Returns a pointer to
@@ -530,7 +523,7 @@ fd_tower_delete( void * tower );
 
 /* fd_tower_lockout_check checks if we are locked out from voting for
    `slot`.  Returns 1 if we can vote for `slot` without violating
-   lockout, 0 otherwise.
+   lockout, 0 otherwise.  Assumes tower is non-empty.
 
    After voting for a slot n, we are locked out for 2^k slots, where k
    is the confirmation count of that vote.  Once locked out, we cannot
@@ -597,7 +590,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         ulong slot );
 
 /* fd_tower_switch_check checks if we can switch to `fork`.  Returns 1
-   if we can switch, 0 otherwise.
+   if we can switch, 0 otherwise.  Assumes tower is non-empty.
 
    There are two forks of interest: our last vote fork ("vote fork") and
    the fork we want to switch to ("switch fork"). The switch fork is
@@ -713,50 +706,31 @@ fd_tower_vote_slot( fd_tower_t *          tower,
 
 /* fd_tower_simulate_vote simulates a vote on the vote tower for slot,
    returning the new height (cnt) for all the votes that would have been
-   popped. */
+   popped.  Assumes tower is non-empty. */
 
 ulong
 fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot );
 
+/* Operations */
+
 /* fd_tower_vote votes for slot.  Assumes caller has already performed
-   all the tower checks to ensure this is a valid vote. */
+   the relevant tower checks (lockout_check, etc.) to ensure it is valid
+   to vote for `slot`.  Returns a new root if this vote results in the
+   lowest vote slot in the tower reaching max lockout.  The lowest vote
+   will also be popped from the tower.
 
-void
-fd_tower_vote( fd_tower_t const * tower, ulong slot );
+   Max lockout is equivalent to 1 << FD_TOWER_VOTE_MAX + 1 (which
+   implies confirmation count is FD_TOWER_VOTE_MAX + 1).  As a result,
+   fd_tower_vote also maintains the invariant that the tower contains at
+   most FD_TOWER_VOTE_MAX votes, because (in addition to vote expiry)
+   there will always be a pop before reaching FD_TOWER_VOTE_MAX + 1. */
 
-/* fd_tower_is_max_lockout returns 1 if the bottom vote of the tower has
-   reached max lockout, 0 otherwise.  Max lockout is equivalent to 1 <<
-   FD_TOWER_VOTE_MAX (equivalently, confirmation count is
-   FD_TOWER_VOTE_MAX).  So if the tower is at height FD_TOWER_VOTE_MAX,
-   then the bottom vote has reached max lockout. */
+ulong
+fd_tower_vote( fd_tower_t * tower, ulong slot );
 
-static inline int
-fd_tower_is_max_lockout( fd_tower_t const * tower ) {
-  return fd_tower_votes_cnt( tower->votes ) == FD_TOWER_VOTE_MAX;
-}
+/* Misc */
 
-/* fd_tower_publish publishes the tower.  Returns the new root.  Assumes
-   caller has already checked that tower is at max lockout (see
-   fd_tower_is_max_lockout).
-
-   smr is a non-NULL pointer to an fseq that always contains the highest
-   observed smr.
-
-   IMPORTANT! Caller should not read or modify this value outside the
-   fseq API. */
-
-static inline ulong
-fd_tower_publish( fd_tower_t * tower ) {
-  #if FD_TOWER_USE_HANDHOLDING
-  FD_TEST( fd_tower_is_max_lockout( tower ) );
-  #endif
-
-  ulong root = fd_tower_votes_pop_head( tower->votes ).slot;
-  tower->root = root;
-  return root;
-}
-
-/* fd_voter_from_vote_acc writes the saved tower inside `state` to the
+/* fd_tower_from_vote_acc writes the saved tower inside `state` to the
    caller-provided `tower`.  Assumes `tower` is a valid join of an
    fd_tower that is currently empty. */
 
@@ -771,12 +745,21 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
 
 void
 fd_tower_to_vote_txn( fd_tower_t const *  tower,
+                      ulong               root,
                       fd_hash_t const *   bank_hash,
                       fd_hash_t const *   recent_blockhash,
                       fd_pubkey_t const * validator_identity,
                       fd_pubkey_t const * vote_authority,
                       fd_pubkey_t const * vote_acc,
                       fd_txn_p_t *        vote_txn );
+
+/* fd_tower_verify checks the tower is in a valid state. The cnt should
+   be < FD_TOWER_VOTE_MAX, the vote slots and confirmation counts in the
+   tower should be monotonically increasing, and the root should be <
+   the bottom vote. */
+
+int
+fd_tower_verify( fd_tower_t const * tower );
 
 /* fd_tower_print pretty-prints tower as a formatted table.
 
@@ -794,6 +777,6 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
 */
 
 void
-fd_tower_print( fd_tower_t const * tower );
+fd_tower_print( fd_tower_t const * tower, ulong root );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */
