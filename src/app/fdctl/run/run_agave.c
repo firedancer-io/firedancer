@@ -144,6 +144,19 @@ agave_boot( config_t * config ) {
   ADDU( "--maximum-incremental-snapshots-to-retain", config->snapshots.maximum_incremental_snapshots_to_retain );
   ADDU( "--minimal-snapshot-download-speed", config->snapshots.minimum_snapshot_download_speed );
 
+  if( config->layout.agave_unified_scheduler_handler_threads ) {
+    if( FD_UNLIKELY( config->layout.agave_unified_scheduler_handler_threads>config->topo.agave_affinity_cnt ) ) {
+      FD_LOG_ERR(( "Trying to spawn %u handler threads but the agave subprocess has %lu cores. "
+                   "Either increase the number of cores in [layout.agave_affinity] or reduce "
+                   "the number of threads in [layout.agave_unified_scheduler_handler_threads].",
+                   config->layout.agave_unified_scheduler_handler_threads, config->topo.agave_affinity_cnt ));
+    }
+    ADDU( "--unified-scheduler-handler-threads", config->layout.agave_unified_scheduler_handler_threads );
+  } else {
+    ulong num_threads = fd_ulong_max( config->topo.agave_affinity_cnt-4UL, fd_ulong_min( config->topo.agave_affinity_cnt, 4UL ) );
+    ADDU( "--unified-scheduler-handler-threads", (uint)num_threads );
+  }
+
   argv[ idx ] = NULL;
 
   if( FD_LIKELY( strcmp( config->reporting.solana_metrics_config, "" ) ) ) {

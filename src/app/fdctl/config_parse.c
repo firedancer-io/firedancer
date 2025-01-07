@@ -270,6 +270,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
+  CFG_POP      ( uint,   layout.agave_unified_scheduler_handler_threads   );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.resolv_tile_count                         );
