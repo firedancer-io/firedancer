@@ -102,7 +102,7 @@ fd_exec_instr_test_runner_new( void * mem,
 
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
-  fd_spad_push( runner->spad );
+  fd_spad_push_debug( runner->spad );
   return runner;
 }
 
@@ -114,7 +114,7 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   if( FD_UNLIKELY( fd_spad_verify( runner->spad ) ) ) {
     FD_LOG_ERR(( "fd_spad_verify() failed" ));
   }
-  fd_spad_pop( runner->spad );
+  fd_spad_pop_debug( runner->spad );
   if( FD_UNLIKELY( fd_spad_frame_used( runner->spad )!=0 ) ) {
     FD_LOG_ERR(( "stray spad frame frame_used=%lu", fd_spad_frame_used( runner->spad ) ));
   }
@@ -337,7 +337,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     if( borrowed_accts[j].const_meta ) {
-      uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      uchar * data = fd_spad_alloc_debug( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong   dlen = borrowed_accts[j].const_meta->dlen;
       fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
@@ -1448,7 +1448,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   fd_vm_input_region_t * input_regions = NULL;
   uint input_regions_count = 0U;
   if( !!(input->vm_ctx.input_data_regions_count) ) {
-    input_regions       = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+    input_regions       = fd_spad_alloc_debug( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
     input_regions_count = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
     if ( !input_regions_count ) {
       goto error;

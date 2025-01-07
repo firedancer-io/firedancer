@@ -91,11 +91,11 @@ do{
     break;
   }
   ulong   rodata_sz = input->vm_ctx.rodata->size;
-  uchar * rodata = fd_spad_alloc( spad, 8UL, rodata_sz );
+  uchar * rodata = fd_spad_alloc_debug( spad, 8UL, rodata_sz );
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Load input data regions */
-  fd_vm_input_region_t * input_regions     = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+  fd_vm_input_region_t * input_regions     = fd_spad_alloc_debug( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
   uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
@@ -319,7 +319,7 @@ fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
       continue; /* skip empty regions https://github.com/anza-xyz/agave/blob/3072c1a72b2edbfa470ca869f1ea891dfb6517f2/programs/bpf_loader/src/serialization.rs#L136 */
     }
 
-    uchar * haddr = fd_spad_alloc( spad, 8UL, array->size );
+    uchar * haddr = fd_spad_alloc_debug( spad, 8UL, array->size );
     fd_memcpy( haddr, array->bytes, array->size );
     input[input_idx].vaddr_offset     = offset;
     input[input_idx].haddr            = (ulong)haddr;
