@@ -1,3 +1,12 @@
+ifeq ($(wildcard agave/Cargo.toml),)
+
+$(warning agave submodule not checked out)
+ifneq ($(filter $(MAKECMDGOALS),fddev fdctl),)
+$(error Please run 'git submodule update --init')
+endif
+
+else
+
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
@@ -213,6 +222,7 @@ frontend:
 	echo "    {0}" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 	echo "};" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 
+endif
 endif
 endif
 endif
