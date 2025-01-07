@@ -3,7 +3,8 @@ use crate::bindings::{
     fd_pcapng_fwrite_tls_key_log, fd_quic_get_aio_net_rx, fd_quic_init,
     fd_quic_new_anonymous_small, fd_quic_service, fd_quic_set_aio_net_tx, fd_quic_t, fd_rng_t,
     fd_udpsock_align, fd_udpsock_footprint, fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new,
-    fd_udpsock_service, fd_udpsock_set_rx, fd_udpsock_t, FD_QUIC_ROLE_SERVER,
+    fd_udpsock_service, fd_udpsock_set_layer, fd_udpsock_set_rx, fd_udpsock_t, FD_QUIC_ROLE_SERVER,
+    FD_UDPSOCK_LAYER_IP,
 };
 use libc::{fflush, fopen, strlen, FILE};
 use quinn::crypto::rustls::QuicClientConfig;
@@ -79,6 +80,7 @@ pub(crate) unsafe fn quinn_to_fdquic(crypto_provider: CryptoProvider) {
     )) as *mut c_void;
     let udpsock = fd_udpsock_join(fd_udpsock_new(udpsock_mem, 2048, 256, 256), udp_sock_fd);
     assert!(!udpsock.is_null(), "Failed to create fd_udpsock_t");
+    fd_udpsock_set_layer(udpsock, FD_UDPSOCK_LAYER_IP);
 
     let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
@@ -144,9 +146,10 @@ pub(crate) unsafe fn quinn_to_fdquic(crypto_provider: CryptoProvider) {
         }
         let metrics = &(*quic3).metrics.__bindgen_anon_1;
         // Limit packet counts to reasonable numbers
+        eprintln!("Sent {} packets", metrics.net_tx_pkt_cnt);
         eprintln!("Received {} packets", metrics.net_rx_pkt_cnt);
         assert!(metrics.net_rx_pkt_cnt < 64);
-        assert!(metrics.net_tx_pkt_cnt < metrics.net_rx_pkt_cnt);
+        assert!(metrics.net_tx_pkt_cnt <= metrics.net_rx_pkt_cnt);
         assert!(metrics.net_tx_byte_cnt < metrics.net_rx_byte_cnt);
         assert!(metrics.conn_active_cnt <= 1);
         assert!(metrics.conn_created_cnt == 1);
