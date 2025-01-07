@@ -169,6 +169,7 @@ struct fd_gui_slot {
   ulong compute_units;
   ulong transaction_fee;
   ulong priority_fee;
+  ulong tips;
 
   int leader_state;
 

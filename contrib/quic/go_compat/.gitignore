@@ -1,0 +1,2 @@
+# "go build ." outputs this binary
+/go_compat

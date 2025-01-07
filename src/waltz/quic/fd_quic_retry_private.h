@@ -20,7 +20,9 @@
 
 /* FD_QUIC_RETRY_EXPIRE_SHIFT: Expiry timestamps (unix nanos) are right-
    shifted 22 bits to avoid leaking high-precision timing information.
-   This results in a precision of ~4.19 ms. */
+   This results in a precision of ~4.19 ms.
+
+   FIXME this breaks when using slower fd_quic clocks */
 
 #define FD_QUIC_RETRY_EXPIRE_SHIFT (22)
 

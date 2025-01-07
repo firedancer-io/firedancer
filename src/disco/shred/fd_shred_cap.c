@@ -1,5 +1,6 @@
 #include "fd_shred_cap.h"
 #include <unistd.h>
+#include <stdio.h>
 
 /* int */
 /* fd_shred_cap_mark_stable( fd_replay_t * replay, ulong slot ) { */

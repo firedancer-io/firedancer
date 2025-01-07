@@ -16,7 +16,6 @@
 #include "../crypto/fd_quic_crypto_suites.h"
 #include "../templ/fd_quic_parse_util.h"
 #include "../../tls/test_tls_helper.h"
-#include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 #include "../fd_quic_proto.h"
@@ -24,6 +23,7 @@
 #include "../fd_quic_private.h"
 
 #include <assert.h>
+#include <stdlib.h> /* putenv, atexit */
 
 static FD_TL ulong g_clock;
 
@@ -40,6 +40,9 @@ LLVMFuzzerInitialize( int *    pargc,
   atexit( fd_halt );
   fd_log_level_logfile_set(0);
   fd_log_level_stderr_set(0);
+# ifndef FD_DEBUG_MODE
+  fd_log_level_core_set(3); /* crash on warning log */
+# endif
   return 0;
 }
 
@@ -64,12 +67,11 @@ send_udp_packet( fd_quic_t *   quic,
 
   uchar buf[16384];
 
-  ulong headers_sz = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+  ulong headers_sz = sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
 
   uchar * cur = buf;
   uchar * end = buf + sizeof(buf);
 
-  fd_eth_hdr_t eth = { .net_type = FD_ETH_HDR_TYPE_IP };
   fd_ip4_hdr_t ip4 = {
     .verihl      = FD_IP4_VERIHL(4,5),
     .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
@@ -83,7 +85,6 @@ send_udp_packet( fd_quic_t *   quic,
   };
 
   /* Guaranteed to not overflow */
-  fd_quic_encode_eth( cur, (ulong)( end-cur ), &eth ); cur += sizeof(fd_eth_hdr_t);
   fd_quic_encode_ip4( cur, (ulong)( end-cur ), &ip4 ); cur += sizeof(fd_ip4_hdr_t);
   fd_quic_encode_udp( cur, (ulong)( end-cur ), &udp ); cur += sizeof(fd_udp_hdr_t);
 
@@ -127,8 +128,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   fd_quic_config_anonymous( quic, role );
 
-  fd_tls_test_sign_ctx_t test_signer = fd_tls_test_sign_ctx( rng );
-  fd_quic_config_test_signer( quic, &test_signer );
+  fd_tls_test_sign_ctx_t test_signer[1];
+  fd_tls_test_sign_ctx( test_signer, rng );
+  fd_quic_config_test_signer( quic, test_signer );
 
   quic->cb.now = test_clock;
   quic->config.retry = enable_retry;

@@ -33,7 +33,7 @@ typedef struct {
 
 static sol_compat_features_t features;
 static       uchar *     smem;
-static const ulong       smax = 1UL<<30;
+static const ulong       smax = 1UL<<27;
 
 static       uchar *     spad_mem;
 
@@ -63,13 +63,13 @@ void
 sol_compat_wksp_init( void ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 8UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+  wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 18UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
   assert( wksp );
 
-  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, 3 ); /* 1342191744 B */
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, 3 ); /* 4738713960 B */
   assert( spad_mem );
 
-  smem = malloc( smax );  /* 1 GiB */
+  smem = malloc( smax );  /* 128 MB */
   assert( smem );
 
   features.struct_size         = sizeof(sol_compat_features_t);
@@ -189,6 +189,8 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
   if( FD_UNLIKELY( !out_used ) ) {
     *output = NULL;
   }
+
+  fd_scratch_trim( (void *)( (ulong)out0 + out_used ) );
 }
 
 /*
@@ -199,25 +201,30 @@ int
 sol_compat_cmp_binary_strict( void const * effects,
                               void const * expected,
                               pb_msgdesc_t const * encode_type ) {
-#define MAX_SZ 1024*1024
+#define MAX_SZ 32*1024*1024
+FD_SCRATCH_SCOPE_BEGIN {
   if( effects==NULL ) {
     FD_LOG_WARNING(( "No output effects" ));
     return 0;
   }
 
+  /* Note: Most likely this scratch allocation won't fail. If it does, you may need to bump
+     the allocated scratch memory amount in fd_exec_sol_compat.c. */
   ulong out_sz = MAX_SZ;
-  uchar out[MAX_SZ];
+  uchar * out = fd_scratch_alloc( 1UL, out_sz );
   if( !sol_compat_encode( out, &out_sz, effects, encode_type ) ) {
     FD_LOG_WARNING(( "Error encoding effects" ));
     return 0;
   }
+  fd_scratch_trim( out+out_sz );
 
   ulong exp_sz = MAX_SZ;
-  uchar exp[MAX_SZ];
+  uchar * exp = fd_scratch_alloc( 1UL, exp_sz );
   if( !sol_compat_encode( exp, &exp_sz, expected, encode_type ) ) {
     FD_LOG_WARNING(( "Error encoding expected" ));
     return 0;
   }
+  fd_scratch_trim( exp+exp_sz );
 
   if( out_sz!=exp_sz ) {
     FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz  ));
@@ -229,6 +236,8 @@ sol_compat_cmp_binary_strict( void const * effects,
   }
 
   return 1;
+} FD_SCRATCH_SCOPE_END;
+#undef MAX_SIZE
 }
 
 static int

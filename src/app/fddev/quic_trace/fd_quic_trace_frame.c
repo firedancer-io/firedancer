@@ -69,30 +69,79 @@ fd_quic_trace_crypto_frame(
 FRAME_STUB( new_token )
 
 static ulong
-fd_quic_trace_stream_frame(
+fd_quic_trace_stream_8_frame(
     fd_quic_trace_frame_ctx_t * context,
-    fd_quic_stream_frame_t *    frame,
+    fd_quic_stream_8_frame_t *  data,
     uchar const *               p FD_PARAM_UNUSED,
     ulong                       p_sz ) {
-
-  ulong offset = fd_ulong_if( frame->offset_opt, frame->offset, 0UL );
-  ulong length = fd_ulong_if( frame->length_opt, frame->length, p_sz );
-  if( FD_UNLIKELY( length>p_sz ) ) return FD_QUIC_PARSE_FAIL;
-
-  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=%4lu (%s) len=%4lu (%s) fin=%d\n",
+  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=   0 (i) len=%4lu (i) fin=%i\n",
           fd_log_wallclock(),
           context->conn_id,
           fd_uint_bswap( context->src_ip ),
           context->src_port,
           context->pkt_num,
-          frame->stream_id,
-          offset,
-          frame->offset_opt ? "e" : "i",
-          length,
-          frame->length_opt ? "e" : "i",
-          frame->fin_opt );
+          data->stream_id,
+          p_sz,
+          data->type&1 );
+  return p_sz;
+}
 
-  return length;
+static ulong
+fd_quic_trace_stream_a_frame(
+    fd_quic_trace_frame_ctx_t * context,
+    fd_quic_stream_a_frame_t *  data,
+    uchar const *               p FD_PARAM_UNUSED,
+    ulong                       p_sz ) {
+  if( data->length > p_sz ) return FD_QUIC_PARSE_FAIL;
+  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=   0 (i) len=%4lu (e) fin=%i\n",
+          fd_log_wallclock(),
+          context->conn_id,
+          fd_uint_bswap( context->src_ip ),
+          context->src_port,
+          context->pkt_num,
+          data->stream_id,
+          data->length,
+          data->type&1 );
+  return data->length;
+}
+
+static ulong
+fd_quic_trace_stream_c_frame(
+    fd_quic_trace_frame_ctx_t * context,
+    fd_quic_stream_c_frame_t *  data,
+    uchar const *               p FD_PARAM_UNUSED,
+    ulong                       p_sz ) {
+  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=%4lu (e) len=%4lu (i) fin=%i\n",
+          fd_log_wallclock(),
+          context->conn_id,
+          fd_uint_bswap( context->src_ip ),
+          context->src_port,
+          context->pkt_num,
+          data->stream_id,
+          data->offset,
+          p_sz,
+          data->type&1 );
+  return p_sz;
+}
+
+static ulong
+fd_quic_trace_stream_e_frame(
+    fd_quic_trace_frame_ctx_t * context,
+    fd_quic_stream_e_frame_t *  data,
+    uchar const *               p    FD_PARAM_UNUSED,
+    ulong                       p_sz FD_PARAM_UNUSED ) {
+  if( data->length > p_sz ) return FD_QUIC_PARSE_FAIL;
+  printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=%4lu (e) len=%4lu (e) fin=%i\n",
+          fd_log_wallclock(),
+          context->conn_id,
+          fd_uint_bswap( context->src_ip ),
+          context->src_port,
+          context->pkt_num,
+          data->stream_id,
+          data->offset,
+          data->length,
+          data->type&1 );
+  return data->length;
 }
 
 FRAME_STUB( max_data )

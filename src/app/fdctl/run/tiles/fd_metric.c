@@ -74,7 +74,7 @@ metrics_http_request( fd_http_server_request_t const * request ) {
   }
 
   if( FD_LIKELY( !strcmp( request->path, "/metrics" ) ) ) {
-    fd_prometheus_format( ctx->topo, ctx->metrics_server );
+    fd_prometheus_render_all( ctx->topo, ctx->metrics_server );
 
     fd_http_server_response_t response = {
       .status       = 200,

@@ -1,10 +1,11 @@
 #include "../../../../disco/tiles.h"
 
+#include <sys/types.h> /* SEEK_SET */
+#include <unistd.h>
 #include "generated/cswtch_seccomp.h"
 
 #include "../../../../disco/metrics/fd_metrics.h"
 
-#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 

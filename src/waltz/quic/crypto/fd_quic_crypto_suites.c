@@ -1,9 +1,6 @@
 #include "fd_quic_crypto_suites.h"
 #include "../fd_quic.h"
 
-#include <assert.h>
-#include <limits.h>
-
 #include "../../../ballet/aes/fd_aes_base.h"
 #include "../../../ballet/aes/fd_aes_gcm.h"
 #include "../../../ballet/hmac/fd_hmac.h"
@@ -34,10 +31,11 @@ fd_quic_hkdf_expand_label( uchar *       out,
 }
 
 void
-fd_quic_gen_initial_secret(
+fd_quic_gen_initial_secrets(
     fd_quic_crypto_secrets_t * secrets,
     uchar const *              conn_id,
-    ulong                      conn_id_sz ) {
+    ulong                      conn_id_sz,
+    int                        is_server ) {
   /* Initial Packets
      from rfc:
      initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
@@ -46,15 +44,11 @@ fd_quic_gen_initial_secret(
   fd_quic_hkdf_extract( secrets->initial_secret,
                         initial_salt,            initial_salt_sz,
                         conn_id,                 conn_id_sz );
-}
 
-
-void
-fd_quic_gen_secrets(
-    fd_quic_crypto_secrets_t * secrets,
-    uint                       enc_level ) {
-  uchar * client_secret = secrets->secret[enc_level][0];
-  uchar * server_secret = secrets->secret[enc_level][1];
+  uchar * read_secret   = secrets->secret[0][0];
+  uchar * write_secret  = secrets->secret[0][1];
+  uchar * client_secret = is_server ? read_secret  : write_secret;
+  uchar * server_secret = is_server ? write_secret : read_secret;
 
   fd_quic_hkdf_expand_label(
       client_secret, FD_QUIC_SECRET_SZ,
@@ -68,7 +62,6 @@ fd_quic_gen_secrets(
       FD_QUIC_CRYPTO_LABEL_SERVER_IN,
       FD_QUIC_CRYPTO_LABEL_SERVER_IN_LEN );
 }
-
 
 void
 fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,

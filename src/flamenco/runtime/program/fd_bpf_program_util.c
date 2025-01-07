@@ -53,7 +53,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   return id;
 }
 
-/* Similar to the below function, but gets the executable program content for the v4 loader.
+/* Similar to the below function, but gets the executable program content for the v4 loader. 
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
    NOT be retracted to be added to the cache. */
 static int

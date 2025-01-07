@@ -280,7 +280,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Load program */
   int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, deploy_mode );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -566,7 +565,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
-  instr_ctx->txn_ctx->compute_meter = vm->cu;
+  
+  /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
+  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, consume_requested_cu_on_vm_err )
+      && exec_err != FD_VM_ERR_SIGSYSCALL ) {
+    instr_ctx->txn_ctx->compute_meter = 0UL;
+  } else {
+    instr_ctx->txn_ctx->compute_meter = vm->cu;
+  }
 
   if( FD_UNLIKELY( vm->trace ) ) {
     int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -918,8 +924,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } FD_BORROWED_ACCOUNT_DROP( buffer );
       } FD_BORROWED_ACCOUNT_DROP( payer  );
 
-      /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L628-L642 */
-      /* Pass an extra account to avoid the overly strict unblanaced instruction error */
+      /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L628-L642 */
+      /* Pass an extra account to avoid the overly strict unbalanced instruction error */
       /* Invoke the system program to create the new account */
       fd_system_program_instruction_create_account_t create_acct = {0};
       create_acct.lamports = fd_rent_exempt_minimum_balance( rent, programdata_len );
@@ -964,7 +970,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Failed to deploy program" )); // custom log
         return err;
       }
 
@@ -1220,7 +1225,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
       }
 
@@ -1752,7 +1756,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
       }
 

@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "../fd_quic_common.h"
+#include "../../../util/bits/fd_bits.h"
 
 static inline uint
 fd_quic_varint_min_sz_unsafe( ulong val ) {
@@ -115,6 +116,13 @@ fd_quic_one_rtt_spin_bit( uint h0 ) {
 static inline uint
 fd_quic_one_rtt_key_phase( uint h0 ) {
   return (uint)( (h0>>2) & 1 );
+}
+
+static inline uchar
+fd_quic_stream_type( uint has_off,
+                     uint has_len,
+                     uint fin ) {
+  return (uchar)( 0x08 + (has_off<<2) + (has_len<<1) + fin );
 }
 
 __attribute__((used)) static ulong

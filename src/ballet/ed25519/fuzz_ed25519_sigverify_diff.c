@@ -42,6 +42,7 @@ LLVMFuzzerInitialize( int  *   argc,
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
   atexit( fd_halt );
+  fd_log_level_core_set(3); /* crash on warning log */
 
   void * dalek = dlopen( "contrib/ed25519/dalek_target/target/x86_64-unknown-linux-gnu/release/libdalek_target.so", RTLD_LAZY );
   if( FD_UNLIKELY( !dalek ) )

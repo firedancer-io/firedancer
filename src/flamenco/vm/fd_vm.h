@@ -34,9 +34,12 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
-   uint  region_idx;
-   uchar has_data_region;
-   uchar has_resizing_region;        
+   uint                                region_idx;
+   uchar                               has_data_region;
+   uchar                               has_resizing_region;   
+   /* offset of the accounts metadata region, relative to the start of the input region.
+      importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */   
+   ulong                               metadata_region_offset;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 

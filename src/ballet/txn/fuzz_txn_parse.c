@@ -15,6 +15,9 @@ LLVMFuzzerInitialize( int  *   argc,
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
+#ifndef FD_DEBUG_MODE
+  fd_log_level_core_set(3); /* crash on warning log */
+#endif
   atexit( fd_halt );
   return 0;
 }

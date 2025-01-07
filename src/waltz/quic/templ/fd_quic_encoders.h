@@ -1,4 +1,5 @@
 // QUIC encoders
+#include "../../../util/log/fd_log.h"
 
 /* TODO replace FD_QUIC_PARSE_FAIL with FD_QUIC_ENCODE_FAIL */
 
@@ -49,13 +50,6 @@
     buf[0] = ID_LO;                                                    \
     type_ptr = buf++;
 
-/* encodes frame->NAME into the type field */
-#define FD_TEMPL_MBR_FRAME_TYPE_FLAG(NAME,MASK)                        \
-    if( type_ptr ) {                                                   \
-      type_ptr[0] = (uchar)( ( type_ptr[0] & ~(uint)(MASK) )           \
-                           | ( frame->NAME &  (uint)(MASK) ) );        \
-    }
-
 
 /* encodes aligned bytes into output */
 #define FD_TEMPL_MBR_ELEM(NAME,TYPE)                                   \
@@ -84,19 +78,19 @@
 
 
 // VAR currently assumed to be aligned bytes
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)                   \
     tmp_len = frame->LEN_NAME;                                         \
-    if( FD_UNLIKELY( tmp_len*8 < BITS_MIN || tmp_len*8 > BITS_MAX ) ) {\
+    if( FD_UNLIKELY( tmp_len<(MIN) || tmp_len>(MAX) ) ) {              \
       FD_LOG_DEBUG(( "buffer overflow encoding variable length field." \
             "  field: " #NAME                                          \
-            "  BITS_MIN: %lu"                                          \
-            "  BITS_MAX: %lu"                                          \
+            "  MIN: %lu"                                               \
+            "  MAX: %lu"                                               \
             "  " #LEN_NAME ": %lu"                                     \
-            "  tmp_len*8: %lu\n",                                      \
-            (ulong)BITS_MIN,                                           \
-            (ulong)BITS_MAX,                                           \
+            "  tmp_len: %lu\n",                                        \
+            (ulong)MIN,                                                \
+            (ulong)MAX,                                                \
             (ulong)frame->LEN_NAME,                                    \
-            (ulong)( tmp_len * 8 ) ));                                 \
+            (ulong)tmp_len ));                                         \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( (ulong)buf + tmp_len > (ulong)buf_end ) ) {       \
@@ -106,65 +100,14 @@
     buf += tmp_len;
 
 
-// VAR currently assumed to be aligned bytes
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
-    tmp_len = frame->LEN_NAME;                                         \
-    if( FD_UNLIKELY( tmp_len*8 < BITS_MIN || tmp_len*8 > BITS_MAX ) ) {\
-      FD_LOG_DEBUG(( "buffer overflow encoding variable length field." \
-            "  field: " #NAME                                          \
-            "  BITS_MIN: %lu"                                          \
-            "  BITS_MAX: %lu"                                          \
-            "  " #LEN_NAME ": %lu"                                     \
-            "  tmp_len*8: %lu\n",                                      \
-            (ulong)BITS_MIN,                                           \
-            (ulong)BITS_MAX,                                           \
-            (ulong)frame->LEN_NAME,                                    \
-            (ulong)( tmp_len * 8 ) ));                                 \
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)     \
+    FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)
+
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES)                              \
+    if( FD_UNLIKELY( buf+(BYTES) > buf_end ) )                         \
       return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    if( FD_UNLIKELY( (ulong)buf + tmp_len > (ulong)buf_end ) ) {       \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    }                                                                  \
-    fd_memcpy( buf, frame->NAME, tmp_len );                            \
-    buf += tmp_len;
-
-/* ARRAY is an array of elements, each of the same size,
-   with length implied by the packet size
-   caller has responsibility of ensuring the size of the array is not
-   too large for the space in a packet */
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)         \
-    tmp_len = frame->NAME##_len;                                       \
-    if( tmp_len * sizeof( fd_quic_##TYPE ) > BYTES_MAX ) {             \
-      return FD_QUIC_ENCODE_FAIL;                                      \
-    }                                                                  \
-    for( ulong j=0; j<tmp_len; ++j ) {                                 \
-      buf += FD_TEMPL_ENCODE(TYPE,frame->NAME[j],buf);                 \
-    }
-
-/* FIXED is an array of elements, each of the same size,
-   with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                       \
-    if( FD_UNLIKELY( BYTES > buf_end-buf ||                            \
-                     BYTES % sizeof(fd_quic_##TYPE) ) )                \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    tmp_len = BYTES / sizeof(fd_quic_##TYPE);                          \
-    for( ulong j=0; j<tmp_len; ++j ) {                                 \
-      buf += FD_TEMPL_ENCODE(TYPE,frame->NAME[j],buf);                 \
-    }
-
-/* TODO remove abort() once tested */
-#define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)                           \
-    if( !type_ptr ) {                                                  \
-      abort();                                                         \
-    }                                                                  \
-    if( frame->NAME##_opt ) {                                          \
-      type_ptr[0] |= (uchar)(MASK);                                    \
-      __VA_ARGS__                                                      \
-    }
-
-    /* TODO probably easier to split up relevant frames rather than
-       code a generic optional in macros */
-
+    memcpy( buf, frame->NAME, (BYTES) );                               \
+    buf += (BYTES);
 
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                  \

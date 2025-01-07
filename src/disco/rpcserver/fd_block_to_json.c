@@ -1,7 +1,5 @@
 #include <stdio.h>
 #include <unistd.h>
-#define ZSTD_STATIC_LINKING_ONLY
-#include <zstd.h>
 #include <errno.h>
 #include "../../util/fd_util.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -17,6 +15,11 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "fd_block_to_json.h"
 #include "fd_stub_to_json.h"
+
+#if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#endif
 
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 

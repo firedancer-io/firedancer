@@ -354,7 +354,7 @@ fd_gossip_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
   l = FD_LAYOUT_APPEND( l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX) );
-  l = FD_LAYOUT_FINI(l, fd_gossip_align());
+  l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
 
@@ -394,7 +394,7 @@ fd_gossip_new ( void * shmem, ulong seed ) {
   shm = FD_SCRATCH_ALLOC_APPEND(l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX));
   glob->push_states_pool = fd_push_states_pool_join( fd_push_states_pool_new( shm, FD_PUSH_LIST_MAX ) );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI(l, 1UL);
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, fd_gossip_align() );
   if ( scratch_top > (ulong)shmem + fd_gossip_footprint() ) {
     FD_LOG_ERR(("Not enough space allocated for gossip"));
   }

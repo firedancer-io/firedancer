@@ -81,7 +81,6 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   FD_TEST( !deq_fd_block_block_hash_entry_t_full(hashes) );
   fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
-  // bank.poh is updated in fd_runtime_block_verify
   fd_memcpy(elem->blockhash.hash, &slot_ctx->slot_bank.poh, sizeof(slot_ctx->slot_bank.poh));
 
   elem->fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;

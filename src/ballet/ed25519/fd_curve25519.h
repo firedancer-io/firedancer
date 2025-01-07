@@ -76,6 +76,10 @@ fd_ed25519_point_t *
 fd_ed25519_point_neg( fd_ed25519_point_t *       r,
                       fd_ed25519_point_t const * a );
 
+fd_ed25519_point_t *
+fd_ed25519_point_dbl( fd_ed25519_point_t *       r,
+                      fd_ed25519_point_t const * a );
+
 /* fd_ed25519_point_is_zero returns 1 if a == 0 (point at infinity), 0 otherwise. */
 int
 fd_ed25519_point_is_zero( fd_ed25519_point_t const * a );

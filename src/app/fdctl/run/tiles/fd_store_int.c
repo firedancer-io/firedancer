@@ -385,6 +385,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
+    fd_blockstore_start_read( ctx->blockstore );
     fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
     if( block == NULL ) {
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
@@ -396,6 +397,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     }
 
     fd_hash_t const * block_hash = fd_blockstore_block_hash_query( ctx->blockstore, slot );
+    fd_blockstore_end_read( ctx->blockstore );
     if( block_hash == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
@@ -405,8 +407,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
     out_buf += sizeof(fd_hash_t);
-
-    uchar * block_data = fd_blockstore_block_data_laddr( ctx->blockstore, block );
 
     FD_SCRATCH_SCOPE_BEGIN {
       ulong caught_up = slot > ctx->store->first_turbine_slot;
@@ -432,18 +432,24 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                         slot,
                         caught_up ));
 
+        /* Calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
+           sent to the replay tile, sending a maximum of 4096 transactions to the replay tile at a time */
         fd_raw_block_txn_iter_t iter;
         fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
         if( FD_LIKELY( query ) ) {
           iter = query->iter;
         } else {
-          iter = fd_raw_block_txn_iter_init( block_data, block->data_sz );
+          iter = fd_raw_block_txn_iter_init(
+            fd_blockstore_block_data_laddr( ctx->blockstore, block ),
+            fd_blockstore_block_batch_laddr( ctx->blockstore, block ),
+            block->batch_cnt
+          );
         }
 
-        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( block_data, iter ) ) {
+        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( iter ) ) {
           /* TODO: remove magic number for txns per send */
           if( txn_cnt == 4096 ) break;
-          fd_raw_block_txn_iter_ele( block_data, iter, txns + txn_cnt );
+          fd_raw_block_txn_iter_ele( iter, txns + txn_cnt );
           txn_cnt++;
         }
 
@@ -542,7 +548,7 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -739,8 +745,8 @@ unprivileged_init( fd_topo_t *      topo,
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
-      block_map_entry->flags       = 0;
+      fd_block_map_t * block_map_entry        = fd_blockstore_block_map_query( ctx->blockstore, slot );
+                       block_map_entry->flags = 0;
       fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }
     fd_blockstore_end_write( ctx->blockstore );
@@ -773,7 +779,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_store_tile_ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
   return sock_filter_policy_store_int_instr_cnt;

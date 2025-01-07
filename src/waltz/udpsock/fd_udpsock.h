@@ -76,6 +76,15 @@ fd_udpsock_get_ip4_address( fd_udpsock_t const * sock );
 FD_FN_PURE uint
 fd_udpsock_get_listen_port( fd_udpsock_t const * sock );
 
+/* FIXME remove all usages of Ethernet layer fd_udpsock */
+
+#define FD_UDPSOCK_LAYER_ETH (0U)
+#define FD_UDPSOCK_LAYER_IP  (1U)
+
+fd_udpsock_t *
+fd_udpsock_set_layer( fd_udpsock_t * sock,
+                      uint           layer );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_udpsock_fd_udpsock_h */

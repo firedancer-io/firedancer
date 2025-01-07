@@ -112,7 +112,6 @@ fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
   return (fd_pubkey_t const *)fd_type_pun_const( id->c );
 }
 
-
 /* Account Access API *************************************************/
 
 static inline void

@@ -43,7 +43,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
     enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot_ctx, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot_ctx, enable_get_epoch_stake_syscall );
 
-    disable_fees_sysvar                  = !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
+    disable_fees_sysvar                  = FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
 
   } else { /* enable ALL */
 

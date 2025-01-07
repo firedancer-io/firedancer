@@ -36,7 +36,7 @@ fd_loader_v4_set_state( fd_exec_instr_ctx_t *  instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  fd_loader_v4_state_t * out_state = (fd_loader_v4_state_t *)data;
+  fd_loader_v4_state_t * out_state = fd_type_pun( data );
   *out_state = *state;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -54,7 +54,9 @@ fd_loader_v4_get_state( fd_borrowed_account_t const * program,
   if( FD_UNLIKELY( program->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
-  *state = *( (fd_loader_v4_state_t *) program->const_data );
+
+  fd_loader_v4_state_t const * in_state = fd_type_pun_const( program->const_data );
+  *state = *in_state;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -341,7 +343,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   fd_loader_v4_state_t          program_state          = {0};
   fd_sol_sysvar_clock_t const * clock                  = fd_sysvar_cache_clock( instr_ctx->slot_ctx->sysvar_cache );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.r s#L217-L219 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L217-L219 */
   fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L216 */

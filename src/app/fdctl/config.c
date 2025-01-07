@@ -110,7 +110,8 @@ listen_address( const char * interface ) {
   int fd = socket( AF_INET, SOCK_DGRAM, 0 );
   struct ifreq ifr = {0};
   ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  ifr.ifr_name[ IFNAMSIZ-1 ] = '\0';
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get IP address of interface `%s` (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
@@ -124,7 +125,7 @@ mac_address( const char * interface,
   int fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_IP );
   struct ifreq ifr;
   ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
@@ -262,7 +263,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
+    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;

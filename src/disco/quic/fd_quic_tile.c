@@ -5,6 +5,7 @@
 #include "fd_tpu.h"
 #include "../../waltz/quic/fd_quic_private.h"
 #include "../../app/fdctl/run/tiles/generated/quic_seccomp.h"
+#include "../../util/net/fd_eth.h"
 
 #include <errno.h>
 #include <linux/unistd.h>
@@ -52,14 +53,14 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong depth     = tile->quic.out_depth;
+  ulong out_depth = tile->quic.out_depth;
   ulong reasm_max = tile->quic.reasm_cnt;
 
   fd_quic_limits_t limits = quic_limits( tile ); /* May FD_LOG_ERR */
   ulong            l      = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )                    );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits )               );
-  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(),     fd_tpu_reasm_footprint( depth, reasm_max ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )                        );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits )                   );
+  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(),     fd_tpu_reasm_footprint( out_depth, reasm_max ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -146,9 +147,10 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
 
-  FD_MCNT_SET(   QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
-  FD_MCNT_SET(   QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
-  FD_MCNT_SET(   QUIC, PKT_TX_ALLOC_FAIL, ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,        ctx->quic->metrics.pkt_no_key_cnt );
+  FD_MCNT_SET(       QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(       QUIC, PKT_TX_ALLOC_FAIL, ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
@@ -216,9 +218,13 @@ after_frag( fd_quic_ctx_t *     ctx,
   ulong proto = fd_disco_netmux_sig_proto( sig );
 
   if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
+    if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t) ) ) FD_LOG_ERR(( "QUIC packet too small" ));
+    uchar * ip_pkt = ctx->buffer + sizeof(fd_eth_hdr_t);
+    ulong   ip_sz  = sz - sizeof(fd_eth_hdr_t);
+
     fd_quic_t * quic = ctx->quic;
     long dt = -fd_tickcount();
-    fd_quic_process_packet( quic, ctx->buffer, sz );
+    fd_quic_process_packet( quic, ip_pkt, ip_sz );
     dt += fd_tickcount();
     fd_histf_sample( quic->metrics.receive_duration, (ulong)dt );
     quic->metrics.net_rx_byte_cnt += sz;
@@ -252,16 +258,8 @@ after_frag( fd_quic_ctx_t *     ctx,
 }
 
 static ulong
-quic_now( void * quic_ctx ) {
-  fd_quic_ctx_t * ctx = quic_ctx;
-  ulong  tick       = (ulong)fd_tickcount();
-  ulong  tick_delta = tick - ctx->last_tick;
-  double wall_delta = (double)tick_delta * ctx->ns_per_tick;
-  int    sync       = wall_delta > 1e6; /* sync every millisecond */
-  ulong  wall       = ctx->last_wall + (ulong)wall_delta;
-  fd_ulong_store_if( sync, &ctx->last_tick, tick );
-  fd_ulong_store_if( sync, &ctx->last_wall, wall );
-  return wall;
+quic_now( void * ctx FD_PARAM_UNUSED ) {
+  return (ulong)fd_tickcount();
 }
 
 static void
@@ -389,36 +387,22 @@ quic_tx_aio_send( void *                    _ctx,
                   int                       flush ) {
   (void)flush;
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
+  fd_quic_ctx_t * ctx = _ctx;
 
   for( ulong i=0; i<batch_cnt; i++ ) {
-    void * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-    fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
+    if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
 
-    uchar const * packet = dst;
-    uchar const * packet_end = packet + batch[i].buf_sz;
-    uchar const * iphdr = packet + 14U;
-
-    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-    uint   ip_dstaddr  = 0;
-    if( FD_LIKELY( test_ethip==0x080011 ) ) {
-      /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-      uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
-      uchar const * udp = iphdr + iplen;
-
-      /* Ignore if UDP header is too short */
-      if( FD_UNLIKELY( udp+8U>packet_end ) ) {
-        ctx->metrics.quic_pkt_too_small++;
-        continue;
-      }
-
-      /* Extract IP dest addr and UDP dest port */
-      ip_dstaddr  =                  *(uint   *)( iphdr+16UL );
-    }
+    uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
+    uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
+    memset( packet_l2, 0, 12 );
+    FD_STORE( ushort, packet_l2+offsetof( fd_eth_hdr_t, net_type ), fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+    fd_memcpy( packet_l3, batch[ i ].buf, batch[ i ].buf_sz );
+    ulong sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dstaddr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+    ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
     long tspub = fd_tickcount();
     fd_mcache_publish( ctx->net_out_mcache,
@@ -426,7 +410,7 @@ quic_tx_aio_send( void *                    _ctx,
                        ctx->net_out_seq,
                        sig,
                        ctx->net_out_chunk,
-                       batch[ i ].buf_sz,
+                       sz_l2,
                        fd_frag_meta_ctl( 0UL, 1, 1, 0 ),
                        0,
                        fd_frag_meta_ts_comp( tspub ) );
@@ -537,7 +521,6 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.ack_delay                  = tile->quic.ack_delay_millis * 1000000UL;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
-  fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
 
   quic->config.sign         = quic_tls_cv_sign;
@@ -550,6 +533,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.quic_ctx         = ctx;
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
+  fd_quic_set_clock_tickcount( quic );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   fd_topo_link_t * net_in = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -588,11 +572,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
-
-  /* Train clock */
-  ctx->ns_per_tick = 1 / fd_tempo_tick_per_ns( NULL );
-  ctx->last_tick   = (ulong)fd_tickcount();
-  ctx->last_wall   = 0UL;
 }
 
 static ulong

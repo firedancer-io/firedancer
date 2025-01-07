@@ -74,7 +74,6 @@ run_quic_client( fd_quic_t *         quic,
   quic->cb.conn_new         = cb_conn_new;
   quic->cb.conn_hs_complete = cb_conn_handshake_complete;
   quic->cb.conn_final       = cb_conn_final;
-  quic->cb.now              = fd_quic_test_now;
 
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
@@ -194,8 +193,8 @@ main( int argc,
   FD_TEST( quic );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
-  *sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
   fd_quic_config_test_signer( quic, sign_ctx );
 
   fd_quic_udpsock_t _udpsock;
@@ -210,7 +209,6 @@ main( int argc,
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
-  memcpy(client_cfg->link.dst_mac_addr, "\x52\xF1\x7E\xDA\x2C\xE0", 6UL);
   client_cfg->net.ip_addr         = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);

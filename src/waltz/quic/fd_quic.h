@@ -139,8 +139,7 @@ typedef struct fd_quic_layout fd_quic_layout_t;
 
 /* fd_quic_now_t is the clock source used internally by quic for
    scheduling events.  context is an arbitrary pointer earlier provided
-   by the caller during config.  Returns the time in ns since epoch.
-   epoch is arbitrary but must stay consistent. */
+   by the caller during config. */
 
 typedef ulong
 (*fd_quic_now_t)( void * context );
@@ -154,10 +153,13 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
   int role;
 
-   /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
+  /* retry: whether address validation using retry packets is enabled (RFC 9000, Section 8.1.2) */
   int retry;
 
-  /* idle_timeout: Upper bound on conn idle timeout (ns).
+  /* tick_per_us: clock ticks per microsecond */
+  float tick_per_us;
+
+  /* idle_timeout: Upper bound on conn idle timeout.
      Also sent to peer via max_idle_timeout transport param.
      If the peer specifies a lower idle timeout, that is used instead. */
   ulong idle_timeout;
@@ -172,6 +174,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
      unacknowledged stream bytes exceeds this value. */
   ulong ack_threshold;
 # define FD_QUIC_DEFAULT_ACK_THRESHOLD (65536UL) /* 64 KiB */
+
+  /* retry_ttl: time-to-live for retry tokens */
+  ulong retry_ttl;
+# define FD_QUIC_DEFAULT_RETRY_TTL (ulong)(1e9) /* 1s */
 
   /* TLS config ********************************************/
 
@@ -188,17 +194,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
 
   /* Network config ****************************************/
-
-  struct { /* Link layer config */
-    /* src_mac_addr: Source MAC address to set for outgoing traffic */
-    uchar src_mac_addr[6];
-
-    /* dst_mac_addr: Destination MAC address to set for outgoing traffic
-       Usually corresponds to the MAC address of the host's default gateway.
-       FIXME: Replace with ARP table
-       FIXME: This shouldn't be part of QUIC, but the fd_aio_out */
-    uchar dst_mac_addr[6];
-  } link;
 
   struct { /* Internet config */
     uint   ip_addr;         /* IP address (for outgoing traffic) */
@@ -319,7 +314,8 @@ union fd_quic_metrics {
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
     /* Packet metrics */
-    ulong pkt_decrypt_fail_cnt;    /* number of packets that failed decryption */
+    ulong pkt_decrypt_fail_cnt[4]; /* number of packets that failed decryption due to auth tag */
+    ulong pkt_no_key_cnt[4];       /* number of packets that failed decryption due to missing key */
     ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
     ulong pkt_tx_alloc_fail_cnt;   /* number of pkt_meta alloc fails */
 
@@ -464,6 +460,20 @@ FD_QUIC_API void
 fd_quic_set_aio_net_tx( fd_quic_t *      quic,
                         fd_aio_t const * aio_tx );
 
+/* fd_quic_set_clock sets the clock source.  Converts all timing values
+   in the config to the new time scale. */
+
+FD_QUIC_API void
+fd_quic_set_clock( fd_quic_t *   quic,
+                   fd_quic_now_t now_fn,
+                   void *        now_ctx,
+                   float         tick_per_us );
+
+/* fd_quic_set_clock_tickcount sets fd_tickcount as the clock source. */
+
+FD_QUIC_API void
+fd_quic_set_clock_tickcount( fd_quic_t * quic );
+
 /* Initialization *****************************************************/
 
 /* fd_quic_init initializes the QUIC such that it is ready to serve.
@@ -598,7 +608,6 @@ fd_quic_tx_buffered_raw( fd_quic_t * quic,
                          uchar *     tx_buf,
                          ulong       tx_buf_sz,
                          ulong *     tx_sz,
-                         uchar const dst_mac_addr[ static 6 ],
                          ushort *    ipv4_id,
                          uint        dst_ipv4_addr,
                          ushort      src_udp_port,

@@ -166,7 +166,7 @@ txn_cmd_fn( args_t *         args,
   /* Signer */
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
-  *sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx( sign_ctx, rng );
 
   fd_memcpy( quic->config.identity_public_key, sign_ctx->public_key, 32UL );
   quic->config.sign_ctx = sign_ctx;
@@ -178,7 +178,6 @@ txn_cmd_fn( args_t *         args,
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->link.dst_mac_addr, config->tiles.net.mac_addr, 6UL );
   client_cfg->net.ip_addr           = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);

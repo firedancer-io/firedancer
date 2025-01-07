@@ -7,11 +7,10 @@
 #include "fd_quic_stream.h"
 #include "log/fd_quic_log_tx.h"
 #include "fd_quic_pkt_meta.h"
-#include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
+#include "fd_quic_pretty_print.h"
 
-#include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 
@@ -50,6 +49,7 @@ struct fd_quic_svc_queue {
 };
 
 typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
+
 
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
@@ -104,6 +104,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* last arp/routing tables update */
   ulong ip_table_upd;
 
+  /* state for QUIC sampling */
+  fd_quic_pretty_print_t quic_pretty_print;
+
   /* secret for generating RETRY tokens */
   uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ];
   uchar retry_iv    [FD_QUIC_RETRY_IV_SZ];
@@ -116,13 +119,11 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 #define FD_QUIC_STATE_OFF (fd_ulong_align_up( sizeof(fd_quic_t), alignof(fd_quic_state_t) ))
 
 struct fd_quic_pkt {
-  fd_eth_hdr_t       eth[1];
   fd_ip4_hdr_t       ip4[1];
   fd_udp_hdr_t       udp[1];
 
   /* the following are the "current" values only. There may be more QUIC packets
      in a UDP datagram */
-  fd_quic_long_hdr_t long_hdr[1];
   ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
   ulong              rcv_time;    /* time packet was received */
   uint               enc_level;   /* encryption level */
@@ -131,6 +132,14 @@ struct fd_quic_pkt {
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
 };
+
+struct fd_quic_frame_ctx {
+  fd_quic_t *      quic;
+  fd_quic_conn_t * conn;
+  fd_quic_pkt_t *  pkt;
+};
+
+typedef struct fd_quic_frame_ctx fd_quic_frame_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -153,7 +162,7 @@ fd_quic_get_state_const( fd_quic_t const * quic ) {
    args
      quic        managing quic
      conn        connection to service
-     now         the current time in ns */
+     now         the current timestamp */
 void
 fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
@@ -324,7 +333,8 @@ ulong
 fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_t **         p_conn,
                            fd_quic_pkt_t *           pkt,
-                           fd_quic_conn_id_t const * conn_id,
+                           fd_quic_conn_id_t const * dcid,
+                           fd_quic_conn_id_t const * scid,
                            uchar *                   cur_ptr,
                            ulong                     cur_sz );
 

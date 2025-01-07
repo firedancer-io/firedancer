@@ -4,6 +4,7 @@
 /* test_quic_client_flood sends a flood of QUIC INITIAL frames. */
 
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
@@ -62,12 +63,6 @@ void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
   client_complete = 1;
 }
 
-ulong
-test_clock( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
-
 void
 run_quic_client(
   fd_quic_t *               quic,
@@ -90,8 +85,6 @@ run_quic_client(
     quic->cb.conn_final       = my_connection_closed;
     quic->cb.stream_rx        = my_stream_rx_cb;
     quic->cb.stream_notify    = my_stream_notify_cb;
-    quic->cb.now              = test_clock;
-    quic->cb.now_ctx          = NULL;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
     fd_quic_set_aio_net_tx( quic, udpsock->aio );
@@ -295,7 +288,6 @@ main( int argc, char ** argv ) {
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
-  memcpy( client_cfg->link.dst_mac_addr, gateway, 6UL );
   client_cfg->net.ip_addr         = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);

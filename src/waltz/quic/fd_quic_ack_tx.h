@@ -120,7 +120,8 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
                         uchar *             payload_ptr,
                         uchar *             payload_end,
                         uint                enc_level,
-                        ulong               now );
+                        ulong               tickcount,
+                        float               tick_per_us );
 
 FD_PROTOTYPES_END
 

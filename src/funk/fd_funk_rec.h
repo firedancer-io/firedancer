@@ -14,19 +14,13 @@
 #define FD_FUNK_REC_ALIGN     (32UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
-   how records are to be interpreted.  The 5 most signifcant bytes of a
+   how records are to be interpreted.  The 5 most significant bytes of a
    rec's flag are reserved to be used in conjunction with the ERASE flag.
 
    - ERASE indicates a record in an in-preparation transaction should be
-   erased if and when the in-preparation transaction is published.  If
-   set, there will be no value resources used by this record.  Will not
-   be set on a published record.  Will not be set if an in-preparation
-   transaction ancestor has this record with erase set.  If set, the
-   first ancestor transaction encountered (going from youngest to
-   oldest) will not have erased set.  
-   
-   If the ERASE flag is set, then the five most significant bytes of the
-   flags field for the record will be used to store user-specified data. */
+   erased if and when the in-preparation transaction is published. If
+   set on a published record, it serves as a tombstone.
+   If set, there will be no value resources used by this record. */
 
 #define FD_FUNK_REC_FLAG_ERASE (1UL<<0)
 
@@ -70,8 +64,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   ulong prev_part_idx;  /* Record map index of previous record in partition chain */
   ulong next_part_idx;  /* Record map index of next record in partition chain */
   uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
-
-  int   val_no_free; /* If set, do not call alloc_free on the value */
 
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
@@ -154,22 +146,12 @@ FD_FN_PURE static inline int fd_funk_rec_is_full( fd_funk_rec_t const * map ) { 
    returned record.  The record value metadata will be updated whenever
    the record value modified.
 
-   These are a reasonably fast O(1).
+   This is reasonably fast O(1).
 
-   fd_funk_rec_query_global is the same but will query txn's ancestors
-   for key from youngest to oldest if key is not part of txn.  As such,
-   the txn of the returned record may not match txn but will be the txn
-   of most recent ancestor with the key otherwise.
-
-   fd_funk_rec_query_global_const is the same but it is safe to have
-   multiple threads concurrently run queries.
-
-   Important safety tip!  These functions can potentially return records
-   that have the ERASE flag set.  (This allows, for example, a caller to
-   discard an erase for an unfrozen in-preparation transaction.)  In
-   such cases, the record will have no value resources in use.
-
-   These are a reasonably fast O(in_prep_ancestor_cnt). */
+   Important safety tip!  This function can encounter records
+   that have the ERASE flag set (i.e. are tombstones of erased
+   records). fd_funk_rec_query will still return the record in this
+   case, and the application should check for the flag. */
 
 FD_FN_PURE fd_funk_rec_t const *
 fd_funk_rec_query( fd_funk_t *               funk,
@@ -177,12 +159,20 @@ fd_funk_rec_query( fd_funk_t *               funk,
                    fd_funk_rec_key_t const * key );
 
 
-/* fd_funk_rec_query_global is a query that searches for the
-   supplied key by walking up the funk txn stack.
+/* fd_funk_rec_query_global is the same as fd_funk_rec_query but will
+   query txn's ancestors for key from youngest to oldest if key is not
+   part of txn.  As such, the txn of the returned record may not match
+   txn but will be the txn of most recent ancestor with the key
+   otherwise. *txn_out is set to the transaction where the record was
+   found.
 
-   if txn_out is supplied (non-null), the txn the key was found in
-   is returned. If *txn_out == NULL, the key was found in the root
-   context */
+   This is reasonably fast O(in_prep_ancestor_cnt).
+
+   Important safety tip!  This function can encounter records
+   that have the ERASE flag set (i.e. are tombstones of erased
+   records). fd_funk_rec_query_global will return a NULL in this case
+   but still set *txn_out to the relevant transaction. This behavior
+   differs from fd_funk_rec_query. */
 FD_FN_PURE fd_funk_rec_t const *
 fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
@@ -426,7 +416,8 @@ fd_funk_rec_insert( fd_funk_t *               funk,
    transaction's subsequently created descendants (again, assuming no
    subsequent insert of key).  This type of remove can be done on a
    published record (assuming the last published transaction is
-   unfrozen).
+   unfrozen). A tombstone is left in funk to track removals as they
+   are published or cancelled.
 
    Any information in an erased record is lost.
 
@@ -448,7 +439,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     ulong           erase_data );
 
 
-/* When a record is erased there is metadata stored in the five most 
+/* When a record is erased there is metadata stored in the five most
    significant bytes of a record.  These are helpers to make setting
    and getting these values simple. The caller is responsible for doing
    a check on the flag of the record before using the value of the erase
@@ -460,6 +451,22 @@ fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
 
 ulong
 fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
+
+/* Remove a list of tombstones from funk, thereby freeing up space in
+   the main index. All the records must be removed and published
+   beforehand. Reasons for failure include:
+
+     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
+       obviously not from funk, etc)
+
+     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
+       Specifically, a record query of funk for rec's (xid,key) pair did
+       not return rec. Also, the record was never published.
+*/
+int
+fd_funk_rec_forget( fd_funk_t *      funk,
+                    fd_funk_rec_t ** recs,
+                    ulong recs_cnt );
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:

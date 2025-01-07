@@ -109,9 +109,9 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
 
     /* Update the mapping from instruction account index to memory region index.
        This is an optimization to avoid redundant lookups to find accounts. */
-    acc_region_metas[instr_acc_idx] = (fd_vm_acc_region_meta_t){ .region_idx          = *input_mem_regions_cnt,
-                                                                 .has_data_region     = !!dlen,
-                                                                 .has_resizing_region = (uchar)is_aligned };
+    acc_region_metas[instr_acc_idx].region_idx          = *input_mem_regions_cnt;
+    acc_region_metas[instr_acc_idx].has_data_region     = !!dlen;
+    acc_region_metas[instr_acc_idx].has_resizing_region = (uchar)is_aligned;
 
     if( dlen ) {
       new_input_mem_region( input_mem_regions, input_mem_regions_cnt, data, dlen, is_writable );
@@ -214,6 +214,17 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(ulong);
     } else {
+      /* Calculate and store the start of the actual metadata region for this account,
+         excluding any duplicate account markers at the beginning.
+
+         We use this later for retrieving the serialized values later in the CPI security checks. */
+      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL : 
+        input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
+        input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
+
+      acc_region_metas[i].metadata_region_offset = metadata_region_offset_with_dups +
+        (ulong)(serialized_params - curr_serialized_params_start);
+
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
@@ -484,6 +495,17 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(uchar);
     } else {
+      /* Calculate and store the start of the actual metadata region for this account,
+         excluding any duplicate account markers at the beginning.
+
+         We use this later for retrieving the serialized values later in the CPI security checks. */
+      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL : 
+        input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
+        input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
+
+      acc_region_metas[i].metadata_region_offset = metadata_region_offset_with_dups +
+        (ulong)(serialized_params - curr_serialized_params_start);
+
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 

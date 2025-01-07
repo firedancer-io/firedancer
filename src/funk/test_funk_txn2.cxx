@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
   srand(1234);
 
   fake_funk ff(&argc, &argv);
-  for (uint loop = 0; loop < 100U; ++loop) {
+  for (uint loop = 0; loop < 5000U; ++loop) {
     for (uint i = 0; i < 10; ++i)
       ff.random_insert();
     ff.verify();
@@ -53,8 +53,11 @@ int main(int argc, char** argv) {
     for (uint i = 0; i < 10; ++i)
       ff.random_remove();
     ff.verify();
-    ff.random_merge();
+    ff.random_publish_into_parent();
     ff.verify();
+    // ff.random_merge();
+    // ff.verify();
+    if( loop % 100 == 0 ) FD_LOG_NOTICE(( "iter %u", loop ));
   }
 
   printf("test passed!\n");

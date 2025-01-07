@@ -42,7 +42,6 @@ fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   fd_runtime_save_epoch_bank( slot_ctx );
 }
 
-
 static int
 restore_manifest( void *                 ctx,
                   fd_solana_manifest_t * manifest ) {
@@ -68,16 +67,6 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
-  if( src->type == FD_SNAPSHOT_SRC_ARCHIVE ) {
-    if( FD_UNLIKELY( fd_funk_unarchive( slot_ctx->acc_mgr->funk, src->file.path ) ) ) {
-      FD_LOG_ERR(( "Failed to load snapshot" ));
-    }
-    fd_runtime_recover_banks( slot_ctx, 0, 1 );
-    memset( name_out, 0, sizeof(fd_snapshot_name_t) );
-    name_out->type = FD_SNAPSHOT_TYPE_FULL;
-    name_out->slot = slot_ctx->slot_bank.slot;
-    return;
-  }
   fd_exec_epoch_ctx_bank_mem_clear( slot_ctx->epoch_ctx );
 
   fd_valloc_t     valloc   = slot_ctx->valloc;
@@ -143,10 +132,6 @@ fd_snapshot_load( const char *         snapshotfile,
   }
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
-  /* Speed load currently has long term memory usage consequences
-     which are unacceptable. Consider turning it back on when we have a
-     better design. */
-  fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 
   fd_funk_txn_t * par_txn = slot_ctx->funk_txn;
   fd_funk_txn_t * child_txn = slot_ctx->funk_txn;
@@ -180,7 +165,7 @@ fd_snapshot_load( const char *         snapshotfile,
       fd_snapshot_hash(slot_ctx, tpool, &accounts_hash, check_hash);
 
       if (memcmp(fhash->uc, accounts_hash.uc, 32) != 0)
-        FD_LOG_ERR(( "snapshot accounts_hash %s != %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));
+        FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));
       else
         FD_LOG_NOTICE(( "snapshot accounts_hash %s verified successfully", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash) ));
     } else if (snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL) {
@@ -212,6 +197,5 @@ fd_snapshot_load( const char *         snapshotfile,
 
   fd_rewards_recalculate_partitioned_rewards( slot_ctx );
 
-  fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
 }

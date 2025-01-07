@@ -16,7 +16,6 @@ static uchar const test_tp[] =
 typedef struct my_quic_tls my_quic_tls_t;
 struct my_quic_tls {
   int is_server;
-  int is_flush;
   int is_hs_complete;
 
   int state;
@@ -77,7 +76,8 @@ main( int     argc,
   fd_rng_t  _rng[1];   fd_rng_t * rng    = fd_rng_join   ( fd_rng_new   ( _rng, 0U, 0UL ) );
 
   /* Generate certificate key */
-  fd_tls_test_sign_ctx_t sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
@@ -86,7 +86,7 @@ main( int     argc,
     .peer_params_cb        = my_transport_params,
 
     .max_concur_handshakes = 16,
-    .cert_public_key       = sign_ctx.public_key,
+    .cert_public_key       = sign_ctx->public_key,
     .signer                = fd_tls_test_sign( &sign_ctx ),
   };
 

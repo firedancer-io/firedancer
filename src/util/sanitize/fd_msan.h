@@ -32,6 +32,8 @@
 #define FD_FN_NO_MSAN
 #endif
 
+#define FD_MSAN_ALIGN (4UL)
+
 FD_PROTOTYPES_BEGIN
 
 #if FD_HAS_MSAN
@@ -42,8 +44,26 @@ void __msan_poison                  ( void const volatile * addr, ulong sz );
 void __msan_unpoison                ( void const volatile * addr, ulong sz );
 void __msan_check_mem_is_initialized( void const volatile * addr, ulong sz );
 
+
+/* fd_msan_poison marks a region of memory as uninitialized.  MSAN
+   detects uninitalized memory when it is used in a conditional branch,
+   for memory accesses, as a direct argument to a function call, or
+   as a direct return value. */
 static inline void * fd_msan_poison  ( void *       addr, ulong sz ) { __msan_poison  ( addr, sz ); return addr; }
+
+/* fd_msan_unpoison marks a region of memory as initialized.
+   Use cases:
+   - Marking memory initalized that MSAN can not track, most notably
+     memory initialized by handwritten assembly.
+   - Avoiding false positives where an uninitialized value is used
+     in a scenario described by the  fd_msan_poison doc comment, but the
+     use is actually correct in the application logic. */
 static inline void * fd_msan_unpoison( void *       addr, ulong sz ) { __msan_unpoison( addr, sz ); return addr; }
+
+/* fd_msan_check checks if a region of memory is initialized.  If it is
+   not, MSAN will report an error.  For making sure memory is
+   initalized in cases beyond those describe in the fd_msan poison
+   comment.  Furthermore, it is useful for debugging MSAN crashes. */
 static inline void   fd_msan_check   ( void const * addr, ulong sz ) { __msan_check_mem_is_initialized( addr, sz ); }
 
 #else

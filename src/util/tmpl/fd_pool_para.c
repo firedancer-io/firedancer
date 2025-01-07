@@ -332,6 +332,8 @@
 #define FD_POOL_ERR_AGAIN   (-2)
 #define FD_POOL_ERR_CORRUPT (-3)
 #define FD_POOL_ERR_EMPTY   (-4)
+//#define FD_POOL_ERR_FULL    (-5)
+//#define FD_POOL_ERR_KEY     (-6)
 
 /* Implementation *****************************************************/
 

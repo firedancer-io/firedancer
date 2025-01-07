@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_ballet_shred_fd_shred_h
 #define HEADER_fd_src_ballet_shred_fd_shred_h
 
-#include <stdio.h>
 #include "../bmtree/fd_bmtree.h"
 
 /* Shreds form the on-wire representation of Solana block data
@@ -235,9 +234,9 @@ struct __attribute__((packed)) fd_shred {
     } code;
   };
 };
-typedef struct fd_shred fd_shred_t;
 typedef struct fd_shred_data fd_shred_data_t;
 typedef struct fd_shred_code fd_shred_code_t;
+typedef struct fd_shred fd_shred_t;
 
 FD_PROTOTYPES_BEGIN
 

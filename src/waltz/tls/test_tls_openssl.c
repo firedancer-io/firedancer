@@ -246,7 +246,8 @@ test_server( SSL_CTX * ctx ) {
 
   fd_tls_t _server[1];
   fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
-  fd_tls_test_sign_ctx_t server_sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx_t server_sign_ctx[1];
+  fd_tls_test_sign_ctx( server_sign_ctx, rng );
   *server = (fd_tls_t) {
     .rand       = fd_tls_test_rand( rng ),
     .secrets_fn = _fdtls_secrets,
@@ -272,7 +273,7 @@ test_server( SSL_CTX * ctx ) {
 
   /* Set up Ed25519 key */
 
-  fd_memcpy( server->cert_public_key, server_sign_ctx.public_key, 32UL );
+  fd_memcpy( server->cert_public_key, server_sign_ctx->public_key, 32UL );
 
   /* Set up server cert */
 
@@ -388,7 +389,8 @@ test_client( SSL_CTX * ctx ) {
 
   fd_tls_t  _client[1];
   fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
-  fd_tls_test_sign_ctx_t client_sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx_t client_sign_ctx[1];
+  fd_tls_test_sign_ctx( client_sign_ctx, rng );
   *client = (fd_tls_t) {
     .rand       =  fd_tls_test_rand( rng ),
     .secrets_fn = _fdtls_secrets,
@@ -415,7 +417,7 @@ test_client( SSL_CTX * ctx ) {
 
   /* Set up Ed25519 key */
 
-  fd_memcpy( client->cert_public_key, client_sign_ctx.public_key, 32UL );
+  fd_memcpy( client->cert_public_key, client_sign_ctx->public_key, 32UL );
 
   /* Set up client cert */
 

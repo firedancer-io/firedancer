@@ -77,11 +77,9 @@
 
 
 // VAR currently assumed to be aligned bytes
-// BITS_MIN and BITS_MAX are always divisible by 8
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)                   \
     tmp_len = out->LEN_NAME;                                           \
-    if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
-                     ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
+    if( FD_UNLIKELY( tmp_len<(MIN) || tmp_len>(MAX) ) ) {              \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \
@@ -94,11 +92,9 @@
 
 
 // VAR currently assumed to be aligned bytes
-// BITS_MIN and BITS_MAX are always divisible by 8
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME)               \
     tmp_len = out->LEN_NAME;                                           \
-    if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
-                     ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
+    if( FD_UNLIKELY( tmp_len<(MIN) || tmp_len>(MAX) ) ) {              \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \
@@ -108,39 +104,10 @@
     cur_byte += tmp_len;
 
 
-/* ARRAY is an array of elements, each of the same size,
-   with length implied by the packet size */
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)         \
-    tmp_len = sz - cur_byte;                                           \
-    if( FD_UNLIKELY( tmp_len > BYTES_MAX ) )                           \
-      tmp_len = BYTES_MAX;                                             \
-    if( FD_UNLIKELY( tmp_len % sizeof(fd_quic_##TYPE) ) )              \
-      return FD_QUIC_PARSE_FAIL;                                       \
-    tmp_len /= sizeof(fd_quic_##TYPE);                                 \
-    out->NAME##_len = (__typeof__(out->NAME##_len))tmp_len;            \
-    for( ulong j=0; j<tmp_len; ++j ) {                                 \
-      cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);      \
-    }
-
-/* FIXED is an array of elements, each of the same size,
-   with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                       \
-    if( FD_UNLIKELY( cur_byte+BYTES>sz ) ) return FD_QUIC_PARSE_FAIL;  \
-    tmp_len = BYTES / sizeof(fd_quic_##TYPE);                          \
-    if( FD_UNLIKELY( tmp_len * sizeof( fd_quic_##TYPE ) >              \
-        sizeof( out->NAME ) ) ) return FD_QUIC_PARSE_FAIL;             \
-    for( ulong j=0; j<tmp_len; ++j ) {                                 \
-      cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);      \
-    }
-
-#define FD_TEMPL_MBR_OPT(TYPE_NAME,NAME,MASK,...)   \
-    do {                                            \
-      _Bool cond = out->TYPE_NAME & (MASK);         \
-      out->NAME##_opt = cond;                       \
-      if( cond ) {                                  \
-        __VA_ARGS__                                 \
-      }                                             \
-    } while(0);
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES)                              \
+    if( FD_UNLIKELY( cur_byte+(BYTES)>sz ) ) return FD_QUIC_PARSE_FAIL;\
+    memcpy( out->NAME, buf+cur_byte, (BYTES) );                        \
+    cur_byte += (BYTES);
 
 
 // at end, return the number of bytes consumed

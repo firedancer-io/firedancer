@@ -24,12 +24,10 @@ test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
   conn->srx->rx_sup_stream_id = (2UL<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
 
   uchar buf[ 1024 ];
-  fd_quic_stream_frame_t stream_frame =
-    { .stream_id  = FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-      .fin_opt    = 1,
-      .length_opt = 2,
-      .length     = 2UL };
-  ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
+  ulong sz = fd_quic_encode_stream_frame(
+    buf, buf+sizeof(buf),
+    /* stream_id */ FD_QUIC_STREAM_TYPE_UNI_CLIENT,
+    /* offset */ 0, /* length */ 2UL, /* fin */ 1 );
   FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
   memset( buf+sz, '0', 2 );
   sz += 2;
@@ -65,10 +63,10 @@ test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
   conn->srx->rx_sup_stream_id = 0UL + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
 
   uchar buf[ 1024 ];
-  fd_quic_stream_frame_t stream_frame =
-    { .stream_id = FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-      .fin_opt   = 1 };
-  ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
+  ulong sz = fd_quic_encode_stream_frame(
+    buf, buf+sizeof(buf),
+    /* stream_id */ FD_QUIC_STREAM_TYPE_UNI_CLIENT,
+    /* offset */ 0, /* length */ 0UL, /* fin */ 1 );
   FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
 
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
@@ -101,11 +99,10 @@ test_quic_stream_concurrency( fd_quic_sandbox_t * sandbox,
   /* Each frame initiates a new stream without closing it */
   for( ulong j=0UL; j<512UL; j++ ) {
     uchar buf[ 1024 ];
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-        .length_opt = 1,
-        .length     = 1UL };
-    ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
+    ulong sz = fd_quic_encode_stream_frame(
+      buf, buf+sizeof(buf),
+      /* stream_id */ FD_QUIC_STREAM_TYPE_UNI_CLIENT,
+      /* offset */ 0, /* length */ 1UL, /* fin */ 0 );
     FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
     buf[ sz++ ] = '0';
     fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
@@ -205,7 +202,7 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
   uchar *       resp_ptr = fd_chunk_to_laddr( sandbox, frag->chunk );
   uchar const * resp_end = resp_ptr + frag->sz;
-  resp_ptr += sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+  resp_ptr += sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
   FD_TEST( resp_ptr<resp_end );
 
   fd_quic_initial_t initial[1];
@@ -250,7 +247,7 @@ test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
     fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum );
     pktnum += 2UL;
   }
-  FD_TEST( metrics->pkt_decrypt_fail_cnt==0 );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==0 );
   FD_TEST( ack_gen->head - ack_gen->tail == FD_QUIC_ACK_QUEUE_CNT );
   FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NOOP   ] == 0                     );
   FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW    ] == FD_QUIC_ACK_QUEUE_CNT );
@@ -289,11 +286,10 @@ test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
      the handshake is confirmed; Quota would have been granted already via
      QUIC transport params) */
   uchar buf[ 1024 ];
-  fd_quic_stream_frame_t stream_frame =
-  { .stream_id  = FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-    .length_opt = 1,
-    .length     = 1UL };
-  ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
+  ulong sz = fd_quic_encode_stream_frame(
+    buf, buf+sizeof(buf),
+    /* stream_id */ FD_QUIC_STREAM_TYPE_UNI_CLIENT,
+    /* offset */ 0, /* length */ 1UL, /* fin */ 0 );
   FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
   buf[ sz++ ] = '0';
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
@@ -302,6 +298,78 @@ test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
   /* Double check RX limits */
   FD_TEST( conn->srx->rx_sup_stream_id ==     32770UL ); /* (8192<<2)+2 */
   FD_TEST( conn->srx->rx_max_data      == 987654321UL );
+}
+
+__attribute__((noinline)) void
+test_quic_rx_max_data_frame( fd_quic_sandbox_t * sandbox,
+                             fd_rng_t *          rng ) {
+  uchar buf[128];
+  ulong sz;
+  fd_quic_max_data_frame_t frame = {0};
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  sandbox->quic->config.initial_rx_max_stream_data = 1UL;
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  frame.max_data = 0x30;
+  sz = fd_quic_encode_max_data_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_max_data == 0x30 );
+
+  conn->ack_gen->is_elicited = 0;
+  frame.max_data = 0x10;
+  sz = fd_quic_encode_max_data_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_max_data == 0x30 );
+}
+
+__attribute__((noinline)) void
+test_quic_rx_max_streams_frame( fd_quic_sandbox_t * sandbox,
+                                fd_rng_t *          rng ) {
+  uchar buf[128];
+  ulong sz;
+  fd_quic_max_streams_frame_t frame = {0};
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  sandbox->quic->config.initial_rx_max_stream_data = 1UL;
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  frame.type        = 0x13; /* unidirectional */
+  frame.max_streams = 0x30;
+  sz = fd_quic_encode_max_streams_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  FD_TEST( sz>=2UL );
+  FD_TEST( buf[0]==0x13 );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_sup_stream_id == 0xc2 );
+
+  conn->ack_gen->is_elicited = 0;
+  frame.max_streams = 0x10; /* decrease limit */
+  sz = fd_quic_encode_max_streams_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
+
+  frame.type        = 0x12; /* bidirectional */
+  frame.max_streams = 0x60;
+  sz = fd_quic_encode_max_streams_frame( buf, sizeof(buf), &frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  FD_TEST( sz>=2UL );
+  FD_TEST( buf[0]==0x12 );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->ack_gen->is_elicited == 1 );
+  FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
 }
 
 static __attribute__((noinline)) void
@@ -377,6 +445,8 @@ main( int     argc,
   test_quic_server_alpn_fail             ( sandbox, rng );
   test_quic_pktnum_skip                  ( sandbox, rng );
   test_quic_conn_initial_limits          ( sandbox, rng );
+  test_quic_rx_max_data_frame            ( sandbox, rng );
+  test_quic_rx_max_streams_frame         ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */

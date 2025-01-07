@@ -128,7 +128,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_xsk_align(),      fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
     l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(),  fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   }
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(),         fd_ip_footprint( 0U, 0U ) );
+  l = FD_LAYOUT_APPEND( l, fd_ip_align(),         fd_ip_footprint( 0UL, 0UL ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -415,6 +415,9 @@ after_frag( fd_net_ctx_t *      ctx,
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
+    /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
+    memset( ctx->frame, 0, 12UL );
+
     ulong sent_cnt;
     int aio_err = ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, 1 );
     ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;

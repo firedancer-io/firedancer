@@ -18,8 +18,8 @@
 
 ulong
 fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
-                            fd_exec_test_syscall_context_t const *input,
-                            fd_exec_test_syscall_effects_t   **   output,
+                            void const *                          input,
+                            void **                               output,
                             void *                                output_buf,
                             ulong                                 output_bufsz );
 

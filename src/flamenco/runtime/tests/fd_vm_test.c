@@ -1,9 +1,6 @@
 #include "fd_vm_test.h"
-#include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../../vm/test_vm_util.h"
 #include "fd_exec_instr_test.h"
+#include "generated/vm.pb.h"
 
 int
 fd_vm_syscall_noop( void * _vm,
@@ -52,23 +49,23 @@ fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
 
 ulong
 fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
-                            fd_exec_test_syscall_context_t const *input,
-                            fd_exec_test_syscall_effects_t      **output,
+                            void const *                          input_,
+                            void **                               output_,
                             void *                                output_buf,
                             ulong                                 output_bufsz ) {
-  fd_wksp_t  * wksp  = fd_wksp_attach( "wksp" );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
+  fd_exec_test_syscall_context_t const * input = fd_type_pun_const( input_ );
+  fd_exec_test_syscall_effects_t      ** output = fd_type_pun( output_ );
 
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t instr_ctx[1];
-  if( !fd_exec_test_instr_context_create( runner, instr_ctx, input_instr_ctx, alloc, true /* is_syscall avoids certain checks we don't want */ ) ) {
-    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+  if( !fd_exec_test_instr_context_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ ) ) {
+    fd_exec_test_instr_context_destroy( runner, instr_ctx );
     return 0UL;
   }
 
   if( !( input->has_vm_ctx ) ) {
-    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, instr_ctx );
     return 0UL;
   }
 
@@ -84,7 +81,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+    fd_exec_test_instr_context_destroy( runner, instr_ctx );
     return 0UL;
   }
 
@@ -93,8 +90,9 @@ do{
   if ( !input->vm_ctx.rodata ) {
     break;
   }
-  uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong   rodata_sz = input->vm_ctx.rodata->size;
+  uchar * rodata = fd_spad_alloc( spad, 8UL, rodata_sz );
+  memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
@@ -124,7 +122,7 @@ do{
 
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-  fd_vm_syscall_register_all( syscalls, 0 );
+  fd_vm_syscall_register_slot( syscalls, instr_ctx->slot_ctx, 0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
     fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL );
@@ -263,7 +261,7 @@ do{
 
   if( vm->heap_max > 0 ) {
     effects->heap       = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
     effects->heap->size = (uint)vm->heap_max;
     fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
   }
@@ -277,13 +275,13 @@ do{
   }
   if( rtrim_sz > 0 || (vm->stack[0] != 0) ) {
     effects->stack       = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
     effects->stack->size = (uint)rtrim_sz+1;
     fd_memcpy( effects->stack->bytes, vm->stack, (ulong)rtrim_sz+1 );
   }
 
   effects->rodata       = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+    l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
   effects->rodata->size = (uint)rodata_sz;
   fd_memcpy( effects->rodata->bytes, rodata, rodata_sz );
 
@@ -302,7 +300,7 @@ do{
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   *output = effects;
-  fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+  fd_exec_test_instr_context_destroy( runner, instr_ctx );
   return actual_end - (ulong)output_buf;
 }
 

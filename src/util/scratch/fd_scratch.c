@@ -16,7 +16,7 @@ FD_TL ulong fd_alloca_check_private_sz;
 
 /* fd_valloc virtual function table */
 
-void *
+static void *
 fd_scratch_malloc_virtual( void * _self,
                            ulong  align,
                            ulong  sz ) {
@@ -24,7 +24,7 @@ fd_scratch_malloc_virtual( void * _self,
   return fd_scratch_alloc( align, sz );
 }
 
-void
+static void
 fd_scratch_free_virtual( void * _self,
                          void * _addr ) {
   (void)_self; (void)_addr;

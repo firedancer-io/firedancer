@@ -67,9 +67,8 @@ fd_funk_val_copy( fd_funk_rec_t * rec,
       rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
       rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
 
-      if( val && !rec->val_no_free ) fd_alloc_free( alloc, val );
+      if( val ) fd_alloc_free( alloc, val );
       val = new_val;
-      rec->val_no_free = 0;
 
     }
 
@@ -150,11 +149,10 @@ fd_funk_val_append( fd_funk_rec_t * rec,
 
     if( val_sz ) fd_memcpy( new_val, val, val_sz ); /* Copy the existing val */
     fd_memset( new_val + val_sz, 0, new_val_max - val_sz ); /* Clear out trailing padding to be on the safe side */
-    if( !rec->val_no_free ) fd_alloc_free( alloc, val ); /* Free the old val */
+    fd_alloc_free( alloc, val ); /* Free the old val */
 
     rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
     rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
-    rec->val_no_free = 0;
 
     val = new_val;
 
@@ -221,8 +219,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     rec->val_sz    = (uint)new_val_sz;
     rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
 
-    if( val && !rec->val_no_free ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
-    rec->val_no_free = 0;
+    if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
 
   } else {
 
@@ -257,50 +254,11 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
       rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
       rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
 
-      if( val && !rec->val_no_free ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
-      rec->val_no_free = 0;
+      if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
 
     }
 
   }
-
-  fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
-  return rec;
-}
-
-fd_funk_rec_t *
-fd_funk_val_speed_load( fd_funk_t *     funk,
-                        fd_funk_rec_t * rec,        /* Assumed in caller's address space to a live funk record (NULL returns NULL) */
-                        ulong           new_val_sz, /* Should be in [0,FD_FUNK_REC_VAL_MAX] (returns NULL otherwise) */
-                        fd_wksp_t *     wksp,       /* ==fd_funk_wksp( funk ) where funk is current local join */
-                        int *           opt_err ) { /* If non-NULL, *opt_err returns operation error code */
-  /* Check input args */
-
-  if( FD_UNLIKELY( (!rec) | (new_val_sz>FD_FUNK_REC_VAL_MAX) | (!wksp) ) ||  /* NULL rec,too big,NULL alloc,NULL wksp */
-      FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE                            ) ) { /* Marked erase */
-    fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
-    return NULL;
-  }
-
-  ulong new_max_sz = fd_ulong_align_up( new_val_sz, 8U );
-  if( funk->speed_bump_remain < new_max_sz ) {
-    funk->speed_bump_remain = fd_ulong_max( 64LU<<20LU, new_max_sz );
-    funk->speed_bump_gaddr = fd_wksp_alloc( wksp, 8U, funk->speed_bump_remain, funk->wksp_tag );
-    if( funk->speed_bump_gaddr == 0UL ) {
-      funk->speed_bump_remain = 0;
-      fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
-      return NULL;
-    }
-    fd_memset( fd_wksp_laddr_fast( wksp, funk->speed_bump_gaddr ), 0, funk->speed_bump_remain );
-  }
-
-  rec->val_sz    = (uint)new_val_sz;
-  rec->val_max   = (uint)new_max_sz;
-  rec->val_gaddr = funk->speed_bump_gaddr;
-  rec->val_no_free = 1;
-
-  funk->speed_bump_gaddr += new_max_sz;
-  funk->speed_bump_remain -= new_max_sz;
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;

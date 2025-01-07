@@ -34,31 +34,6 @@ fd_wbmtree32_init      ( void * mem, ulong leaf_cnt )
   return mem;
 }
 
-fd_wbmtree32_t*
-fd_wbmtree32_join      ( void * mem )
-{
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_wbmtree32_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-  fd_wbmtree32_t* hdr = (fd_wbmtree32_t*) mem;
-  return hdr;
-}
-
-void *
-fd_wbmtree32_leave      ( fd_wbmtree32_t* hdr ) {
-  if( FD_UNLIKELY( !hdr ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-  return (void *) hdr;
-}
-
 void
 fd_wbmtree32_append    ( fd_wbmtree32_t * bmt, fd_wbmtree32_leaf_t const * leaf, ulong leaf_cnt, uchar *mbuf  )
 {
@@ -114,21 +89,6 @@ fd_wbmtree32_fini      ( fd_wbmtree32_t * bmt)
   }
 
   return &this[0].hash[1];
-}
-
-void *
-fd_wbmtree32_delete( void * shblock ) {
-  if( FD_UNLIKELY( !shblock ) ) {
-    FD_LOG_WARNING(( "NULL shblock" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shblock, fd_wbmtree32_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned shblock" ));
-    return NULL;
-  }
-
-  return shblock;
 }
 
 ulong            fd_wbmtree32_align     ( void ) { return alignof(fd_wbmtree32_t); }

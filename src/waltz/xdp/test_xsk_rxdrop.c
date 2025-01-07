@@ -52,7 +52,7 @@ static char const help_str[] =
 static uint
 get_first_ip4_addr( char const * iface ) {
   struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, iface, IFNAMSIZ );
+  strncpy( ifr.ifr_name, iface, IFNAMSIZ-1 );
   ifr.ifr_addr.sa_family = AF_INET;
 
   int fd        = socket( AF_INET, SOCK_DGRAM, 0 );
@@ -76,7 +76,8 @@ get_rx_queue_cnt( char const * iface ) {
   channels.cmd = ETHTOOL_GCHANNELS;
 
   struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, iface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, iface, IFNAMSIZ );
+  ifr.ifr_name[ IFNAMSIZ-1 ] = '\0';
   ifr.ifr_data = fd_type_pun( &channels );
 
   int fd        = socket( AF_INET, SOCK_DGRAM, 0 );

@@ -1,15 +1,14 @@
 #!/bin/bash
 
 set -euxo pipefail
-IFS=$'\n\t'
 
+IFS=$'\n\t'
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+FD_DIR="$SCRIPT_DIR/../.."
+OBJDIR=${OBJDIR:-build/native/${CC}}
+AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 
 cd ../test-ledger/
-
-FD_DIR="$SCRIPT_DIR/../.."
-
-OBJDIR=${OBJDIR:-build/native/${CC}}
 
 cleanup() {
   sudo killall -9 -q fddev || true
@@ -27,7 +26,7 @@ fi
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
-while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
+while [ $($AGAVE_PATH/solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
   sleep 1
 done
 

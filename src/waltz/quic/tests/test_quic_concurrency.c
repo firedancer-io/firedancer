@@ -7,16 +7,9 @@
    encrypted packets. */
 
 #include "fd_quic_sandbox.h"
-#include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
 #include "../../../tango/tempo/fd_tempo.h"
-
-static ulong
-quic_now( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
 
 int
 main( int     argc,
@@ -74,7 +67,6 @@ main( int     argc,
   FD_TEST( sandbox );
   FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER ) );
   fd_quic_t * const quic = sandbox->quic;
-  quic->cb.now = quic_now;
   quic->config.idle_timeout = (ulong)100000e9;
   fd_quic_state_t * state = fd_quic_get_state( quic );
   state->now = fd_quic_now( quic );
@@ -136,10 +128,10 @@ main( int     argc,
     burst_idx--;
     fd_quic_conn_t * conn = conn_list[ conn_idx ];
 
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = conn->srx->rx_hi_stream_id,
-        .fin_opt    = 1 };
-    ulong sz = fd_quic_encode_stream_frame( frame_buf, sizeof(frame_buf), &stream_frame );
+    ulong sz = fd_quic_encode_stream_frame(
+        frame_buf, frame_buf+sizeof(frame_buf),
+        /* stream_id */ conn->srx->rx_hi_stream_id,
+        /* off */ 0, /* len */ 0, /* fin */ 1 );
     FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
     sz += 64;
 

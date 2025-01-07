@@ -64,30 +64,16 @@ int
 fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                    fd_exec_instr_ctx_t *                ctx,
                                    fd_exec_test_instr_context_t const * test_ctx,
-                                   fd_alloc_t *                         alloc,
                                    bool                                 is_syscall );
 
 /* Frees an instr_ctx created by fd_exec_test_instr_context_create */
 void
 fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
-                                    fd_exec_instr_ctx_t *         ctx,
-                                    fd_wksp_t *                   wksp,
-                                    fd_alloc_t *                  alloc );
+                                    fd_exec_instr_ctx_t *         ctx );
 
 
 
 /* User API */
-
-/* fd_exec_instr_fixture_run executes the given instruction processing
-   fixture and validates that the actual result matches the expected.
-   log_name is the name of the test to mention in logs.  Returns 1 on
-   success.  On failure, returns 0 and logs reason for error to warning
-   log.  Uses fd_scratch. */
-
-int
-fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
-                           fd_exec_test_instr_fixture_t const * test,
-                           char const *                         log_name );
 
 /* fd_exec_instr_test_run executes a given instruction context (input)
    and returns the effects of executing that instruction to the caller.

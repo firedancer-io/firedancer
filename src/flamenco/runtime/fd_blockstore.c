@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdio.h> /* snprintf */
 #include <unistd.h>
 
 void *
@@ -210,9 +211,9 @@ fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_
   return lrw_block_map->slot;
 }
 
-bool 
+bool
 fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archiver_t * fd_metadata ) {
-  return ( fd_metadata->head < FD_BLOCKSTORE_ARCHIVE_START ) 
+  return ( fd_metadata->head < FD_BLOCKSTORE_ARCHIVE_START )
          || ( fd_metadata->tail < FD_BLOCKSTORE_ARCHIVE_START )
          || ( fd_metadata->fd_size_max != blockstore->archiver.fd_size_max ) // should be initialized same as archive file
          || ( fd_metadata->magic != FD_BLOCKSTORE_MAGIC );
@@ -228,15 +229,15 @@ fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archi
 
 /* Where read_off is where to start reading from */
 /* Guarantees that read_off is at the end of what we just finished on return. */
-static int read_with_wraparound( fd_blockstore_archiver_t * archvr, 
-                                 int fd, 
-                                 uchar * dst, 
-                                 ulong dst_sz, 
-                                 ulong * rsz, 
+static int read_with_wraparound( fd_blockstore_archiver_t * archvr,
+                                 int fd,
+                                 uchar * dst,
+                                 ulong dst_sz,
+                                 ulong * rsz,
                                  ulong * read_off ) {
-  check_read_err_safe( lseek( fd, (long)*read_off, SEEK_SET ) == -1, 
+  check_read_err_safe( lseek( fd, (long)*read_off, SEEK_SET ) == -1,
                        "failed to seek to read offset" );
-  
+
   ulong remaining_sz = archvr->fd_size_max - *read_off;
   if ( remaining_sz < dst_sz ) {
     int err = fd_io_read( fd, dst, remaining_sz, remaining_sz, rsz );
@@ -309,7 +310,7 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
   ulong total_blocks = metadata.num_blocks;
   ulong blocks_read  = 0;
 
-  /* If the file has content, but is perfectly filled, then off == end at the start. 
+  /* If the file has content, but is perfectly filled, then off == end at the start.
     Then it is impossible to distinguish from an empty file except for num_blocks field. */
 
   while ( FD_LIKELY( blocks_read < total_blocks ) ) {
@@ -327,7 +328,7 @@ static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
 
       fd_block_idx_t * lrw_block_index = fd_block_idx_query( block_idx, lrw_slot, NULL );
       fd_block_idx_remove( block_idx, lrw_block_index );
-      
+
       blockstore->archiver.head = wrap_offset(&blockstore->archiver, blockstore->archiver.head + lrw_block.data_sz + sizeof(fd_block_map_t) + sizeof(fd_block_t));;
       blockstore->archiver.num_blocks--;
     }
@@ -368,6 +369,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
   blockstore->lps = smr;
   blockstore->hcs = smr;
   blockstore->smr = smr;
+  blockstore->wmk = smr;
 
   fd_block_map_t * block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ),
                                                           &smr );
@@ -460,34 +462,46 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
   fd_block_txn_t txns[MAX_TXNS];
   ulong              txns_cnt = 0;
 
-  uchar * data = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-  ulong   sz   = block->data_sz;
-  FD_LOG_DEBUG(( "scanning slot %lu, ptr %p, sz %lu", slot, (void *)data, sz ));
+  /*
+   * Agave decodes precisely one array of microblocks from each batch.
+   * As of bincode version 1.3.3, the default deserializer used when
+   * decoding a batch in the blockstore allows for trailing bytes to be
+   * ignored.
+   * https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore.rs#L3764
+   */
+  uchar allow_trailing = 1UL;
 
-  ulong blockoff = 0;
-  while( blockoff < sz ) {
-    if( blockoff + sizeof( ulong ) > sz ) FD_LOG_ERR(( "premature end of block" ));
-    ulong mcount = FD_LOAD( ulong, (const uchar *)data + blockoff );
+  uchar const * data = fd_blockstore_block_data_laddr( blockstore, block );
+  FD_LOG_DEBUG(( "scanning slot %lu, ptr %p, sz %lu", slot, (void *)data, block->data_sz ));
+
+  fd_block_entry_batch_t const * batch_laddr = fd_blockstore_block_batch_laddr( blockstore, block );
+  ulong const                    batch_cnt   = block->batch_cnt;
+
+  ulong blockoff = 0UL;
+  for( ulong batch_i = 0UL; batch_i < batch_cnt; batch_i++ ) {
+    ulong const batch_end_off = batch_laddr[ batch_i ].end_off;
+    if( blockoff + sizeof( ulong ) > batch_end_off ) FD_LOG_ERR(( "premature end of batch" ));
+    ulong mcount = FD_LOAD( ulong, data + blockoff );
     blockoff += sizeof( ulong );
 
     /* Loop across microblocks */
     for( ulong mblk = 0; mblk < mcount; ++mblk ) {
-      if( blockoff + sizeof( fd_microblock_hdr_t ) > sz )
-        FD_LOG_ERR(( "premature end of block" ));
+      if( blockoff + sizeof( fd_microblock_hdr_t ) > batch_end_off )
+        FD_LOG_ERR(( "premature end of batch" ));
       if( micros_cnt < MAX_MICROS ) {
         fd_block_micro_t * m = micros + ( micros_cnt++ );
         m->off               = blockoff;
       }
-      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (const uchar *)data + blockoff );
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( data + blockoff );
       blockoff += sizeof( fd_microblock_hdr_t );
 
       /* Loop across transactions */
       for( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
         uchar         txn_out[FD_TXN_MAX_SZ];
-        uchar const * raw    = (uchar const *)data + blockoff;
+        uchar const * raw    = data + blockoff;
         ulong         pay_sz = 0;
         ulong         txn_sz = fd_txn_parse_core( (uchar const *)raw,
-                                          fd_ulong_min( sz - blockoff, FD_TXN_MTU ),
+                                          fd_ulong_min( batch_end_off - blockoff, FD_TXN_MTU ),
                                           txn_out,
                                           NULL,
                                           &pay_sz );
@@ -535,6 +549,18 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
         blockoff += pay_sz;
       }
     }
+    if( FD_UNLIKELY( blockoff > batch_end_off ) ) {
+      FD_LOG_ERR(( "parser error: shouldn't have been allowed to read past batch boundary" ));
+    }
+    if( FD_UNLIKELY( blockoff < batch_end_off ) ) {
+      if( FD_LIKELY( allow_trailing ) ) {
+        FD_LOG_NOTICE(( "ignoring %lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));
+      }
+      if( FD_UNLIKELY( !allow_trailing ) ) {
+        FD_LOG_ERR(( "%lu trailing bytes in slot %lu batch %lu", batch_end_off-blockoff, slot, batch_i ));
+      }
+    }
+    blockoff = batch_end_off;
   }
 
   fd_block_micro_t * micros_laddr =
@@ -637,7 +663,6 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   return;
 }
 
-/* Remove all the unassembled shreds for a slot */
 int
 fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_map_t * block_map       = fd_blockstore_block_map( blockstore );
@@ -660,9 +685,9 @@ fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot )
 /** Where write_off is where we want to write to, and we return
     the next valid location to write to (either wraparound, or
     right after where we just wrote ) */
-static ulong write_with_wraparound( fd_blockstore_archiver_t * archvr, 
-                                   int fd, 
-                                   uchar * src, 
+static ulong write_with_wraparound( fd_blockstore_archiver_t * archvr,
+                                   int fd,
+                                   uchar * src,
                                    ulong src_sz,
                                    ulong write_off ) {
 
@@ -717,7 +742,7 @@ static void
 fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz, ulong write_off ) {
   fd_blockstore_archiver_t * archvr = &blockstore->archiver;
   fd_block_idx_t * block_idx        = fd_blockstore_block_idx( blockstore );
-  
+
   ulong non_wrapped_end = write_off + wsz;
   ulong wrapped_end     = wrap_offset(archvr, non_wrapped_end);
   bool mrw_wraps        = non_wrapped_end > archvr->fd_size_max;
@@ -732,7 +757,7 @@ fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz
   ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
   fd_block_idx_t * lrw_block_index = fd_block_idx_query( block_idx, lrw_slot, NULL );
 
-  while( lrw_block_index && 
+  while( lrw_block_index &&
         ( ( lrw_block_index->off >= write_off && lrw_block_index->off < non_wrapped_end ) ||
           ( mrw_wraps && lrw_block_index->off < wrapped_end ) ) ){
       /* evict blocks */
@@ -753,11 +778,11 @@ fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz
 
 /* Performs any block index & updates mrw after archiving a block. We start guaranteed having */
 
-static void fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore, 
-                                               fd_blockstore_ser_t * ser, 
+static void fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore,
+                                               fd_blockstore_ser_t * ser,
                                                int fd,
-                                               ulong slot, 
-                                               ulong wsz, 
+                                               ulong slot,
+                                               ulong wsz,
                                                ulong write_off ) {
   fd_blockstore_archiver_t * archvr = &blockstore->archiver;
   fd_block_idx_t * block_idx        = fd_blockstore_block_idx( blockstore );
@@ -780,7 +805,7 @@ static void fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore,
   idx_entry->off             = write_off;
   idx_entry->block_hash      = ser->block_map->block_hash;
   idx_entry->bank_hash       = ser->block_map->bank_hash;
-  
+
   archvr->num_blocks++;
   archvr->tail = wrap_offset( archvr, write_off + wsz);;
   blockstore->mrw_slot = slot;
@@ -825,32 +850,32 @@ fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
                                   fd_block_idx_t * block_idx_entry,
                                   fd_block_map_t * block_map_entry_out,
-                                  fd_block_t * block_out ) { 
-  ulong rsz; 
+                                  fd_block_t * block_out ) {
+  ulong rsz;
   ulong read_off = block_idx_entry->off;
-  int err = read_with_wraparound( archvr, 
-                                  fd, 
-                                  (uchar *)fd_type_pun(block_map_entry_out), 
-                                  sizeof(fd_block_map_t), 
-                                  &rsz, 
+  int err = read_with_wraparound( archvr,
+                                  fd,
+                                  (uchar *)fd_type_pun(block_map_entry_out),
+                                  sizeof(fd_block_map_t),
+                                  &rsz,
                                   &read_off );
   check_read_err_safe( err, "failed to read block map" );
-  err = read_with_wraparound( archvr, 
-                              fd, 
-                              (uchar *)fd_type_pun(block_out), 
-                              sizeof(fd_block_t), 
-                              &rsz, 
+  err = read_with_wraparound( archvr,
+                              fd,
+                              (uchar *)fd_type_pun(block_out),
+                              sizeof(fd_block_t),
+                              &rsz,
                               &read_off );
   check_read_err_safe( err, "failed to read block" );
   return FD_BLOCKSTORE_OK;
 }
 
 int
-fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr, 
-                                  int fd, 
+fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
+                                  int fd,
                                   fd_block_idx_t * block_idx_entry,
                                   uchar * buf_out,
-                                  ulong buf_max, 
+                                  ulong buf_max,
                                   ulong data_sz ) {
   ulong data_off = wrap_offset(archvr, block_idx_entry->off + sizeof(fd_block_map_t) + sizeof(fd_block_t));
   if( FD_UNLIKELY( buf_max < data_sz ) ) {
@@ -860,35 +885,21 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
   if( FD_UNLIKELY( lseek( fd, (long)data_off, SEEK_SET ) == -1 ) ) {
     FD_LOG_WARNING(( "failed to seek" ));
     return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-  }  
-  ulong rsz; 
+  }
+  ulong rsz;
   int err = read_with_wraparound( archvr, fd, buf_out, data_sz, &rsz, &data_off );
   check_read_err_safe( err, "failed to read block data" );
   return FD_BLOCKSTORE_OK;
 }
 
 void
-fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
-  FD_LOG_NOTICE(( "[%s] curr smr: %lu, next smr: %lu", __func__, blockstore->smr, smr ));
+fd_blockstore_publish( fd_blockstore_t * blockstore, int fd ) {
+  FD_LOG_NOTICE(( "[%s] wmk %lu => smr %lu", __func__, blockstore->wmk, blockstore->smr ));
 
-  /* Warn if root is missing. */
+  /* Caller is incorrectly calling publish. */
 
-  if( FD_UNLIKELY( !fd_blockstore_block_map_query( blockstore, smr ) ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to publish SMR %lu not in blockstore", __func__, blockstore->smr ) );
-    return;
-  }
-
-  /* Warn if trying to re-publish current SMR. */
-
-  if( FD_UNLIKELY( smr == blockstore->smr ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to re-publish current SMR %lu", __func__, blockstore->smr ) );
-    return;
-  }
-
-  /* Warn if trying to publish an SMR < current SMR. */
-
-  if( FD_UNLIKELY( smr < blockstore->smr ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to publish SMR older than the current SMR %lu < %lu", __func__, smr, blockstore->smr ));
+  if( FD_UNLIKELY( blockstore->wmk == blockstore->smr ) ) {
+    FD_LOG_WARNING(( "[%s] attempting to re-publish when wmk %lu already at smr %lu", __func__, blockstore->wmk, blockstore->smr ));
     return;
   }
 
@@ -900,11 +911,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
   fd_slot_deque_remove_all( q );
 
-  /* Push the root onto the queue. */
+  /* Push the watermark onto the queue. */
 
-  fd_slot_deque_push_tail( q, blockstore->smr );
+  fd_slot_deque_push_tail( q, blockstore->wmk );
 
-  /* Conduct a BFS, stopping the search at the new root. */
+  /* Conduct a BFS to find slots to prune or archive. */
 
   while( !fd_slot_deque_empty( q ) ) {
     ulong slot = fd_slot_deque_pop_head( q );
@@ -915,9 +926,9 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
     for( ulong i = 0; i < block_map_entry->child_slot_cnt; i++ ) {
 
-      /* Stop upon reaching the new SMR. */
+      /* Stop upon reaching the SMR. */
 
-      if( FD_LIKELY( block_map_entry->child_slots[i] != smr ) ) {
+      if( FD_LIKELY( block_map_entry->child_slots[i] != blockstore->smr ) ) {
         fd_slot_deque_push_tail( q, block_map_entry->child_slots[i] );
       }
     }
@@ -947,11 +958,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong smr ) {
 
   /* Scan to clean up any orphaned blocks or shreds < new SMR. */
 
-  for (ulong slot = blockstore->smr; slot < smr; slot++) {
+  for (ulong slot = blockstore->wmk; slot < blockstore->smr; slot++) {
     fd_blockstore_slot_remove( blockstore, slot );
   }
 
-  blockstore->smr = smr;
+  blockstore->wmk = blockstore->smr;
 
   return;
 }
@@ -971,8 +982,9 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   fd_buf_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
   fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
 
-  ulong block_sz   = 0;
+  ulong block_sz  = 0UL;
   ulong shred_cnt = block_map_entry->complete_idx + 1;
+  ulong batch_cnt = 0UL;
   for( uint idx = 0; idx < shred_cnt; idx++ ) {
     fd_shred_key_t key = { .slot = slot, .idx = idx };
     fd_buf_shred_t const * query = fd_buf_shred_map_ele_query_const( shred_map, &key, NULL, shred_pool );
@@ -980,12 +992,16 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
       FD_LOG_ERR(( "[%s] missing shred slot: %lu idx: %u while deshredding", __func__, slot, idx ));
     }
     block_sz += fd_shred_payload_sz( &query->hdr );
+    if( FD_LIKELY( (query->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) || query->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) ) {
+      batch_cnt++;
+    }
   }
 
   // alloc mem for the block
-  ulong data_off  = fd_ulong_align_up( sizeof( fd_block_t ), 128UL );
-  ulong shred_off = fd_ulong_align_up( data_off + block_sz, alignof( fd_block_shred_t ) );
-  ulong tot_sz    = shred_off + sizeof( fd_block_shred_t ) * shred_cnt;
+  ulong data_off  = fd_ulong_align_up( sizeof(fd_block_t), 128UL );
+  ulong shred_off = fd_ulong_align_up( data_off + block_sz, alignof(fd_block_shred_t) );
+  ulong batch_off = fd_ulong_align_up( shred_off + (sizeof(fd_block_shred_t) * shred_cnt), alignof(fd_block_entry_batch_t) );
+  ulong tot_sz    = batch_off + (sizeof(fd_block_entry_batch_t) * batch_cnt);
 
   fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
   fd_wksp_t *  wksp  = fd_blockstore_wksp( blockstore );
@@ -1002,19 +1018,26 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_shred_t * shreds_laddr = (fd_block_shred_t *)((ulong)block + shred_off);
   block->shreds_gaddr = fd_wksp_gaddr_fast( wksp, shreds_laddr );
   block->shreds_cnt   = shred_cnt;
+  fd_block_entry_batch_t * batch_laddr = (fd_block_entry_batch_t *)((ulong)block + batch_off);
+  block->batch_gaddr = fd_wksp_gaddr_fast( wksp, batch_laddr );
+  block->batch_cnt    = batch_cnt;
 
   /* deshred the shreds into the block mem */
-  fd_deshredder_t    deshredder = { 0 };
-  fd_shred_t const * shreds[1]  = { 0 };
-  fd_deshredder_init( &deshredder, data_laddr, block->data_sz, shreds, 0 );
-  long  rc  = -FD_SHRED_EPIPE;
-  ulong off = 0;
+  fd_deshredder_t    deshredder;
+  fd_deshredder_init( &deshredder, data_laddr, block->data_sz, NULL, 0 );
+  long  rc  = -FD_SHRED_EINVAL;
+  ulong off     = 0UL;
+  ulong batch_i = 0UL;
   for( uint i = 0; i < shred_cnt; i++ ) {
     // TODO can do this in one iteration with block sz loop... massage with deshredder API
     fd_shred_key_t                key = { .slot = slot, .idx = i };
     fd_buf_shred_t const * query =
         fd_buf_shred_map_ele_query_const( shred_map, &key, NULL, shred_pool );
     if( FD_UNLIKELY( !query ) ) FD_LOG_ERR(( "missing shred idx %u during deshred. slot %lu.", i, slot ));
+    /* This is a hack to set up the internal state of the deshreddder
+       such that it processes exactly one shred.
+       TODO improve deshredder API
+     */
     fd_shred_t const * shred = &query->hdr;
     deshredder.shreds        = &shred;
     deshredder.shred_cnt     = 1;
@@ -1035,10 +1058,18 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
                       fd_shred_payload_sz( shred ) ) );
 
     off += fd_shred_payload_sz( shred );
+
+    if( FD_LIKELY( (query->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) || query->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) ) {
+      batch_laddr[ batch_i++ ].end_off = off;
+    }
+
     fd_buf_shred_t * ele = NULL;
     while( FD_UNLIKELY( ele = fd_buf_shred_map_ele_remove( shred_map, &key, NULL, shred_pool ) ) ) {
       fd_buf_shred_pool_ele_release( shred_pool, ele );
     }
+  }
+  if( FD_UNLIKELY( batch_cnt != batch_i ) ) {
+    FD_LOG_ERR(( "batch_cnt(%lu)!=batch_i(%lu) potential memory corruption", batch_cnt, batch_i ));
   }
 
   /* deshredder error handling */
@@ -1048,6 +1079,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     err = FD_BLOCKSTORE_ERR_SHRED_INVALID;
     goto fail_deshred;
   case -FD_SHRED_ENOMEM:
+    err = FD_BLOCKSTORE_ERR_NO_MEM;
     FD_LOG_ERR(( "should have alloc'd enough memory above. likely indicates memory corruption." ));
   }
 
@@ -1072,12 +1104,6 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   case FD_SHRED_EPIPE:
     FD_LOG_WARNING(( "deshredding slot %lu produced invalid block", slot ));
     err = FD_BLOCKSTORE_ERR_DESHRED_INVALID;
-    goto fail_deshred;
-  case FD_SHRED_EINVAL:
-    err = FD_BLOCKSTORE_ERR_SHRED_INVALID;
-    goto fail_deshred;
-  case FD_SHRED_ENOMEM:
-    err = FD_BLOCKSTORE_ERR_NO_MEM;
     goto fail_deshred;
   default:
     err = FD_BLOCKSTORE_ERR_UNKNOWN;
@@ -1402,10 +1428,10 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     }
     uchar * block_data = fd_valloc_malloc( alloc, 128UL, block_out.data_sz );
     err = fd_blockstore_block_data_restore( &blockstore->archiver,
-                                            fd, 
-                                            idx_entry,   
-                                            block_data, 
-                                            block_out.data_sz, 
+                                            fd,
+                                            idx_entry,
+                                            block_data,
+                                            block_out.data_sz,
                                             block_out.data_sz);
     if( FD_UNLIKELY( err ) ) {
       return FD_BLOCKSTORE_ERR_SLOT_MISSING;
@@ -1413,7 +1439,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     fd_block_idx_t * parent_idx_entry = fd_block_idx_query( block_idx, block_map_entry_out->parent_slot, NULL );
     if( FD_UNLIKELY( !parent_idx_entry ) ) {
       return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    } 
+    }
     *parent_block_hash_out = parent_idx_entry->block_hash;
     *block_map_entry_out   = *block_map_entry_out; /* no op */
     *block_rewards_out     = block_out.rewards;
@@ -1562,7 +1588,7 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
      location is valid. As long as we don't crash, we can validate the
      data after it is read. */
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
-  
+
   fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
   fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
 

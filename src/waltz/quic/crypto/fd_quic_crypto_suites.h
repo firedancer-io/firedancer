@@ -1,9 +1,7 @@
 #ifndef HEADER_fd_src_waltz_quic_crypto_fd_quic_crypto_suites_h
 #define HEADER_fd_src_waltz_quic_crypto_fd_quic_crypto_suites_h
 
-#include "../fd_quic_common.h"
 #include "../fd_quic_enum.h"
-#include "../fd_quic_conn_id.h"
 #include "../../../ballet/aes/fd_aes_gcm.h"
 
 /* Defines the crypto suites used by QUIC v1.
@@ -73,52 +71,76 @@ struct fd_quic_crypto_keys {
 struct fd_quic_crypto_secrets {
   uchar initial_secret[FD_QUIC_INITIAL_SECRET_SZ];
 
-  /* a secret for each encryption level, and one for us (is_peer=0), and one for them */
-  /* secret[enc_level][is_peer][0..FD_QUIC_MAX_SECRET_SZ] */
+  /* secret[enc_level][dir][FD_QUIC_SECRET_SZ]
+     a secret for each encryption level,
+     and each direction (dir=0 is incoming, dir=1 is outgoing) */
   uchar secret[FD_QUIC_NUM_ENC_LEVELS][2][FD_QUIC_SECRET_SZ];
 
   /* new secret for switching keys during key update */
   uchar new_secret[2][FD_QUIC_SECRET_SZ];
 };
 
-/* fd_quic_gen_initial_secret generates the initial secret according to spec
+/* fd_quic_gen_initial_secrets generates initial secrets for the given conn ID.
+   Does not generate keys.  Sets secrets->initial_secrets, secrets->secret[0][0],
+   (incoming secret) and secret->secret[0][1] (outgoing secret).  is_server is
+   1 if the current QUIC instance runs from the perspective of the server, 0
+   otherwise.
 
-   args
-     secrets           a pointer to the structure to receive the secrets data
-     conn_id           the raw connection id required to generate the secrets
-     conn_id_sz        the size of the raw connection id */
+   Key schedule:
+
+     initial_salt (hardcoded constant)
+      |
+      v
+     initial_secret = HKDF-Extract(.,conn_id)
+      |
+      +---> initial_client_secret = HKDF-Expand-Label(., "client in", "", 32)
+      |
+      +---> initial_server_secret = HKDF-Expand-Label(., "server in", "", 32) */
+
 void
-fd_quic_gen_initial_secret(
+fd_quic_gen_initial_secrets(
     fd_quic_crypto_secrets_t * secrets,
     uchar const *              conn_id,
-    ulong                      conn_id_sz );
+    ulong                      conn_id_sz,
+    int                        is_server );
 
-/* fd_quic_gen_secrets generate secrets according to the aforementioned RFCs
+/* fd_quic_gen_keys derives the IV, a header protection key, and a packet
+   protection key from a secret.  Thus *keys is fully initialized.  This
+   function is called twice per encryption level (for incoming and for
+   outgoing keys).
 
-   args
-     secrets           a pointer to the structure to receive the secrets data
-     enc_level         the encryption level to update */
-void
-fd_quic_gen_secrets(
-    fd_quic_crypto_secrets_t * secrets,
-    uint                       enc_level );
+   Key schedule:
 
-void
-fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
-                           fd_quic_crypto_keys_t      new_keys[2] );
+     secret
+      |
+      +---> header protection key = HKDF-Expand-Label(.,"quic-hp")
+      +---> packet protection IV  = HKDF-Expand-Label(.,"quic-iv")
+      +---> packet protection key = HKDF-Expand-Label(.,"quic-key") */
 
-/* fd_quic_gen_keys
-
-   generate the keys used for encrypting and decrypting from the given secrets
-   and associated data
-
-   args
-     keys               a pointer to the structure to receive the generated keys
-     secret             a pointer to the secret used for generating the keys */
 void
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t * keys,
     uchar const             secret[ 32 ] );
+
+/* fd_quic_key_update_derive derives the IVs and packet protection keys
+   for the next key update.  Header protection keys are not updated.
+   Key updates are periodic key rotations that some QUIC peers do out of
+   caution.  Key updates are deterministic and can be computed infinitely
+   far in advance if the client and server secrets are known.
+
+   Key schedule:
+
+     client/server secret n
+      |
+      v
+     client/server secret n+1 = HKDF-Expand-Label(.,"quic-ku")
+      |
+      +---> server packet protection IV  = HKDF-Expand-Label(.,"quic-iv")
+      +---> server packet protection key = HKDF-Expand-Label(.,"quic-key") */
+
+void
+fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
+                           fd_quic_crypto_keys_t      new_keys[2] );
 
 
 /* encrypt a packet according to rfc9001 packet protection and header protection

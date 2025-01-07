@@ -125,7 +125,6 @@ struct fd_quic_tls_hs {
   fd_quic_tls_t * quic_tls;
 
   int             is_server;
-  int             is_flush;
   int             is_hs_complete;
 
   /* user defined context supplied in callbacks */

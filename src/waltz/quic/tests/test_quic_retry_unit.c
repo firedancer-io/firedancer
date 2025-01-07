@@ -11,8 +11,6 @@
 
 #include "../../../ballet/aes/fd_aes_gcm.h"
 
-FD_STATIC_ASSERT( sizeof(((fd_quic_initial_t *)NULL)->token)==FD_QUIC_RETRY_MAX_TOKEN_SZ, layout );
-
 /* Verify our retry integrity tag implementation using the sample retry packet from RFC 9001, A.4
 
    ff000000010008f067a5502a4262b574 6f6b656e04a265ba2eff4d829058fb3f 0f2496ba
@@ -95,24 +93,22 @@ bench_retry_create( void ) {
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   uchar retry[ FD_QUIC_RETRY_LOCAL_SZ ];
-  fd_quic_pkt_t const pkt = {
-    .long_hdr = {{
-      .src_conn_id_len = 16,
-    }}
-  };
-  fd_quic_conn_id_t orig_dst_conn_id = { .sz = 8 };
-  ulong             retry_src_conn_id = 1234UL;
+  fd_quic_pkt_t     const pkt = {0};
+  fd_quic_conn_id_t const orig_dst_conn_id = { .sz = 8 };
+  fd_quic_conn_id_t const peer_src_conn_id = { .sz = 16 };
+  ulong             const retry_src_conn_id = 1234UL;
 
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong ttl         = (ulong)3e9;
 
-  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, retry_src_conn_id, 7315969UL );
+  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969UL+(ulong)ttl );
   FD_LOG_HEXDUMP_INFO(( "Retry Token", retry+0x1f, sizeof(fd_quic_retry_token_t) ));
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
-    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, retry_src_conn_id, 1UL );
+    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1UL+(ulong)ttl );
     FD_COMPILER_UNPREDICTABLE( retry[0] );
   }
   dt += fd_log_wallclock();
@@ -140,26 +136,24 @@ bench_retry_server_verify( void ) {
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  fd_quic_pkt_t const pkt = {
-    .long_hdr = {{
-      .src_conn_id_len = 16,
-    }}
-  };
+  fd_quic_pkt_t const pkt = {0};
 
   fd_quic_initial_t initial = { .dst_conn_id_len = 8 };
+  initial.token     = token;
   initial.token_len = sizeof(token);
-  fd_memcpy( initial.token, token, sizeof(token) );
   fd_quic_conn_id_t odcid;
   ulong             rscid;
 
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong now         = 50UL;
+  ulong ttl         = (ulong)3e9;
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
     FD_COMPILER_UNPREDICTABLE( aes_key[0] );
-    int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, 50UL );
+    int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
     FD_TEST( res==FD_QUIC_SUCCESS );
   }
   dt += fd_log_wallclock();
@@ -248,21 +242,19 @@ test_retry_token_malleability( void ) {
     0x27, 0x5e, 0xd0, 0x18, 0xc7
   };
   fd_quic_initial_t initial = { .dst_conn_id_len = 8 };
+  initial.token     = token;
   initial.token_len = sizeof(token);
-  fd_memcpy( initial.token, token, sizeof(token) );
-  fd_quic_pkt_t const pkt = {
-    .long_hdr = {{
-      .src_conn_id_len = 16,
-    }}
-  };
+  fd_quic_pkt_t const pkt = {0};
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong now         = 50UL;
+  ulong ttl         = (ulong)3e9;
   for( ulong j=0; j<sizeof(token); j++ ) {
     for( int i=0; i<8; i++ ) {
       retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
       fd_quic_conn_id_t odcid;
       ulong             rscid;
-      int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, 50UL );
+      int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
       FD_TEST( res==FD_QUIC_SUCCESS );
       retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
     }
@@ -284,19 +276,16 @@ test_retry_token_time( void ) {
     0x09, 0x2c, 0x8d, 0xa8, 0x5e,
   };
   fd_quic_initial_t initial = { .dst_conn_id_len = 8 };
+  initial.token     = token;
   initial.token_len = sizeof(token);
-  fd_memcpy( initial.token, token, sizeof(token) );
-  fd_quic_pkt_t const pkt = {
-    .long_hdr = {{
-      .src_conn_id_len = 16,
-    }}
-  };
+  fd_quic_pkt_t const pkt = {0};
   uchar aes_key[16] = {1};
   uchar aes_iv [16] = {2};
+  ulong ttl         = (ulong)3e9;
 
   fd_quic_conn_id_t odcid;
   ulong             rscid;
-# define TRY(ts,exp) FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, ts )==exp )
+# define TRY(ts,exp) FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, ts, ttl )==exp )
   TRY(          0UL, FD_QUIC_FAILED  );
   TRY(    7315968UL, FD_QUIC_FAILED  );
   TRY(    7315969UL, FD_QUIC_SUCCESS );

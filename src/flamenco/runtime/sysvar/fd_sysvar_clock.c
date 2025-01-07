@@ -105,7 +105,7 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
   if ( ( estimate_offset > poh_estimate_offset ) && ( ( estimate_offset - poh_estimate_offset ) > max_delta_slow ) ) {
     return epoch_start_timestamp + (long)( poh_estimate_offset / NS_IN_S ) + (long)( max_delta_slow / NS_IN_S );
   } else if ( ( estimate_offset < poh_estimate_offset ) && ( ( poh_estimate_offset - estimate_offset ) > max_delta_fast ) ) {
-    return epoch_start_timestamp + (long)( poh_estimate_offset / NS_IN_S ) + (long)( max_delta_fast / NS_IN_S );
+    return epoch_start_timestamp + (long)( poh_estimate_offset / NS_IN_S ) - (long)( max_delta_fast / NS_IN_S );
   }
 
   return estimate;

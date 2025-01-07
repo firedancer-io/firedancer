@@ -346,7 +346,7 @@ fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
     return 0;
   }
 
-  err = FD_EXECUTOR_INSTR_SUCCESS;
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
