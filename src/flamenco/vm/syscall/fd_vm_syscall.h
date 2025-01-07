@@ -468,6 +468,7 @@ FD_VM_SYSCALL_DECL( sol_get_epoch_schedule_sysvar    );
 FD_VM_SYSCALL_DECL( sol_get_fees_sysvar              );
 FD_VM_SYSCALL_DECL( sol_get_rent_sysvar              );
 FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
+FD_VM_SYSCALL_DECL( sol_get_epoch_rewards_sysvar     );
 
 /* syscall(13c1b505) "sol_get_sysvar"
 
