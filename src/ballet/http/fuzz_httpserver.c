@@ -101,6 +101,7 @@ LLVMFuzzerInitialize( int  *   argc,
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
   atexit( fd_halt );
+  fd_log_level_core_set(3); /* crash on warning log */
 
   /* Disable parsing error logging */
   fd_log_level_stderr_set(4);
