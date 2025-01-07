@@ -24,7 +24,7 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read(
     fd_sysvar_epoch_rewards_t * result,
-    fd_exec_slot_ctx_t  * slot_ctx
+    fd_exec_slot_ctx_t const * slot_ctx
 ) {
   fd_sysvar_epoch_rewards_t const * ret = fd_sysvar_cache_epoch_rewards( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
