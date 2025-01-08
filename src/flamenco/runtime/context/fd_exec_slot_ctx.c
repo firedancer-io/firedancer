@@ -26,7 +26,6 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_slot_bank_new(&self->slot_bank);
 
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
-  self->account_compute_table = fd_account_compute_table_join( fd_account_compute_table_new( fd_valloc_malloc( valloc, fd_account_compute_table_align(), fd_account_compute_table_footprint( 10000 ) ), 10000, 0 ) );
 
   /* This is inactive by default */
   self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
@@ -93,8 +92,6 @@ fd_exec_slot_ctx_delete( void * mem ) {
 
   fd_valloc_free( hdr->valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
   hdr->sysvar_cache = NULL;
-  fd_valloc_free( hdr->valloc, fd_account_compute_table_delete( fd_account_compute_table_leave( hdr->account_compute_table ) ) );
-  hdr->account_compute_table = NULL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
