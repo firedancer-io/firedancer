@@ -14,7 +14,7 @@ src/app/fdctl/version.h: src/app/fdctl/version.mk agave/Cargo.toml
 	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
-.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash frontend
+.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash frontend
 
 # fdctl core
 $(call add-objs,main1 config config_parse caps utility keys ready mem spy help version,fd_fdctl)
@@ -37,6 +37,7 @@ $(call add-objs,run/tiles/fd_cswtch,fd_fdctl)
 $(call add-objs,run/tiles/fd_metric,fd_fdctl)
 $(call add-objs,run/tiles/fd_gui,fd_fdctl)
 $(call add-objs,run/tiles/fd_plugin,fd_fdctl)
+$(call add-objs,run/tiles/fd_bundle,fd_fdctl)
 $(call add-objs,run/tiles/generated/http_import_dist,fd_fdctl)
 $(call add-objs,run/tiles/fd_blackhole,fd_fdctl)
 
@@ -76,7 +77,7 @@ $(call add-objs,external_functions,external_functions)
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
 endif
 else
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator)
+$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)
 endif
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
@@ -88,12 +89,13 @@ $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default-firedancer.
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: book/public/fire.svg
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_net.o: src/app/fdctl/run/tiles/generated/net_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/pack_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_quic.o: src/app/fdctl/run/tiles/generated/quic_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_bundle.o: src/app/fdctl/run/tiles/generated/bundle_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify.o: src/app/fdctl/run/tiles/generated/verify_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/pack_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated/metric_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_cswtch.o: src/app/fdctl/run/tiles/generated/cswtch_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: src/app/fdctl/run/tiles/generated/gui_seccomp.h src/app/fdctl/run/tiles/generated/http_import_dist.h
@@ -136,6 +138,8 @@ cargo-ledger-tool: check-agave-hash
 # with one cargo command, even if the dependency could be more fine
 # grained.
 ifeq ($(RUST_PROFILE),release)
+cargo-plugin-bundle:
+    cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p agave-validator
 cargo-solana:
@@ -143,6 +147,8 @@ cargo-solana:
 cargo-ledger-tool:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --bin agave-ledger-tool
 else ifeq ($(RUST_PROFILE),release-with-debug)
+cargo-plugin-bundle:
+	cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ../../agave/cargo build --profile=release-with-debug --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p agave-validator
 cargo-solana:
@@ -150,6 +156,8 @@ cargo-solana:
 cargo-ledger-tool:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool
 else
+cargo-plugin-bundle:
+    cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p agave-validator
 cargo-solana:
@@ -166,12 +174,18 @@ endif
 agave/target/$(RUST_PROFILE)/libagave_validator.a: cargo-validator
 	@sleep 0.1
 
+plugin/bundle/target/$(RUST_PROFILE)/libfiredancer_plugin_bundle.a: cargo-plugin-bundle
+	@sleep 0.1
+
 agave/target/$(RUST_PROFILE)/solana: cargo-solana
 
 agave/target/$(RUST_PROFILE)/agave-ledger-tool: cargo-ledger-tool
 
 $(OBJDIR)/lib/libagave_validator.a: agave/target/$(RUST_PROFILE)/libagave_validator.a
 	$(MKDIR) $(dir $@) && cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@
+
+$(OBJDIR)/lib/libfiredancer_plugin_bundle.a: plugin/bundle/target/$(RUST_PROFILE)/libfiredancer_plugin_bundle.a
+	$(MKDIR) $(dir $@) && cp plugin/bundle/target/$(RUST_PROFILE)/libfiredancer_plugin_bundle.a $@
 
 fdctl: $(OBJDIR)/bin/fdctl
 

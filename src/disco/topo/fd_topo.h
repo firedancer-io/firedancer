@@ -169,6 +169,12 @@ typedef struct {
     } dedup;
 
     struct {
+      char url[ 256 ];
+      char tls_domain_name[ 256 ];
+      char identity_key_path[ PATH_MAX ];
+    } bundle;
+
+    struct {
       ulong max_pending_transactions;
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
@@ -393,6 +399,8 @@ typedef struct {
 
   int          keep_host_networking;
   ulong        rlimit_file_cnt;
+  ulong        rlimit_address_space;
+  ulong        rlimit_data;
   int          for_tpool;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );

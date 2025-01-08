@@ -5,23 +5,24 @@ import xml.etree.ElementTree as ET
 class Tile(Enum):
     NET = 0
     QUIC = 1
-    VERIFY = 2
-    DEDUP = 3
-    RESOLV = 4
-    PACK = 5
-    BANK = 6
-    POH = 7
-    SHRED = 8
-    STORE = 9
-    SIGN = 10
-    METRIC = 11
-    CSWTCH = 12
-    EVENT = 13
-    PLUGIN = 14
-    GUI = 15
-    REPLAY = 16
-    STOREI = 17
-    GOSSIP = 18
+    BUNDLE = 2
+    VERIFY = 3
+    DEDUP = 4
+    RESOLV = 5
+    PACK = 6
+    BANK = 7
+    POH = 8
+    SHRED = 9
+    STORE = 10
+    SIGN = 11
+    METRIC = 12
+    CSWTCH = 13
+    EVENT = 14
+    PLUGIN = 15
+    GUI = 16
+    REPLAY = 17
+    STOREI = 18
+    GOSSIP = 19
 
 class MetricType(Enum):
     COUNTER = 0

@@ -390,7 +390,7 @@ test_resource_limits_inner( void ) {
 
   TEST_FORK_EXIT_CODE( (void)0, 0 );
 
-  fd_sandbox_private_set_rlimits( 0UL );
+  fd_sandbox_private_set_rlimits( 0UL, 0UL, 0UL );
 
   for( ulong i=0UL; i<sizeof( rlimits )/sizeof( rlimits[ 0 ] ); i++ ) {
     struct rlimit rlim;
@@ -490,7 +490,7 @@ test_seccomp( void ) {
 void
 test_undumpable_inner( void ) {
   int allow_fds[] = { 0, 1, 2, 3 };
-  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 4UL, allow_fds );
+  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds );
   FD_TEST( !prctl( PR_GET_DUMPABLE ) );
   FD_TEST( !prctl( PR_GET_KEEPCAPS ) );
 
@@ -513,7 +513,7 @@ test_controlling_terminal_inner( void ) {
   int sid1 = getsid( 0 );
   FD_TEST( -1!=sid1 );
   int allow_fds[] = { 0, 1, 2, 3 };
-  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 4UL, allow_fds );
+  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds );
   int sid2 = getsid( 1 );
   FD_TEST( -1!=sid2 );
   FD_TEST( sid1!=sid2 );
@@ -530,7 +530,7 @@ test_netns_inner( void ) {
   FD_TEST( ifs[ 1 ].if_name != NULL );
 
   int allow_fds[] = { 0, 1, 2, 3 };
-  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 4UL, allow_fds );
+  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds );
 
   ifs = if_nameindex();
   FD_TEST( !ifs );

@@ -1,0 +1,48 @@
+scratch_directory = "/data/fd1"
+
+[gossip]
+    entrypoints = [
+        "entrypoint.testnet.solana.com:8001",
+        "entrypoint2.testnet.solana.com:8001",
+        "entrypoint3.testnet.solana.com:8001",
+    ]
+
+[snapshots]
+    minimum_snapshot_download_speed = 104857600 # 100 Mbps
+
+[consensus]
+    identity_path = "/home/{user}/keys/validator-keypair.json"
+    vote_account_path = "/home/{user}/keys/validator-vote.json"
+    expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
+    known_validators = [
+        "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on", 
+        "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",
+        "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN",
+        "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
+        "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
+    ]
+
+[rpc]
+    port = 8899
+    full_api = true
+    private = true
+
+[layout]
+    # Configure 2 shred tiles to handle the increased computational
+    # overhead of shred destination calculation, which scales with
+    # testnet's expanded validator peer set
+    shred_tile_count = 2
+
+[reporting]
+    solana_metrics_config = "host=https://metrics.solana.com:8086,db=tds,u=testnet_write,p=c4fa841aa918bf8274e3e2a44d77568d9861b3ea"
+
+[tiles.bundle]
+    enabled = true
+    url = "https://ny.testnet.block-engine.jito.wtf"
+
+    # For the testnet endpoint, Jito presents a certificate for
+    # internal.ny.testnet instead of ny.testnet
+    tls_domain_name = "internal.ny.testnet.block-engine.jito.wtf"
+
+[tiles.gui]
+    gui_listen_address = "0.0.0.0"
