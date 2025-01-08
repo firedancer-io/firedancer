@@ -25,7 +25,8 @@ struct fd_voter {
   /* IMPORTANT! The values below should only be modified by fd_epoch and
      fd_ghost. */
 
-  ulong stake;       /* voter's stake */
+  ulong prev_stake;  /* voter's stake as of the previous vote slot */
+  ulong stake;       /* voter's current stake (usually == prev stake) */
   ulong replay_vote; /* cached read of last tower vote via replay */
   ulong gossip_vote; /* cached read of last tower vote via gossip */
   ulong rooted_vote; /* cached read of last tower root via replay */

@@ -1392,7 +1392,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       }
 
       fd_forks_print( ctx->forks );
-      fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx-> ghost ) );
+      fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
       fd_tower_print( ctx->tower, ctx->root );
 
       ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, child->slot_ctx.funk_txn, ctx->ghost );

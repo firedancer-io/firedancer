@@ -131,8 +131,8 @@ fd_epoch_init( fd_epoch_t * epoch, fd_epoch_bank_t const * epoch_bank ) {
       FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
       #endif
 
-      voter->stake = curr->elem.stake;
-
+      voter->prev_stake  = 0UL;
+      voter->stake       = curr->elem.stake;
       voter->replay_vote = FD_SLOT_NULL;
       voter->gossip_vote = FD_SLOT_NULL;
       voter->rooted_vote = FD_SLOT_NULL;
