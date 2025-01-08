@@ -141,6 +141,15 @@ fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
 
 static void
 fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulong epoch ) {
+
+  /* Every known Solana cluster currently has no rent-paying accounts. If
+     this feature is active, that means that there is no condition in which
+     we need to iterate through a rent partition. Put more simply, if this 
+     feature is active, rent is NEVER collected. */
+  if( FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) ) {
+    return;
+  }
+
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = slot_ctx->acc_mgr->funk;
