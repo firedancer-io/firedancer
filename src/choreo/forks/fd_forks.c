@@ -387,10 +387,16 @@ fd_forks_update( fd_forks_t *      forks,
 
     ulong root = fd_voter_state_root( state );
 
-    /* Check if this voter's root >= ghost root. We can't process
-        other voters' roots that precede the ghost root. */
+    /* Only process if voter's root > blockstore->smr because if the
+       root <= blockstore->smr it is by definition already finalized
+       (finalizing a slot also finalizes its entire ancestry).
 
-    if( FD_UNLIKELY( root >= fd_ghost_root( ghost )->slot ) ) {
+       Also it is possible the ghost root is lagging the supermajority
+       root because our tower has fallen behind the rest of the cluster.
+       So this prevents any issues with differences in slot retention
+       between ghost and blockstore. */
+
+    if( FD_UNLIKELY( root > fd_ghost_root( ghost )->slot && root > blockstore->smr ) ) {
       fd_ghost_node_t const * node = fd_ghost_query( ghost, root );
       if( FD_UNLIKELY( !node ) ) {
 
@@ -404,7 +410,8 @@ fd_forks_update( fd_forks_t *      forks,
 
       fd_ghost_rooted_vote( ghost, voter, root );
 
-      /* Check if it has crossed finalized threshold. */
+      /* Check if it has crossed the supermajority threshold (and can be
+         marked finalized in the blockstore). */
 
       fd_blockstore_start_write( blockstore );
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );

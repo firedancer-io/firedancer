@@ -1856,7 +1856,7 @@ during_housekeeping( void * _ctx ) {
   ulong wmk = fd_ulong_min( ctx->tower->root , ctx->blockstore->smr );
   fd_blockstore_end_read( ctx->blockstore );
 
-  if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
+  if( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->wmk ), wmk ));
 
   fd_blockstore_start_read( ctx->blockstore );
