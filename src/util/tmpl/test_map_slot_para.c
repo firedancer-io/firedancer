@@ -34,6 +34,7 @@ FD_STATIC_ASSERT( FD_MAP_ERR_AGAIN==-2, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_FULL ==-5, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_KEY  ==-6, unit_test );
 
+FD_STATIC_ASSERT( FD_MAP_FLAG_BLOCKING     ==(1<<0), unit_test );
 FD_STATIC_ASSERT( FD_MAP_FLAG_USE_HINT     ==(1<<2), unit_test );
 FD_STATIC_ASSERT( FD_MAP_FLAG_PREFETCH_NONE==(0<<3), unit_test );
 FD_STATIC_ASSERT( FD_MAP_FLAG_PREFETCH_META==(1<<3), unit_test );
@@ -107,13 +108,16 @@ tile_main( int     argc,
 
     int op       = (int)(r & 7UL);            r >>= 3;
     int prefetch = (int)(r & 1UL);            r >>= 1;
+    int blocking = (int)(r & 1UL);            r >>= 1;
     int use_hint = (int)(r & 1UL) & prefetch; r >>= 1;
+
+    int flags = (blocking ? FD_MAP_FLAG_BLOCKING : 0) | (use_hint ? FD_MAP_FLAG_USE_HINT : 0);
 
     mymap_query_t query[1];
 
     switch( op ) {
 
-    case 0: { /* bad insert (i.e. key already in map) */
+    case 0: { /* blocking read / bad insert (i.e. key already in map) */
 
       if( FD_UNLIKELY( !map_cnt ) ) break;
       ulong idx  = fd_rng_ulong_roll( rng, map_cnt );
@@ -122,13 +126,14 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      int       err = mymap_prepare( map, &key, sentinel, query, flags );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
-        FD_TEST( ele==sentinel );
+        FD_TEST( ele==sentinel         );
         FD_TEST( err==FD_MAP_ERR_AGAIN );
-        FD_TEST( tile_cnt>1UL );
+        FD_TEST( !blocking             );
+        FD_TEST( tile_cnt>1UL          );
       } else {
         FD_TEST( (ulong)(ele-ele0)<ele_max     );
         FD_TEST( ele->mykey ==key              );
@@ -150,12 +155,12 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      int       err = mymap_prepare( map, &key, sentinel, query, flags );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( ele==sentinel );
-        if( err==FD_MAP_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+        if( err==FD_MAP_ERR_AGAIN ) { FD_TEST( !blocking ); FD_TEST( tile_cnt>1UL ); }
         else                        FD_TEST( err==FD_MAP_ERR_FULL );
       } else {
         FD_TEST( (ulong)(ele-ele0)<ele_max );
@@ -177,16 +182,15 @@ tile_main( int     argc,
     }
 
     case 2: { /* bad remove (i.e. key not already in map) */
-
       uint  key  = (uint)(local_prefix | local_key); /* not yet inserted */
       ulong memo = mymap_key_hash( &key, seed );
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int err = mymap_remove( map, &key );
+      int err = mymap_remove( map, &key, query, flags );
 
       if( FD_LIKELY( err ) ) {
-        if( err==FD_MAP_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+        if( err==FD_MAP_ERR_AGAIN ) { FD_TEST( !blocking ); FD_TEST( tile_cnt>1UL ); }
         else                        FD_TEST( err==FD_MAP_ERR_KEY );
       }
 
@@ -194,7 +198,6 @@ tile_main( int     argc,
     }
 
     case 3: { /* good remove (i.e. key already in map) */
-
       if( FD_UNLIKELY( !map_cnt ) ) break;
       ulong idx  = fd_rng_ulong_roll( rng, map_cnt );
       uint  key  = map_key[ idx ];
@@ -202,10 +205,11 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int err = mymap_remove( map, &key );
+      int err = mymap_remove( map, &key, query, flags );
 
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( err==FD_MAP_ERR_AGAIN );
+        FD_TEST( !blocking             );
         FD_TEST( tile_cnt>1UL          );
       } else {
         map_key[ idx ] = map_key[ --map_cnt ];
@@ -221,12 +225,12 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      int       err = mymap_prepare( map, &key, sentinel, query, flags );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( ele==sentinel );
-        if( err==FD_MAP_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+        if( err==FD_MAP_ERR_AGAIN ) { FD_TEST( !blocking ); FD_TEST( tile_cnt>1UL ); }
         else                        FD_TEST( err==FD_MAP_ERR_FULL );
       } else {
         FD_TEST( (ulong)(ele-ele0)<ele_max );
@@ -247,13 +251,14 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int       err = mymap_prepare( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      int       err = mymap_prepare( map, &key, sentinel, query, flags );
       myele_t * ele = mymap_query_ele( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
-        FD_TEST( ele==sentinel );
+        FD_TEST( ele==sentinel         );
         FD_TEST( err==FD_MAP_ERR_AGAIN );
-        FD_TEST( tile_cnt>1UL );
+        FD_TEST( !blocking             );
+        FD_TEST( tile_cnt>1UL          );
       } else {
         FD_TEST( (ulong)(ele-ele0)<ele_max );
         uint mod = ele->mod;
@@ -280,11 +285,11 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int             err = mymap_query_try( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      int             err = mymap_query_try( map, &key, sentinel, query, flags );
       myele_t const * ele = mymap_query_ele_const( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       FD_TEST( ele==sentinel );
-      if( err==FD_MAP_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
+      if( err==FD_MAP_ERR_AGAIN ) { FD_TEST( !blocking ); FD_TEST( tile_cnt>1UL ); }
       else                        FD_TEST( err==FD_MAP_ERR_KEY );
 
       break;
@@ -299,12 +304,13 @@ tile_main( int     argc,
 
       if( prefetch ) { mymap_hint( map, &key, query, FD_MAP_FLAG_PREFETCH ); FD_TEST( memo==mymap_query_memo( query ) ); }
 
-      int             err = mymap_query_try( map, &key, sentinel, query, use_hint ? FD_MAP_FLAG_USE_HINT : 0 );
+      int             err = mymap_query_try( map, &key, sentinel, query, flags );
       myele_t const * ele = mymap_query_ele_const( query ); FD_TEST( memo==mymap_query_memo( query ) );
 
       if( FD_UNLIKELY( err ) ) {
         FD_TEST( ele==sentinel         );
         FD_TEST( err==FD_MAP_ERR_AGAIN );
+        FD_TEST( !blocking             );
         FD_TEST( tile_cnt>1UL          );
       } else {
         FD_TEST( (ulong)(ele-ele0)<ele_max );
@@ -334,15 +340,8 @@ tile_main( int     argc,
 
   /* Clean up for the next text battery */
 
-  for( ulong map_idx=0UL; map_idx<map_cnt; map_idx++ ) {
-    for(;;) {
-      int err = mymap_remove( map, map_key + map_idx );
-      if( FD_LIKELY( !err ) ) break;
-      FD_TEST( err==FD_MAP_ERR_AGAIN );
-      FD_TEST( tile_cnt>1UL );
-      FD_SPIN_PAUSE();
-    }
-  }
+  for( ulong map_idx=0UL; map_idx<map_cnt; map_idx++ )
+    FD_TEST( !mymap_remove( map, map_key + map_idx, NULL, FD_MAP_FLAG_BLOCKING ) );
 
   shmem_cnt = save;
 
