@@ -9,11 +9,11 @@ def scrape_url(url: str) -> str:
     response.raise_for_status()
     response.encoding = 'utf-8'
     return response.text
-    
+
 def parse_prometheus_text(text: str) -> Dict[Tuple[str, Optional[str]], int]:
     pattern = re.compile(r'(\w+){kind="(\w+)",kind_id="(\d+)"(,link_kind="(\w+)",link_kind_id="\d+")?(,\w+="(\w+)")?} (\d+)')
     result: Dict[Tuple[str, Optional[str]], int] = {}
-    
+
     for line in text.splitlines():
         match = pattern.match(line)
         if match:
@@ -34,14 +34,15 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
 
     verify_overrun = summed[('link_overrun_reading_frag_count', 'quic_verify')] + \
                      int(summed[('link_overrun_polling_frag_count', 'quic_verify')] / 6)
-    verify_failed = summed[('verify_transaction_verify_failure', None)]
+    verify_failed = summed[('verify_transaction_verify_failure', None)] + summed[('verify_transaction_bundle_peer_failure', None)]
     verify_parse = summed[('verify_transaction_parse_failure', None)]
     verify_dedup = summed[('verify_transaction_dedup_failure', None)]
 
-    dedup_dedup = summed[('dedup_transaction_dedup_failure', None)]
+    dedup_dedup = summed[('dedup_transaction_dedup_failure', None)] + summed[('dedup_transaction_bundle_peer_failure', None)]
 
     resolv_failed = summed[('resolv_blockhash_expired', None)] + \
                     summed[('resolv_no_bank_drop', None)] + \
+                    summed[('resolv_transaction_bundle_peer_failure', None)] + \
                     summed[('resolv_lut_resolved', 'account_not_found')] + \
                     summed[('resolv_lut_resolved', 'account_uninitialized')] + \
                     summed[('resolv_lut_resolved', 'invalid_account_data')] + \
@@ -53,13 +54,13 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                       summed[('resolv_stash_operation', 'overrun')] - \
                       summed[('resolv_stash_operation', 'published')] - \
                       summed[('resolv_stash_operation', 'removed')]
-    
+
     pack_retained = summed[('pack_available_transactions', None)]
 
     pack_leader_slot = summed[('pack_transaction_inserted', 'priority')] + \
                        summed[('pack_transaction_inserted', 'nonvote_replace')] + \
                        summed[('pack_transaction_inserted', 'vote_replace')]
-    
+
     pack_expired = summed[('pack_transaction_expired', None)] + \
                    summed[('pack_transaction_inserted', 'expired')]
 
@@ -72,7 +73,7 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                    summed[('pack_transaction_inserted', 'addr_lut')] + \
                    summed[('pack_transaction_inserted', 'unaffordable')] + \
                    summed[('pack_transaction_inserted', 'duplicate')]
-    
+
     bank_invalid = summed[('bank_processing_failed', None)] + \
                    summed[('bank_precompile_verify_failure', None)] + \
                    summed[('bank_transaction_load_address_tables', 'account_not_found')] + \
@@ -80,7 +81,7 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                    summed[('bank_transaction_load_address_tables', 'invalid_account_owner')] + \
                    summed[('bank_transaction_load_address_tables', 'invalid_index')] + \
                    summed[('bank_transaction_load_address_tables', 'slot_hashes_sysvar_not_found')]
-    
+
     block_fail = summed[('bank_executed_failed_transactions', None)] + summed[('bank_fee_only_transactions', None)]
 
     block_success = summed[('bank_successful_transactions', None)]

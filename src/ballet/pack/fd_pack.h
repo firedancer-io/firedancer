@@ -50,11 +50,14 @@
 
 /* ---- End consensus-critical constants */
 
-#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE   (1U)
-#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
-#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
-#define FD_TXN_P_FLAGS_FEES_ONLY        (8U)
+#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE     ( 1U)
+#define FD_TXN_P_FLAGS_BUNDLE             ( 2U)
+#define FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ( 4U)
+#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS   ( 8U)
+#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS    (16U)
+#define FD_TXN_P_FLAGS_FEES_ONLY          (32U)
 
+#define FD_TXN_P_FLAGS_RESULT_MASK  (0xFF000000U)
 
 /* The Solana network and Firedancer implementation details impose
    several limits on what pack can produce.  These limits are grouped in

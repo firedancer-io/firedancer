@@ -5,23 +5,24 @@ import xml.etree.ElementTree as ET
 class Tile(Enum):
     NET = 0
     QUIC = 1
-    VERIFY = 2
-    DEDUP = 3
-    RESOLV = 4
-    PACK = 5
-    BANK = 6
-    POH = 7
-    SHRED = 8
-    STORE = 9
-    SIGN = 10
-    METRIC = 11
-    CSWTCH = 12
-    EVENT = 13
-    PLUGIN = 14
-    GUI = 15
-    REPLAY = 16
-    STOREI = 17
-    GOSSIP = 18
+    BUNDLE = 2
+    VERIFY = 3
+    DEDUP = 4
+    RESOLV = 5
+    PACK = 6
+    BANK = 7
+    POH = 8
+    SHRED = 9
+    STORE = 10
+    SIGN = 11
+    METRIC = 12
+    CSWTCH = 13
+    EVENT = 14
+    PLUGIN = 15
+    GUI = 16
+    REPLAY = 17
+    STOREI = 18
+    GOSSIP = 19
 
 class MetricType(Enum):
     COUNTER = 0
@@ -54,7 +55,7 @@ class Metric:
 
     def footprint(self) -> int:
         return 8
-    
+
     def count(self) -> int:
         return 1
 
@@ -85,7 +86,7 @@ class CounterEnumMetric(Metric):
 
     def footprint(self) -> int:
         return 8 * len(self.enum.values)
-    
+
     def count(self) -> int:
         return len(self.enum.values)
 
@@ -97,7 +98,7 @@ class GaugeEnumMetric(Metric):
 
     def footprint(self) -> int:
         return 8 * len(self.enum.values)
-    
+
     def count(self) -> int:
         return len(self.enum.values)
 
@@ -140,7 +141,7 @@ class Metrics:
 def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, MetricEnum]) -> Metric:
     name = metric.attrib['name']
     description = ""
-    
+
     summary_ele = metric.find('summary')
     if summary_ele is not None and summary_ele.text is not None:
         description = summary_ele.text
@@ -201,7 +202,7 @@ def parse_metrics(xml_data: str) -> Metrics:
         Tile[tile.attrib['name'].upper()]: [
             parse_metric(Tile[tile.attrib['name'].upper()], metric, enums)
             for metric in tile
-        ]    
+        ]
         for tile in root.findall('tile')
     }
 
@@ -212,5 +213,5 @@ def parse_metrics(xml_data: str) -> Metrics:
     link_out = root.find('linkout')
     assert link_out is not None
     link_out = [parse_metric(None, metric, enums) for metric in link_out]
-        
+
     return Metrics(common=common, tiles=tiles, link_in=link_in, link_out=link_out, enums=enums)
