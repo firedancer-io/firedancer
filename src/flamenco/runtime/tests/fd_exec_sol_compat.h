@@ -9,7 +9,7 @@
 FD_PROTOTYPES_BEGIN
 
 void
-sol_compat_wksp_init( void );
+sol_compat_wksp_init( ulong wksp_page_sz );
 
 void
 sol_compat_fini( void );
