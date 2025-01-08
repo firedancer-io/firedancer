@@ -655,6 +655,37 @@ first connect by the `summary.tiles` message.
 
 :::
 
+### block_engine
+Block engines are providers of additional transactions to the validator,
+which are configurable by the operator. The validator may not be 
+configured to use any block engines, in which case no update will be
+provided. For now, at most one block engine can be configured, and the
+name and url will not change during the lifetime of the validator.
+
+#### `block_engine.update`
+| frequency       | type          | example |
+|-----------------|---------------|-------- |
+| *Once* + *Live* | `BlockEngine` | below   |
+
+::: details Example
+
+```json
+{
+    "name": "jito",
+    "url": "https://mainnet.block-engine.jito.wtf",
+    "status": "connected"
+}
+```
+
+:::
+
+**`BlockEngine`**
+| Field      | Type     | Description |
+|------------|----------|-------------|
+| name       | `string` | A short, descriptive name for the block engine |
+| url        | `string` | An HTTP URL for the block engine which the validator client connects to |
+| status     | `string` | One of `disconnected`, `connecting`, or `connected` indicating the state of the connection to the block engine |
+
 ### epoch
 Information about an epoch. Epochs are never modified once they have
 been determined, so the topic only publishes a continuous stream of new
@@ -988,7 +1019,8 @@ are skipped on the currently active fork.
                 "resolv_retained": 0,
                 "quic": 28159,
                 "udp": 14323,
-                "gossip": 4659
+                "gossip": 4646,
+                "block_engine": 13
             },
             "out": {
                 "net_overrun": 0,
@@ -1100,6 +1132,7 @@ are skipped on the currently active fork.
 | quic            | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
 | udp             | `number` | A non-QUIC UDP transaction was received |
 | gossip          | `number` | A gossipped vote transaction was received from a gossip peer |
+| block_engine    | `number` | A transaction received from a block engine, for example Jito. The transaction might or might not have been part of a bundle |
 
 **`TxnWaterfallOut`**
 | Field             | Type     | Description |

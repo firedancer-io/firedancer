@@ -34,14 +34,15 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
 
     verify_overrun = summed[('link_overrun_reading_frag_count', 'quic_verify')] + \
                      int(summed[('link_overrun_polling_frag_count', 'quic_verify')] / 6)
-    verify_failed = summed[('verify_transaction_verify_failure', None)]
+    verify_failed = summed[('verify_transaction_verify_failure', None)] + summed[('verify_transaction_bundle_peer_failure', None)]
     verify_parse = summed[('verify_transaction_parse_failure', None)]
     verify_dedup = summed[('verify_transaction_dedup_failure', None)]
 
-    dedup_dedup = summed[('dedup_transaction_dedup_failure', None)]
+    dedup_dedup = summed[('dedup_transaction_dedup_failure', None)] + summed[('dedup_transaction_bundle_peer_failure', None)]
 
     resolv_failed = summed[('resolv_blockhash_expired', None)] + \
                     summed[('resolv_no_bank_drop', None)] + \
+                    summed[('resolv_transaction_bundle_peer_failure', None)] + \
                     summed[('resolv_lut_resolved', 'account_not_found')] + \
                     summed[('resolv_lut_resolved', 'account_uninitialized')] + \
                     summed[('resolv_lut_resolved', 'invalid_account_data')] + \
