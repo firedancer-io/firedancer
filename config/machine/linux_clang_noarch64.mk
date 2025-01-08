@@ -1,9 +1,9 @@
 BUILDDIR?=linux/clang/noarch64
 
 include config/base.mk
-include config/extra/with-security.mk
 include config/extra/with-clang.mk
 include config/extra/with-debug.mk
+include config/extra/with-security.mk
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-threads.mk
