@@ -9,6 +9,11 @@
 
 int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
+  /* Feature-gate program activation */
+  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->slot_ctx, zk_elgamal_proof_program_enabled ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
+
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
 
