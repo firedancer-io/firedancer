@@ -127,6 +127,7 @@ agave_boot( config_t * config ) {
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
   if( config->rpc.full_api ) ADD1( "--full-rpc-api" );
   if( config->rpc.private ) ADD1( "--private-rpc" );
+  if( strcmp( config->rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->rpc.bind_address );
   if( config->rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
   if( config->rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
   if( config->rpc.only_known ) ADD1( "--only-known-rpc" );
