@@ -2643,7 +2643,7 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
         for( ulong j = 0; j < subs->sub_cnt; ++j ) {
           struct fd_ws_subscription * sub = &subs->sub_list[ j ];
           if( sub->meth_id == KEYW_WS_METHOD_ACCOUNTSUBSCRIBE &&
-              fd_pubkey_eq( &id, &sub->acct_subscribe.acct ) ) {
+              !memcmp( &id, &sub->acct_subscribe.acct, sizeof(fd_pubkey_t) ) ) {
             if( ws_method_accountSubscribe_update( ctx, msg, sub ) )
               fd_web_ws_send( &subs->ws, sub->conn_id );
           }

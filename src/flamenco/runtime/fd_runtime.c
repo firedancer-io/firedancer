@@ -1171,12 +1171,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   slot_ctx->total_compute_units_requested = 0UL;
-  for ( fd_account_compute_table_iter_t iter = fd_account_compute_table_iter_init( slot_ctx->account_compute_table );
-        !fd_account_compute_table_iter_done( slot_ctx->account_compute_table, iter );
-        iter = fd_account_compute_table_iter_next( slot_ctx->account_compute_table, iter ) ) {
-    fd_account_compute_elem_t * e = fd_account_compute_table_iter_ele( slot_ctx->account_compute_table, iter );
-    fd_account_compute_table_remove( slot_ctx->account_compute_table, &e->key );
-  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

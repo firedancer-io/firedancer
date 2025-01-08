@@ -10,37 +10,6 @@
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
 
-struct fd_account_compute_elem {
-  fd_pubkey_t key;
-  ulong next;
-  ulong cu_consumed;
-};
-typedef struct fd_account_compute_elem fd_account_compute_elem_t;
-
-static int
-fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
-  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
-}
-
-static ulong
-fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
-}
-
-static void
-fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
-  memcpy( keyd->key, keys->key, sizeof(fd_pubkey_t) );
-}
-
-/* Contact info table */
-#define MAP_NAME     fd_account_compute_table
-#define MAP_KEY_T    fd_pubkey_t
-#define MAP_KEY_EQ   fd_pubkey_eq
-#define MAP_KEY_HASH fd_pubkey_hash
-#define MAP_KEY_COPY fd_pubkey_copy
-#define MAP_T        fd_account_compute_elem_t
-#include "../../../util/tmpl/fd_map_giant.c"
-
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
@@ -76,7 +45,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       total_compute_units_used;
 
   fd_sysvar_cache_t *         sysvar_cache;
-  fd_account_compute_elem_t * account_compute_table;
 
   fd_txncache_t *             status_cache;
   fd_slot_history_t           slot_history[1];
