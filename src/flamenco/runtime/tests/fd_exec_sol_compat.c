@@ -33,13 +33,14 @@ typedef struct {
 
 static sol_compat_features_t features;
 static       uchar *     smem;
-static const ulong       smax = 1UL<<27;
+static const ulong       smax = 256UL<<20;
 
 static       uchar *     spad_mem;
 
 static       fd_wksp_t * wksp = NULL;
 
-#define WKSP_TAG 2
+#define WKSP_EXECUTE_ALLOC_TAG (2UL)
+#define WKSP_INIT_ALLOC_TAG    (3UL)
 
 void
 sol_compat_init( int log_level ) {
@@ -56,25 +57,35 @@ sol_compat_init( int log_level ) {
   fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
-  sol_compat_wksp_init();
+  sol_compat_wksp_init( FD_SHMEM_NORMAL_PAGE_SZ );
 }
 
 void
-sol_compat_wksp_init( void ) {
+sol_compat_wksp_init( ulong wksp_page_sz ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536UL * 18UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+  switch( wksp_page_sz )
+  {
+  case FD_SHMEM_GIGANTIC_PAGE_SZ:
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 5UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+    break;
+  case FD_SHMEM_NORMAL_PAGE_SZ:
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 512UL * 512UL * 5UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+    break;
+  default:
+    FD_LOG_ERR(( "Unsupported page size %lu", wksp_page_sz ));
+  }
   assert( wksp );
 
-  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, 3 ); /* 4738713960 B */
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
   assert( spad_mem );
 
-  smem = malloc( smax );  /* 128 MB */
+  smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, smax, WKSP_INIT_ALLOC_TAG );  /* 256 MB */
   assert( smem );
 
   features.struct_size         = sizeof(sol_compat_features_t);
-  features.cleaned_up_features = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
-  features.supported_features  = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
+  features.cleaned_up_features = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
+  features.supported_features  = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
 
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     // Skip reverted features
@@ -91,10 +102,10 @@ sol_compat_wksp_init( void ) {
 void
 sol_compat_fini( void ) {
   fd_wksp_free_laddr( spad_mem );
+  fd_wksp_free_laddr( smem );
+  fd_wksp_free_laddr( features.cleaned_up_features );
+  fd_wksp_free_laddr( features.supported_features );
   fd_wksp_delete_anonymous( wksp );
-  free( smem );
-  free( features.cleaned_up_features );
-  free( features.supported_features );
   wksp     = NULL;
   smem     = NULL;
   spad_mem = NULL;
@@ -103,7 +114,7 @@ sol_compat_fini( void ) {
 void
 sol_compat_check_wksp_usage( void ) {
   fd_wksp_usage_t usage[1];
-  ulong tags[1] = { WKSP_TAG };
+  ulong tags[1] = { WKSP_EXECUTE_ALLOC_TAG };
   fd_wksp_usage( wksp, tags, 1, usage );
   if( usage->used_sz ) {
     FD_LOG_ERR(( "%lu bytes leaked in %lu allocations", usage->used_sz, usage->used_cnt ));
@@ -123,8 +134,8 @@ sol_compat_setup_scratch_and_runner( void * fmem ) {
   fd_scratch_push();
 
   // Setup test runner
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_TAG );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, spad_mem, WKSP_TAG );
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, spad_mem, WKSP_EXECUTE_ALLOC_TAG );
   return runner;
 }
 
