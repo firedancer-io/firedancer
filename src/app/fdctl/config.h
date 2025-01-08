@@ -109,6 +109,7 @@ typedef struct {
     ushort port;
     int    full_api;
     int    private;
+    char   bind_address[ 16 ];
     int    transaction_history;
     int    extended_tx_metadata_storage;
     int    only_known;

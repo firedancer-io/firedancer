@@ -279,6 +279,12 @@ dynamic_port_range = "8900-9000"
     # `--private-rpc` argument.
     private = false
 
+    # The address to bind the RPC port.  If no address is specified,
+    # the default RPC bind address is 127.0.0.1 if [rpc.private] = true,
+    # otherwise it's 0.0.0.0.  This option is passed to the Agave client
+    # with the `--rpc-bind-address` argument.
+    bind_address = ""
+
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API.  This will cause an increase in disk
     # usage and IOPS.  This option is passed to the Agave client

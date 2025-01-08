@@ -252,6 +252,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ushort, rpc.port                                         );
   CFG_POP      ( bool,   rpc.full_api                                     );
   CFG_POP      ( bool,   rpc.private                                      );
+  CFG_POP      ( cstr,   rpc.bind_address                                 );
   CFG_POP      ( bool,   rpc.transaction_history                          );
   CFG_POP      ( bool,   rpc.extended_tx_metadata_storage                 );
   CFG_POP      ( bool,   rpc.only_known                                   );
