@@ -98,7 +98,7 @@ name = \"fd1\"
 sudo $FD_DIR/$OBJDIR/bin/fddev configure init kill --config $(readlink -f fddev.toml)
 sudo $FD_DIR/$OBJDIR/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
 sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-channels --config $(readlink -f fddev.toml)
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-gro --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-gro ethtool-loopback --config $(readlink -f fddev.toml)
 sudo $FD_DIR/$OBJDIR/bin/fddev configure init keys --config $(readlink -f fddev.toml)
 
 sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone

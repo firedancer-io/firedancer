@@ -2,13 +2,15 @@
 
 ## Overview
 The `fdctl configure` command is used to setup the host operator system
-so Firedancer can run correctly. It does three things:
+so Firedancer can run correctly. It does the following:
 
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
 * **ethtool-channels** Configures the number of channels on the network
 device.
 * **ethtool-gro** Disable generic-receive-offload (GRO) on the network
+device.
+* **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
 
 The `hugetlbfs` configuration must be performed every time the system
@@ -26,9 +28,9 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `hugetlbfs`, `sysctl`, `ethtool-channels`
-or `ethtool-gro` and these stages are described below. You can also use
-the stage `all` which will configure everything.
+`stage` can be one or more of `hugetlbfs`, `sysctl`, `ethtool-channels`,
+`ethtool-gro`, `ethtool-loopback` and these stages are described below. You
+can also use the stage `all` which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -92,7 +94,7 @@ will not decrease them if the minimum is already met.
 | /proc/sys/vm/max_map_count              | 1000000     | Yes      | Agave accounts database requires mapping many files.
 | /proc/sys/fs/file-max                   | 1024000     | Yes      | Agave accounts database requires opening many files.
 | /proc/sys/fs/nr_open                    | 1024000     | Yes      | Agave accounts database requires opening many files.
-| /proc/sys/net/ipv4/conf/lo/rp_filter    | 2           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback. 
+| /proc/sys/net/ipv4/conf/lo/rp_filter    | 2           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback.
 | /proc/sys/net/ipv4/conf/lo/accept_local | 1           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback.
 | /proc/sys/net/core/bpf_jit_enable       | 1           | No       | Firedancer uses BPF for kernel bypass networking. BPF JIT makes this faster.
 | /proc/sys/kernel/numa_balancing         | 0           | No       | Firedancer assigns all memory to the right NUMA node, and rebalancing will make the system slower.
@@ -135,12 +137,12 @@ Changing device settings with `ethtool-channels` requires root privileges, and
 cannot be performed with capabilities.
 
 ## ethtool-gro
-XDP is incomatible with a feature of network devices called
-`generic-receive-offload`. If enabled, this feature must be disabled for
-Firedancer to work.
+XDP is incompatible with a feature of network devices called
+`generic-receive-offload`. This feature must be disabled for Firedancer
+to work.
 
 The command run by the stage is similar to running `ethtool --offload
-generic-receive-offload <device> off` but it also supports bonded
+<device> generic-receive-offload off` but it also supports bonded
 devices. We can check that it worked:
 
 <<< @/snippets/ethtool-gro.ansi
@@ -150,3 +152,19 @@ Firedancer. It has no dependencies on any other stage.
 
 Changing device settings with `ethtool-gro` requires root privileges, and
 cannot be performed with capabilities.
+
+## ethtool-loopback
+XDP is incompatible with localhost UDP traffic using a feature called
+`tx-udp-segmentation`. This feature must be disabled when connecting Agave
+clients to Firedancer over loopback, or when using Frankendancer.
+
+The command run by the stage is `ethtool --offload lo tx-udp-segmentation
+off`. We can check that it worked:
+
+<<< @/snippets/ethtool-loopback.ansi
+
+The stage only needs to be run once after boot but before running
+Firedancer. It has no dependencies on any other stage.
+
+Changing device settings with `ethtool-loopback` requires root privileges,
+and cannot be performed with capabilities.
