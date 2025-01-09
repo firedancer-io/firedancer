@@ -106,7 +106,7 @@ main( int     argc,
 
   /* Tune QUIC client and server such that server ACKs just before
      client runs out of space. */
-  ulong ack_threshold = 8192UL; //FD_QUIC_DEFAULT_ACK_THRESHOLD;
+  ulong ack_threshold = FD_QUIC_DEFAULT_ACK_THRESHOLD;
   ulong client_burst  = ack_threshold / sz + 1;
 
   fd_quic_limits_t const server_limits = {
@@ -126,8 +126,8 @@ main( int     argc,
     .handshake_cnt      = 1,
     .stream_id_cnt      = client_burst,
     .stream_pool_cnt    = client_burst,
-    .inflight_pkt_cnt   = 1024,
-    .tx_buf_sz          = FRAG_SZ
+    .inflight_pkt_cnt   = client_burst+16,
+    .tx_buf_sz          = sz
   };
   FD_LOG_NOTICE(( "Creating client QUIC (%lu bytes)", fd_quic_footprint( &client_limits ) ));
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
@@ -213,8 +213,8 @@ main( int     argc,
   long start_ts = fd_log_wallclock();
   long end_ts   = start_ts + (long)(duration * 1e9f);
   while(1) {
-    service_client( client_quic );;
-    service_server( server_quic );;
+    service_client( client_quic );
+    service_server( server_quic );
 
     client_stream = fd_quic_conn_new_stream( client_conn );
     if( !client_stream ) continue;
@@ -222,6 +222,9 @@ main( int     argc,
 
     long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
+      FD_TEST( client_quic->metrics.conn_closed_cnt==0 );
+      FD_TEST( server_quic->metrics.conn_closed_cnt==0 );
+
       long  dt        = t - last_ts;
       float net_rx_gbps   = (float)(8UL*server_quic->metrics.net_rx_byte_cnt) / (float)dt;
       float net_rx_gpps   = (float)server_quic->metrics.net_rx_pkt_cnt        / (float)dt;

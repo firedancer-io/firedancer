@@ -39,11 +39,11 @@
 
 #include "../../../../disco/metrics/fd_metrics.h"
 
-#include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xdp.h"
 #include "../../../../waltz/xdp/fd_xdp1.h"
 #include "../../../../waltz/xdp/fd_xsk_aio_private.h"
 #include "../../../../waltz/xdp/fd_xsk_private.h"
+#include "../../../../util/log/fd_dtrace.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../waltz/ip/fd_ip.h"
 
@@ -175,7 +175,10 @@ net_rx_aio_send( void *                    _ctx,
     uchar const * udp = iphdr + iplen;
 
     /* Ignore if UDP header is too short */
-    if( FD_UNLIKELY( udp+8U > packet_end ) ) continue;
+    if( FD_UNLIKELY( udp+8U > packet_end ) ) {
+      FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+      continue;
+    }
 
     /* Extract IP dest addr and UDP src/dest port */
     uint ip_srcaddr    =                  *(uint   *)( iphdr+12UL );

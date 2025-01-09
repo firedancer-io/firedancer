@@ -157,7 +157,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   int retry;
 
   /* tick_per_us: clock ticks per microsecond */
-  float tick_per_us;
+  double tick_per_us;
 
   /* idle_timeout: Upper bound on conn idle timeout.
      Also sent to peer via max_idle_timeout transport param.
@@ -314,10 +314,15 @@ union fd_quic_metrics {
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
     /* Packet metrics */
+    ulong pkt_net_hdr_err_cnt;     /* number of packets dropped due to weird IPv4/UDP headers */
+    ulong pkt_quic_hdr_err_cnt;    /* number of packets dropped due to weird QUIC header */
+    ulong pkt_undersz_cnt;         /* number of QUIC packets dropped due to being too small */
+    ulong pkt_oversz_cnt;          /* number of QUIC packets dropped due to being too large */
     ulong pkt_decrypt_fail_cnt[4]; /* number of packets that failed decryption due to auth tag */
     ulong pkt_no_key_cnt[4];       /* number of packets that failed decryption due to missing key */
     ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
     ulong pkt_tx_alloc_fail_cnt;   /* number of pkt_meta alloc fails */
+    ulong pkt_verneg_cnt;          /* number of QUIC version negotiation packets or packets with wrong version */
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
@@ -467,7 +472,7 @@ FD_QUIC_API void
 fd_quic_set_clock( fd_quic_t *   quic,
                    fd_quic_now_t now_fn,
                    void *        now_ctx,
-                   float         tick_per_us );
+                   double        tick_per_us );
 
 /* fd_quic_set_clock_tickcount sets fd_tickcount as the clock source. */
 
