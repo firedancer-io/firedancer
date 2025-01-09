@@ -540,9 +540,7 @@ fd_wksp_reset( fd_wksp_t * wksp,
   void * wksp_data = (void*)((ulong)wksp + fd_wksp_private_pinfo_off());
   fd_asan_poison( wksp_data, footprint - fd_wksp_private_pinfo_off() );
   fd_wksp_private_pinfo_t * pinfo_arr = fd_wksp_private_pinfo( wksp );
-  for( ulong i=0; i<wksp->part_max; i++ ) {
-    fd_asan_unpoison( &pinfo_arr[ i ], FD_WKSP_PRIVATE_PINFO_FOOTPRINT );
-  }
+  fd_asan_unpoison( pinfo_arr, FD_WKSP_PRIVATE_PINFO_FOOTPRINT * wksp->part_max );
 # endif
 
   ulong                     part_max = wksp->part_max;

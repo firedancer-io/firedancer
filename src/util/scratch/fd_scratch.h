@@ -17,7 +17,11 @@
    to turn on additional run-time checks. */
 
 #ifndef FD_SCRATCH_USE_HANDHOLDING
+#if FD_HAS_DEEPASAN
+#define FD_SCRATCH_USE_HANDHOLDING 1
+#else
 #define FD_SCRATCH_USE_HANDHOLDING 0
+#endif
 #endif
 
 /* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for
@@ -179,7 +183,7 @@ fd_scratch_attach( void * smem,
   fd_scratch_private_frame_max = depth;
 
 # if FD_HAS_DEEPASAN
-  /* Poison the entire smem region. Underpoison the boundaries to respect 
+  /* Poison the entire smem region. Underpoison the boundaries to respect
      alignment requirements. */
   ulong aligned_start = fd_ulong_align_up( fd_scratch_private_start, FD_ASAN_ALIGN );
   ulong aligned_end   = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
@@ -432,7 +436,7 @@ fd_scratch_prepare( ulong align ) {
      always going to be at least 8 byte aligned. */
   ulong aligned_sz = fd_ulong_align_up( fd_scratch_private_stop - smem, FD_ASAN_ALIGN );
   fd_asan_unpoison( (void*)smem, aligned_sz );
-# endif 
+# endif
 
   fd_scratch_private_free = smem;
   return (void *)smem;
@@ -454,7 +458,7 @@ fd_scratch_publish( void * _end ) {
      less than the region that is trimmed to respect alignment requirements. */
 # if FD_HAS_DEEPASAN
   ulong aligned_end  = fd_ulong_align_up( end, FD_ASAN_ALIGN );
-  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN ); 
+  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_end, aligned_stop - aligned_end );
 # endif
 # if FD_HAS_MSAN
