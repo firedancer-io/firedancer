@@ -32,187 +32,203 @@ quic_txns_received{kind="quic",kind_id="0",tpu_recv_type="quic_frag"} 24
 # TYPE quic_txns_abandoned counter
 quic_txns_abandoned{kind="quic",kind_id="0"} 25
 
-# HELP quic_quic_packet_too_small Count of packets received on the QUIC port that were too small to be a valid IP packet.
-# TYPE quic_quic_packet_too_small counter
-quic_quic_packet_too_small{kind="quic",kind_id="0"} 26
+# HELP quic_txn_undersz Count of txns received via QUIC dropped because they were too small.
+# TYPE quic_txn_undersz counter
+quic_txn_undersz{kind="quic",kind_id="0"} 26
 
-# HELP quic_quic_txn_too_small Count of txns received via QUIC dropped because they were too small.
-# TYPE quic_quic_txn_too_small counter
-quic_quic_txn_too_small{kind="quic",kind_id="0"} 27
+# HELP quic_txn_oversz Count of txns received via QUIC dropped because they were too large.
+# TYPE quic_txn_oversz counter
+quic_txn_oversz{kind="quic",kind_id="0"} 27
 
-# HELP quic_quic_txn_too_large Count of txns received via QUIC dropped because they were too large.
-# TYPE quic_quic_txn_too_large counter
-quic_quic_txn_too_large{kind="quic",kind_id="0"} 28
+# HELP quic_legacy_txn_undersz Count of packets received on the non-QUIC port that were too small to be a valid IP packet.
+# TYPE quic_legacy_txn_undersz counter
+quic_legacy_txn_undersz{kind="quic",kind_id="0"} 28
 
-# HELP quic_non_quic_packet_too_small Count of packets received on the non-QUIC port that were too small to be a valid IP packet.
-# TYPE quic_non_quic_packet_too_small counter
-quic_non_quic_packet_too_small{kind="quic",kind_id="0"} 29
-
-# HELP quic_non_quic_packet_too_large Count of packets received on the non-QUIC port that were too large to be a valid transaction.
-# TYPE quic_non_quic_packet_too_large counter
-quic_non_quic_packet_too_large{kind="quic",kind_id="0"} 30
+# HELP quic_legacy_txn_oversz Count of packets received on the non-QUIC port that were too large to be a valid transaction.
+# TYPE quic_legacy_txn_oversz counter
+quic_legacy_txn_oversz{kind="quic",kind_id="0"} 29
 
 # HELP quic_received_packets Number of IP packets received.
 # TYPE quic_received_packets counter
-quic_received_packets{kind="quic",kind_id="0"} 31
+quic_received_packets{kind="quic",kind_id="0"} 30
 
 # HELP quic_received_bytes Total bytes received (including IP, UDP, QUIC headers).
 # TYPE quic_received_bytes counter
-quic_received_bytes{kind="quic",kind_id="0"} 32
+quic_received_bytes{kind="quic",kind_id="0"} 31
 
 # HELP quic_sent_packets Number of IP packets sent.
 # TYPE quic_sent_packets counter
-quic_sent_packets{kind="quic",kind_id="0"} 33
+quic_sent_packets{kind="quic",kind_id="0"} 32
 
 # HELP quic_sent_bytes Total bytes sent (including IP, UDP, QUIC headers).
 # TYPE quic_sent_bytes counter
-quic_sent_bytes{kind="quic",kind_id="0"} 34
+quic_sent_bytes{kind="quic",kind_id="0"} 33
 
 # HELP quic_connections_active The number of currently active QUIC connections.
 # TYPE quic_connections_active gauge
-quic_connections_active{kind="quic",kind_id="0"} 35
+quic_connections_active{kind="quic",kind_id="0"} 34
 
 # HELP quic_connections_created The total number of connections that have been created.
 # TYPE quic_connections_created counter
-quic_connections_created{kind="quic",kind_id="0"} 36
+quic_connections_created{kind="quic",kind_id="0"} 35
 
 # HELP quic_connections_closed Number of connections gracefully closed.
 # TYPE quic_connections_closed counter
-quic_connections_closed{kind="quic",kind_id="0"} 37
+quic_connections_closed{kind="quic",kind_id="0"} 36
 
 # HELP quic_connections_aborted Number of connections aborted.
 # TYPE quic_connections_aborted counter
-quic_connections_aborted{kind="quic",kind_id="0"} 38
+quic_connections_aborted{kind="quic",kind_id="0"} 37
 
 # HELP quic_connections_timed_out Number of connections timed out.
 # TYPE quic_connections_timed_out counter
-quic_connections_timed_out{kind="quic",kind_id="0"} 39
+quic_connections_timed_out{kind="quic",kind_id="0"} 38
 
 # HELP quic_connections_retried Number of connections established with retry.
 # TYPE quic_connections_retried counter
-quic_connections_retried{kind="quic",kind_id="0"} 40
+quic_connections_retried{kind="quic",kind_id="0"} 39
 
 # HELP quic_connection_error_no_slots Number of connections that failed to create due to lack of slots.
 # TYPE quic_connection_error_no_slots counter
-quic_connection_error_no_slots{kind="quic",kind_id="0"} 41
+quic_connection_error_no_slots{kind="quic",kind_id="0"} 40
 
 # HELP quic_connection_error_retry_fail Number of connections that failed during retry (e.g. invalid token).
 # TYPE quic_connection_error_retry_fail counter
-quic_connection_error_retry_fail{kind="quic",kind_id="0"} 42
+quic_connection_error_retry_fail{kind="quic",kind_id="0"} 41
 
 # HELP quic_pkt_no_conn Number of packets with an unknown connection ID.
 # TYPE quic_pkt_no_conn counter
-quic_pkt_no_conn{kind="quic",kind_id="0"} 43
+quic_pkt_no_conn{kind="quic",kind_id="0"} 42
 
 # HELP quic_pkt_tx_alloc_fail Number of packets failed to send because of metadata alloc fail.
 # TYPE quic_pkt_tx_alloc_fail counter
-quic_pkt_tx_alloc_fail{kind="quic",kind_id="0"} 44
+quic_pkt_tx_alloc_fail{kind="quic",kind_id="0"} 43
 
 # HELP quic_handshakes_created Number of handshake flows created.
 # TYPE quic_handshakes_created counter
-quic_handshakes_created{kind="quic",kind_id="0"} 45
+quic_handshakes_created{kind="quic",kind_id="0"} 44
 
 # HELP quic_handshake_error_alloc_fail Number of handshakes dropped due to alloc fail.
 # TYPE quic_handshake_error_alloc_fail counter
-quic_handshake_error_alloc_fail{kind="quic",kind_id="0"} 46
+quic_handshake_error_alloc_fail{kind="quic",kind_id="0"} 45
 
 # HELP quic_stream_received_events Number of stream RX events.
 # TYPE quic_stream_received_events counter
-quic_stream_received_events{kind="quic",kind_id="0"} 47
+quic_stream_received_events{kind="quic",kind_id="0"} 46
 
 # HELP quic_stream_received_bytes Total stream payload bytes received.
 # TYPE quic_stream_received_bytes counter
-quic_stream_received_bytes{kind="quic",kind_id="0"} 48
+quic_stream_received_bytes{kind="quic",kind_id="0"} 47
 
 # HELP quic_received_frames Number of QUIC frames received.
 # TYPE quic_received_frames counter
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="unknown"} 49
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="ack"} 50
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="reset_stream"} 51
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stop_sending"} 52
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="crypto"} 53
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="new_token"} 54
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stream"} 55
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_data"} 56
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_stream_data"} 57
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_streams"} 58
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="data_blocked"} 59
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stream_data_blocked"} 60
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="streams_blocked"} 61
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="new_conn_id"} 62
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="retire_conn_id"} 63
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="path_challenge"} 64
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="path_response"} 65
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="conn_close_quic"} 66
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="conn_close_app"} 67
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="handshake_done"} 68
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="ping"} 69
-quic_received_frames{kind="quic",kind_id="0",quic_frame_type="padding"} 70
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="unknown"} 48
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="ack"} 49
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="reset_stream"} 50
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stop_sending"} 51
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="crypto"} 52
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="new_token"} 53
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stream"} 54
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_data"} 55
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_stream_data"} 56
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_streams"} 57
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="data_blocked"} 58
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stream_data_blocked"} 59
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="streams_blocked"} 60
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="new_conn_id"} 61
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="retire_conn_id"} 62
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="path_challenge"} 63
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="path_response"} 64
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="conn_close_quic"} 65
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="conn_close_app"} 66
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="handshake_done"} 67
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="ping"} 68
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="padding"} 69
 
 # HELP quic_ack_tx ACK events
 # TYPE quic_ack_tx counter
-quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="noop"} 71
-quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="new"} 72
-quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="merged"} 73
-quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="drop"} 74
-quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="cancel"} 75
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="noop"} 70
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="new"} 71
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="merged"} 72
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="drop"} 73
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="cancel"} 74
 
 # HELP quic_service_duration_seconds Duration spent in service
 # TYPE quic_service_duration_seconds histogram
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 76
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 153
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 231
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 310
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 390
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 471
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 553
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 636
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 720
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 805
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 891
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 978
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1066
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1155
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1245
-quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1336
-quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 9.2000000000000003e-08
-quic_service_duration_seconds_count{kind="quic",kind_id="0"} 1336
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 75
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 151
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 228
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 306
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 385
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 465
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 546
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 628
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 711
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 795
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 880
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 966
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1053
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1141
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1230
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1320
+quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 9.0999999999999994e-08
+quic_service_duration_seconds_count{kind="quic",kind_id="0"} 1320
 
 # HELP quic_receive_duration_seconds Duration spent receiving packets
 # TYPE quic_receive_duration_seconds histogram
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 93
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 187
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 282
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 378
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 475
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 573
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 672
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 772
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 873
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 975
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1078
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1182
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1287
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1393
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1500
-quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1608
-quic_receive_duration_seconds_sum{kind="quic",kind_id="0"} 1.09e-07
-quic_receive_duration_seconds_count{kind="quic",kind_id="0"} 1608
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="8.9999999999999995e-09"} 92
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1e-08"} 185
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.9999999999999995e-08"} 279
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1800000000000002e-07"} 374
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0070000000000001e-06"} 470
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1839999999999999e-06"} 567
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="1.0063e-05"} 665
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.1798999999999998e-05"} 764
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.000100479"} 864
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031749099999999999"} 965
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.001003196"} 1067
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.003169856"} 1170
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.010015971"} 1274
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031648018999999999"} 1379
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.099999999000000006"} 1485
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 1592
+quic_receive_duration_seconds_sum{kind="quic",kind_id="0"} 1.08e-07
+quic_receive_duration_seconds_count{kind="quic",kind_id="0"} 1592
 
 # HELP quic_frame_fail_parse Number of QUIC frames failed to parse.
 # TYPE quic_frame_fail_parse counter
-quic_frame_fail_parse{kind="quic",kind_id="0"} 110
+quic_frame_fail_parse{kind="quic",kind_id="0"} 109
 
 # HELP quic_pkt_crypto_failed Number of packets that failed decryption.
 # TYPE quic_pkt_crypto_failed counter
-quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="initial"} 111
-quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="early"} 112
-quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="handshake"} 113
-quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="app"} 114
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="initial"} 110
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="early"} 111
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="handshake"} 112
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="app"} 113
 
 # HELP quic_pkt_no_key Number of packets that failed decryption due to missing key.
 # TYPE quic_pkt_no_key counter
-quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="initial"} 115
-quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="early"} 116
-quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="handshake"} 117
-quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="app"} 118
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="initial"} 114
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="early"} 115
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="handshake"} 116
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="app"} 117
+
+# HELP quic_pkt_net_header_invalid Number of packets dropped due to weird IP or UDP header.
+# TYPE quic_pkt_net_header_invalid counter
+quic_pkt_net_header_invalid{kind="quic",kind_id="0"} 118
+
+# HELP quic_pkt_quic_header_invalid Number of packets dropped due to weird QUIC header.
+# TYPE quic_pkt_quic_header_invalid counter
+quic_pkt_quic_header_invalid{kind="quic",kind_id="0"} 119
+
+# HELP quic_pkt_undersz Number of QUIC packets dropped due to being too small.
+# TYPE quic_pkt_undersz counter
+quic_pkt_undersz{kind="quic",kind_id="0"} 120
+
+# HELP quic_pkt_oversz Number of QUIC packets dropped due to being too large.
+# TYPE quic_pkt_oversz counter
+quic_pkt_oversz{kind="quic",kind_id="0"} 121
+
+# HELP quic_pkt_verneg Number of QUIC version negotiation packets received.
+# TYPE quic_pkt_verneg counter
+quic_pkt_verneg{kind="quic",kind_id="0"} 122

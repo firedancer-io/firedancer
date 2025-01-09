@@ -37,6 +37,8 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_aio_pcapng_start( void * pcapng );
 
+ulong
+fd_aio_pcapng_start_l3( void * pcapng );
 
 /* fd_aio_pcapng_join formats the memory region at mitm for use as an
    fd_aio_pcapng_t (with matching size and alignment requirements).
