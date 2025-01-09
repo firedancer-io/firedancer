@@ -1095,11 +1095,11 @@ ingest( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load( args->snapshot, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_all( args->snapshot, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
     FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load_all( args->incremental, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
@@ -1241,11 +1241,11 @@ replay( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load_all( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load_all( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
@@ -1300,11 +1300,11 @@ prune( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load_all( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load_all( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
   }
@@ -1409,11 +1409,11 @@ prune( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_all( args->snapshot, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_FULL );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load_all( args->incremental, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 

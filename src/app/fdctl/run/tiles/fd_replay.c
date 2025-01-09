@@ -1827,7 +1827,7 @@ read_snapshot( void * _ctx,
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
   } else {
-    fd_snapshot_load( snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_all( snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
   }
 
   /* Load incremental */
@@ -1842,7 +1842,7 @@ read_snapshot( void * _ctx,
   }
 
   if( strlen( incremental ) > 0 ) {
-    fd_snapshot_load( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load_all( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
   }
 
   if( ctx->replay_plugin_out_mem ) {
