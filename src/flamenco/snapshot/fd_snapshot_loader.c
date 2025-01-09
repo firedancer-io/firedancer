@@ -1,4 +1,6 @@
 #include "fd_snapshot_loader.h"
+#include "fd_snapshot.h"
+#include "fd_snapshot_restore.h"
 #include "fd_snapshot_http.h"
 
 #include <errno.h>
@@ -9,8 +11,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-#define FD_SNAPSHOT_LOADER_MAGIC (0xa78a73a69d33e6b1UL)
 
 struct fd_snapshot_loader {
   ulong magic;
@@ -46,9 +46,11 @@ struct fd_snapshot_loader {
   /* Hash and slot numbers from filename */
 
   fd_snapshot_name_t name;
-}; 
+};
 
 typedef struct fd_snapshot_loader fd_snapshot_loader_t;
+
+#define FD_SNAPSHOT_LOADER_MAGIC (0xa78a73a69d33e6b1UL)
 
 ulong
 fd_snapshot_loader_align( void ) {
@@ -196,15 +198,9 @@ fd_snapshot_loader_advance( fd_snapshot_loader_t * dumper ) {
   fd_tar_io_reader_t * vtar = dumper->vtar;
 
   int untar_err = fd_tar_io_reader_advance( vtar );
-  if( untar_err==0 ) { 
-    /* Ok */ 
-  } else if( untar_err==MANIFEST_DONE ) {
-    /* Finished reading the manifest for the first time. */
-    return MANIFEST_DONE;
-  } else if( untar_err<0 ) { 
-    /* EOF */
-    return -1; 
-  } else {
+  if( untar_err==0 )     { /* ok */ }
+  else if( untar_err<0 ) { /* EOF */ return -1; }
+  else {
     FD_LOG_WARNING(( "Failed to load snapshot (%d-%s)", untar_err, fd_io_strerror( untar_err ) ));
     return untar_err;
   }

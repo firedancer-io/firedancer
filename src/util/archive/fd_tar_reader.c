@@ -128,15 +128,13 @@ fd_tar_read_data( fd_tar_reader_t * reader,
   reader->file_sz -= chunk_sz;
 
   *pcur = cur;
-
-  return err;
+  return fd_int_if( err, EIO, 0 );
 }
 
 int
 fd_tar_read( void *        const reader_,
              uchar const * const data,
-             ulong         const data_sz,
-             int           const track_err ) {
+             ulong         const data_sz ) {
 
   fd_tar_reader_t * reader = reader_;
   ulong const pos = reader->pos;
@@ -144,17 +142,10 @@ fd_tar_read( void *        const reader_,
   uchar const * cur = data;
   uchar const * end = cur+data_sz;
 
-  /* We want to return this return value if it has been seen at any point,
-     but we want to make sure the reader has processed the entire data buffer. */
-  int seen_tracked_err = 0;
-
   while( cur!=end ) {
     if( reader->file_sz ) {
       int err = fd_tar_read_data( reader, &cur, end );
-      if( FD_UNLIKELY( !!err && err!=track_err ) ) return err;
-      if( err==track_err ) {
-        seen_tracked_err = 1;
-      }
+      if( FD_UNLIKELY( !!err ) ) return err;
       reader->pos = pos + (ulong)( cur-data );
     }
     if( !reader->file_sz ) {
@@ -162,10 +153,6 @@ fd_tar_read( void *        const reader_,
       if( FD_UNLIKELY( !!err ) ) return err;
       reader->pos = pos + (ulong)( cur-data );
     }
-  }
-
-  if( seen_tracked_err ) {
-    return track_err;
   }
 
   return 0;
