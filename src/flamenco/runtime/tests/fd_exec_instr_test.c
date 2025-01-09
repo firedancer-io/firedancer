@@ -727,8 +727,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->exemption_threshold     <      0.0 ) |
       ( rent->exemption_threshold     >    999.0 ) |
       ( rent->lamports_per_uint8_year > UINT_MAX ) |
-      ( rent->burn_percent            >      100 ) )
+      ( rent->burn_percent            >      100 ) ) {
+    fd_funk_end_write( runner->funk );
     return NULL;
+  }
 
   /* Blockhash queue is given in txn message. We need to populate the following three:
      - slot_ctx->slot_bank.block_hash_queue (TODO: Does more than just the last_hash need to be populated?)
