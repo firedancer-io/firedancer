@@ -211,7 +211,7 @@ fd_quic_virtual_pair_pcap( fd_quic_virtual_pair_t * pair,
 
   /* Write pcapng header */
 
-  FD_TEST( 1UL==fd_aio_pcapng_start( pcap ) );
+  FD_TEST( 1UL==fd_aio_pcapng_start_l3( pcap ) );
 
   /* Install captures */
 

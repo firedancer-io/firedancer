@@ -392,7 +392,7 @@ func main() {
 		if C.fd_quic_test_pcap == nil {
 			log.Fatal("fopen failed")
 		}
-		C.fd_aio_pcapng_start(unsafe.Pointer(C.fd_quic_test_pcap))
+		C.fd_aio_pcapng_start_l3(unsafe.Pointer(C.fd_quic_test_pcap))
 	}
 
 	clientTest(fdQuic)

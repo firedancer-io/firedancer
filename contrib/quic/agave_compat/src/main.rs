@@ -29,7 +29,7 @@ mod bindings {
 }
 
 use crate::bindings::{
-    fd_aio_pcapng_get_aio, fd_aio_pcapng_join, fd_aio_pcapng_start, fd_aio_pcapng_t, fd_boot,
+    fd_aio_pcapng_get_aio, fd_aio_pcapng_join, fd_aio_pcapng_start_l3, fd_aio_pcapng_t, fd_boot,
     fd_halt, fd_pcapng_fwrite_tls_key_log, fd_quic_connect, fd_quic_get_aio_net_rx, fd_quic_init,
     fd_quic_limits_t, fd_quic_new_anonymous, fd_quic_new_anonymous_small, fd_quic_service,
     fd_quic_set_aio_net_tx, fd_quic_t, fd_rng_t, fd_udpsock_align, fd_udpsock_footprint,
@@ -216,7 +216,7 @@ unsafe fn agave_to_fdquic_bench() {
                 "wb\x00".as_ptr() as *const c_char,
             );
             assert!(!pcap_file.is_null());
-            fd_aio_pcapng_start(pcap_file as *mut c_void);
+            fd_aio_pcapng_start_l3(pcap_file as *mut c_void);
             fflush(pcap_file);
 
             static mut PCAP_FILE_GLOB: *mut FILE = std::ptr::null_mut();
@@ -276,6 +276,7 @@ unsafe fn agave_to_fdquic_bench() {
                     "data={:.3} Gbps  net_rx=({:.3} Gbps {:.3} Mpps)",
                     net_rx_gbps, net_rx_mpps, stream_rx_gbps
                 );
+                println!("{}", metrics.pkt_no_conn_cnt);
             }
         });
 

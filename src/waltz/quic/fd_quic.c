@@ -212,7 +212,7 @@ fd_quic_new( void * mem,
   /* Default clock source */
   quic->cb.now             = fd_quic_clock_wallclock;
   quic->cb.now_ctx         = NULL;
-  quic->config.tick_per_us = 1000.0f;
+  quic->config.tick_per_us = 1000.0;
 
   /* Copy layout descriptors */
   quic->limits = *limits;
