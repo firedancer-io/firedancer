@@ -127,11 +127,10 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET  ( QUIC, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
   FD_MGAUGE_SET( QUIC, TXN_REASMS_ACTIVE,       (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
 
-  FD_MCNT_SET( QUIC, NON_QUIC_PACKET_TOO_SMALL, ctx->metrics.udp_pkt_too_small );
-  FD_MCNT_SET( QUIC, NON_QUIC_PACKET_TOO_LARGE, ctx->metrics.udp_pkt_too_large );
-  FD_MCNT_SET( QUIC, QUIC_PACKET_TOO_SMALL,     ctx->metrics.quic_pkt_too_small );
-  FD_MCNT_SET( QUIC, QUIC_TXN_TOO_SMALL,        ctx->metrics.quic_txn_too_small );
-  FD_MCNT_SET( QUIC, QUIC_TXN_TOO_LARGE,        ctx->metrics.quic_txn_too_large );
+  FD_MCNT_SET( QUIC, LEGACY_TXN_UNDERSZ, ctx->metrics.udp_pkt_too_small );
+  FD_MCNT_SET( QUIC, LEGACY_TXN_OVERSZ,  ctx->metrics.udp_pkt_too_large );
+  FD_MCNT_SET( QUIC, TXN_UNDERSZ,        ctx->metrics.quic_txn_too_small );
+  FD_MCNT_SET( QUIC, TXN_OVERSZ,         ctx->metrics.quic_txn_too_large );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -148,10 +147,15 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
 
-  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED, ctx->quic->metrics.pkt_decrypt_fail_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,        ctx->quic->metrics.pkt_no_key_cnt );
-  FD_MCNT_SET(       QUIC, PKT_NO_CONN,       ctx->quic->metrics.pkt_no_conn_cnt );
-  FD_MCNT_SET(       QUIC, PKT_TX_ALLOC_FAIL, ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,  ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,         ctx->quic->metrics.pkt_no_key_cnt );
+  FD_MCNT_SET(       QUIC, PKT_NO_CONN,        ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(       QUIC, PKT_TX_ALLOC_FAIL,  ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
+  FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
+  FD_MCNT_SET(       QUIC, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
+  FD_MCNT_SET(       QUIC, PKT_UNDERSZ,        ctx->quic->metrics.pkt_undersz_cnt );
+  FD_MCNT_SET(       QUIC, PKT_OVERSZ,         ctx->quic->metrics.pkt_oversz_cnt );
+  FD_MCNT_SET(       QUIC, PKT_VERNEG,         ctx->quic->metrics.pkt_verneg_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
@@ -518,8 +522,8 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.net.ip_addr                = tile->quic.ip_addr;
   quic->config.net.listen_udp_port        = tile->quic.quic_transaction_listen_port;
-  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * 1000000UL;
-  quic->config.ack_delay                  = tile->quic.ack_delay_millis * 1000000UL;
+  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (ulong)1e6;
+  quic->config.ack_delay                  = tile->quic.ack_delay_millis * (ulong)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
