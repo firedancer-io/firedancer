@@ -185,6 +185,8 @@ net_rx_aio_send( void *                    _ctx,
     ushort udp_srcport = fd_ushort_bswap( *(ushort *)( udp+0UL    ) );
     ushort udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
 
+    FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, batch[i].buf_sz );
+
     ushort proto;
     fd_net_out_ctx_t * out;
     if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
