@@ -491,8 +491,6 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* The logic below handles special casing with loading instruction accounts.
      https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L297-L358 */
-  /* At this point, we can set has_program_id to be 0 as the program_indices vector is of length 0 */
-  txn_ctx->has_program_id = 0;
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L304-306 */
@@ -522,7 +520,6 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* At this point, program_indices will no longer have 0 length, so we are set this flag to 1 */
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L321 */
-    txn_ctx->has_program_id = 1;
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L322-325 */
     if( !memcmp( program_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -1232,9 +1229,15 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
 int
 fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
                      fd_instr_info_t *       instr ) {
-  /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L253-L255 */
-  /* Agave looks into the program_indices that was generated in load_transaction_accounts, if the vector has nothing, it throw a UnsupportedProgramId */
-  if( FD_UNLIKELY( !txn_ctx->has_program_id ) ) {
+  /* Agave keeps a vector of vectors called program_indices that stores the program_id index for each instruction within the transaction.
+     https://github.com/anza-xyz/agave/blob/v2.1.7/svm/src/account_loader.rs#L347-L402
+     If and only if the program_id is the native loader, then the vector for respective specific instruction (account_indices) is empty.
+     https://github.com/anza-xyz/agave/blob/v2.1.7/svm/src/account_loader.rs#L350-L358
+     While trying to push a new instruction onto the instruction stack, if the vector for the respective instruction is empty, Agave throws UnsupportedProgramId 
+     https://github.com/anza-xyz/agave/blob/v2.1.7/program-runtime/src/invoke_context.rs#L253-L255
+     The only way for the vector to be empty is if the program_id is the native loader, so we can a program_id check here
+     */
+  if( FD_UNLIKELY( !memcmp(instr->program_id_pubkey.key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t)) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L256-L286 */

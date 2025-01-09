@@ -300,7 +300,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->compute_meter           = test_ctx->cu_avail;
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->spad                    = runner->spad;
-  txn_ctx->has_program_id          = 1;
 
   /* Set up instruction context */
 

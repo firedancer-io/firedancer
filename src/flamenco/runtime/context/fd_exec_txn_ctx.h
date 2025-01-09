@@ -125,11 +125,6 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   /* Execution error and type, to match Agave. */
   int exec_err;
   int exec_err_kind;
-
-  /* The has_program_id flag is used to indicate if the current transaction has valid program indices or not.
-     It will be set in fd_executor_load_transaction_accounts similar to how program_indices is used in
-     load_transaction_accounts on the agave side */
-  uchar has_program_id;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
