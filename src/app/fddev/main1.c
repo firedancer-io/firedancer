@@ -22,6 +22,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
+  &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
 #ifdef FD_HAS_NO_AGAVE

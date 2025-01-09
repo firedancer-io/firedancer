@@ -65,6 +65,7 @@ $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
 $(call add-objs,configure/ethtool-channels,fd_fdctl)
 $(call add-objs,configure/ethtool-gro,fd_fdctl)
+$(call add-objs,configure/ethtool-loopback,fd_fdctl)
 
 ifdef FD_HAS_NO_AGAVE
 ifdef FD_HAS_SECP256K1

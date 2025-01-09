@@ -58,8 +58,8 @@ monitor by sending Ctrl+C or `SIGINT`.
 
 ## `configure`
 Configures the operating system so that it can run Firedancer. See
-[the guide](/guide/initializing) for more information. There are three
-possible stages to each configure command:
+[the guide](/guide/initializing) for more information. There are the
+following stages to each configure command:
 
  - `hugetlbfs` Reserves huge and gigantic pages for use by Firedancer
     and mounts huge page filesystems for then under a path in the
@@ -69,6 +69,7 @@ possible stages to each configure command:
     device.
  - `ethtool-gro` Disables generic receive offload (GRO) on the network
     device.
+ - `ethtool-loopback` Disables UDP segmentation on the loopback device.
 
 ::: code-group
 
@@ -95,7 +96,8 @@ and configure the number of combined channels on the network device.
 |------------|--------|
 | `root` | increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems. Only applies for the `hugetlbfs` stage |
 | `root` | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
-| `root` | disable network device generic-receive-offload (gro) with `ethtool --set-offload generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
+| `root` | disable network device generic-receive-offload (gro) with `ethtool --offload IFACE generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
+| `root` | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
@@ -144,7 +146,7 @@ style `identity.json` key file. The command writes diagnostic messages
 from logs to `stderr`.
 
 ```sh [bash]
-$ fdctl keys pubkey ~/.firedancer/fd1/identity.json 
+$ fdctl keys pubkey ~/.firedancer/fd1/identity.json
 Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF
 ```
 

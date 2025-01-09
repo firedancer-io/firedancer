@@ -7,7 +7,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
-  NULL,
+  &fd_cfg_stage_ethtool_loopback,
   NULL,
   NULL,
   NULL,
