@@ -284,10 +284,10 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   /* The hard forks should be deep copied over.
      TODO:This should be in the epoch bank and not the slot bank. */
   slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
-  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc, 
-                                                            FD_SLOT_PAIR_ALIGN, 
+  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc,
+                                                            FD_SLOT_PAIR_ALIGN,
                                                             oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
-  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks, 
+  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
           oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
 
   /* Update last restart slot
@@ -330,10 +330,14 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       if( manifest->bank.epoch_stakes[i].key == epoch ) {
         curr_stakes.vote_accounts_pool = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool;
         curr_stakes.vote_accounts_root = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root = NULL;
       }
       if( manifest->bank.epoch_stakes[i].key == epoch+1UL ) {
         next_stakes.vote_accounts_pool = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool;
         next_stakes.vote_accounts_root = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root = NULL;
       }
 
       /* When loading from a snapshot, Agave's stake caches mean that we have to special-case the epoch stakes
@@ -353,10 +357,14 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       if( manifest->versioned_epoch_stakes[i].epoch == epoch ) {
         curr_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;
         curr_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root = NULL;
       }
       if( manifest->versioned_epoch_stakes[i].epoch == epoch+1UL ) {
         next_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;
         next_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root = NULL;
       }
 
       if( manifest->versioned_epoch_stakes[i].epoch==epoch+2UL ) {
@@ -501,14 +509,16 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
         fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
         fd_hash_t * blockhash = &pair->hash;
 
+        uchar * results = fd_scratch_alloc( alignof(uchar), pair->value.statuses_len );
         for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
           fd_cache_status_t * status = &pair->value.statuses[k];
-          uchar result = (uchar)status->result.discriminant;
+          uchar * result = results + k;
+          *result = (uchar)status->result.discriminant;
           insert_vals[idx++] = (fd_txncache_insert_t){
             .blockhash = blockhash->uc,
             .slot = slot,
             .txnhash = status->key_slice,
-            .result = &result
+            .result = result
           };
         }
       }

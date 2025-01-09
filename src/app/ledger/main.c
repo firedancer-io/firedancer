@@ -87,14 +87,16 @@ struct fd_ledger_args {
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
+  char *                rocksdb_list_strdup;
   uint                  cluster_version[3];      /* What version of solana is the genesis block? */
   char const *          one_off_features[32];    /* List of one off feature pubkeys to enable for execution agnostic of cluster version */
   uint                  one_off_features_cnt;    /* Number of one off features */
+  char *                one_off_features_strdup;
   ulong                 snapshot_freq;           /* How often a snapshot should be produced */
   ulong                 incremental_freq;        /* How often an incremental snapshot should be produced */
   char const *          snapshot_dir;            /* Directory to create a snapshot in */
   ulong                 snapshot_tcnt;           /* Number of threads to use for snapshot creation */
-  double                allowed_mem_delta;       /* Percent of memory in the blockstore wksp that can be 
+  double                allowed_mem_delta;       /* Percent of memory in the blockstore wksp that can be
                                                     used and not freed between the start of end of execution.
                                                     If the difference in usage exceeds this value, error out. */
 
@@ -267,6 +269,12 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
   ledger_args->snapshot_tpool = snapshot_tpool;
 
   return 0;
+}
+
+void
+args_cleanup( fd_ledger_args_t * ledger_args ) {
+  if( ledger_args->rocksdb_list_strdup )     free( ledger_args->rocksdb_list_strdup );
+  if( ledger_args->one_off_features_strdup ) free( ledger_args->one_off_features_strdup );
 }
 
 int
@@ -594,6 +602,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     FD_LOG_ERR(( "No slots replayed" ));
   }
 
+  args_cleanup( ledger_args );
+
   return 0;
 }
 
@@ -696,7 +706,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   args->spad_cnt = fd_tpool_worker_cnt( args->tpool );
   for( ulong i=0UL; i<args->spad_cnt; i++ ) {
     ulong       total_mem_sz = FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT; /* TODO: is this right? */
-    uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, total_mem_sz, 999UL );
+    uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( total_mem_sz ), 999UL );
     fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
     if( FD_UNLIKELY( !spad ) ) {
       FD_LOG_ERR(( "failed to allocate spad" ));
@@ -807,6 +817,7 @@ parse_one_off_features( fd_ledger_args_t * args, char const * one_off_features )
   }
 
   char * one_off_features_str = strdup( one_off_features );
+  args->one_off_features_strdup = one_off_features_str;
   char * token = NULL;
   token = strtok( one_off_features_str, "," );
   while( token ) {
@@ -815,8 +826,6 @@ parse_one_off_features( fd_ledger_args_t * args, char const * one_off_features )
   }
 
   FD_LOG_NOTICE(( "Found %u one off features to include", args->one_off_features_cnt ));
-
-  /* TODO: Fix the leak here and in parse_rocksdb_list */
 }
 
 void
@@ -830,6 +839,7 @@ parse_rocksdb_list( fd_ledger_args_t * args,
   }
 
   char * rocksdb_str = strdup( rocksdb_list );
+  args->rocksdb_list_strdup = rocksdb_str;
   char * token       = NULL;
   token = strtok( rocksdb_str, "," );
   while( token ) {
@@ -855,10 +865,6 @@ parse_rocksdb_list( fd_ledger_args_t * args,
   if( index != args->rocksdb_list_cnt - 1UL ) {
     FD_LOG_ERR(( "Number of rocksdb dirs passed in doesn't match number of start slots" ));
   }
-
-
-  /* TODO: There is technically a leak here since we don't free the duplicated
-     string but it's not a big deal. */
 }
 
 void
@@ -1223,7 +1229,7 @@ replay( fd_ledger_args_t * args ) {
                                                  fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                         FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
                                                                         MAX_CACHE_TXNS_PER_SLOT,
-                                                                        FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS),
+                                                                        FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS),
                                                                         FD_TXNCACHE_MAGIC );
   args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem,
                                                                     FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
@@ -1725,21 +1731,24 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
 }
 
 int main( int argc, char ** argv ) {
-  fd_ledger_args_t args = {0};
-  initial_setup( argc, argv, &args );
+  /* Declaring this on the stack gets the alignment wrong when using asan */
+  fd_ledger_args_t * args = fd_alloca( alignof(fd_ledger_args_t), sizeof(fd_ledger_args_t) );
+  memset( args, 0, sizeof(fd_ledger_args_t) );
+  initial_setup( argc, argv, args );
 
-  if( args.cmd == NULL ) {
+  if( args->cmd == NULL ) {
     FD_LOG_ERR(( "no command specified" ));
-  } else if( strcmp( args.cmd, "replay" ) == 0 ) {
-    return replay( &args );
-  } else if( strcmp( args.cmd, "ingest" ) == 0 ) {
-    ingest( &args );
-  } else if( strcmp( args.cmd, "minify" ) == 0 ) {
-    minify( &args );
-  } else if( strcmp( args.cmd, "prune" ) == 0 ) {
-    prune( &args );
+  } else if( strcmp( args->cmd, "replay" ) == 0 ) {
+    return replay( args );
+  } else if( strcmp( args->cmd, "ingest" ) == 0 ) {
+    ingest( args );
+  } else if( strcmp( args->cmd, "minify" ) == 0 ) {
+    minify( args );
+  } else if( strcmp( args->cmd, "prune" ) == 0 ) {
+    prune( args );
   } else {
-    FD_LOG_ERR(( "unknown command=%s", args.cmd ));
+    FD_LOG_ERR(( "unknown command=%s", args->cmd ));
   }
+
   return 0;
 }

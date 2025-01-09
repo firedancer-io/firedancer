@@ -515,7 +515,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   ulong before_peer_cnt = gui->gossip.peer_cnt;
   for( ulong i=0UL; i<peer_cnt; i++ ) {
     int found = 0;
-    ulong found_idx;
+    ulong found_idx = 0;
     for( ulong j=0UL; j<gui->gossip.peer_cnt; j++ ) {
       if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ j ].pubkey, data+i*(58UL+12UL*6UL), 32UL ) ) ) {
         found_idx = j;
