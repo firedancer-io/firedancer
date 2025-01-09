@@ -1,4 +1,5 @@
 #include "fd_snapshot_istream.h"
+#include "fd_snapshot_restore.h"
 #include "../../util/fd_util.h"
 #include <errno.h>
 
@@ -142,17 +143,21 @@ fd_tar_io_reader_advance( fd_tar_io_reader_t * this ) {
   if( FD_LIKELY( read_err==0 ) ) { /* ok */ }
   else if( read_err<0 ) { /* EOF */ return -1; /* TODO handle unexpected EOF case */ }
   else {
-    FD_LOG_WARNING(( "snapshot tar stream failed (%d-%s)", read_err, fd_io_strerror( read_err ) ));
+    FD_LOG_WARNING(( "Snapshot tar stream failed (%d-%s)", read_err, fd_io_strerror( read_err ) ));
     return read_err;
   }
 
-  int tar_err = fd_tar_read( this->reader, buf, buf_sz );
+  int tar_err = fd_tar_read( this->reader, buf, buf_sz, MANIFEST_DONE );
+  if( tar_err==MANIFEST_DONE ) {
+    FD_LOG_NOTICE(( "Finished reading manifest" ));
+    return tar_err;
+  }
   if( FD_UNLIKELY( tar_err>0 ) ) {
-    FD_LOG_WARNING(( "snapshot tar stream failed (%d-%s)", tar_err, fd_io_strerror( tar_err ) ));
+    FD_LOG_WARNING(( "Snapshot tar stream failed (%d-%s)", tar_err, fd_io_strerror( tar_err ) ));
     return tar_err;
   }
   if( tar_err<0 ) {
-    FD_LOG_NOTICE(( "encountered end of tar stream" ));
+    FD_LOG_NOTICE(( "Encountered end of tar stream" ));
     return -1;
   }
 

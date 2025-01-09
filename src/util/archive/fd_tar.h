@@ -218,12 +218,16 @@ fd_tar_reader_delete( fd_tar_reader_t * reader );
    Returns -1 on end-of-file.  On failure, returns positive errno
    compatible error code.  In case of error, caller should delete reader
    and must not issue any more fd_tar_read calls.  Suitable as a
-   fd_decompress_cb_t callback. */
+   fd_decompress_cb_t callback. If the underlying functions returns track_err
+   at any point, after fd_tar_read has processed the end of the data buffer,
+   we will proceed to return track_err assuming no other errors have been
+   thrown. Pass in 0 to not use this functionality. */
 
 int
 fd_tar_read( void *        reader,
              uchar const * data,
-             ulong         data_sz );
+             ulong         data_sz,
+             int           track_err );
 
 /* Streaming writer ***************************************************/
 

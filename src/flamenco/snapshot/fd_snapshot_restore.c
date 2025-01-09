@@ -1,3 +1,4 @@
+#include "fd_snapshot_restore.h"
 #include "fd_snapshot_restore_private.h"
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/fd_acc_mgr.h"
@@ -308,7 +309,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   fd_snapshot_restore_discard_buf( restore );
 
   restore->slot          = slot;
-  restore->manifest_done = 1;
+  restore->manifest_done = MANIFEST_DONE_NOT_SEEN;
   return err;
 }
 
@@ -689,6 +690,11 @@ fd_snapshot_restore_chunk( void *       restore_,
     }
     bufsz -= (ulong)(buf_new-buf);
     buf    = buf_new;
+  }
+
+  if( restore->manifest_done==MANIFEST_DONE_NOT_SEEN ) {
+    restore->manifest_done = MANIFEST_DONE_SEEN;
+    return MANIFEST_DONE;
   }
 
   return 0;
