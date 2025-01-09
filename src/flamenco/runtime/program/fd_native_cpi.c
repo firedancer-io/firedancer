@@ -79,7 +79,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   ctx2.dataend = (uchar*)ctx2.data + sizeof(buf);
   int err = fd_system_program_instruction_encode( instr, &ctx2 );
   if( err ) {
-    FD_LOG_WARNING(( "Encode failed" ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
 
@@ -88,7 +87,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
                                             &instruction_accounts_cnt, signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-    FD_LOG_WARNING(("Preparing instruction failed"));
     return exec_err;
   }
 
