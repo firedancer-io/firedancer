@@ -25,9 +25,8 @@ struct fd_snapshot_load_ctx {
   fd_funk_txn_t *        par_txn;
   fd_funk_txn_t *        child_txn;
 
-  void *                 loader_mem;
-  void *                 restore_mem;
-  fd_snapshot_loader_t * loader;
+  fd_snapshot_loader_t *  loader;
+  fd_snapshot_restore_t * restore;
 }; 
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
@@ -157,16 +156,16 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
   void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( zstd_window_sz ) );
 
-  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
-  ctx->loader                     = fd_snapshot_loader_new ( loader_mem, zstd_window_sz );
+  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
+  ctx->loader  = fd_snapshot_loader_new ( loader_mem, zstd_window_sz );
 
-  if( FD_UNLIKELY( !restore || !ctx->loader ) ) {
-    fd_valloc_free( valloc, fd_snapshot_loader_delete ( loader_mem  ) );
-    fd_valloc_free( valloc, fd_snapshot_restore_delete( restore_mem ) );
+  if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
+    fd_valloc_free( valloc, fd_snapshot_loader_delete ( ctx->loader  ) );
+    fd_valloc_free( valloc, fd_snapshot_restore_delete( ctx->restore ) );
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, restore, src, ctx->slot_ctx->slot_bank.slot ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
 
@@ -185,6 +184,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
+  
   /* Now, that the manifest is done being read in. Read in the rest of the accounts. */
   for(;;) {
     int err = fd_snapshot_loader_advance( ctx->loader );
@@ -197,8 +197,10 @@ fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
   fd_snapshot_name_t const * name = fd_snapshot_loader_get_name( ctx->loader );
   if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "name is NULL" ));
 
-  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_loader_delete ( ctx->loader_mem  ) );
-  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_restore_delete( ctx->restore_mem ) );
+  FD_LOG_NOTICE(( "Done loading accounts" ));
+
+  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
+  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
 
   FD_LOG_NOTICE(( "Finished reading snapshot %s", ctx->snapshot_file ));
 }
