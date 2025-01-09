@@ -19,15 +19,6 @@
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 
-/* We want to exit out of snapshot loading once the manifest has been loaded in.
-   Once it has been seen, we don't want to exit out of snapshot loading if we
-   have already done so once. We exit out to allow for manifest data to be used
-   around the codebase. */
-
-#define MANIFEST_DONE          (INT_MAX)
-#define MANIFEST_DONE_NOT_SEEN (1)
-#define MANIFEST_DONE_SEEN     (2)
-
 /* fd_snapshot_restore_t implements a streaming TAR reader that parses
    archive records on the fly.  Records include the manifest (at the
    start of the file), and account data.  Notably, this object does on-

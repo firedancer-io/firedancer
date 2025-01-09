@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 
 #include "fd_snapshot.h"
+#include "fd_snapshot_loader.h"
 #include "fd_snapshot_istream.h"
 
 /* fd_snapshot_http.h provides APIs for streaming download of Solana
@@ -30,8 +31,6 @@
 #define FD_SNAPSHOT_HTTP_DEFAULT_HOPS (4UL)
 
 /* fd_snapshot_http_t is the snapshot HTTP client class. */
-
-FD_PROTOTYPES_BEGIN
 
 struct fd_snapshot_http {
   uint   next_ipv4;  /* big-endian, see fd_ip4.h */
@@ -83,6 +82,8 @@ struct fd_snapshot_http {
 };
 
 typedef struct fd_snapshot_http fd_snapshot_http_t;
+
+FD_PROTOTYPES_BEGIN
 
 fd_snapshot_http_t *
 fd_snapshot_http_new( void *               mem,
