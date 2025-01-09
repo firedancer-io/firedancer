@@ -578,9 +578,9 @@ struct fd_status_check_ctx {
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
 static void
-blockstore_publish( fd_replay_tile_ctx_t * ctx ) {
+blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
   fd_blockstore_start_write( ctx->blockstore );
-  fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd );
+  fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmk );
   fd_blockstore_end_write( ctx->blockstore );
 }
 
@@ -1887,7 +1887,7 @@ during_housekeeping( void * _ctx ) {
   fd_blockstore_end_read( ctx->blockstore );
   xid.ul[0] = wmk;
 
-  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx );
+  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, wmk );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmk, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {

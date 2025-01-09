@@ -893,13 +893,13 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
 }
 
 void
-fd_blockstore_publish( fd_blockstore_t * blockstore, int fd ) {
-  FD_LOG_NOTICE(( "[%s] wmk %lu => smr %lu", __func__, blockstore->wmk, blockstore->smr ));
+fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong wmk ) {
+  FD_LOG_NOTICE(( "[%s] wmk %lu => smr %lu", __func__, blockstore->wmk, wmk ));
 
   /* Caller is incorrectly calling publish. */
 
-  if( FD_UNLIKELY( blockstore->wmk == blockstore->smr ) ) {
-    FD_LOG_WARNING(( "[%s] attempting to re-publish when wmk %lu already at smr %lu", __func__, blockstore->wmk, blockstore->smr ));
+  if( FD_UNLIKELY( blockstore->wmk == wmk ) ) {
+    FD_LOG_WARNING(( "[%s] attempting to re-publish when wmk %lu already at smr %lu", __func__, blockstore->wmk, wmk ));
     return;
   }
 
@@ -928,7 +928,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd ) {
 
       /* Stop upon reaching the SMR. */
 
-      if( FD_LIKELY( block_map_entry->child_slots[i] != blockstore->smr ) ) {
+      if( FD_LIKELY( block_map_entry->child_slots[i] != wmk ) ) {
         fd_slot_deque_push_tail( q, block_map_entry->child_slots[i] );
       }
     }
@@ -958,11 +958,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd ) {
 
   /* Scan to clean up any orphaned blocks or shreds < new SMR. */
 
-  for (ulong slot = blockstore->wmk; slot < blockstore->smr; slot++) {
+  for (ulong slot = blockstore->wmk; slot < wmk; slot++) {
     fd_blockstore_slot_remove( blockstore, slot );
   }
 
-  blockstore->wmk = blockstore->smr;
+  blockstore->wmk = wmk;
 
   return;
 }

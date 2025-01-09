@@ -772,7 +772,7 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
    function. */
 
 void
-fd_blockstore_publish( fd_blockstore_t * blockstore, int fd );
+fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong wmk );
 
 /* fd_blockstore_start_read acquires the read lock */
 static inline void
