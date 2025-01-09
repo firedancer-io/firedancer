@@ -91,12 +91,14 @@
 
      // A mymap_t is a stack declaration friendly quasi-opaque local
      // object used to hold the state of a local join to a mymap.
-     // Similarly, a mymap_query_t holds the local state of an ongoing
-     // operation.  E.g. it is fine to do mymap_t join[1];" to allocate
-     // a mymap_t but the contents should not be used directly.
+     // Similarly, a mymap_query_t / mymap_iter_t holds the local state
+     // of an ongoing operation / iteration.  E.g. it is fine to do
+     // mymap_t join[1];" to allocate a mymap_t but the contents should
+     // not be used directly.
 
      typedef struct mymap_private       mymap_t;
      typedef struct mymap_query_private mymap_query_t;
+     typedef struct mymap_iter_private  mymap_iter_t;
 
      // mymap_lock_max returns the maximum number of version locks that
      // can be used by a mymap.  Will be a positive integer
@@ -191,6 +193,19 @@
      void * mymap_shmap( mymap_t * join );
      void * mymap_shele( mymap_t * join );
 
+     // mymap_lock_{idx,ele0,ele1} specify the mapping between map
+     // version lock indices and element store element indices.  Assumes
+     // join is a current local join and ele_idx / lock_idx is in
+     // [0,ele_max) / is in [0,lock_cnt).  mymap_lock_idx is the index
+     // of the version lock that protects element store element ele_idx,
+     // in [0,lock_cnt).  [mymap_lock_ele0,mymap_lock_ele1) is the
+     // contiguous range of elements protected by lock lock_idx.  ele0
+     // is in [0,ele_max), ele1 is in (0,ele_max], and ele0<ele1.
+
+     ulong mymap_lock_idx ( mymap_t const * join, ulong ele_idx  );
+     ulong mymap_lock_ele0( mymap_t const * join, ulong lock_idx );
+     ulong mymap_lock_ele1( mymap_t const * join, ulong lock_idx );
+
      // mymap_key_{eq,hash} expose the provided MAP_KEY_{EQ,HASH} macros
      // as inlines with strict semantics.  They assume that the provided
      // pointers are in the caller's address space to keys that will not
@@ -278,7 +293,7 @@
      // the caller.  If FD_MAP_FLAG_USE_HINT is set, this assumes
      // query's memo is already initialized for key.  This can be used
      // to avoid redundant expensive key hashing when prefetching.  All
-     // other flags are ignored (the upper 27-bits of flags can be used
+     // other flags are ignored (the upper 26-bits of flags can be used
      // to provide a local seed for random backoffs but this is up to
      // the application and rarely matters in practice).
      //
@@ -356,8 +371,8 @@
      void mymap_publish( mymap_query_t * query );
      void mymap_cancel ( mymap_query_t * query );
 
-     // mymap_remove removes key (if key) from the mymap.  Assumes join
-     // is a current local join and key is valid for the duration of the
+     // mymap_remove removes key from the mymap.  Assumes join is a
+     // current local join and key is valid for the duration of the
      // call.  Retains no interest in key.  This is non-blocking fast
      // typically O(1) and supports highly concurrent operation.
      //
@@ -367,7 +382,7 @@
      // query's memo is already initialized for key.  This can be used
      // to avoid redundant expensive key hashing when prefetching.  If
      // clear, query is ignored and can be set NULL.  All other flags
-     // are ignored (the upper 27-bits of flags can be used to provide a
+     // are ignored (the upper 26-bits of flags can be used to provide a
      // local seed for random backoffs but this is up to the application
      // and rarely matters in practice).
      //
@@ -403,7 +418,9 @@
      // the caller.  If FD_MAP_FLAG_USE_HINT is set, this assumes
      // query's memo is already initialized for key.  This can be used
      // to avoid redundant expensive key hashing when prefetching.  All
-     // other flags are ignored.
+     // other flags are ignored (the upper 26-bits of flags can be used
+     // to provide a local seed for random backoffs but this is up to
+     // the application and rarely matters in practice).
      //
      // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
      // (negative) on failure.  On success, key mapped to the element
@@ -461,6 +478,104 @@
 
      int mymap_query_test( mymap_query_t const * query );
 
+     // mymap_lock_range tries to acquire locks lock_idx for lock_idx in
+     // [range_start,range_start+range_cnt) (cyclic).
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
+     // is set / clear in flags, this is allowed / not allowed to block
+     // the caller.  If FD_MAP_FLAG_RDONLY is set, the caller promises
+     // to only read the elements covered by the range while holding the
+     // locks.  All other flags are ignored (the upper 26-bits of flags
+     // can be used to provide a local seed for random backoffs but this
+     // is up to the application and rarely matters in practice).
+     //
+     // Returns FD_MAP_SUCCESS (0) on success and FD_MAP_ERR_AGAIN
+     // (negative) if there was a potentially conflicting operation in
+     // progress at some point during the call.  On success,
+     // version[lock_idx] will hold the version to use when releasing
+     // that lock.  On failure, version may have been clobbered.  AGAIN
+     // is never returned if BLOCKING is set.
+     //
+     // mymap_unlock_range unlocks a similarly specified range.  Assumes
+     // caller has the locks and version[lock_idx] is the value set when
+     // locked was obtained.
+     //
+     // These both assume join is a current local join, range_start is
+     // in [0,lock_cnt), range_cnt is in [0,lock_cnt] and version is
+     // valid with space for lock_cnt entries (YES ... LOCK_CNT, NOT
+     // RANGE_CNT ... this is trivial with a compile time stack
+     // temporary as lock_cnt<=MAP_LOCK_MAX).
+
+     int
+     mymap_lock_range( mymap_t * join,
+                       ulong     range_start,
+                       ulong     range_cnt,
+                       int       flags,
+                       ulong *   version );
+
+     void
+     mymap_unlock_range( mymap_t *     join,
+                         ulong         range_start,
+                         ulong         range_cnt,
+                         ulong const * version );
+
+     // The mymap_iter_* APIs are used to iterate over all keys inserted
+     // into the map with the same memo (to support grouping of keys by
+     // key hash value).  The iteration order will be from the least
+     // recently inserted to most recently inserted.  flags has similar
+     // meaning as other APIs.  Example usage:
+     //
+     //   ulong memo = ... hash of keys to iterate over ...
+     //
+     //   mymap_iter_t iter[1];
+     //   int err = mymap_iter_init( join, memo, 0, iter );
+     //
+     //   if( FD_UNLIKELY( err ) ) {
+     //
+     //     ... At this point, err is FD_MAP_ERR_AGAIN and caller has
+     //     ... ownership of iter.  There was a potentially conflicting
+     //     ... prepare or remove in progress at some point during the
+     //     ... call.  We can try again later (e.g. after a random
+     //     ... backoff or doing other non-conflicting work).
+     //     ... mymap_iter_done will be 1, mymap_iter_fini will be a
+     //     ... no-op.  Never returned if mymap_iter_init flags has
+     //     ... FD_MAP_FLAG_BLOCKING set.
+     //
+     //   } else {
+     //
+     //     ... At this point, we are in an iteration and iteration has
+     //     ... ownership of iter.
+     //
+     //     while( !mymap_iter_done( iter ) ) {
+     //       myele_t * ele = mymap_iter_ele( iter );
+     //
+     //       ... At this point, mymap_key_hash( ele->key, seed ) == memo (==ele's memo if memoized)
+     //
+     //       ... process ele here.
+     //
+     //       ... IMPORTANT!  Generally speaking, it is not okay to
+     //       ... insert, remove, modify, blocking read, non-blocking
+     //       ... read here.  It is okay to read ele and modify any
+     //       ... value fields though.  If mymap_iter_init flags had
+     //       ... FD_MAP_FLAG_RDONLY set, caller promises it is only
+     //       ... reading ele here.
+     //
+     //       mymap_iter_next( iter );
+     //     }
+     //
+     //     mymap_iter_fini( iter );
+     //
+     //     ... At this point, we are not in an iteration and caller has
+     //     ... ownership of iter.
+     //
+     //   }
+
+     int            mymap_iter_init( mymap_t * join, ulong memo, int flags, mymap_iter_t * lmem );
+     int            mymap_iter_done( mymap_iter_t * iter );
+     myele_t *      mymap_iter_ele ( mymap_iter_t * iter );
+     mymap_iter_t * mymap_iter_next( mymap_iter_t * iter );
+     mymap_iter_t * mymap_iter_fini( mymap_iter_t * iter );
+
      // mymap_verify returns FD_MAP_SUCCESS (0) if the join, underlying
      // map and underlying element store give a mapping of unique keys
      // to unique elements in the element store with a bounded maximum
@@ -469,6 +584,12 @@
      // all the map locks and/or the map is otherwise known to be idle.
 
      int mymap_verify( mymap_t const * join );
+
+     // mymap_strerror converts an FD_MAP_SUCCESS / FD_MAP_ERR code into
+     // a human readable cstr.  The lifetime of the returned pointer is
+     // infinite.  The returned pointer is always to a non-NULL cstr.
+
+     char const * mymap_strerror( int err );
 
    Do this as often as desired in a compilation unit to get different
    types of concurrent maps.  Options exist for generating library
@@ -639,6 +760,47 @@
          ... some point in time between try and test.
 
        }
+     }
+
+   Example use of lock_range / unlock (do a parallel snapshot of an
+   entire map at a globally well defined point in time with minimal
+   interference to ongoing concurrent modifications):
+
+     ulong version[ mymap_lock_max() ];
+
+     ulong lock_cnt = mymap_lock_cnt( join );
+
+     mymap_lock_range( join, 0, lock_cnt, FD_MAP_FLAGS_BLOCKING | FD_MAP_FLAGS_RDONLY, version );
+
+     for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ ) { ... parallelize this loop over snapshot threads as desired
+       ulong ele0 = mymap_lock_ele0( join, lock_idx );
+       ulong ele1 = mymap_lock_ele1( join, lock_idx );
+
+       ... process element store elements [ele0,ele1) here
+
+       mymap_unlock_range( join, lock_idx, 1UL, version );
+     }
+
+   Note that mymap_lock_range in this example might blocking the caller
+   for a long time if the map is under heavy concurrent modification.
+   To prioritize the snapshotting over these operations, the same API
+   can be used toprioritize the snapshot over ongoing concurrent
+   modifications:
+
+     ulong version[ mymap_lock_max() ];
+
+     ulong lock_cnt = mymap_lock_cnt( join );
+
+     for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ )
+       mymap_lock_range( join, lock_idx, 1UL, FD_MAP_FLAGS_BLOCKING | FD_MAP_FLAGS_RDONLY, version );
+
+     for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ ) { ... parallelize this loop over snapshot threads as desired
+       ulong ele0 = mymap_lock_ele0( join, lock_idx );
+       ulong ele1 = mymap_lock_ele1( join, lock_idx );
+
+       ... process element store elements [ele0,ele1) here
+
+       mymap_unlock_range( join, lock_idx, 1UL, version );
      }
 
    Implementation overview:
@@ -901,6 +1063,7 @@
 #define FD_MAP_FLAG_PREFETCH_META (1<<3)
 #define FD_MAP_FLAG_PREFETCH_DATA (2<<3)
 #define FD_MAP_FLAG_PREFETCH      (3<<3)
+#define FD_MAP_FLAG_RDONLY        (1<<5)
 
 /* Implementation *****************************************************/
 
@@ -959,6 +1122,22 @@ struct MAP_(query_private) {
 };
 
 typedef struct MAP_(query_private) MAP_(query_t);
+
+struct MAP_(iter_private) {
+  MAP_ELE_T     * ele;                     /* Location of the element store in the local address space, indexed [0,ele_max) */
+  MAP_VERSION_T * lock;                    /* Location of the lock versions in the local address space, indexed [0,lock_cnt) */
+  ulong           ele_max;                 /* ==shmem->ele_max */
+  ulong           lock_cnt;                /* ==shmem->lock_cnt */
+  ulong           seed;                    /* ==shmem->seed */
+  ulong           memo;                    /* matching memo for iteration */
+  ulong           ele_idx;                 /* If ele_rem>0, currernt matching element, ignored otherwise */
+  ulong           ele_rem;                 /* Number of elements remaining to probe, in [0,probe_max] */
+  MAP_VERSION_T   version_lock0;           /* Index of first lock used by this iter, in [0,lock_cnt] */
+  MAP_VERSION_T   version_cnt;             /* Number of locks used by this iter, in [0,lock_cnt] (typically 1) */
+  MAP_VERSION_T   version[ MAP_LOCK_MAX ]; /* Direct mapped cache of version numbers for unlock */
+};
+
+typedef struct MAP_(iter_private) MAP_(iter_t);
 
 FD_PROTOTYPES_BEGIN
 
@@ -1130,6 +1309,10 @@ FD_FN_CONST ulong        MAP_(ctx_max)  ( MAP_(t) const * join ) { (void)join; r
 FD_FN_PURE static inline void * MAP_(shmap)( MAP_(t) * join ) { return ((MAP_(shmem_t) *)join->lock)-1; }
 FD_FN_PURE static inline void * MAP_(shele)( MAP_(t) * join ) { return join->ele; }
 
+FD_FN_PURE static inline ulong MAP_(ele_lock) ( MAP_(t) const * join, ulong ele_idx  ) { return  ele_idx       >> join->lock_shift; }
+FD_FN_PURE static inline ulong MAP_(lock_ele0)( MAP_(t) const * join, ulong lock_idx ) { return  lock_idx      << join->lock_shift; }
+FD_FN_PURE static inline ulong MAP_(lock_ele1)( MAP_(t) const * join, ulong lock_idx ) { return (lock_idx+1UL) << join->lock_shift; }
+
 FD_FN_PURE static inline int
 MAP_(key_eq)( MAP_KEY_T const * k0,
               MAP_KEY_T const * k1 ) {
@@ -1153,18 +1336,6 @@ FD_FN_PURE static inline ulong             MAP_(query_memo     )( MAP_(query_t) 
 FD_FN_PURE static inline MAP_ELE_T const * MAP_(query_ele_const)( MAP_(query_t) const * query ) { return query->ele;  }
 FD_FN_PURE static inline MAP_ELE_T       * MAP_(query_ele      )( MAP_(query_t)       * query ) { return query->ele;  }
 
-MAP_STATIC void *    MAP_(new)   ( void * shmem, ulong ele_max, ulong lock_cnt, ulong probe_max, ulong seed );
-MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele );
-MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
-MAP_STATIC void *    MAP_(delete)( void * shmap );
-
-MAP_STATIC int
-MAP_(prepare)( MAP_(t) *         join,
-               MAP_KEY_T const * key,
-               MAP_ELE_T *       sentinel,
-               MAP_(query_t) *   query,
-               int               flags );
-
 static inline void
 MAP_(publish)( MAP_(query_t) * query ) {
   MAP_VERSION_T volatile * l = query->l;
@@ -1183,6 +1354,45 @@ MAP_(cancel)( MAP_(query_t) * query ) {
   FD_COMPILER_MFENCE();
 }
 
+static inline int
+MAP_(query_test)( MAP_(query_t) const * query ) {
+  MAP_VERSION_T volatile const * l = query->l;
+  ulong                          v = query->v;
+  FD_COMPILER_MFENCE();
+  ulong _v = *l;
+  FD_COMPILER_MFENCE();
+  return _v==v ? FD_MAP_SUCCESS : FD_MAP_ERR_AGAIN;
+}
+
+static inline void
+MAP_(unlock_range)( MAP_(t) *             join,
+                    ulong                 range_start,
+                    ulong                 range_cnt,
+                    MAP_VERSION_T const * version ) {
+  MAP_(private_unlock)( join->lock, join->lock_cnt, version, range_start, range_cnt );
+}
+
+FD_FN_PURE static inline int         MAP_(iter_done)( MAP_(iter_t) * iter ) { return !iter->ele_rem; }
+FD_FN_PURE static inline MAP_ELE_T * MAP_(iter_ele) ( MAP_(iter_t) * iter ) { return iter->ele + iter->ele_idx; }
+
+static inline MAP_(iter_t) *
+MAP_(iter_fini)( MAP_(iter_t) * iter ) {
+  MAP_(private_unlock)( iter->lock, iter->lock_cnt, iter->version, iter->version_lock0, iter->version_cnt );
+  return iter;
+}
+
+MAP_STATIC void *    MAP_(new)   ( void * shmem, ulong ele_max, ulong lock_cnt, ulong probe_max, ulong seed );
+MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele );
+MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
+MAP_STATIC void *    MAP_(delete)( void * shmap );
+
+MAP_STATIC int
+MAP_(prepare)( MAP_(t) *         join,
+               MAP_KEY_T const * key,
+               MAP_ELE_T *       sentinel,
+               MAP_(query_t) *   query,
+               int               flags );
+
 MAP_STATIC int
 MAP_(remove)( MAP_(t) *             join,
               MAP_KEY_T const *     key,
@@ -1196,24 +1406,26 @@ MAP_(query_try)( MAP_(t) const *   join,
                  MAP_(query_t) *   query,
                  int               flags );
 
-static inline int
-MAP_(query_test)( MAP_(query_t) const * query ) {
-  MAP_VERSION_T volatile const * l = query->l;
-  ulong                          v = query->v;
-  FD_COMPILER_MFENCE();
-  ulong _v = *l;
-  FD_COMPILER_MFENCE();
-  return _v==v ? FD_MAP_SUCCESS : FD_MAP_ERR_AGAIN;
-}
-
 /* FIXME: Consider adding txn API too?  Would work recording the start
    of probe sequences for keys in the transaction and then the txn_try
    would use a bitfield to lock all contiguous regions covered by the
    set of probe sequences. */
 
-/* FIXME: Consider adding an iterator API.  Probably would allow
-   ordered iteration over all keys with the same hash value to support
-   key groups (similar to map_para.c / funk). */
+MAP_STATIC int
+MAP_(lock_range)( MAP_(t) *       join,
+                  ulong           range_start,
+                  ulong           range_cnt,
+                  int             flags,
+                  MAP_VERSION_T * version );
+
+MAP_STATIC int
+MAP_(iter_init)( MAP_(t) *      join,
+                 ulong          memo,
+                 int            flags,
+                 MAP_(iter_t) * iter );
+
+MAP_STATIC MAP_(iter_t) *
+MAP_(iter_next)( MAP_(iter_t) * iter );
 
 MAP_STATIC FD_FN_PURE int MAP_(verify)( MAP_(t) const * join );
 
@@ -1379,15 +1591,15 @@ MAP_(hint)( MAP_(t) const *   join,
   ulong                 seed       = join->seed;
   int                   lock_shift = join->lock_shift;
 
-  ulong key_hash = MAP_(key_hash)( key, seed );
-  ulong ele_idx  = key_hash & (ele_max-1UL);
+  ulong memo     = MAP_(key_hash)( key, seed );
+  ulong ele_idx  = memo & (ele_max-1UL);
   ulong lock_idx = ele_idx >> lock_shift;
 
   /* TODO: target specific prefetch hints */
   if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_META ) ) FD_VOLATILE_CONST( lock[ lock_idx ] );
   if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_DATA ) ) FD_VOLATILE_CONST( ele0[ ele_idx  ] );
 
-  query->memo = key_hash;
+  query->memo = memo;
 }
 
 int
@@ -1405,13 +1617,13 @@ MAP_(prepare)( MAP_(t) *         join,
   int             lock_shift = join->lock_shift;
   void *          ctx        = join->ctx;
 
-  ulong key_hash      = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
-  ulong start_idx     = key_hash & (ele_max-1UL);
+  ulong memo          = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
+  ulong start_idx     = memo & (ele_max-1UL);
   ulong version_lock0 = start_idx >> lock_shift;
 
   int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
   ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
-  ulong backoff_seed = ((ulong)(uint)flags)>>5; /* 0 usually fine */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
 
   for(;;) { /* Fresh try */
 
@@ -1486,7 +1698,7 @@ MAP_(prepare)( MAP_(t) *         join,
       if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) || /* opt for low collision */
           (
   #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-            FD_LIKELY( ele->MAP_MEMO==key_hash            ) &&
+            FD_LIKELY( ele->MAP_MEMO==memo                ) &&
   #         endif
             FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for already in map */
           ) ) {
@@ -1495,7 +1707,7 @@ MAP_(prepare)( MAP_(t) *         join,
         version_lock0 = (version_lock0 + (ulong)(version_lock0==lock_idx)) & (lock_cnt-1UL);
         MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt-1UL );
 
-        query->memo = key_hash;
+        query->memo = memo;
         query->ele  = ele;
         query->l    = lock + lock_idx;
         query->v    = version[ lock_idx ];
@@ -1539,7 +1751,7 @@ MAP_(prepare)( MAP_(t) *         join,
     MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
 
     if( FD_UNLIKELY( non_blocking | (err!=FD_MAP_ERR_AGAIN) ) ) {
-      query->memo = key_hash;
+      query->memo = memo;
       query->ele  = sentinel;
       query->l    = NULL;
       query->v    = (MAP_VERSION_T)0;
@@ -1581,13 +1793,13 @@ MAP_(remove)( MAP_(t) *             join,
   int             lock_shift = join->lock_shift;
   void *          ctx        = join->ctx;
 
-  ulong key_hash      = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
-  ulong start_idx     = key_hash & (ele_max-1UL);
+  ulong memo          = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
+  ulong start_idx     = memo & (ele_max-1UL);
   ulong version_lock0 = start_idx >> lock_shift;
 
   int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
   ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
-  ulong backoff_seed = ((ulong)(uint)flags)>>5; /* 0 usually fine */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
 
   for(;;) { /* Fresh try */
 
@@ -1635,7 +1847,7 @@ MAP_(remove)( MAP_(t) *             join,
         if( FD_UNLIKELY( contig_cnt>=probe_max ) ) break; /* opt for first pass low collision */
         found =
   #       if MAP_MEMOMIZE && MAP_KEY_EQ_IS_SLOW
-          FD_LIKELY( ele->MAP_MEMO==key_hash ) &&
+          FD_LIKELY( ele->MAP_MEMO==memo ) &&
   #       endif
           MAP_(key_eq)( &ele->MAP_KEY, key );
         if( found ) hole_idx = ele_idx; /* cmov */
@@ -1747,11 +1959,11 @@ MAP_(remove)( MAP_(t) *             join,
          reduce version churn to near theoretical minimum. */
 
   #   if MAP_MEMOIZE
-      key_hash  = ele->MAP_MEMO;
+      memo      = ele->MAP_MEMO;
   #   else
-      key_hash  = MAP_(key_hash)( &ele->MAP_KEY, seed );
+      memo      = MAP_(key_hash)( &ele->MAP_KEY, seed );
   #   endif
-      start_idx = key_hash & (ele_max-1UL);
+      start_idx = memo & (ele_max-1UL);
 
       if( !( ((hole_idx<start_idx) & (start_idx<=ele_idx)                       ) |
              ((hole_idx>ele_idx) & ((hole_idx<start_idx) | (start_idx<=ele_idx))) ) ) {
@@ -1807,13 +2019,13 @@ MAP_(query_try)( MAP_(t) const *   join,
   int             lock_shift = join->lock_shift;
   void const *    ctx        = join->ctx;
 
-  ulong key_hash      = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
-  ulong start_idx     = key_hash & (ele_max-1UL);
+  ulong memo          = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
+  ulong start_idx     = memo & (ele_max-1UL);
   ulong version_lock0 = start_idx >> lock_shift;
 
   int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
   ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
-  ulong backoff_seed = ((ulong)(uint)flags)>>5; /* 0 usually fine */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
 
   for(;;) { /* fresh try */
 
@@ -1853,14 +2065,14 @@ MAP_(query_try)( MAP_(t) const *   join,
 
       if(
 #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-          FD_LIKELY( ele->MAP_MEMO==key_hash            ) &&
+          FD_LIKELY( ele->MAP_MEMO==memo                ) &&
 #         endif
           FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for found */
         ) {
 
         lock_idx = ele_idx >> lock_shift;
 
-        query->memo = key_hash;
+        query->memo = memo;
         query->ele  = (MAP_ELE_T *)ele;
         query->l    = lock + lock_idx;
         query->v    = version[ lock_idx ];
@@ -1900,7 +2112,7 @@ MAP_(query_try)( MAP_(t) const *   join,
   fail_fast: /* Used when the err is already AGAIN */
 
     if( FD_UNLIKELY( non_blocking | (err!=FD_MAP_ERR_AGAIN) ) ) {
-      query->memo = key_hash;
+      query->memo = memo;
       query->ele  = (MAP_ELE_T *)sentinel;
       query->l    = NULL;
       query->v    = (MAP_VERSION_T)0;
@@ -1914,6 +2126,200 @@ MAP_(query_try)( MAP_(t) const *   join,
     backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
     MAP_(backoff)( scale, backoff_seed );
   }
+  /* never get here */
+}
+
+int
+MAP_(lock_range)( MAP_(t) *       join,
+                  ulong           range_start,
+                  ulong           range_cnt,
+                  int             flags,
+                  MAP_VERSION_T * version ) {
+  MAP_VERSION_T * lock     = join->lock;
+  ulong           lock_cnt = join->lock_cnt;
+
+  int   non_blocking  = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max   = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed  = ((ulong)(uint)flags)>>6; /* 0 usually fine */
+  ulong version_delta = (flags & FD_MAP_FLAG_RDONLY) ? 0UL : 2UL;
+
+  for(;;) { /* fresh try */
+
+    ulong lock_idx   = range_start;
+    ulong locked_cnt = 0UL;
+    for( ; locked_cnt<range_cnt; locked_cnt++ ) {
+      MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+      if( FD_UNLIKELY( (ulong)v & 1UL ) ) goto fail; /* opt for low contention */
+      version[ lock_idx ] = (MAP_VERSION_T)((ulong)v + version_delta);
+      lock_idx = (lock_idx+1UL) & (lock_cnt-1UL);
+    }
+
+    return FD_MAP_SUCCESS;
+
+  fail:
+
+    MAP_(private_unlock)( lock, lock_cnt, version, range_start, locked_cnt );
+
+    if( FD_UNLIKELY( non_blocking ) ) return FD_MAP_ERR_AGAIN;
+
+    /* At this point, we are blocking and hit contention.  Backoff.  See
+       note in prepare for how this works */
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
+  }
+  /* never get here */
+}
+
+int
+MAP_(iter_init)( MAP_(t) *      join,
+                 ulong          memo,
+                 int            flags,
+                 MAP_(iter_t) * iter ) {
+
+  MAP_ELE_T *     ele0       = join->ele;
+  MAP_VERSION_T * lock       = join->lock;
+  ulong           ele_max    = join->ele_max;
+  ulong           lock_cnt   = join->lock_cnt;
+  ulong           probe_max  = join->probe_max;
+  ulong           seed       = join->seed;
+  int             lock_shift = join->lock_shift;
+  void *          ctx        = join->ctx;
+
+  MAP_VERSION_T * version = iter->version;
+
+  ulong start_idx     = memo & (ele_max-1UL);
+  ulong version_lock0 = start_idx >> lock_shift;
+  ulong version_delta = (flags & FD_MAP_FLAG_RDONLY) ? 0UL : 2UL;
+
+  int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
+
+  for(;;) { /* fresh try */
+
+    ulong version_cnt = 0UL;
+    ulong lock_idx    = version_lock0;
+
+    /* At this point, finding any key-val pair that matches memo in the
+       map requires probing at most probe_max contiguous slots. */
+
+    MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+    if( FD_UNLIKELY( (ulong)v & 1UL ) ) goto fail; /* opt for low contention */
+    version[ lock_idx ] = (MAP_VERSION_T)((ulong)v + version_delta);
+    version_cnt++;
+
+    ulong ele_idx = start_idx;
+    ulong ele_rem = 0UL;
+
+    ulong iter_cnt   = 0UL;
+    ulong iter_start = start_idx;
+
+    for( ; ele_rem<probe_max; ele_rem++ ) {
+
+      /* At this point, we've acquired the locks covering slots
+         [start_idx,ele_idx] (cyclic) and have confirmed that the
+         ele_rem slots [start_idx,ele_idx) (cyclic) are used.  If slot
+         ele_idx is empty, we are done probing. */
+
+      MAP_ELE_T const * ele = ele0 + ele_idx;
+
+      if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break; /* opt for first pass low collision */
+
+#     if MAP_MEMOIZE
+      iter_cnt += (ulong)(ele->MAP_MEMO==memo);
+#     else
+      iter_cnt += (ulong)(MAP_(key_hash)( &ele->MAP_KEY, seed )==memo);
+#     endif
+      iter_start = fd_ulong_if( iter_cnt==1UL, ele_idx, iter_start );
+
+      /* Continue probing, locking as necessary.  If we can't acquire a
+         lock, fail. */
+
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+
+      ulong lock_next = ele_idx >> lock_shift;
+      if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks covering many contiguous slots */
+        lock_idx = lock_next;
+
+        MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+        if( FD_UNLIKELY( (ulong)v & 1UL ) ) goto fail; /* opt for low contention */
+        version[ lock_idx ] = (MAP_VERSION_T)((ulong)v + version_delta);
+        version_cnt++;
+      }
+    }
+
+    /* At this point, we've acquired the locks covering used slots
+       [start_idx,start_idx+ele_rem) (cyclic) where ele_rem<=probe_max
+       (and, if ele_rem<probe_max, any trailing empty slot).  iter_cnt
+       is the number of slots that matched in this range and iter_start
+       is the index of the first element in this range that matched
+       (start_idx if no matches). */
+
+    iter->ele           = ele0;
+    iter->lock          = lock;
+    iter->ele_max       = ele_max;
+    iter->lock_cnt      = lock_cnt;
+    iter->seed          = seed;
+    iter->memo          = memo;
+    iter->ele_rem       = iter_cnt;
+    iter->ele_idx       = iter_start;
+    iter->version_lock0 = version_lock0;
+    iter->version_cnt   = version_cnt;
+    /* iter->version initialized above */
+
+    return FD_MAP_SUCCESS;
+
+  fail:
+
+    /* At this point, we hit contention acquiring the locks for
+       iteration.  If we not blocking, tell caller to try again later.
+       Otherwise, backoff.  See note in prepare for how this works. */
+
+    MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
+
+    if( FD_UNLIKELY( non_blocking ) ) {
+      iter->ele_rem     = 0UL; /* make sure can't iterate */
+      iter->version_cnt = 0UL; /* make sure fini is a no-op */
+      return FD_MAP_ERR_AGAIN;
+    }
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
+  }
+  /* never get here */
+}
+
+MAP_(iter_t) *
+MAP_(iter_next)( MAP_(iter_t) * iter ) {
+  ulong ele_idx = iter->ele_idx;
+  ulong ele_rem = iter->ele_rem - 1UL;
+
+  /* We just finished processing pair ele_idx and we have ele_rem
+     more pairs to process.  If there is at least 1, scan for it. */
+
+  if( ele_rem ) {
+    MAP_ELE_T * ele0    = iter->ele;
+    ulong       ele_max = iter->ele_max;
+    ulong       seed    = iter->seed; (void)seed;
+    ulong       memo    = iter->memo;
+
+    for(;;) {
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+      MAP_ELE_T * ele = ele0 + ele_idx;
+#     if MAP_MEMOIZE
+      if( FD_LIKELY( ele->MAP_MEMO==memo ) ) break;
+#     else
+      if( FD_LIKELY( MAP_(key_hash)( &ele->MAP_KEY, seed )==memo ) ) break;
+#     endif
+    }
+  }
+
+  iter->ele_idx = ele_idx;
+  iter->ele_rem = ele_rem;
+  return iter;
 }
 
 MAP_STATIC int
@@ -1967,13 +2373,13 @@ MAP_(verify)( MAP_(t) const * join ) {
     MAP_ELE_T const * ele = ele0 + ele_idx;
     if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) continue; /* opt for sparse */
 
-    ulong key_hash = MAP_(key_hash)( &ele->MAP_KEY, seed );
+    ulong memo = MAP_(key_hash)( &ele->MAP_KEY, seed );
 
 #   if MAP_MEMOIZE
-    MAP_TEST( ele->MAP_MEMO==key_hash );
+    MAP_TEST( ele->MAP_MEMO==memo );
 #   endif
 
-    ulong probe_idx = key_hash & (ele_max-1UL);
+    ulong probe_idx = memo & (ele_max-1UL);
     ulong probe_cnt = fd_ulong_if( ele_idx>=probe_idx, ele_idx - probe_idx, ele_max + ele_idx - probe_idx ) + 1UL;
     MAP_TEST( probe_cnt<=probe_max );
 

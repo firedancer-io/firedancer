@@ -703,6 +703,12 @@
 
      int mymap_verify( mymap_t const * join );
 
+     // mymap_strerror converts an FD_MAP_SUCCESS / FD_MAP_ERR code into
+     // a human readable cstr.  The lifetime of the returned pointer is
+     // infinite.  The returned pointer is always to a non-NULL cstr.
+
+     char const * mymap_strerror( int err );
+
    Do this as often as desired in a compilation unit to get different
    types of concurrent maps.  Options exist for generating library
    header prototypes and/or library implementations for concurrent maps
