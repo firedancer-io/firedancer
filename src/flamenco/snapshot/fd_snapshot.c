@@ -41,15 +41,7 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
   if( err != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_ERR(( "missing recent block hashes account" ));
   }
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data       = block_hashes_rec->const_data,
-    .dataend    = block_hashes_rec->const_data + block_hashes_rec->const_meta->dlen,
-    .valloc     = slot_ctx->valloc
-  };
-
-  fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx );
-
+  
   /* FIXME: Do not hardcode the number of vote accounts */
 
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;

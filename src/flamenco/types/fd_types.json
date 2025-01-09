@@ -1188,7 +1188,6 @@
       "archival": "true",
       "alignment": "128",
       "fields": [
-        { "name": "recent_block_hashes",         "type": "recent_block_hashes" },
         { "name": "timestamp_votes",             "type": "clock_timestamp_votes" },
         { "name": "slot",                        "type": "ulong" },
         { "name": "prev_slot",                   "type": "ulong" },
