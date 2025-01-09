@@ -1319,6 +1319,12 @@ fd_feature_id_t const ids[] = {
     .name       = "remove_accounts_executable_flag_checks",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index      = offsetof(fd_features_t, fix_alt_bn128_multiplication_input_length)>>3,
+    .id         = {"\x08\xe8\xaa\x2e\x13\xc5\xc5\x54\xe2\xc3\xb4\x0e\x26\xb4\x64\x3b\xc7\xcb\x89\x6c\xc0\x06\x05\xaa\x65\x7f\x3a\x3d\x30\xee\xf9\x05"},
+                  /* bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN */
+    .name       = "fix_alt_bn128_multiplication_input_length",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 
@@ -1546,6 +1552,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xaebbcc5ad0a28864: return &ids[ 215 ];
   case 0x7f29632535392bc7: return &ids[ 216 ];
   case 0x8c012a2071caecd9: return &ids[ 217 ];
+  case 0x54c5c5132eaae808: return &ids[ 218 ];
   default: break;
   }
 
@@ -1772,5 +1779,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_stake_program_to_core_bpf    
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_get_epoch_stake_syscall                          )>>3==215UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_account_loader_special_case                     )>>3==216UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_accounts_executable_flag_checks                  )>>3==217UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_multiplication_input_length               )>>3==218UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
