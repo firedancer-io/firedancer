@@ -3365,13 +3365,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   epoch_bank->rent                    = genesis_block->rent;
   slot_ctx->slot_bank.block_height    = 0UL;
 
-  fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes =
-                                         deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  fd_block_block_hash_entry_t * elem   = deq_fd_block_block_hash_entry_t_push_head_nocopy( hashes );
-  fd_block_block_hash_entry_new( elem );
-  fd_memcpy( elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ );
-  elem->fee_calculator.lamports_per_signature = 0UL;
-
   slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
   slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
   fd_hash_hash_age_pair_t_mapnode_t * node       = fd_hash_hash_age_pair_t_map_acquire( slot_ctx->slot_bank.block_hash_queue.ages_pool );
@@ -3382,7 +3375,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
   slot_ctx->slot_bank.block_hash_queue.last_hash_index = 0UL;
   slot_ctx->slot_bank.block_hash_queue.last_hash       = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  fd_memcpy( slot_ctx->slot_bank.block_hash_queue.last_hash, genesis_hash, FD_SHA256_HASH_SZ );
+  fd_memcpy( slot_ctx->slot_bank.block_hash_queue.last_hash, genesis_hash, FD_HASH_FOOTPRINT );
   slot_ctx->slot_bank.block_hash_queue.max_age         = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
 
   slot_ctx->signature_cnt = 0UL;
