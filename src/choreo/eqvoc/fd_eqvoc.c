@@ -178,7 +178,9 @@ fd_eqvoc_fec_verify( FD_PARAM_UNUSED fd_eqvoc_t const * eqvoc,
   fd_shred_t * shred = NULL;
   uint         idx   = fec_set_idx;
   do {
+    fd_blockstore_start_read( blockstore );
     shred = fd_buf_shred_query( blockstore, slot, idx );
+    fd_blockstore_end_read( blockstore );
 
 #if FD_EQVOC_USE_HANDHOLDING
     if( FD_UNLIKELY( !shred ) ) {
