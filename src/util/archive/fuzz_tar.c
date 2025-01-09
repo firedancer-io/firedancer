@@ -66,7 +66,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   FD_TEST( reader );
 
   /* Read all in one */
-  int err1 = fd_tar_read( reader, data, size );
+  int err1 = fd_tar_read( reader, data, size, 0 );
 
   FD_TEST( _reader==fd_tar_reader_delete( reader ) );
 
@@ -77,7 +77,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   int err2 = 0;
   for( ulong i=0UL; i<size; i++ ) {
     FD_FUZZ_MUST_BE_COVERED;
-    err2 = fd_tar_read( reader, data+i, 1UL );
+    err2 = fd_tar_read( reader, data+i, 1UL, 0 );
     if( err2!=0 ) break;
   }
 

@@ -12,14 +12,9 @@
    The loader is currently a single-threaded streaming pipeline.  This
    is subject to change to the tile architecture in the future. */
 
-#include "../snapshot/fd_snapshot.h"
-#include "../snapshot/fd_snapshot_restore.h"
-
-/* fd_snapshot_loader_t manages file descriptors and buffers used during
-   snapshot load. */
-
-struct fd_snapshot_loader;
-typedef struct fd_snapshot_loader fd_snapshot_loader_t;
+#include "fd_snapshot.h"
+#include "fd_snapshot_istream.h"
+#include "fd_snapshot_restore.h"
 
 /* FD_SNAPSHOT_SRC_{...} specifies the type of snapshot source. */
 
@@ -27,6 +22,13 @@ typedef struct fd_snapshot_loader fd_snapshot_loader_t;
 #define FD_SNAPSHOT_SRC_HTTP    (2)
 
 /* fd_snapshot_src_t specifies the snapshot source. */
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_snapshot_loader_t manages file descriptors and buffers used during
+   snapshot load. */
+struct fd_snapshot_loader; 
+typedef struct fd_snapshot_loader fd_snapshot_loader_t;
 
 struct fd_snapshot_src {
   int type;
@@ -48,8 +50,6 @@ struct fd_snapshot_src {
 };
 
 typedef struct fd_snapshot_src fd_snapshot_src_t;
-
-FD_PROTOTYPES_BEGIN
 
 /* Constructor API for fd_snapshot_loader_t. */
 
