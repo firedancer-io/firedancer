@@ -9,14 +9,14 @@
 #include "../../choreo/tower/fd_tower.h"
 #include "../../flamenco/types/fd_types.h"
 
-#define RESTART_MAGIC_TAG                         128UL
+#define FD_RESTART_MAGIC_TAG                                128UL
 
 /* Protocol parameters of wen-restart */
-#define RESTART_EPOCHS_MAX                       2UL
-#define HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT    38UL
-#define WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT    33UL
-#define WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT 80UL
-#define LAST_VOTED_FORK_MAX_SLOTS                0xFFFFUL
+#define FD_RESTART_EPOCHS_MAX                               2UL
+#define FD_RESTART_HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT    38UL
+#define FD_RESTART_WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT    33UL
+#define FD_RESTART_WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT 80UL
+#define FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS                0xFFFFUL
 
 /* Implementation-specific parameters */
 #define FD_RESTART_MAX_PEERS               40200UL
@@ -26,11 +26,11 @@
 #define FD_RESTART_LINK_BYTES_MAX          ( sizeof(fd_gossip_restart_last_voted_fork_slots_t)+FD_RESTART_RAW_BITMAP_BYTES_MAX )
 
 typedef enum {
-    WR_STAGE_WAIT_FOR_INIT                = 0,
-    WR_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM  = 1,
-    WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH = 2,
-    WR_STAGE_GENERATE_SNAPSHOT            = 3,
-    WR_STAGE_DONE                         = 4
+    FD_RESTART_STAGE_WAIT_FOR_INIT                = 0,
+    FD_RESTART_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM  = 1,
+    FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH = 2,
+    FD_RESTART_STAGE_GENERATE_SNAPSHOT            = 3,
+    FD_RESTART_STAGE_DONE                         = 4
 } fd_wen_restart_stage_t;
 
 /* fd_restart_t contains all the states maintained by wen-restart.
@@ -43,15 +43,15 @@ struct fd_restart {
   ulong                  root_epoch;
   fd_hash_t              root_bank_hash;
   fd_epoch_schedule_t *  epoch_schedule;
-  ulong                  total_stake[ RESTART_EPOCHS_MAX ];
-  ulong                  num_vote_accts[ RESTART_EPOCHS_MAX ];
-  fd_stake_weight_t      stake_weights[ RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
+  ulong                  total_stake[ FD_RESTART_EPOCHS_MAX ];
+  ulong                  num_vote_accts[ FD_RESTART_EPOCHS_MAX ];
+  fd_stake_weight_t      stake_weights[ FD_RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
 
   /* States maintained by the FIND_HEAVIEST_FORK_SLOT_NUM stage */
-  ulong                  total_stake_received[ RESTART_EPOCHS_MAX ];
-  ulong                  total_stake_received_and_voted[ RESTART_EPOCHS_MAX ];
-  uchar                  last_voted_fork_slots_received[ RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
-  ulong                  slot_to_stake[ LAST_VOTED_FORK_MAX_SLOTS ]; /* the index is an offset from funk_root */
+  ulong                  total_stake_received[ FD_RESTART_EPOCHS_MAX ];
+  ulong                  total_stake_received_and_voted[ FD_RESTART_EPOCHS_MAX ];
+  uchar                  last_voted_fork_slots_received[ FD_RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
+  ulong                  slot_to_stake[ FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS ]; /* the index is an offset from funk_root */
 
   /* States maintained by the FIND_HEAVIEST_FORK_BANK_HASH stage */
   fd_pubkey_t            my_pubkey;
@@ -116,7 +116,7 @@ fd_restart_init( fd_restart_t * restart,
    whether we have received such messages from more than 80% stake where
    80% is specified as WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT. If so,
    out_heaviest_fork_found would be set to 1, and the stage will be set
-   to WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH.
+   to FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH.
 
    In case of a heaviest_fork message, the function would check whether
    this message comes from the wen-restart coordinator, and if so, record

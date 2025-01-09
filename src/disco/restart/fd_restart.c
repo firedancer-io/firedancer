@@ -44,12 +44,12 @@ fd_restart_join( void * restart ) {
 
 static int
 fd_restart_recv_enough_stake( fd_restart_t * restart ) {
-  ulong received[RESTART_EPOCHS_MAX] = { restart->total_stake_received[0]*100/restart->total_stake[0],
-                                         restart->total_stake_received[1]*100/restart->total_stake[1] };
-  ulong voted[RESTART_EPOCHS_MAX]    = { restart->total_stake_received_and_voted[0]*100/restart->total_stake[0],
-                                         restart->total_stake_received_and_voted[1]*100/restart->total_stake[1] };
+  ulong received[FD_RESTART_EPOCHS_MAX] = { restart->total_stake_received[0]*100/restart->total_stake[0],
+                                            restart->total_stake_received[1]*100/restart->total_stake[1] };
+  ulong voted[FD_RESTART_EPOCHS_MAX]    = { restart->total_stake_received_and_voted[0]*100/restart->total_stake[0],
+                                            restart->total_stake_received_and_voted[1]*100/restart->total_stake[1] };
 
-  for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
+  for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     FD_LOG_NOTICE(( "Epoch%lu: %lu/%lu = %lu%c stake received\n",
                     restart->root_epoch+e, restart->total_stake_received[e], restart->total_stake[e], received[e], '%' ));
     FD_LOG_NOTICE(( "Epoch%lu: %lu/%lu = %lu%c stake voted\n",
@@ -57,17 +57,17 @@ fd_restart_recv_enough_stake( fd_restart_t * restart ) {
   }
 
   ulong min_active_stake = received[0];
-  if( FD_UNLIKELY( voted[1]>=WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT ) ) {
+  if( FD_UNLIKELY( voted[1]>=FD_RESTART_WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT ) ) {
     min_active_stake = fd_ulong_min( min_active_stake, received[1] );
   }
-  return min_active_stake>=WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT;
+  return min_active_stake>=FD_RESTART_WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT;
 }
 
 static void
 fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
                                        fd_gossip_restart_last_voted_fork_slots_t * msg,
                                        ulong * out_heaviest_fork_found ) {
-  if( FD_UNLIKELY( restart->stage!=WR_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM ) ) return;
+  if( FD_UNLIKELY( restart->stage!=FD_RESTART_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM ) ) return;
 
   /* Check that funk is not too stale for aggregating this message */
   ulong voted_epoch = fd_slot_to_epoch( restart->epoch_schedule, msg->last_voted_slot, NULL );
@@ -76,7 +76,7 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
                      FD_BASE58_ENC_32_ALLOCA( &msg->from ), voted_epoch, restart->root_epoch ));
     return;
   }
-  if( FD_UNLIKELY( msg->last_voted_slot>=restart->funk_root+LAST_VOTED_FORK_MAX_SLOTS ) ) {
+  if( FD_UNLIKELY( msg->last_voted_slot>=restart->funk_root+FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS ) ) {
     FD_LOG_WARNING(( "Ignore last_voted_fork_slots message for slot=%lu (because funk_root=%lu is stale) from validator %s",
                      msg->last_voted_slot, restart->funk_root, FD_BASE58_ENC_32_ALLOCA( &msg->from ) ));
     return;
@@ -84,9 +84,9 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
 
   /* Find the message sender from restart->stake_weights */
   fd_pubkey_t * pubkey = &msg->from;
-  ulong stake_received[ RESTART_EPOCHS_MAX ] = {0UL, 0UL};
+  ulong stake_received[ FD_RESTART_EPOCHS_MAX ] = {0UL, 0UL};
 
-  for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
+  for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     for( ulong i=0; i<restart->num_vote_accts[e]; i++ ) {
       if( FD_UNLIKELY( memcmp( pubkey->key, restart->stake_weights[e][i].key.key, sizeof(fd_pubkey_t) )==0 ) ) {
         if( FD_UNLIKELY( restart->last_voted_fork_slots_received[e][i] ) ) {
@@ -131,14 +131,14 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
   }
 
   if( FD_UNLIKELY( fd_restart_recv_enough_stake( restart ) ) ) {
-    ulong stake_threshold[ RESTART_EPOCHS_MAX ] = { restart->total_stake_received[0]
-                                                    - restart->total_stake[0]*HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL,
-                                                    restart->total_stake_received[1]
-                                                    - restart->total_stake[1]*HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL };
+    ulong stake_threshold[ FD_RESTART_EPOCHS_MAX ] = { restart->total_stake_received[0]
+                                                       - restart->total_stake[0]*FD_RESTART_HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL,
+                                                       restart->total_stake_received[1]
+                                                       - restart->total_stake[1]*FD_RESTART_HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL };
     /* The subtraction is safe because restart->total_stake_received[0/1] should be at least >(80-9)%==71% at this point */
 
     restart->heaviest_fork_slot = restart->funk_root;
-    for( ulong offset=0; offset<LAST_VOTED_FORK_MAX_SLOTS; offset++ ) {
+    for( ulong offset=0; offset<FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS; offset++ ) {
       ulong slot       = restart->funk_root+offset;
       ulong slot_epoch = fd_slot_to_epoch( restart->epoch_schedule, slot, NULL );
       if( slot_epoch>restart->root_epoch+1 ) break;
@@ -149,7 +149,7 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
     FD_LOG_NOTICE(( "[%s] Found heaviest fork slot=%lu", __func__, restart->heaviest_fork_slot ));
 
     *out_heaviest_fork_found = 1;
-    restart->stage           = WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH;
+    restart->stage           = FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH;
   }
 }
 
@@ -223,7 +223,7 @@ fd_restart_verify_heaviest_fork( fd_restart_t * restart,
                                  uchar * out_buf,
                                  ulong * out_send ) {
   *out_send = 0;
-  if( FD_UNLIKELY( restart->stage!=WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH ) ) return;
+  if( FD_UNLIKELY( restart->stage!=FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH ) ) return;
 
   if( FD_UNLIKELY(( restart->heaviest_fork_ready==1 )) ) {
     if( FD_UNLIKELY( memcmp( restart->my_pubkey.key,
@@ -254,13 +254,13 @@ fd_restart_verify_heaviest_fork( fd_restart_t * restart,
       msg->last_slot                          = restart->heaviest_fork_slot;
       fd_memcpy( msg->last_slot_hash.hash, restart->heaviest_fork_bank_hash.hash, sizeof(fd_hash_t) );
 
-      restart->stage = WR_STAGE_GENERATE_SNAPSHOT;
+      restart->stage = FD_RESTART_STAGE_GENERATE_SNAPSHOT;
       FD_LOG_WARNING(( "Wen-restart succeeds with slot=%lu, bank hash=%s",
                        restart->heaviest_fork_slot, FD_BASE58_ENC_32_ALLOCA( &restart->heaviest_fork_bank_hash ) ));
       /* TODO: insert a hard fork and generate an incremental snapshot */
       /* The incremental snapshot should contain everything from restart->funk_root to restart->heaviest_fork_slot. */
 
-      restart->stage = WR_STAGE_DONE;
+      restart->stage = FD_RESTART_STAGE_DONE;
     }
   }
 }
@@ -338,7 +338,7 @@ fd_restart_init( fd_restart_t * restart,
   restart->funk_root                       = funk_root;
   restart->epoch_schedule                  = epoch_schedule;
   restart->root_epoch                      = fd_slot_to_epoch( epoch_schedule, restart->funk_root, NULL ),
-  restart->stage                           = WR_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM;
+  restart->stage                           = FD_RESTART_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM;
   restart->heaviest_fork_ready             = 0;
   restart->coordinator_heaviest_fork_ready = 0;
   fd_memcpy( restart->root_bank_hash.hash, root_bank_hash, sizeof(fd_pubkey_t) );
@@ -355,8 +355,8 @@ fd_restart_init( fd_restart_t * restart,
                     FD_BASE58_ENC_32_ALLOCA( &restart->my_pubkey ) ));
 
   /* Save the vote accounts stake information for the MAX_EPOCH epochs */
-  FD_TEST( RESTART_EPOCHS_MAX==2 );
-  for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
+  FD_TEST( FD_RESTART_EPOCHS_MAX==2 );
+  for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     if( epoch_stakes[e]->vote_accounts_root==NULL ) FD_LOG_ERR(( "vote account information is missing for epoch#%lu", restart->root_epoch+e ));
     restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e] );
     restart->total_stake[e]                    = 0;
@@ -387,7 +387,7 @@ fd_restart_init( fd_restart_t * restart,
   /* Given last_voted_slot, get the bitmap for the last_voted_fork_slots gossip message */
   ulong end_slot   = msg->last_voted_slot;
   uchar * bitmap   = out_buf+sizeof(fd_gossip_restart_last_voted_fork_slots_t);
-  ulong start_slot = ( end_slot>LAST_VOTED_FORK_MAX_SLOTS? end_slot-LAST_VOTED_FORK_MAX_SLOTS : 0 );
+  ulong start_slot = ( end_slot>FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS? end_slot-FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS : 0 );
   ulong num_slots  = end_slot-start_slot+1;
   msg->offsets.discriminant                            = fd_restart_slots_offsets_enum_raw_offsets;
   msg->offsets.inner.raw_offsets.offsets.has_bits      = 1;
@@ -429,7 +429,7 @@ fd_restart_init( fd_restart_t * restart,
     }
   }
 
-  ulong found;
+  ulong found = 0;
   fd_memcpy( msg->from.key, my_pubkey->key, sizeof(fd_pubkey_t) );
   fd_restart_recv_last_voted_fork_slots( restart, msg, &found );
   if( FD_UNLIKELY( found ) ) FD_LOG_WARNING(( "[%s] It seems that this single validator alone has >80% stake", __func__ ));
