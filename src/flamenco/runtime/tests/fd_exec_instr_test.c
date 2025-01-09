@@ -1394,13 +1394,14 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   if (is_cpi) {
     ctx->txn_ctx->instr_info_cnt = 1;
-  }
 
-  ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
-  ctx->txn_ctx->instr_trace[0].stack_height = 1;
+    /* Need to setup txn_descriptor for txn account write checks (see fd_txn_account_is_writable_idx)
+       FIXME: this could probably go in fd_exec_test_instr_context_create? */
+    fd_txn_t * txn_descriptor = (fd_txn_t *)fd_spad_alloc_debug( spad, fd_txn_align(), fd_txn_footprint( ctx->txn_ctx->instr_info_cnt, 0UL ) );
+    txn_descriptor->transaction_version = FD_TXN_V0;
+    txn_descriptor->acct_addr_cnt = (ushort)ctx->txn_ctx->accounts_cnt;
 
-  if (is_cpi) {
-    ctx->txn_ctx->instr_info_cnt = 1;
+    ctx->txn_ctx->txn_descriptor = txn_descriptor;
   }
 
   ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
