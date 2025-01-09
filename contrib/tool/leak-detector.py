@@ -4,11 +4,11 @@ from collections import Counter
 import sys
 
 """
-usage: cat <log-file> | ./leak-detector.py 
+usage: cat <log-file> | ./leak-detector.py
 """
 
 def main():
-  line_cnt = 0 
+  line_cnt = 0
   addr_map = dict()
   while True:
     try:
@@ -40,9 +40,9 @@ def main():
             break
           except:
             print(line_cnt)
-            
+
       if params[0] == "ALLOC":
-        addr_map[addr] = (backtrace_lines, int(params[3]))
+        addr_map[addr] = (backtrace_lines, int(params[4]))
       elif params[0] == "FREE":
         if addr in addr_map:
           del addr_map[addr]
@@ -58,5 +58,5 @@ def main():
     print(sz, bt_map_cnt[bt])
     print(bt)
 
-if __name__=="__main__": 
+if __name__=="__main__":
   main()

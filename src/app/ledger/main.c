@@ -120,7 +120,11 @@ struct fd_ledger_args {
   int                   is_snapshotting;         /* determine if a snapshot is being created */
   int                   snapshot_mismatch;       /* determine if a snapshot should be created on a mismatch */
 
-  char const *      lthash;
+  uchar *               bg_snapshot_scr_mem;
+  uchar *               snapshot_scr_mem;
+  uchar *               tpool_scr_mem;
+
+  char const *          lthash;
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
@@ -211,6 +215,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
     tpool_scr_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt) );
+    ledger_args->tpool_scr_mem = tpool_scr_mem;
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
@@ -240,6 +245,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
   fd_tpool_t * snapshot_bg_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot_bg, snapshot_tcnt );
   ulong        scratch_sz        = fd_scratch_smem_footprint( 256UL<<20UL );
   tpool_scr_mem                  = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
+  ledger_args->bg_snapshot_scr_mem = tpool_scr_mem;
   if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_bg_tpool, start_idx++, tpool_scr_mem, scratch_sz ) ) ) {
       FD_LOG_ERR(( "failed to launch worker" ));
   } else {
@@ -258,6 +264,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
   fd_tpool_t * snapshot_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot, snapshot_tcnt - 1UL );
   scratch_sz                  = fd_scratch_smem_footprint( 256UL<<20UL );
   tpool_scr_mem               = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
+  ledger_args->snapshot_scr_mem = tpool_scr_mem;
   for( ulong i=1UL; i<snapshot_tcnt - 1UL; ++i ) {
     if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_tpool, start_idx++, tpool_scr_mem  + scratch_sz*(i-1UL), scratch_sz ) ) ) {
       FD_LOG_ERR(( "failed to launch worker" ));
@@ -279,6 +286,10 @@ args_cleanup( fd_ledger_args_t * ledger_args ) {
 
 int
 runtime_replay( fd_ledger_args_t * ledger_args ) {
+  fd_scratch_push();
+
+  int ret = 0;
+
   fd_features_restore( ledger_args->slot_ctx );
 
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot );
@@ -309,7 +320,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   int block_found = -1;
   while ( block_found!=0 && start_slot<=ledger_args->end_slot ) {
-    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, ledger_args->slot_ctx->valloc );
+    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta,  fd_scratch_virtual());
     if ( block_found!=0 ) {
       start_slot++;
     }
@@ -342,6 +353,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   ulong block_slot = start_slot;
   for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
+    fd_scratch_push();
+
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
     ledger_args->slot_ctx->slot_bank.slot      = slot;
 
@@ -483,7 +496,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
       if( ledger_args->abort_on_mismatch ) {
         fd_blockstore_end_read( blockstore );
-        return 1;
+        ret = 1;
+        break;
       }
     }
 
@@ -521,7 +535,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
       if( ledger_args->abort_on_mismatch ) {
         fd_blockstore_end_read( blockstore );
-        return 1;
+        ret = 1;
+        break;
       }
     }
     fd_blockstore_end_read( blockstore );
@@ -548,21 +563,22 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", ledger_args->rocksdb_list[curr_rocksdb_idx], err ));
         }
         fd_rocksdb_root_iter_new( &iter );
-        int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
+        int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, fd_scratch_virtual() );
         if( ret<0 ) {
           FD_LOG_ERR(( "Failed to seek to slot %lu", slot+1UL ));
         }
       } else {
         /* Otherwise look for next slot in current rocksdb */
-        int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, ledger_args->slot_ctx->valloc );
+        int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, fd_scratch_virtual()  );
         if( ret<0 ) {
-          ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
+          ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, fd_scratch_virtual()  );
           if( ret<0 ) {
             FD_LOG_ERR(( "Failed to get meta for slot %lu", slot+1UL ));
           }
         }
       }
     }
+    fd_scratch_pop();
   }
 
   /* Throw an error if the blockstore wksp has a usage which exceeds the allowed
@@ -604,7 +620,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   args_cleanup( ledger_args );
 
-  return 0;
+  fd_scratch_pop();
+
+  return ret;
 }
 
 /***************************** Helpers ****************************************/
@@ -681,7 +699,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     }
   }
 
-  fd_runtime_recover_banks( args->slot_ctx, 0, args->genesis==NULL );
+  fd_runtime_recover_banks( args->slot_ctx, 1, args->genesis==NULL );
 
   args->slot_ctx->snapshot_freq      = args->snapshot_freq;
   args->slot_ctx->incremental_freq   = args->incremental_freq;
@@ -723,6 +741,13 @@ fd_ledger_main_teardown( fd_ledger_args_t * args ) {
     fd_solcap_writer_flush( args->capture_ctx->capture );
     fd_solcap_writer_delete( args->capture_ctx->capture );
   }
+  if ( NULL != args->bg_snapshot_scr_mem)
+    fd_valloc_free( args->slot_ctx->valloc, args->bg_snapshot_scr_mem );
+  if ( NULL != args->snapshot_scr_mem)
+    fd_valloc_free( args->slot_ctx->valloc, args->snapshot_scr_mem );
+  if ( NULL != args->tpool_scr_mem)
+    fd_valloc_free( args->slot_ctx->valloc, args->tpool_scr_mem );
+
   fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( args->epoch_ctx ) );
   fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( args->slot_ctx ) );
 }
@@ -1203,7 +1228,13 @@ replay( fd_ledger_args_t * args ) {
   fd_funk_t * funk = args->funk;
 
   /* Setup slot_ctx */
+#if 1
   fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
+#else
+  // Enable this when leak hunting
+  fd_valloc_t valloc2 = allocator_setup( args->wksp, args->allocator );
+  fd_valloc_t valloc = fd_backtracing_alloc_virtual ( &valloc2 );
+#endif
 
   void * epoch_ctx_mem = fd_wksp_alloc_laddr( args->wksp, fd_exec_epoch_ctx_align(),
                                               fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
