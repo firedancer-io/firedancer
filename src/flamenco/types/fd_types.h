@@ -2577,7 +2577,7 @@ typedef struct fd_cluster_type fd_cluster_type_t;
 #define FD_CLUSTER_TYPE_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(16UL))) fd_epoch_bank {
+struct __attribute__((aligned(16UL)))  fd_epoch_bank {
   fd_stakes_t stakes;
   ulong hashes_per_tick;
   ulong ticks_per_slot;

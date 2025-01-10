@@ -15,6 +15,12 @@ PB_BIND(FD_EXEC_TEST_SEED_ADDRESS, fd_exec_test_seed_address_t, AUTO)
 PB_BIND(FD_EXEC_TEST_ACCT_STATE, fd_exec_test_acct_state_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_VOTE_ACCT, fd_exec_test_vote_acct_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_STAKE_ACCT, fd_exec_test_stake_acct_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_EPOCH_CONTEXT, fd_exec_test_epoch_context_t, AUTO)
 
 
