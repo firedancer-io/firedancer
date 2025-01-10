@@ -71,17 +71,30 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( !err );
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L5103-L5107 */
+static uchar
+builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
+                fd_pubkey_t const *  builtin_id ) {
+  FD_BORROWED_ACCOUNT_DECL( rec );
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, builtin_id, rec );
+  if( FD_UNLIKELY( err ) ) {
+    return 0;
+  }
+
+  return !!( !memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) );;
+}
+
 void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/runtime/src/bank/builtins/mod.rs#L33
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_system_program_id.key,         "system_program",         14UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_vote_program_id.key,           "vote_program",           12UL );
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_stake_program_to_core_bpf ) ) {
+  if( !builtin_is_bpf( slot_ctx, &fd_solana_stake_program_id ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,        "stake_program",          13UL );
   }
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_config_program_to_core_bpf ) ) {
+  if( !builtin_is_bpf( slot_ctx, &fd_solana_config_program_id ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,       "config_program",         14UL );
   }
 
@@ -89,7 +102,7 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "loader_v4",             9UL );
   }
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) {
+  if( !builtin_is_bpf( slot_ctx, &fd_solana_address_lookup_table_program_id ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key, "address_lookup_table_program",          28UL );
   }
 
