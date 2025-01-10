@@ -22,6 +22,8 @@
 #define UDPSEG_FEATURE "tx-udp-segmentation"
 static char const udpseg_feature[] = UDPSEG_FEATURE;
 
+#define ETHTOOL_CMD_SZ( base_t, data_t, data_len ) ( sizeof(base_t) + (sizeof(data_t)*(data_len)) )
+
 static int
 enabled( config_t * const config ) {
   /* FIXME support for netns is missing */
@@ -52,9 +54,9 @@ static int
 find_feature_index( int          sock,
                     char const * feature ) {
 
-  struct {
+  union {
     struct ethtool_sset_info r;
-    uint   data[1];
+    uchar _[ ETHTOOL_CMD_SZ( struct ethtool_sset_info, uint, 1 ) ];
   } set_info = { .r = {
     .cmd       = ETHTOOL_GSSET_INFO,
     .sset_mask = fd_ulong_mask_bit( ETH_SS_FEATURES )
@@ -63,11 +65,11 @@ find_feature_index( int          sock,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSSET_INFO) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
   }
-  uint const feature_cnt = fd_uint_min( set_info.data[0], MAX_FEATURES );
+  uint const feature_cnt = fd_uint_min( set_info.r.data[0], MAX_FEATURES );
 
-  static struct {
+  static union {
     struct ethtool_gstrings r;
-    char data[ MAX_FEATURES * ETH_GSTRING_LEN ];
+    uchar _[ ETHTOOL_CMD_SZ( struct ethtool_gstrings, uchar, MAX_FEATURES*ETH_GSTRING_LEN ) ];
   } get_strings;
   get_strings.r = (struct ethtool_gstrings) {
     .cmd        = ETHTOOL_GSTRINGS,
@@ -80,8 +82,8 @@ find_feature_index( int          sock,
   }
 
   for( uint j=0UL; j<feature_cnt; j++ ) {
-    char const * str = get_strings.data + (j*ETH_GSTRING_LEN);
-    if( 0==strncmp( str, feature, ETH_GSTRING_LEN ) ) return (int)j;
+    uchar const * str = get_strings.r.data + (j*ETH_GSTRING_LEN);
+    if( 0==strncmp( (char const *)str, feature, ETH_GSTRING_LEN ) ) return (int)j;
   }
   return -1;
 }
@@ -94,9 +96,9 @@ get_feature_state( int sock,
                    int index ) {
   FD_TEST( index>0 && index<MAX_FEATURES );
 
-  struct {
+  union {
     struct ethtool_gfeatures r;
-    struct ethtool_get_features_block data[ (MAX_FEATURES+31)/32 ];
+    uchar _[ ETHTOOL_CMD_SZ( struct ethtool_gfeatures, struct ethtool_get_features_block, (MAX_FEATURES+31)/32 ) ];
   } get_features;
   get_features.r = (struct ethtool_gfeatures) {
     .cmd  = ETHTOOL_GFEATURES,
@@ -109,7 +111,7 @@ get_feature_state( int sock,
 
   uint bucket = (uint)index / 32u;
   uint offset = (uint)index % 32u;
-  return fd_uint_extract_bit( get_features.data[ bucket ].active, (int)offset );
+  return fd_uint_extract_bit( get_features.r.features[ bucket ].active, (int)offset );
 }
 
 /* change_feature updates the ethtool feature at the specified index.
@@ -124,17 +126,17 @@ change_feature( int   sock,
   uint bucket = (uint)index / 32u;
   uint offset = (uint)index % 32u;
 
-  struct {
+  union {
     struct ethtool_sfeatures r;
-    struct ethtool_set_features_block data[ (MAX_FEATURES+31)/32 ];
+    uchar _[ ETHTOOL_CMD_SZ( struct ethtool_sfeatures, struct ethtool_set_features_block, (MAX_FEATURES+31)/32 ) ];
   } set_features = {0};
   set_features.r = (struct ethtool_sfeatures) {
     .cmd  = ETHTOOL_SFEATURES,
     .size = bucket+1,
   };
 
-  set_features.data[ bucket ].valid     = 1u<<offset;
-  set_features.data[ bucket ].requested = ((uint)state)<<offset;
+  set_features.r.features[ bucket ].valid     = 1u<<offset;
+  set_features.r.features[ bucket ].requested = ((uint)state)<<offset;
 
   if( FD_UNLIKELY( ethtool_ioctl( sock, &set_features ) ) ) {
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
