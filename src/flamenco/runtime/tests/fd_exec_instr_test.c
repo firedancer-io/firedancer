@@ -611,11 +611,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
     Account keys = account keys that the transaction needs */
-  for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
+  for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
     FD_BORROWED_ACCOUNT_DECL(acc);
-    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->account_shared_data[i] );
   }
 
   /* Restore sysvar cache */

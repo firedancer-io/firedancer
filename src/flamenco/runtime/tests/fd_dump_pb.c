@@ -97,6 +97,91 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   };
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
 
+  /* Transaction Context -> account_shared_data
+     Contains:
+      - Account data for regular accounts
+      - Account data for LUT accounts
+      - Account data for executable accounts
+      - Account data for (almost) all sysvars
+  */
+  // Dump regular accounts first
+  txn_context_msg->account_shared_data_count = 0;
+  txn_context_msg->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t),
+                                                   (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
+    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], borrowed_account );
+    if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
+      continue;
+    }
+
+    // Make sure account is not a builtin
+    bool is_builtin = false;
+    for( ulong j = 0; j < num_loaded_builtins; ++j ) {
+      if( 0 == memcmp( &txn_ctx->accounts[i], &loaded_builtins[j], sizeof(fd_pubkey_t) ) ) {
+        is_builtin = true;
+        break;
+      }
+    }
+    if( !is_builtin ) {
+      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+    }
+  }
+
+  // For executable accounts, we need to set up dummy borrowed accounts by cluttering txn ctx state and resetting it after
+  // TODO: Revisit this hacky approach
+  txn_ctx->spad = spad;
+  fd_spad_push( txn_ctx->spad );
+  txn_ctx->funk_txn = slot_ctx->funk_txn;
+  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
+
+  // Dump executable accounts
+  for( ulong i = 0; i < txn_ctx->executable_cnt; ++i ) {
+    if( !txn_ctx->executable_accounts[i].const_meta ) {
+      continue;
+    }
+    dump_account_state( &txn_ctx->executable_accounts[i], &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+  }
+
+  // Reset state
+  txn_ctx->funk_txn = NULL;
+  txn_ctx->executable_cnt = 0;
+  fd_spad_pop( txn_ctx->spad );
+
+  // Dump LUT accounts
+  fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
+  for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
+    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+    fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
+    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, borrowed_account );
+    if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
+      continue;
+    }
+    dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+  }
+
+  // Dump sysvars
+  for( ulong i = 0; i < num_sysvar_entries; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_relevant_sysvar_ids[i], borrowed_account );
+    if( ret != FD_ACC_MGR_SUCCESS ) {
+      continue;
+    }
+
+    // Make sure the account doesn't exist in the output accounts yet
+    int account_exists = 0;
+    for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
+      if ( 0 == memcmp( txn_ctx->accounts[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+        account_exists = true;
+        break;
+      }
+    }
+    // Copy it into output
+    if (!account_exists) {
+      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+    }
+  }
+
   /* Transaction Context -> tx */
   txn_context_msg->has_tx = true;
   fd_exec_test_sanitized_transaction_t * sanitized_transaction = &txn_context_msg->tx;
@@ -130,91 +215,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     account_key->size = sizeof(fd_pubkey_t);
     memcpy( account_key->bytes, &account_keys[i], sizeof(fd_pubkey_t) );
     message->account_keys[i] = account_key;
-  }
-
-  /* Transaction Context -> tx -> message -> account_shared_data
-     Contains:
-      - Account data for regular accounts
-      - Account data for LUT accounts
-      - Account data for executable accounts
-      - Account data for (almost) all sysvars
-  */
-  // Dump regular accounts first
-  message->account_shared_data_count = 0;
-  message->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t),
-                                                   (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], borrowed_account );
-    if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
-      continue;
-    }
-
-    // Make sure account is not a builtin
-    bool is_builtin = false;
-    for( ulong j = 0; j < num_loaded_builtins; ++j ) {
-      if( 0 == memcmp( &txn_ctx->accounts[i], &loaded_builtins[j], sizeof(fd_pubkey_t) ) ) {
-        is_builtin = true;
-        break;
-      }
-    }
-    if( !is_builtin ) {
-      dump_account_state( borrowed_account, &message->account_shared_data[message->account_shared_data_count++] );
-    }
-  }
-
-  // For executable accounts, we need to set up dummy borrowed accounts by cluttering txn ctx state and resetting it after
-  // TODO: Revisit this hacky approach
-  txn_ctx->spad = spad;
-  fd_spad_push( txn_ctx->spad );
-  txn_ctx->funk_txn = slot_ctx->funk_txn;
-  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
-
-  // Dump executable accounts
-  for( ulong i = 0; i < txn_ctx->executable_cnt; ++i ) {
-    if( !txn_ctx->executable_accounts[i].const_meta ) {
-      continue;
-    }
-    dump_account_state( &txn_ctx->executable_accounts[i], &message->account_shared_data[message->account_shared_data_count++] );
-  }
-
-  // Reset state
-  txn_ctx->funk_txn = NULL;
-  txn_ctx->executable_cnt = 0;
-  fd_spad_pop( txn_ctx->spad );
-
-  // Dump LUT accounts
-  fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
-  for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, borrowed_account );
-    if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
-      continue;
-    }
-    dump_account_state( borrowed_account, &message->account_shared_data[message->account_shared_data_count++] );
-  }
-
-  // Dump sysvars
-  for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_relevant_sysvar_ids[i], borrowed_account );
-    if( ret != FD_ACC_MGR_SUCCESS ) {
-      continue;
-    }
-
-    // Make sure the account doesn't exist in the output accounts yet
-    int account_exists = 0;
-    for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_ctx->accounts[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
-        account_exists = true;
-        break;
-      }
-    }
-    // Copy it into output
-    if (!account_exists) {
-      dump_account_state( borrowed_account, &message->account_shared_data[message->account_shared_data_count++] );
-    }
   }
 
   /* Transaction Context -> tx -> message -> recent_blockhash */
@@ -288,14 +288,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Transaction Context -> tx -> message_hash */
   // Skip because it does not matter what's in here
-
-  /* Transaction Context -> tx -> is_simple_vote_tx */
-  // Doesn't matter for FD, but does for Agave
-  // https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/sdk/src/simple_vote_transaction_checker.rs#L5-L9
-  sanitized_transaction->is_simple_vote_tx = ( txn_descriptor->signature_cnt < 3 )
-                                          && ( message->is_legacy )
-                                          && ( txn_descriptor->instr_cnt == 1 )
-                                          && ( 0 == memcmp( &txn_ctx->accounts[txn_descriptor->instr[0].program_id], fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Transaction Context -> tx -> signatures */
   sanitized_transaction->signatures_count = txn_descriptor->signature_cnt;
