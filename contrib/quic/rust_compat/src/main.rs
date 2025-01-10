@@ -16,7 +16,7 @@ pub(crate) mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-use crate::bindings::{fd_boot, fd_wksp_new_anon, fd_wksp_t};
+use crate::bindings::{fd_wksp_new_anon, fd_wksp_t};
 
 pub(crate) unsafe fn fd_wksp_new_anonymous(
     page_sz: u64,
@@ -69,6 +69,18 @@ pub(crate) unsafe fn new_udp_socket() -> (i32, u16) {
     (udp_sock_fd, listen_port)
 }
 
+pub(crate) fn fd_boot() {
+    std::env::set_var("FD_LOG_PATH", "");
+    std::env::set_var("FD_LOG_LEVEL_LOGFILE", "0");
+    std::env::set_var("FD_LOG_LEVEL_STDERR", "0");
+    let mut argc = 1;
+    let mut argv = vec![b"test\0".as_ptr() as *mut c_char, std::ptr::null_mut()];
+    let mut argv_ptr = argv.as_mut_ptr();
+    unsafe {
+        crate::bindings::fd_boot(&mut argc, &mut argv_ptr);
+    }
+}
+
 struct StdoutWriter {
     lock: Mutex<()>,
 }
@@ -105,22 +117,14 @@ Available commands are:
 
 fn main() {
     env_logger::init();
-    let arg = if let Some(arg) = std::env::args().nth(1) {
+    let mut args = std::env::args();
+    _ = args.next();
+    let arg = if let Some(arg) = args.next() {
         arg
     } else {
         eprintln!("{}", USAGE);
         std::process::exit(1);
     };
-
-    std::env::set_var("FD_LOG_PATH", "");
-    std::env::set_var("FD_LOG_LEVEL_LOGFILE", "0");
-    std::env::set_var("FD_LOG_LEVEL_STDERR", "0");
-    let mut argc = 1;
-    let mut argv = vec![b"test\0".as_ptr() as *mut c_char, std::ptr::null_mut()];
-    let mut argv_ptr = argv.as_mut_ptr();
-    unsafe {
-        fd_boot(&mut argc, &mut argv_ptr);
-    }
 
     match arg.as_str() {
         "quiche-fd" => unsafe { crate::quiche::quiche_to_fdquic() },
@@ -131,6 +135,9 @@ fn main() {
         "quinn-ring-fd" => unsafe {
             crate::quinn::quinn_to_fdquic(rustls::crypto::ring::default_provider())
         },
+        "quinn-blast" => {
+            crate::quinn::quinn_blast(&args.next().expect("usage: quinn-blast <host:port>"))
+        }
         _ => panic!("Unknown arg"),
     }
 }

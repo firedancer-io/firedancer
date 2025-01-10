@@ -63,6 +63,7 @@ impl ServerCertVerifier for IgnoreServerCert {
 
 pub(crate) unsafe fn quinn_to_fdquic(crypto_provider: CryptoProvider) {
     // Set up Firedancer components
+    crate::fd_boot();
 
     let (udp_sock_fd, listen_port) = crate::new_udp_socket();
 
@@ -196,4 +197,41 @@ pub(crate) unsafe fn quinn_to_fdquic(crypto_provider: CryptoProvider) {
     (*stop).store(1, Ordering::Relaxed);
     fd_quic_thread.join().unwrap();
     fd_halt();
+}
+
+pub(crate) async fn quinn_blast2(arg: &str) {
+    let mut client_crypto = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(rustls::ALL_VERSIONS)
+    .unwrap()
+    .dangerous()
+    .with_custom_certificate_verifier(Arc::new(IgnoreServerCert))
+    .with_no_client_auth();
+    client_crypto.alpn_protocols = vec![b"solana-tpu".to_vec()];
+
+    let client_config =
+        quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto).unwrap()));
+    let mut endpoint =
+        quinn::Endpoint::client((std::net::Ipv6Addr::UNSPECIFIED, 0).into()).unwrap();
+    endpoint.set_default_client_config(client_config);
+
+    const BUF: [u8; 1232] = [0u8; 1232];
+    let sa = SocketAddr::from_str(arg).unwrap();
+    eprintln!("Connecting to {:?}", sa);
+    let conn = endpoint.connect(sa, "node").unwrap().await.unwrap();
+    eprintln!("Connected");
+    loop {
+        let mut stream = conn.open_uni().await.unwrap();
+        stream.write_all(&BUF).await.unwrap();
+    }
+}
+
+pub(crate) fn quinn_blast(arg: &str) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .unwrap();
+    rt.block_on(quinn_blast2(arg));
 }

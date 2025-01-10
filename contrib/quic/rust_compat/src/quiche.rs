@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 pub(crate) unsafe fn quiche_to_fdquic() {
     // Set up Firedancer components
+    crate::fd_boot();
 
     let (udp_sock_fd, listen_port) = crate::new_udp_socket();
 
