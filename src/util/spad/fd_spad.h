@@ -297,6 +297,8 @@ FD_FN_PURE static inline ulong fd_spad_mem_free( fd_spad_t const * spad ) { retu
 
 FD_FN_PURE static inline int fd_spad_in_frame( fd_spad_t const * spad ) { return spad->frame_free<FD_SPAD_FRAME_MAX; }
 
+
+/* operations */
 /* fd_spad_alloc_max returns the maximum number of bytes with initial
    byte alignment of align that can currently be allocated / prepared
    (not including any in-progress prepare).  Assumes spad is a current
@@ -306,11 +308,7 @@ FD_FN_PURE static inline int fd_spad_in_frame( fd_spad_t const * spad ) { return
 
 FD_FN_PURE static inline ulong
 fd_spad_alloc_max( fd_spad_t const * spad,
-                   ulong             align ) {
-  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
-  ulong off = fd_ulong_align_up( spad->mem_used, align );
-  return fd_ulong_max( spad->mem_max, off ) - off;
-}
+                   ulong             align );
 
 /* fd_spad_frame_{lo,hi} returns the range of spad memory covered by the
    current frame (not including any in-progress prepare).  That is,
@@ -319,14 +317,10 @@ fd_spad_alloc_max( fd_spad_t const * spad,
    FIXME: consider const correct versions? */
 
 FD_FN_PURE static inline void *
-fd_spad_frame_lo( fd_spad_t * spad ) {
-  return fd_spad_private_mem( spad ) + spad->off[ spad->frame_free ];
-}
+fd_spad_frame_lo( fd_spad_t * spad );
 
 FD_FN_PURE static inline void *
-fd_spad_frame_hi( fd_spad_t * spad ) {
-  return fd_spad_private_mem( spad ) + spad->mem_used;
-}
+fd_spad_frame_hi( fd_spad_t * spad );
 
 /* operations */
 
@@ -336,9 +330,7 @@ fd_spad_frame_hi( fd_spad_t * spad ) {
    in a frame and not in a prepare.  Fast O(1). */
 
 static inline void
-fd_spad_push( fd_spad_t * spad ) {
-  spad->off[ --spad->frame_free ] = spad->mem_used;
-}
+fd_spad_push( fd_spad_t * spad );
 
 /* fd_spad_pop destroys the current spad frame (which bulk frees all
    allocations made in that frame and cancels any in progress prepare)
@@ -348,19 +340,7 @@ fd_spad_push( fd_spad_t * spad ) {
    and not otherwise.  Fast O(1). */
 
 static inline void
-fd_spad_pop( fd_spad_t * spad ) {
-  spad->mem_used = spad->off[ spad->frame_free++ ];
-# if FD_HAS_DEEPASAN
-  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
-  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
-  fd_asan_poison( (void*)aligned_start, aligned_end - aligned_start );
-# endif
-#if FD_HAS_MSAN
-  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
-  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
-  fd_msan_poison( (void*)aligned_start, aligned_end - aligned_start );
-#endif
-}
+fd_spad_pop( fd_spad_t * spad );
 
 /* The construct:
 
@@ -380,9 +360,7 @@ fd_spad_pop( fd_spad_t * spad ) {
    is entered.  Fast O(1). */
 
 static inline void
-fd_spad_private_frame_end( fd_spad_t ** _spad ) { /* declared here to avoid a fd_spad_pop forward reference */
-  fd_spad_pop( *_spad );
-}
+fd_spad_private_frame_end( fd_spad_t ** _spad ); /* declared here to avoid a fd_spad_pop forward reference */
 
 #define FD_SPAD_FRAME_BEGIN(spad) do {                                            \
   fd_spad_t * _spad __attribute__((cleanup(fd_spad_private_frame_end))) = (spad); \
@@ -409,23 +387,7 @@ fd_spad_private_frame_end( fd_spad_t ** _spad ) { /* declared here to avoid a fd
 static inline void *
 fd_spad_alloc( fd_spad_t * spad,
                ulong       align,
-               ulong       sz ) {
-  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
-  ulong   off = fd_ulong_align_up( spad->mem_used, align );
-  uchar * buf = fd_spad_private_mem( spad ) + off;
-  spad->mem_used = off + sz;
-# if FD_HAS_DEEPASAN
-  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
-  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
-  fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
-# endif
-#if FD_HAS_MSAN
-  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
-  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
-  fd_msan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
-#endif
-  return buf;
-}
+               ulong       sz );
 
 /* fd_spad_trim trims trims frame_hi to end at hi where hi is given the
    caller's local address space.  Assumes spad is a current local join
@@ -448,9 +410,7 @@ fd_spad_alloc( fd_spad_t * spad,
 
 static inline void
 fd_spad_trim( fd_spad_t * spad,
-              void *      hi ) {
-  spad->mem_used = (ulong)hi - (ulong)fd_spad_private_mem( spad );
-}
+              void *      hi );
 
 /* fd_spad_prepare starts preparing a spad allocation with alignment
    align that can be up to max bytes in size.  Returns a pointer in the
@@ -483,14 +443,7 @@ fd_spad_trim( fd_spad_t * spad,
 static inline void *
 fd_spad_prepare( fd_spad_t * spad,
                  ulong       align,
-                 ulong       max ) {
-  (void)max;
-  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
-  ulong   off = fd_ulong_align_up( spad->mem_used, align );
-  uchar * buf = fd_spad_private_mem( spad ) + off;
-  spad->mem_used = off;
-  return buf;
-}
+                 ulong       max );
 
 /* fd_spad_cancel cancels the most recent prepare.  Assumes spad is a
    current local join and in a prepare.  On return, spad will be in a
@@ -510,9 +463,7 @@ fd_spad_prepare( fd_spad_t * spad,
    described above.  So this probably isn't worthwhile. */
 
 static inline void
-fd_spad_cancel( fd_spad_t * spad ) {
-  (void)spad;
-}
+fd_spad_cancel( fd_spad_t * spad );
 
 /* fd_spad_publish finishes the allocation started in the most recent
    prepare.  Assumes spad is a current local join and in a prepare and
@@ -521,23 +472,7 @@ fd_spad_cancel( fd_spad_t * spad ) {
 
 static inline void
 fd_spad_publish( fd_spad_t * spad,
-                 ulong       sz ) {
-# if (FD_HAS_DEEPASAN || FD_HAS_MSAN)
-  ulong   off = spad->mem_used;
-  uchar * buf = fd_spad_private_mem( spad ) + off;
-#endif
-  spad->mem_used += sz;
-# if FD_HAS_DEEPASAN
-  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
-  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
-  fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
-# endif
-#if FD_HAS_MSAN
-  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
-  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
-  fd_msan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
-#endif
-}
+                 ulong       sz );
 
 /* fd_spad_verify returns a negative integer error code if the spad is
    obiviously corrupt if not (logs details) and 0 otherwise.  Reasons
@@ -587,6 +522,185 @@ FD_FN_PURE static inline fd_valloc_t
 fd_spad_virtual( fd_spad_t * spad ) {
   fd_valloc_t valloc = { spad, &fd_spad_vtable };
   return valloc;
+}
+
+
+/* operation fn implementations */
+FD_FN_PURE static inline ulong
+fd_spad_alloc_max_impl( fd_spad_t const * spad,
+                        ulong             align ) {
+  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
+  ulong off = fd_ulong_align_up( spad->mem_used, align );
+  return fd_ulong_max( spad->mem_max, off ) - off;
+}
+
+FD_FN_PURE static inline void *
+fd_spad_frame_lo_impl( fd_spad_t * spad ) {
+  return fd_spad_private_mem( spad ) + spad->off[ spad->frame_free ];
+}
+
+FD_FN_PURE static inline void *
+fd_spad_frame_hi_impl( fd_spad_t * spad ) {
+  return fd_spad_private_mem( spad ) + spad->mem_used;
+}
+
+static inline void
+fd_spad_push_impl( fd_spad_t * spad ) {
+  spad->off[ --spad->frame_free ] = spad->mem_used;
+}
+
+static inline void
+fd_spad_pop_impl( fd_spad_t * spad ) {
+  spad->mem_used = spad->off[ spad->frame_free++ ];
+# if FD_HAS_DEEPASAN
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_asan_poison( (void*)aligned_start, aligned_end - aligned_start );
+# endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_msan_poison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
+}
+
+static inline void
+fd_spad_private_frame_end_impl( fd_spad_t ** _spad ) {
+  fd_spad_pop( *_spad );
+}
+
+static inline void *
+fd_spad_alloc_impl( fd_spad_t * spad,
+                    ulong       align,
+                    ulong       sz ) {
+  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
+  ulong   off = fd_ulong_align_up( spad->mem_used, align );
+  uchar * buf = fd_spad_private_mem( spad ) + off;
+  spad->mem_used = off + sz;
+# if FD_HAS_DEEPASAN
+  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
+  fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+# endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
+  fd_msan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
+  return buf;
+}
+
+static inline void
+fd_spad_trim_impl( fd_spad_t * spad,
+              void *      hi ) {
+  spad->mem_used = (ulong)hi - (ulong)fd_spad_private_mem( spad );
+}
+
+static inline void *
+fd_spad_prepare_impl( fd_spad_t * spad,
+                      ulong       align,
+                      ulong       max ) {
+  (void)max;
+  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
+  ulong   off = fd_ulong_align_up( spad->mem_used, align );
+  uchar * buf = fd_spad_private_mem( spad ) + off;
+  spad->mem_used = off;
+  return buf;
+}
+
+static inline void
+fd_spad_cancel_impl( fd_spad_t * spad ) {
+  (void)spad;
+}
+
+static inline void
+fd_spad_publish_impl( fd_spad_t * spad,
+                      ulong       sz ) {
+# if (FD_HAS_DEEPASAN || FD_HAS_MSAN)
+  ulong   off = spad->mem_used;
+  uchar * buf = fd_spad_private_mem( spad ) + off;
+#endif
+  spad->mem_used += sz;
+# if FD_HAS_DEEPASAN
+  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
+  fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+# endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
+  fd_msan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
+}
+
+
+/* operation fn definitions */
+#ifdef FD_SPAD_USE_HANDHOLDING
+#define SELECT_IMPL(fn) fn##_debug
+#else 
+#define SELECT_IMPL(fn) fn##_impl
+#endif
+
+FD_FN_PURE ulong
+fd_spad_alloc_max( fd_spad_t const * spad,
+                   ulong             align ) {
+  return SELECT_IMPL(fd_spad_alloc_max)(spad, align);
+}
+
+FD_FN_PURE void *
+fd_spad_frame_lo( fd_spad_t * spad ) {
+  return SELECT_IMPL(fd_spad_frame_lo)(spad);
+}
+
+FD_FN_PURE void *
+fd_spad_frame_hi( fd_spad_t * spad ) {
+  return SELECT_IMPL(fd_spad_frame_hi)(spad);
+}
+
+void
+fd_spad_push( fd_spad_t * spad ) {
+  SELECT_IMPL(fd_spad_push)(spad);
+}
+
+void
+fd_spad_pop(fd_spad_t *spad) {
+  SELECT_IMPL(fd_spad_pop)(spad);
+}
+
+void
+fd_spad_private_frame_end(fd_spad_t **_spad) {
+  SELECT_IMPL(fd_spad_private_frame_end)(_spad);
+}
+
+void *
+fd_spad_alloc( fd_spad_t * spad,
+               ulong       align,
+               ulong       sz ) {
+  return SELECT_IMPL(fd_spad_alloc)(spad, align, sz);
+}
+
+void
+fd_spad_trim( fd_spad_t * spad,
+              void *      hi ) {
+  SELECT_IMPL(fd_spad_trim)(spad, hi);
+}
+
+void *
+fd_spad_prepare( fd_spad_t * spad,
+                 ulong       align,
+                 ulong       max ) {
+  return SELECT_IMPL(fd_spad_prepare)(spad, align, max);
+}
+
+void
+fd_spad_cancel(fd_spad_t *spad) {
+  SELECT_IMPL(fd_spad_cancel)(spad);
+}
+
+void
+fd_spad_publish( fd_spad_t * spad,
+                 ulong       sz ) {
+  SELECT_IMPL(fd_spad_publish)(spad, sz);
 }
 
 FD_PROTOTYPES_END
