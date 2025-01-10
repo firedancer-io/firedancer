@@ -53,13 +53,13 @@ fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
                        fd_valloc_t                 valloc,
                        int *                       perr );
                        
-/* fd_check_transaction_age returns 1 if the transactions age is 
-   valid, returns 0 otherwise. This is determined by the age of
+/* fd_check_transaction_age returns 0 if the transactions age is
+   valid, returns non-zero otherwise. This is determined by the age of
    the blockhash provided in the transaction message or by the
    validity of the nonce provided in the transaction. */
 
 int
-fd_check_transaction_age( fd_exec_txn_ctx_t const * txn_ctx );
+fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx );
 
 FD_PROTOTYPES_END
 
