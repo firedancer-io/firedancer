@@ -283,13 +283,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     return 0;
   }
 
-  /* TODO: Restore slot_bank */
+  /* Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+    
+  /* Blockhash queue init */
+  fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
+  blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  blockhash_queue->last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
@@ -463,9 +465,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      *recent_block_hash = *last;
+      *blockhash_queue->last_hash                = last->blockhash;
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }
 
@@ -729,14 +731,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->burn_percent            >      100 ) )
     return NULL;
 
-  /* Blockhash queue is given in txn message. We need to populate the following three:
-     - slot_ctx->slot_bank.block_hash_queue (TODO: Does more than just the last_hash need to be populated?)
-     - sysvar_cache_recent_block_hashes
+  /* Blockhash queue is given in txn message. We need to populate the following two fields:
+     - slot_ctx->slot_bank.block_hash_queue
      - slot_ctx->slot_bank.recent_block_hashes */
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
-
-  /* Recent blockhashes init */
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
@@ -753,11 +751,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }
-
-  // Clear and reset recent block hashes sysvar
-  slot_ctx->sysvar_cache->has_recent_block_hashes         = 1;
-  slot_ctx->sysvar_cache->val_recent_block_hashes->hashes = recent_block_hashes;
-  slot_ctx->slot_bank.recent_block_hashes.hashes          = recent_block_hashes;
 
   // Blockhash_queue[end] = last (latest) hash
   // Blockhash_queue[0] = genesis hash
@@ -780,6 +773,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx );
   }
+  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
   fd_funk_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */

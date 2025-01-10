@@ -12963,102 +12963,6 @@ int fd_block_block_hash_entry_encode( fd_block_block_hash_entry_t const * self, 
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-enum {
-  fd_block_block_hash_entry_blockhash_TAG = (0 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_block_block_hash_entry_fee_calculator_TAG = (1 << 6) | FD_ARCHIVE_META_STRUCT,
-};
-int fd_block_block_hash_entry_decode_archival( fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  void const * data = ctx->data;
-  int err = fd_block_block_hash_entry_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_block_block_hash_entry_new( self );
-  }
-  fd_block_block_hash_entry_decode_archival_unsafe( self, ctx );
-  return FD_BINCODE_SUCCESS;
-}
-int fd_block_block_hash_entry_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  ushort tag = FD_ARCHIVE_META_SENTINAL;
-  void * offset = NULL;
-  for(;;) {
-  err = fd_bincode_uint16_decode( &tag, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
-  switch( tag ) {
-  case (ushort)fd_block_block_hash_entry_blockhash_TAG: {
-  err = fd_archive_decode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_decode_check_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  break;
-  }
-  case (ushort)fd_block_block_hash_entry_fee_calculator_TAG: {
-  err = fd_archive_decode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_fee_calculator_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_decode_check_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  break;
-  }
-  default:
-    err = fd_archive_decode_skip_field( ctx, tag );
-    if( FD_UNLIKELY( err ) ) return err;
-    break;
-  }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-void fd_block_block_hash_entry_decode_archival_unsafe( fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  ushort tag = FD_ARCHIVE_META_SENTINAL;
-  void * offset = NULL;
-  for(;;) {
-  fd_bincode_uint16_decode( &tag, ctx );
-  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
-  switch( tag ) {
-  case (ushort)fd_block_block_hash_entry_blockhash_TAG: {
-  fd_archive_decode_setup_length( ctx, &offset );
-  fd_hash_decode_archival_unsafe( &self->blockhash, ctx );
-  break;
-  }
-  case (ushort)fd_block_block_hash_entry_fee_calculator_TAG: {
-  fd_archive_decode_setup_length( ctx, &offset );
-  fd_fee_calculator_decode_archival_unsafe( &self->fee_calculator, ctx );
-  break;
-  }
-  default:
-    fd_archive_decode_skip_field( ctx, tag );
-    break;
-  }
-  }
-}
-int fd_block_block_hash_entry_encode_archival( fd_block_block_hash_entry_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  void * offset = NULL;
-  err = fd_bincode_uint16_encode( (ushort)fd_block_block_hash_entry_blockhash_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode_archival( &self->blockhash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_set_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)fd_block_block_hash_entry_fee_calculator_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_fee_calculator_encode_archival( &self->fee_calculator, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_set_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
 int fd_block_block_hash_entry_decode_offsets( fd_block_block_hash_entry_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
@@ -13145,104 +13049,6 @@ int fd_recent_block_hashes_encode( fd_recent_block_hashes_t const * self, fd_bin
     err = fd_bincode_uint64_encode( hashes_len, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  return FD_BINCODE_SUCCESS;
-}
-enum {
-  fd_recent_block_hashes_hashes_TAG = (0 << 6) | FD_ARCHIVE_META_DEQUE,
-};
-int fd_recent_block_hashes_decode_archival( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  void const * data = ctx->data;
-  int err = fd_recent_block_hashes_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_recent_block_hashes_new( self );
-  }
-  fd_recent_block_hashes_decode_archival_unsafe( self, ctx );
-  return FD_BINCODE_SUCCESS;
-}
-int fd_recent_block_hashes_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  ushort tag = FD_ARCHIVE_META_SENTINAL;
-  void * offset = NULL;
-  for(;;) {
-  err = fd_bincode_uint16_decode( &tag, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
-  switch( tag ) {
-  case (ushort)fd_recent_block_hashes_hashes_TAG: {
-  err = fd_archive_decode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  ulong hashes_len;
-  err = fd_bincode_uint64_decode( &hashes_len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  ulong hashes_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( hashes_len, 40, &hashes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
-  err = fd_bincode_bytes_decode_preflight( hashes_sz, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_decode_check_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  break;
-  }
-  default:
-    err = fd_archive_decode_skip_field( ctx, tag );
-    if( FD_UNLIKELY( err ) ) return err;
-    break;
-  }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-void fd_recent_block_hashes_decode_archival_unsafe( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  ushort tag = FD_ARCHIVE_META_SENTINAL;
-  void * offset = NULL;
-  for(;;) {
-  fd_bincode_uint16_decode( &tag, ctx );
-  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
-  switch( tag ) {
-  case (ushort)fd_recent_block_hashes_hashes_TAG: {
-  fd_archive_decode_setup_length( ctx, &offset );
-  ulong hashes_len;
-  fd_bincode_uint64_decode_unsafe( &hashes_len, ctx );
-  ulong hashes_max = fd_ulong_max( hashes_len, 151 );
-  self->hashes = deq_fd_block_block_hash_entry_t_alloc( ctx->valloc, hashes_max );
-  for( ulong i=0; i < hashes_len; i++ ) {
-    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy( self->hashes );
-    fd_block_block_hash_entry_new( elem );
-    fd_block_block_hash_entry_decode_archival_unsafe( elem, ctx );
-  }
-  break;
-  }
-  default:
-    fd_archive_decode_skip_field( ctx, tag );
-    break;
-  }
-  }
-}
-int fd_recent_block_hashes_encode_archival( fd_recent_block_hashes_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  void * offset = NULL;
-  err = fd_bincode_uint16_encode( (ushort)fd_recent_block_hashes_hashes_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->hashes ) {
-    ulong hashes_len = deq_fd_block_block_hash_entry_t_cnt( self->hashes );
-    err = fd_bincode_uint64_encode( hashes_len, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    for( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( self->hashes ); !deq_fd_block_block_hash_entry_t_iter_done( self->hashes, iter ); iter = deq_fd_block_block_hash_entry_t_iter_next( self->hashes, iter ) ) {
-      fd_block_block_hash_entry_t const * ele = deq_fd_block_block_hash_entry_t_iter_ele_const( self->hashes, iter );
-      err = fd_block_block_hash_entry_encode_archival( ele, ctx );
-      if( FD_UNLIKELY( err ) ) return err;
-    }
-  } else {
-    ulong hashes_len = 0;
-    err = fd_bincode_uint64_encode( hashes_len, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_archive_encode_set_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 int fd_recent_block_hashes_decode_offsets( fd_recent_block_hashes_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -15441,8 +15247,6 @@ int fd_slot_bank_decode( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) 
 }
 int fd_slot_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   int err;
-  err = fd_recent_block_hashes_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_clock_timestamp_votes_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
@@ -15505,7 +15309,6 @@ int fd_slot_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_recent_block_hashes_decode_unsafe( &self->recent_block_hashes, ctx );
   fd_clock_timestamp_votes_decode_unsafe( &self->timestamp_votes, ctx );
   fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
   fd_bincode_uint64_decode_unsafe( &self->prev_slot, ctx );
@@ -15542,8 +15345,6 @@ void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t 
 }
 int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_recent_block_hashes_encode( &self->recent_block_hashes, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_clock_timestamp_votes_encode( &self->timestamp_votes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->slot, ctx );
@@ -15603,33 +15404,32 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   return FD_BINCODE_SUCCESS;
 }
 enum {
-  fd_slot_bank_recent_block_hashes_TAG = (0 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_timestamp_votes_TAG = (1 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_slot_TAG = (2 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_prev_slot_TAG = (3 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_poh_TAG = (4 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_banks_hash_TAG = (5 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_epoch_account_hash_TAG = (6 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_fee_rate_governor_TAG = (7 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_capitalization_TAG = (8 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_block_height_TAG = (9 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_max_tick_height_TAG = (10 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_collected_execution_fees_TAG = (11 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_collected_priority_fees_TAG = (12 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_collected_rent_TAG = (13 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_epoch_stakes_TAG = (14 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_last_restart_slot_TAG = (15 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_stake_account_keys_TAG = (16 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_vote_account_keys_TAG = (17 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_lamports_per_signature_TAG = (18 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_transaction_count_TAG = (19 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_lthash_TAG = (20 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_block_hash_queue_TAG = (21 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_prev_banks_hash_TAG = (22 << 6) | FD_ARCHIVE_META_STRUCT,
-  fd_slot_bank_parent_signature_cnt_TAG = (23 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_tick_height_TAG = (24 << 6) | FD_ARCHIVE_META_ULONG,
-  fd_slot_bank_use_preceeding_epoch_stakes_TAG = (25 << 6) | FD_ARCHIVE_META_OPTION,
-  fd_slot_bank_hard_forks_TAG = (26 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_timestamp_votes_TAG = (0 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_slot_TAG = (1 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_prev_slot_TAG = (2 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_poh_TAG = (3 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_banks_hash_TAG = (4 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_epoch_account_hash_TAG = (5 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_fee_rate_governor_TAG = (6 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_capitalization_TAG = (7 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_block_height_TAG = (8 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_max_tick_height_TAG = (9 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_collected_execution_fees_TAG = (10 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_collected_priority_fees_TAG = (11 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_collected_rent_TAG = (12 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_epoch_stakes_TAG = (13 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_last_restart_slot_TAG = (14 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_stake_account_keys_TAG = (15 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_vote_account_keys_TAG = (16 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_lamports_per_signature_TAG = (17 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_transaction_count_TAG = (18 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_lthash_TAG = (19 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_block_hash_queue_TAG = (20 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_prev_banks_hash_TAG = (21 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_parent_signature_cnt_TAG = (22 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_tick_height_TAG = (23 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_slot_bank_use_preceeding_epoch_stakes_TAG = (24 << 6) | FD_ARCHIVE_META_OPTION,
+  fd_slot_bank_hard_forks_TAG = (25 << 6) | FD_ARCHIVE_META_STRUCT,
 };
 int fd_slot_bank_decode_archival( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
@@ -15651,15 +15451,6 @@ int fd_slot_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
   switch( tag ) {
-  case (ushort)fd_slot_bank_recent_block_hashes_TAG: {
-  err = fd_archive_decode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_recent_block_hashes_decode_archival_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_decode_check_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  break;
-  }
   case (ushort)fd_slot_bank_timestamp_votes_TAG: {
   err = fd_archive_decode_setup_length( ctx, &offset );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15868,11 +15659,6 @@ void fd_slot_bank_decode_archival_unsafe( fd_slot_bank_t * self, fd_bincode_deco
   fd_bincode_uint16_decode( &tag, ctx );
   if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
   switch( tag ) {
-  case (ushort)fd_slot_bank_recent_block_hashes_TAG: {
-  fd_archive_decode_setup_length( ctx, &offset );
-  fd_recent_block_hashes_decode_archival_unsafe( &self->recent_block_hashes, ctx );
-  break;
-  }
   case (ushort)fd_slot_bank_timestamp_votes_TAG: {
   fd_archive_decode_setup_length( ctx, &offset );
   fd_clock_timestamp_votes_decode_archival_unsafe( &self->timestamp_votes, ctx );
@@ -16007,14 +15793,6 @@ void fd_slot_bank_decode_archival_unsafe( fd_slot_bank_t * self, fd_bincode_deco
 int fd_slot_bank_encode_archival( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   void * offset = NULL;
-  err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_recent_block_hashes_TAG, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_setup_length( ctx, &offset );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_recent_block_hashes_encode_archival( &self->recent_block_hashes, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_archive_encode_set_length( ctx, offset );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_timestamp_votes_TAG, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_archive_encode_setup_length( ctx, &offset );
@@ -16186,9 +15964,6 @@ int fd_slot_bank_encode_archival( fd_slot_bank_t const * self, fd_bincode_encode
 int fd_slot_bank_decode_offsets( fd_slot_bank_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
-  self->recent_block_hashes_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_recent_block_hashes_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   self->timestamp_votes_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_clock_timestamp_votes_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16278,7 +16053,6 @@ int fd_slot_bank_decode_offsets( fd_slot_bank_off_t * self, fd_bincode_decode_ct
 }
 void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_bank_t) );
-  fd_recent_block_hashes_new( &self->recent_block_hashes );
   fd_clock_timestamp_votes_new( &self->timestamp_votes );
   fd_hash_new( &self->poh );
   fd_hash_new( &self->banks_hash );
@@ -16294,7 +16068,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_hard_forks_new( &self->hard_forks );
 }
 void fd_slot_bank_destroy( fd_slot_bank_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_recent_block_hashes_destroy( &self->recent_block_hashes, ctx );
   fd_clock_timestamp_votes_destroy( &self->timestamp_votes, ctx );
   fd_hash_destroy( &self->poh, ctx );
   fd_hash_destroy( &self->banks_hash, ctx );
@@ -16318,7 +16091,6 @@ ulong fd_slot_bank_align( void ){ return FD_SLOT_BANK_ALIGN; }
 
 void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_bank", level++ );
-  fd_recent_block_hashes_walk( w, &self->recent_block_hashes, fun, "recent_block_hashes", level );
   fd_clock_timestamp_votes_walk( w, &self->timestamp_votes, fun, "timestamp_votes", level );
   fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -16353,7 +16125,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
 }
 ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   ulong size = 0;
-  size += fd_recent_block_hashes_size( &self->recent_block_hashes );
   size += fd_clock_timestamp_votes_size( &self->timestamp_votes );
   size += sizeof(ulong);
   size += sizeof(ulong);

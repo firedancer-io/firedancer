@@ -2627,7 +2627,6 @@ typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(128UL))) fd_slot_bank {
-  fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
   ulong slot;
   ulong prev_slot;
@@ -2661,7 +2660,6 @@ typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_ALIGN (128UL)
 
 struct __attribute__((aligned(128UL))) fd_slot_bank_off {
-  uint recent_block_hashes_off;
   uint timestamp_votes_off;
   uint slot_off;
   uint prev_slot_off;
@@ -6380,10 +6378,6 @@ void fd_block_block_hash_entry_walk( void * w, fd_block_block_hash_entry_t const
 ulong fd_block_block_hash_entry_size( fd_block_block_hash_entry_t const * self );
 ulong fd_block_block_hash_entry_footprint( void );
 ulong fd_block_block_hash_entry_align( void );
-int fd_block_block_hash_entry_decode_archival( fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_block_block_hash_entry_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_block_block_hash_entry_decode_archival_unsafe( fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_block_block_hash_entry_encode_archival( fd_block_block_hash_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_recent_block_hashes_new( fd_recent_block_hashes_t * self );
 int fd_recent_block_hashes_decode( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -6396,10 +6390,6 @@ void fd_recent_block_hashes_walk( void * w, fd_recent_block_hashes_t const * sel
 ulong fd_recent_block_hashes_size( fd_recent_block_hashes_t const * self );
 ulong fd_recent_block_hashes_footprint( void );
 ulong fd_recent_block_hashes_align( void );
-int fd_recent_block_hashes_decode_archival( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_recent_block_hashes_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_recent_block_hashes_decode_archival_unsafe( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_recent_block_hashes_encode_archival( fd_recent_block_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_slot_meta_new( fd_slot_meta_t * self );
 int fd_slot_meta_decode( fd_slot_meta_t * self, fd_bincode_decode_ctx_t * ctx );

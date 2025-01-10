@@ -19,24 +19,49 @@
 //   {blockhash = GQN3oV8G1Ra3GCX76dE1YYJ6UjMyDreNCEWM4tZ39zj1,  fee_calculator={lamports_per_signature = 5000}}
 //   {blockhash = Ha5DVgnD1xSA8oQc337jtA3atEfQ4TFX1ajeZG1Y2tUx,  fee_calculator={lamports_per_signature = 0}}
 
-void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
-  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+/* Skips fd_types encoding preflight checks and directly serializes the blockhash queue into a buffer representing
+   account data for the recent blockhashes sysvar. */
+static void
+encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
+  /* recent_blockhashes_account::update_account's `take` call takes at most 150 elements 
+     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/bank/recent_blockhashes_account.rs#L15-L28 */
+  fd_block_hash_queue_t const * queue = &slot_ctx->slot_bank.block_hash_queue;
+  ulong queue_sz                      = fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root );
+  ulong hashes_len                    = fd_ulong_min( queue_sz, FD_RECENT_BLOCKHASHES_MAX_ENTRIES );
+  fd_memcpy( enc, &hashes_len, sizeof(ulong) );
+  enc += sizeof(ulong);
 
-  if (slot_ctx->slot_bank.slot != 0)
+  /* Iterate over blockhash queue and encode the recent blockhashes. We can do direct memcpying
+     and avoid redundant checks from fd_types encoders since the enc buffer is already sized out to
+     the worst-case bound. */
+  fd_hash_hash_age_pair_t_mapnode_t const * nn;
+  for( fd_hash_hash_age_pair_t_mapnode_t const * n = fd_hash_hash_age_pair_t_map_minimum_const( queue->ages_pool, queue->ages_root ); n; n = nn ) {
+    nn = fd_hash_hash_age_pair_t_map_successor_const( queue->ages_pool, n );
+    ulong enc_idx = queue->last_hash_index - n->elem.val.hash_index;
+    if( enc_idx>=hashes_len ) {
+      continue;
+    }
+    fd_hash_t hash = n->elem.key;
+    ulong     lps  = n->elem.val.fee_calculator.lamports_per_signature;
+
+    fd_memcpy( enc + enc_idx * (FD_HASH_FOOTPRINT + sizeof(ulong)), &hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( enc + enc_idx * (FD_HASH_FOOTPRINT + sizeof(ulong)) + sizeof(fd_hash_t), &lps, sizeof(ulong) );
+  }
+}
+
+// https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx ) {
+FD_SCRATCH_SCOPE_BEGIN {
+  if( slot_ctx->slot_bank.slot != 0 ) {
     return;
+  }
 
-  ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
-  if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
-    sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
-  uchar * enc = fd_alloca(1, sz);
-  fd_memset(enc, 0, sz);
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
-    FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
-
+  ulong sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
+  uchar * enc = fd_scratch_alloc( 1UL, sz );
+  fd_memset( enc, 0, sz );
+  encode_rbh_from_blockhash_queue( slot_ctx, enc );
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
+} FD_SCRATCH_SCOPE_END;
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
@@ -71,32 +96,28 @@ register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
   fd_memcpy( queue->last_hash, hash, sizeof(fd_hash_t) );
 }
 
-void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
-
-  fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
-  fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
-  while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= FD_RECENT_BLOCKHASHES_MAX_ENTRIES)
-    fd_block_block_hash_entry_destroy( deq_fd_block_block_hash_entry_t_pop_tail_nocopy( hashes ), &ctx2 );
-
-  FD_TEST( !deq_fd_block_block_hash_entry_t_full(hashes) );
-  fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
-  fd_block_block_hash_entry_new(elem);
-  fd_memcpy(elem->blockhash.hash, &slot_ctx->slot_bank.poh, sizeof(slot_ctx->slot_bank.poh));
-
-  elem->fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
-
-  ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
-  if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
-    sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
-  unsigned char *enc = fd_alloca(1, sz);
-  memset(enc, 0, sz);
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
-    FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
-
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
-
+/* This implementation is more consistent with Agave's bank implementation for updating the block hashes sysvar:
+   1. Update the block hash queue with the latest poh
+   2. Take the first 150 blockhashes from the queue (or fewer if there are)
+   3. Manually serialize the recent blockhashes
+   4. Set the sysvar account with the new data */
+void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
+FD_SCRATCH_SCOPE_BEGIN {
+  /* Update the blockhash queue */
   register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
+
+  /* Derive the new sysvar recent blockhashes from the blockhash queue */
+  ulong   sz        = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
+  uchar * enc       = fd_scratch_alloc( 1UL, sz );
+  uchar * enc_start = enc;
+  fd_memset( enc, 0, sz );
+
+  /* Encode the recent blockhashes */
+  encode_rbh_from_blockhash_queue( slot_ctx, enc );
+
+  /* Set the sysvar from the encoded data */
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc_start, sz, slot_ctx->slot_bank.slot );
+} FD_SCRATCH_SCOPE_END;
 }
+
+#undef UNCHECKED_ENC
