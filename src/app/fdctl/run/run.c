@@ -703,10 +703,6 @@ run_firedancer_init( config_t * const config,
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->consensus.identity_path ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->consensus.identity_path, errno, fd_io_strerror( errno ) ));
 
-  err = stat( config->consensus.vote_account_path, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.vote_account_path] key does not exist `%s`. You can generate an vote key at this path by running `fdctl keys new vote --config <toml>`", config->consensus.vote_account_path ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.vote_account_path] `%s` (%i-%s)", config->consensus.vote_account_path, errno, fd_io_strerror( errno ) ));
-
   for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
     err = stat( config->consensus.authorized_voter_paths[ i ], &st );
     if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->consensus.authorized_voter_paths[ i ] ));
