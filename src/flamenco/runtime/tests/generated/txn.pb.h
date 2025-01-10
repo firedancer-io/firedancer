@@ -48,9 +48,6 @@ typedef struct fd_exec_test_transaction_message {
     /* Vector of pubkeys */
     pb_size_t account_keys_count;
     pb_bytes_array_t **account_keys;
-    /* Data associated with the accounts referred above. Not all accounts need to be here. */
-    pb_size_t account_shared_data_count;
-    struct fd_exec_test_acct_state *account_shared_data;
     /* Recent blockhash provided in message */
     pb_bytes_array_t *recent_blockhash;
     /* The instructions this transaction executes */
@@ -68,8 +65,6 @@ typedef struct fd_exec_test_sanitized_transaction {
     fd_exec_test_transaction_message_t message;
     /* The message hash */
     pb_byte_t message_hash[32];
-    /* Is this a voting transaction? */
-    bool is_simple_vote_tx;
     /* The signatures needed in the transaction */
     pb_size_t signatures_count;
     pb_bytes_array_t **signatures;
@@ -82,6 +77,9 @@ typedef struct fd_exec_test_txn_context {
     /* The transaction data */
     bool has_tx;
     fd_exec_test_sanitized_transaction_t tx;
+    /* Data associated with transaction accounts, sysvars, etc. */
+    pb_size_t account_shared_data_count;
+    struct fd_exec_test_acct_state *account_shared_data;
     /* Up to 300 (actually 301) most recent blockhashes (ordered from oldest to newest) */
     pb_size_t blockhash_queue_count;
     pb_bytes_array_t **blockhash_queue;
@@ -161,9 +159,9 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT {{0}, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, {0}, 0, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, {0}, 0, NULL}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
@@ -172,9 +170,9 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, {0}, 0, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, {0}, 0, NULL}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
@@ -194,15 +192,14 @@ extern "C" {
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_IS_LEGACY_TAG 1
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_HEADER_TAG 2
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_ACCOUNT_KEYS_TAG 3
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_ACCOUNT_SHARED_DATA_TAG 4
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_RECENT_BLOCKHASH_TAG 5
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_INSTRUCTIONS_TAG 6
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_ADDRESS_TABLE_LOOKUPS_TAG 7
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_TAG 1
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_HASH_TAG 2
-#define FD_EXEC_TEST_SANITIZED_TRANSACTION_IS_SIMPLE_VOTE_TX_TAG 3
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_SIGNATURES_TAG 4
 #define FD_EXEC_TEST_TXN_CONTEXT_TX_TAG          1
+#define FD_EXEC_TEST_TXN_CONTEXT_ACCOUNT_SHARED_DATA_TAG 2
 #define FD_EXEC_TEST_TXN_CONTEXT_BLOCKHASH_QUEUE_TAG 3
 #define FD_EXEC_TEST_TXN_CONTEXT_EPOCH_CTX_TAG   4
 #define FD_EXEC_TEST_TXN_CONTEXT_SLOT_CTX_TAG    5
@@ -255,21 +252,18 @@ X(a, POINTER,  REPEATED, UINT32,   readonly_indexes,   3)
 X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            2) \
 X(a, POINTER,  REPEATED, BYTES,    account_keys,      3) \
-X(a, POINTER,  REPEATED, MESSAGE,  account_shared_data,   4) \
 X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
 X(a, POINTER,  REPEATED, MESSAGE,  instructions,      6) \
 X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   7)
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_CALLBACK NULL
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_DEFAULT NULL
 #define fd_exec_test_transaction_message_t_header_MSGTYPE fd_exec_test_message_header_t
-#define fd_exec_test_transaction_message_t_account_shared_data_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_transaction_message_t_instructions_MSGTYPE fd_exec_test_compiled_instruction_t
 #define fd_exec_test_transaction_message_t_address_table_lookups_MSGTYPE fd_exec_test_message_address_table_lookup_t
 
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  message,           1) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, message_hash,      2) \
-X(a, STATIC,   SINGULAR, BOOL,     is_simple_vote_tx,   3) \
 X(a, POINTER,  REPEATED, BYTES,    signatures,        4)
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_CALLBACK NULL
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_DEFAULT NULL
@@ -277,12 +271,14 @@ X(a, POINTER,  REPEATED, BYTES,    signatures,        4)
 
 #define FD_EXEC_TEST_TXN_CONTEXT_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  tx,                1) \
+X(a, POINTER,  REPEATED, MESSAGE,  account_shared_data,   2) \
 X(a, POINTER,  REPEATED, BYTES,    blockhash_queue,   3) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         4) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  slot_ctx,          5)
 #define FD_EXEC_TEST_TXN_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_CONTEXT_DEFAULT NULL
 #define fd_exec_test_txn_context_t_tx_MSGTYPE fd_exec_test_sanitized_transaction_t
+#define fd_exec_test_txn_context_t_account_shared_data_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_txn_context_t_epoch_ctx_MSGTYPE fd_exec_test_epoch_context_t
 #define fd_exec_test_txn_context_t_slot_ctx_MSGTYPE fd_exec_test_slot_context_t
 
