@@ -275,7 +275,8 @@ wrap_offset( fd_blockstore_archiver_t * archvr, ulong off ) {
 
 /* Build the archival file index */
 
-static inline void build_idx( fd_blockstore_t * blockstore, int fd ) {
+static inline void FD_FN_UNUSED
+build_idx( fd_blockstore_t * blockstore, int fd ) {
   if ( FD_UNLIKELY( fd == -1 ) ) {
     return;
   }

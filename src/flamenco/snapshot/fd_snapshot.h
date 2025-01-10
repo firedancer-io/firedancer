@@ -88,6 +88,9 @@ fd_snapshot_load_all( const char *         source_cstr,
                       uint                 check_hash,
                       int                  snapshot_type );
 
+void
+fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* FD_HAS_ZSTD */
