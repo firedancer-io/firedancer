@@ -43,6 +43,8 @@
 #include "sysvar/fd_sysvar_slot_hashes.h"
 #include "sysvar/fd_sysvar_slot_history.h"
 
+#include "tests/fd_dump_pb.h"
+
 #include "../nanopb/pb_decode.h"
 #include "../nanopb/pb_encode.h"
 #include "../types/fd_solana_block.pb.h"
