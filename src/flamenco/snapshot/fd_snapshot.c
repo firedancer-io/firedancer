@@ -12,6 +12,9 @@
 #include <assert.h>
 #include <errno.h>
 
+/* FIXME: don't hardcode this param */
+#define ZSTD_WINDOW_SZ (33554432UL)
+
 struct fd_snapshot_load_ctx {
   /* User-defined parameters. */
   const char *           snapshot_file;
@@ -31,12 +34,13 @@ struct fd_snapshot_load_ctx {
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
-fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
-  FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
-  int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec);
+fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
+  FD_BORROWED_ACCOUNT_DECL( block_hashes_rec );
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec );
 
-  if( err != FD_ACC_MGR_SUCCESS )
+  if( err != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_ERR(( "missing recent block hashes account" ));
+  }
 
   fd_bincode_decode_ctx_t ctx = {
     .data       = block_hashes_rec->const_data,
@@ -46,15 +50,17 @@ fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
 
   fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx );
 
+  /* FIXME: Do not hardcode the number of vote accounts */
+
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000UL );
 
   slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000UL );
 
-  slot_ctx->slot_bank.collected_execution_fees = 0;
-  slot_ctx->slot_bank.collected_priority_fees = 0;
-  slot_ctx->slot_bank.collected_rent = 0;
+  slot_ctx->slot_bank.collected_execution_fees = 0UL;
+  slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+  slot_ctx->slot_bank.collected_rent           = 0UL;
 
   fd_runtime_save_slot_bank( slot_ctx );
   fd_runtime_save_epoch_bank( slot_ctx );
@@ -127,8 +133,7 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
     memset( &xid, 0xc3, sizeof(xid) );
     ctx->child_txn = fd_funk_txn_prepare( ctx->slot_ctx->acc_mgr->funk, ctx->child_txn, &xid, 0 );
     ctx->slot_ctx->funk_txn = ctx->child_txn;
-  }
-
+    }
 }
 
 void
@@ -138,9 +143,6 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
   size_t slen = strlen( ctx->snapshot_file );
   char * snapshot_cstr = fd_scratch_alloc( 1UL, slen + 1 );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( snapshot_cstr ), ctx->snapshot_file, slen ) );
-
-  /* FIXME don't hardcode this param */
-  static ulong const zstd_window_sz = 33554432UL;
 
   fd_snapshot_src_t src[1];
   if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr ) ) ) {
@@ -154,10 +156,10 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
   fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
 
   void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
-  void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( zstd_window_sz ) );
+  void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
   ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
-  ctx->loader  = fd_snapshot_loader_new ( loader_mem, zstd_window_sz );
+  ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
     fd_valloc_free( valloc, fd_snapshot_loader_delete ( ctx->loader  ) );
@@ -165,7 +167,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot, 1 ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
 
@@ -281,4 +283,52 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_fini( ctx );
 
   } FD_SCRATCH_SCOPE_END;
+}
+
+void
+fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
+
+  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+
+  size_t slen = strlen( ctx->snapshot_file );
+  char * snapshot_cstr = fd_scratch_alloc( 8UL, slen + 1 );
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( snapshot_cstr ), ctx->snapshot_file, slen ) );
+
+  fd_snapshot_src_t src[1];
+  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr ) ) ) {
+    FD_LOG_ERR(( "Failed to load snapshot" ));
+  }
+
+  fd_valloc_t     valloc   = ctx->slot_ctx->valloc;
+  fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
+  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
+
+  void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
+
+  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
+  ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
+
+  if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
+    fd_valloc_free( valloc, fd_snapshot_loader_delete ( ctx->loader  ) );
+    fd_valloc_free( valloc, fd_snapshot_restore_delete( ctx->restore ) );
+    FD_LOG_ERR(( "Failed to load snapshot" ));
+  }
+
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot, 0 ) ) ) {
+    FD_LOG_ERR(( "Failed to init snapshot loader" ));
+  }
+
+  /* First load in the manifest. */
+  for(;;) {
+    int err = fd_snapshot_loader_advance( ctx->loader );
+    if( err==MANIFEST_DONE ) break; /* We have finished loading in the manifest. */
+    if( FD_LIKELY( !err ) ) continue; /* Keep going. */
+
+    /* If we have reached the end of the snapshot(err==-1), throw an error because
+       this is not expected. */
+    FD_LOG_ERR(( "Failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
+  }
+
+  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }

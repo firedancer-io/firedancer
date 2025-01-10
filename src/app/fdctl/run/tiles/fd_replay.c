@@ -1805,6 +1805,18 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
 }
 
 static void
+kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
+
+  fd_blockstore_start_write( ctx->slot_ctx->blockstore );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_end_write( ctx->slot_ctx->blockstore );
+
+  publish_stake_weights( ctx, stem, ctx->slot_ctx );
+  fd_fseq_update( ctx->wmk, ctx->slot_ctx->slot_bank.slot );
+
+}
+
+static void
 read_snapshot( void * _ctx,
                fd_stem_context_t * stem,
                char const * snapshotfile,
@@ -1827,7 +1839,42 @@ read_snapshot( void * _ctx,
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
   } else {
-    fd_snapshot_load_all( snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+    
+    /* If we have an incremental snapshot try to prefetch the snapshot slot
+       and manifest as soon as possible. In order to kick off repair effectively 
+       we need the snapshot slot and the stake weights. These are both available
+       in the manifest. We will try to load in the manifest from the latest
+       snapshot that is availble, then setup the blockstore and publish the 
+       stake weights. After this, repair will kick off concurrently with loading 
+       the rest of the snapshots. */
+
+  if( strlen( incremental )>0UL ) {
+    uchar *                  tmp_mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+    fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+    kickoff_repair_orphans( ctx, stem );
+  }
+
+    /* In order to kick off repair effectively we need the snapshot slot and
+       the stake weights. These are both available in the manifest. We will
+       try to load in the manifest from the latest snapshot that is availble,
+       then setup the blockstore and publish the stake weights. After this,
+       repair will kick off concurrently with loading the rest of the snapshots. */
+
+    uchar *                  mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+  
+    fd_snapshot_load_init( snap_ctx );
+    fd_snapshot_load_manifest_and_status_cache( snap_ctx );
+
+    if( strlen( incremental )<=0UL ) {
+      /* If we don't have an incremental snapshot, we can still kick off
+         sending the stake weights and snapshot slot to repair. */
+      kickoff_repair_orphans( ctx, stem );
+    }
+
+    fd_snapshot_load_accounts( snap_ctx );
+    fd_snapshot_load_fini( snap_ctx );
   }
 
   /* Load incremental */
@@ -1874,7 +1921,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     fd_runtime_update_leaders(ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot);
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
-    ctx->slot_ctx->slot_bank.slot = 1UL;
+    ctx->slot_ctx->slot_bank.slot      = 1UL;
 
     ulong hashcnt_per_slot = ctx->slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
     while(hashcnt_per_slot--) {
@@ -1886,8 +1933,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx, NULL, &info, ctx->tpool ) == 0 );
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
-    ctx->slot_ctx->slot_bank.slot = 1UL;
-    snapshot_slot = 1UL;
+    ctx->slot_ctx->slot_bank.slot      = 1UL;
+    snapshot_slot                      = 1UL;
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
     fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
@@ -1895,18 +1942,14 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
-    fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-    fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
-    fd_blockstore_end_write( ctx->slot_ctx->blockstore );
   }
-  fd_fseq_update( ctx->wmk, snapshot_slot );
 
   ctx->curr_slot     = snapshot_slot;
   ctx->parent_slot   = ctx->slot_ctx->slot_bank.prev_slot;
   ctx->snapshot_slot = snapshot_slot;
   ctx->blockhash     = ( fd_hash_t ){ .hash = { 0 } };
-  ctx->flags         = 0;
-  ctx->txn_cnt       = 0;
+  ctx->flags         = 0UL;
+  ctx->txn_cnt       = 0UL;
 
   /* Initialize consensus structures post-snapshot */
 
@@ -1972,7 +2015,6 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
     init_after_snapshot( ctx );
 
-    publish_stake_weights( ctx, stem, ctx->slot_ctx );
   } FD_SCRATCH_SCOPE_END;
 
 

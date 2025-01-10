@@ -1,4 +1,5 @@
 #include "fd_snapshot_loader.h"
+#include "fd_snapshot_base.h"
 #include "fd_snapshot_http.h"
 
 #include <errno.h>
@@ -130,7 +131,8 @@ fd_snapshot_loader_t *
 fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
                          fd_snapshot_restore_t *   restore,
                          fd_snapshot_src_t const * src,
-                         ulong                     base_slot ) {
+                         ulong                     base_slot,
+                         int                       validate_slot ) {
 
   d->restore = restore;
 
@@ -142,7 +144,12 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
       return NULL;
     }
 
-    if( FD_UNLIKELY( !fd_snapshot_name_from_cstr( &d->name, src->file.path, base_slot ) ) ) {
+    fd_snapshot_name_t * name = fd_snapshot_name_from_cstr( &d->name, src->file.path );
+    if( FD_UNLIKELY( !name ) ) {
+      return NULL;
+    }
+
+    if( FD_UNLIKELY( validate_slot && fd_snapshot_name_slot_validate( name, base_slot ) ) ) {
       return NULL;
     }
 
