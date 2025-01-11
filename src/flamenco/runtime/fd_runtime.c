@@ -1368,6 +1368,20 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     task_info->exec_res   = err;
     return;
   }
+
+  /*
+     The fee payer and the nonce account will be stored and hashed so
+     long as the transaction landed on chain, or, in Agave terminology,
+     the transaction was processed.
+     https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/account_saver.rs#L72
+
+     A transaction lands on chain in one of two ways:
+     (1) Passed fee validation and loaded accounts.
+     (2) Passed fee validation and failed to load accounts and the enable_transaction_loading_failure_fees feature is enabled as per
+         SIMD-0082 https://github.com/anza-xyz/feature-gate-tracker/issues/52
+
+     So, at this point, the transaction is committable.
+   */
 }
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
@@ -1429,17 +1443,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[0] );
 
     for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
-      if( txn_ctx->nonce_accounts[i] ) {
-        ushort                recent_blockhash_off = txn_ctx->txn_descriptor->recent_blockhash_off;
-        fd_hash_t *           recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + recent_blockhash_off);
-        fd_block_hash_queue_t queue                = slot_ctx->slot_bank.block_hash_queue;
-        ulong                 queue_sz             = fd_hash_hash_age_pair_t_map_size( queue.ages_pool, queue.ages_root );
-        if( FD_UNLIKELY( !queue_sz ) ) {
-          FD_LOG_ERR(( "Blockhash queue is empty" ));
-        }
+      if( txn_ctx->is_nonce_accounts[i] ) {
+        FD_BASE58_ENCODE_32_BYTES(txn_ctx->borrowed_accounts[i].pubkey->key, pkey_str);
+        FD_LOG_WARNING(("%s is a nonce account on a failed transaction", pkey_str));
 
-        if( !fd_executor_is_blockhash_valid_for_age( &queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
-          fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
+        if( FD_LIKELY( txn_ctx->adv_nonce_accounts[i] ) ) {
+          fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[ i ] );
+        } else {
+          fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ] );
         }
       }
     }
@@ -1861,17 +1872,13 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
 
         accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
         for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
-          if( txn_ctx->nonce_accounts[i] ) {
-            ushort                recent_blockhash_off = txn_ctx->txn_descriptor->recent_blockhash_off;
-            fd_hash_t *           recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + recent_blockhash_off);
-            fd_block_hash_queue_t queue                = slot_ctx->slot_bank.block_hash_queue;
-            ulong                 queue_sz             = fd_hash_hash_age_pair_t_map_size( queue.ages_pool, queue.ages_root );
-            if( FD_UNLIKELY( !queue_sz ) ) {
-              FD_LOG_ERR(( "Blockhash queue is empty" ));
-            }
-
-            if( !fd_executor_is_blockhash_valid_for_age( &queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
-              accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[i];
+          if( txn_ctx->is_nonce_accounts[i] ) {
+            FD_BASE58_ENCODE_32_BYTES(txn_ctx->borrowed_accounts[i].pubkey->key, pkey_str);
+            FD_LOG_WARNING(("%s is a nonce account on a failed transaction", pkey_str));
+            if( FD_LIKELY( txn_ctx->adv_nonce_accounts[i] ) ) {
+              accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ i ];
+            } else {
+              accounts_to_save[acc_idx++] = &txn_ctx->rollback_nonce_account[ 0 ];
             }
             break;
           }

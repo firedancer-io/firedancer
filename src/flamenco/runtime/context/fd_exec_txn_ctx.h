@@ -90,7 +90,14 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                 executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
   fd_borrowed_account_t executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of borrowed accounts accessed by this transaction. */
-  uchar                 nonce_accounts[ MAX_TX_ACCOUNT_LOCKS ];      /* Nonce accounts in the txn to be saved */
+  /* This is a bit of a misnomer but Agave calls it "rollback".
+     This is the account state that the nonce account should be in when
+     the txn fails.
+     It will advance the nonce account, rather than "roll back".
+   */
+  fd_borrowed_account_t rollback_nonce_account[ 1 ];
+  uchar                 is_nonce_accounts[ MAX_TX_ACCOUNT_LOCKS ];   /* This is a nonce account. */
+  uchar                 adv_nonce_accounts[ MAX_TX_ACCOUNT_LOCKS ];  /* Nonce account has been advanced. */
   uint                  num_instructions;                            /* Counter for number of instructions in txn */
   fd_txn_return_data_t  return_data;                                 /* Data returned from `return_data` syscalls */
   fd_vote_account_cache_t * vote_accounts_map;                       /* Cache of bank's deserialized vote accounts to support fork choice */

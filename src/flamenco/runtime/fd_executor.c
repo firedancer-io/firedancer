@@ -1214,7 +1214,9 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     FD_SCRATCH_SCOPE_BEGIN {
 
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
-    txn_ctx->nonce_accounts[i] = 0;
+
+    txn_ctx->is_nonce_accounts[i]  = 0U;
+    txn_ctx->adv_nonce_accounts[i] = 0U;
 
     fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[i] );
     int                     err              = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, borrowed_account );

@@ -234,10 +234,9 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
 
-    /* Mark this as a nonce account usage.  This prevents the account
-       state from reverting in case the transaction fails. */
-
-    ctx->txn_ctx->nonce_accounts[ ctx->instr->acct_txn_idxs[ instr_acc_idx ] ] = 1;
+    /* So we don't re-do nonce advancement when we commit the transaction.
+     */
+    ctx->txn_ctx->adv_nonce_accounts[ ctx->instr->acct_txn_idxs[ instr_acc_idx ] ] = 1U;
 
     break;
   }
@@ -964,7 +963,7 @@ fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
    condition is met then the transaction is invalid.
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
-fd_check_transaction_age( fd_exec_txn_ctx_t const * txn_ctx ) {
+fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_block_hash_queue_t hash_queue         = txn_ctx->slot_ctx->slot_bank.block_hash_queue;
   fd_hash_t *           last_blockhash     = hash_queue.last_hash;
 
@@ -1064,6 +1063,52 @@ fd_check_transaction_age( fd_exec_txn_ctx_t const * txn_ctx ) {
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( txn_ctx->txn_descriptor, (int)instr_accts[i] ) ) {
       if( !memcmp( &txn_ctx->accounts[ instr_accts[i] ], &state.inner.current.inner.initialized.authority, sizeof( fd_pubkey_t ) ) ) {
+        /*
+           Mark nonce account to make sure that we modify and hash the
+           account even if the transaction failed to execute
+           successfully.
+         */
+        txn_ctx->is_nonce_accounts[ instr_accts[ 0 ] ] = 1U;
+        /*
+           Now figure out the state that the nonce account should
+           advance to.
+         */
+        fd_borrowed_account_t * rollback_nonce_rec = fd_borrowed_account_init( &txn_ctx->rollback_nonce_account[ 0 ] );
+        int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, &txn_ctx->accounts[ instr_accts[ 0 ] ], rollback_nonce_rec );
+        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+        }
+        fd_nonce_state_versions_t new_state = {
+          .discriminant = fd_nonce_state_versions_enum_current,
+          .inner = { .current = {
+            .discriminant = fd_nonce_state_enum_initialized,
+            .inner = { .initialized = {
+              .authority      = state.inner.current.inner.initialized.authority,
+              .durable_nonce  = next_durable_nonce,
+              .fee_calculator = {
+                .lamports_per_signature = txn_ctx->slot_ctx->prev_lamports_per_signature
+              }
+            } }
+          } }
+        };
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_ACC_NONCE_SZ_MAX ) ) {
+          FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
+        }
+        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_NONCE_TOT_SZ_MAX );
+        fd_borrowed_account_make_modifiable( rollback_nonce_rec, borrowed_account_data );
+        FD_LOG_WARNING(("nonce size %lu", fd_nonce_state_versions_size( &new_state )));
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->meta->dlen ) ) {
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+        }
+        do {
+          fd_bincode_encode_ctx_t encode_ctx =
+            { .data    = rollback_nonce_rec->data,
+              .dataend = rollback_nonce_rec->data + rollback_nonce_rec->meta->dlen };
+          int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
+          if( FD_UNLIKELY( err ) ) {
+            return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+          }
+        } while(0);
         return FD_RUNTIME_EXECUTE_SUCCESS;
       }
     }
