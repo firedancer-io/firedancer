@@ -90,6 +90,7 @@ struct fd_gui_txn_waterfall {
     ulong quic;
     ulong udp;
     ulong gossip;
+    ulong block_engine;
   } in;
 
   struct {
@@ -268,6 +269,13 @@ struct fd_gui {
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
+
+  struct {
+    int has_block_engine;
+    char name[ 16 ];
+    char url[ 256 ];
+    int status;
+  } block_engine;
 
   struct {
     int has_epoch[ 2 ];

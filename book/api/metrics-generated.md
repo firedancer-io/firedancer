@@ -124,9 +124,17 @@
 | quic_&#8203;pkt_&#8203;oversz | `counter` | Number of QUIC packets dropped due to being too large. |
 | quic_&#8203;pkt_&#8203;verneg | `counter` | Number of QUIC version negotiation packets received. |
 
+## Bundle Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| bundle_&#8203;transaction_&#8203;received | `counter` | Total count of transactions received, including transactions within bundles |
+| bundle_&#8203;packet_&#8203;received | `counter` | Total count of packets received |
+| bundle_&#8203;bundle_&#8203;received | `counter` | Total count of bundles received |
+
 ## Verify Tile
 | Metric | Type | Description |
 |--------|------|-------------|
+| verify_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure | `counter` | Count of transactions that failed to verify because a peer transaction in the bundle failed |
 | verify_&#8203;transaction_&#8203;parse_&#8203;failure | `counter` | Count of transactions that failed to parse |
 | verify_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
 | verify_&#8203;transaction_&#8203;verify_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
@@ -134,6 +142,7 @@
 ## Dedup Tile
 | Metric | Type | Description |
 |--------|------|-------------|
+| dedup_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure | `counter` | Count of transactions that failed to dedup because a peer transaction in the bundle failed |
 | dedup_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the dedup stage |
 | dedup_&#8203;gossiped_&#8203;votes_&#8203;received | `counter` | Count of simple vote transactions received over gossip instead of via the normal TPU path |
 
@@ -149,6 +158,7 @@
 | resolv_&#8203;lut_&#8203;resolved_&#8203;success | `counter` | Count of address lookup tables resolved (Resolved successfully) |
 | resolv_&#8203;blockhash_&#8203;expired | `counter` | Count of transactions that failed to resolve because the blockhash was expired |
 | resolv_&#8203;blockhash_&#8203;unknown | `counter` | Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus. |
+| resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure | `counter` | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 ## Pack Tile
 | Metric | Type | Description |
@@ -269,6 +279,7 @@
 | bank_&#8203;transaction_&#8203;result_&#8203;program_&#8203;execution_&#8203;temporarily_&#8203;restricted | `counter` | Result of loading and executing a transaction. (Program execution is temporarily restricted on an account.) |
 | bank_&#8203;transaction_&#8203;result_&#8203;unbalanced_&#8203;transaction | `counter` | Result of loading and executing a transaction. (The total balance before the transaction does not equal the total balance after the transaction.) |
 | bank_&#8203;transaction_&#8203;result_&#8203;program_&#8203;cache_&#8203;hit_&#8203;max_&#8203;limit | `counter` | Result of loading and executing a transaction. (The total program cache size hit the maximum allowed limit.) |
+| bank_&#8203;transaction_&#8203;result_&#8203;bundle_&#8203;peer | `counter` | Result of loading and executing a transaction. (Transaction is part of a bundle and one of the peer transactions failed.) |
 | bank_&#8203;processing_&#8203;failed | `counter` | Count of transactions for which the processing stage failed and won't land on chain |
 | bank_&#8203;fee_&#8203;only_&#8203;transactions | `counter` | Count of transactions that will land on chain but without executing |
 | bank_&#8203;executed_&#8203;failed_&#8203;transactions | `counter` | Count of transactions that execute on chain but failed |

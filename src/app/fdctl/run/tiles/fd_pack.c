@@ -19,7 +19,6 @@
 #define IN_KIND_RESOLV (0UL)
 #define IN_KIND_POH    (1UL)
 #define IN_KIND_BANK   (2UL)
-#define IN_KIND_BUNDLE (3UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -508,6 +507,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
       trailer->bank = ctx->leader_bank;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
+      trailer->is_bundle = 0;
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, tsorig, tspub );
@@ -620,10 +620,6 @@ during_frag( fd_pack_ctx_t * ctx,
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
     return;
   }
-  case IN_KIND_BUNDLE: {
-    FD_LOG_WARNING(( "Pack tile received a bundle... dropping..." ));
-    return;
-  }
   case IN_KIND_BANK: {
     FD_TEST( ctx->use_consumed_cus );
       /* For a previous slot */
@@ -677,15 +673,16 @@ during_frag( fd_pack_ctx_t * ctx,
 #endif
 
     /* We get transactions from the resolv tile.
-      The transactions should have been parsed and verified. */
+       The transactions should have been parsed and verified. */
     FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
-    
-    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm), txnm->payload_sz              );
-    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                     txnm->txn_t_sz                );
-    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),   32UL*txn->addr_table_adtl_cnt );
+
+    /* TODO: handle bundles if txnm->block_engine.bundle_id!=0 */
+    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), txnm->payload_sz              );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txnm->txn_t_sz                );
+    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    32UL*txn->addr_table_adtl_cnt );
     ctx->cur_spot->txnp->payload_sz = txnm->payload_sz;
 
   #if DETAILED_LOGGING
@@ -721,10 +718,6 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
-    break;
-  }
-  case IN_KIND_BUNDLE: {
-    FD_LOG_WARNING(( "Pack tile received a bundle... dropping..." ));
     break;
   }
   case IN_KIND_BANK: {
@@ -797,7 +790,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
-    else if( FD_LIKELY( !strcmp( link->name, "bundle_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 

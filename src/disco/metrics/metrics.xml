@@ -176,13 +176,21 @@ metric introduced.
     <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
 </tile>
 
+<tile name="bundle">
+    <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
+    <counter name="PacketReceived" summary="Total count of packets received" />
+    <counter name="BundleReceived" summary="Total count of bundles received" />
+</tile>
+
 <tile name="verify">
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to verify because a peer transaction in the bundle failed" />
     <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
     <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
     <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
 </tile>
 
 <tile name="dedup">
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to dedup because a peer transaction in the bundle failed" />
     <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
     <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
@@ -201,6 +209,7 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="BlockhashUnknown" summary="Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." />
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
 </tile>
 
 <enum name="PackTxnInsertReturn">
@@ -360,6 +369,7 @@ metric introduced.
     <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
+    <int value="39" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
 </enum>
 
 <tile name="bank">

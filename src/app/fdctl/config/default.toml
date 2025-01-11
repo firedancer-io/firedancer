@@ -959,6 +959,26 @@ dynamic_port_range = "8900-9000"
         # in 1GiB of memory using a single gigantic page.
         signature_cache_size = 33554430
 
+    # The bundle tile receives bundles from a block producer remote
+    # endpoint and forwards them for execution to pack.
+    [tiles.bundle]
+        # True if a bundle tile should be enabled, which receives
+        # bundles from a remote block engine and forwards them for
+        # atomic execution to the pack tile.
+        enabled = false
+
+        # The URL of the block engine to receive blocks from.
+        url = ""
+
+        # The domain name of the TLS certificate to use when verifying
+        # the peer.  If none is provided, the domain from the URL above
+        # will be used by default.
+        #
+        # This is only needed in special cases where the block engine
+        # peer presents a certificate for a different domain that where
+        # it is being accessed.
+        tls_domain_name = ""
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute

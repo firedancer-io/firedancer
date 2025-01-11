@@ -101,6 +101,11 @@ struct fd_microblock_bank_trailer {
      banks.  This is used by PoH to ensure microblocks get committed
      in the same order they are executed. */
   ulong microblock_idx;
+
+  /* If the microblock is a bundle, with a set of potentially
+     conflciting transactions that should be executed in order, and
+     all either commit or fail atomically. */
+  int is_bundle;
 };
 typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
 
@@ -121,11 +126,37 @@ struct fd_txn_m {
       determined, this will be the current slot. */
    ulong    reference_slot;
 
-   ushort   payload_sz;
-
    /* Can be computed from the txn_t but it's expensive to parse again,
       so we just store this redundantly. */
-   ushort   txn_t_sz;
+   ulong    txn_t_sz;
+
+   ushort   payload_sz;
+
+   struct {
+      /* If the transaction is part of a bundle, the bundle_id will be
+         non-zero, and if this transaction is the first one in the
+         bundle, bundle_txn_cnt will be non-zero.
+
+         The pack tile can accumulate transactions from a bundle until
+         it has all of them, at which point the bundle is schedulable.
+
+         Bundles will not arrive to pack interleaved with other bundles
+         (although might be interleaved with other non-bundle
+         transactions), so if pack sees the bundle_id change before
+         collecting all the bundle_txn_cnt transactions, it should
+         abandon the bundle, as one or more of the transactions failed
+         to signature verify or resolve.
+         
+         The commission and commission_pubkey fields are provided by
+         the block engine, and the validator will crank the tip payment
+         program with these values, if it is not using them already.
+         These fields are only provided on the first transaction in a
+         bundle. */
+      ulong bundle_id;
+      ulong bundle_txn_cnt;
+      uchar commission;
+      uchar commission_pubkey[ 32 ];
+   } block_engine;
 
    /* There are three additional fields at the end here, which are
       variable length and not included in the size of this struct.
@@ -176,12 +207,24 @@ fd_txn_m_alut( fd_txn_m_t * txnm ) {
 
 static inline ulong
 fd_txn_m_realized_footprint( fd_txn_m_t const * txnm,
+                             int                include_txn_t,
                              int                include_alut ) {
-   return fd_txn_m_footprint( txnm->payload_sz,
-                              fd_txn_m_txn_t_const( txnm )->instr_cnt,
-                              fd_txn_m_txn_t_const( txnm )->addr_table_lookup_cnt,
-                              include_alut ? fd_txn_m_txn_t_const( txnm )->addr_table_adtl_cnt : 0UL );
+   if( FD_LIKELY( include_txn_t ) ) {
+      return fd_txn_m_footprint( txnm->payload_sz,
+                                 fd_txn_m_txn_t_const( txnm )->instr_cnt,
+                                 fd_txn_m_txn_t_const( txnm )->addr_table_lookup_cnt,
+                                 include_alut ? fd_txn_m_txn_t_const( txnm )->addr_table_adtl_cnt : 0UL );
+   } else {
+      ulong l = FD_LAYOUT_INIT;
+      l = FD_LAYOUT_APPEND( l, alignof(fd_txn_m_t), sizeof(fd_txn_m_t) );
+      l = FD_LAYOUT_APPEND( l, 1UL,                 txnm->payload_sz );
+      return FD_LAYOUT_FINI( l, fd_txn_m_align() );
+   }
 }
+
+#define FD_TPU_RAW_MTU FD_ULONG_ALIGN_UP(                 \
+                           sizeof(fd_txn_m_t)+FD_TPU_MTU, \
+                           alignof(fd_txn_t) )            \
 
 #define FD_TPU_PARSED_MTU FD_ULONG_ALIGN_UP(                    \
                               FD_ULONG_ALIGN_UP(                \

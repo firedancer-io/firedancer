@@ -364,6 +364,19 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_block_engine( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "block_engine", "update" );
+    jsonp_open_object( gui, "value" );
+      jsonp_string( gui, "name",   gui->block_engine.name );
+      jsonp_string( gui, "url",    gui->block_engine.url );
+      if( FD_LIKELY( gui->block_engine.status==1 ) )      jsonp_string( gui, "status", "connecting" );
+      else if( FD_LIKELY( gui->block_engine.status==2 ) ) jsonp_string( gui, "status", "connected" );
+      else                                                jsonp_string( gui, "status", "disconnected" );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_tiles( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "tiles" );
     jsonp_open_array( gui, "value" );
@@ -480,10 +493,11 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
                          fd_gui_txn_waterfall_t const * cur ) {
   jsonp_open_object( gui, "waterfall" );
     jsonp_open_object( gui, "in" );
-      jsonp_ulong( gui, "retained", prev->out.pack_retained );
-      jsonp_ulong( gui, "quic",     cur->in.quic   - prev->in.quic );
-      jsonp_ulong( gui, "udp",      cur->in.udp    - prev->in.udp );
-      jsonp_ulong( gui, "gossip",   cur->in.gossip - prev->in.gossip );
+      jsonp_ulong( gui, "retained",     prev->out.pack_retained );
+      jsonp_ulong( gui, "quic",         cur->in.quic         - prev->in.quic );
+      jsonp_ulong( gui, "udp",          cur->in.udp          - prev->in.udp );
+      jsonp_ulong( gui, "gossip",       cur->in.gossip       - prev->in.gossip );
+      jsonp_ulong( gui, "block_engine", cur->in.block_engine - prev->in.block_engine );
     jsonp_close_object( gui );
 
     jsonp_open_object( gui, "out" );
@@ -1073,6 +1087,8 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
         else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
+        if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
+        else                                       jsonp_ulong( gui, "tips", slot->tips );
       jsonp_close_object( gui );
 
       if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {

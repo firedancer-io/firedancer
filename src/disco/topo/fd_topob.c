@@ -333,6 +333,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "benchs",
     "net",
     "quic",
+    "bundle",
     "verify",
     "dedup",
     "resolv",

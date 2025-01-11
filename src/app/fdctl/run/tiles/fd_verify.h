@@ -20,6 +20,9 @@ typedef struct {
   /* TODO switch to fd_sha512_batch_t? */
   fd_sha512_t * sha[ FD_TXN_ACTUAL_SIG_MAX ];
 
+  int   bundle_failed;
+  ulong bundle_id;
+
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
@@ -29,6 +32,7 @@ typedef struct {
   ulong * tcache_ring;
   ulong * tcache_map;
 
+  ulong              in_kind[ 32 ];
   fd_verify_in_ctx_t in[ 32 ];
 
   fd_wksp_t * out_mem;
@@ -42,6 +46,7 @@ typedef struct {
     ulong parse_fail_cnt;
     ulong verify_fail_cnt;
     ulong dedup_fail_cnt;
+    ulong bundle_peer_fail_cnt;
   } metrics;
 } fd_verify_ctx_t;
 

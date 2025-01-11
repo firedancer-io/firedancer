@@ -42,6 +42,11 @@ typedef struct {
   ulong             in_kind[ 64UL ];
   fd_dedup_in_ctx_t in[ 64UL ];
 
+  int   bundle_failed;
+  ulong bundle_id;
+  ulong bundle_idx;
+  uchar bundle_signatures[ 4UL ][ 64UL ];
+
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
   ulong       out_wmark;
@@ -50,6 +55,7 @@ typedef struct {
   ulong       hashmap_seed;
 
   struct {
+    ulong bundle_peer_failure_cnt;
     ulong dedup_fail_cnt;
   } metrics;
 } fd_dedup_ctx_t;
@@ -69,7 +75,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_dedup_ctx_t * ctx ) {
-  FD_MCNT_SET( DEDUP, TRANSACTION_DEDUP_FAILURE,  ctx->metrics.dedup_fail_cnt );
+  FD_MCNT_SET( DEDUP, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
+  FD_MCNT_SET( DEDUP, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -140,6 +147,16 @@ after_frag( fd_dedup_ctx_t *    ctx,
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t * txn = fd_txn_m_txn_t( txnm );
 
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id && (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
+    ctx->bundle_failed = 0;
+    ctx->bundle_id     = txnm->block_engine.bundle_id;
+  }
+
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
+    ctx->metrics.bundle_peer_failure_cnt++;
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx]==IN_KIND_VOTER ) ) {
     /* Transactions coming in from these links are not parsed.
 
@@ -152,15 +169,36 @@ after_frag( fd_dedup_ctx_t *    ctx,
     if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL );
   }
 
-  /* Compute fd_hash(signature) for dedup. */
-  ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
+  int is_dup = 0;
+  if( FD_LIKELY( !txnm->block_engine.bundle_id ) ) {
+    /* Compute fd_hash(signature) for dedup. */
+    ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
 
-  int is_dup;
-  FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+    FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+  } else {
+    /* Make sure bundles don't contain a duplicate transaction inside
+       the bundle, which would not be valid.  We can just drop the
+       duplicate, and pack will drop the rest when it doesn't se the
+       bundle complete. */
+
+    for( ulong i=0UL; i<ctx->bundle_idx; i++ ) {
+      if( !memcmp( ctx->bundle_signatures[ i ], fd_txn_m_payload( txnm )+txn->signature_off, 64UL ) ) {
+        is_dup = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( ctx->bundle_idx>4UL ) ) FD_LOG_ERR(( "bundle_idx %lu > 4", ctx->bundle_idx ));
+    else if( FD_UNLIKELY( ctx->bundle_idx==4UL ) ) ctx->bundle_idx++;
+    else fd_memcpy( ctx->bundle_signatures[ ctx->bundle_idx++ ], fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
+  }
+
   if( FD_LIKELY( is_dup ) ) {
+    if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+
     ctx->metrics.dedup_fail_cnt++;
   } else {
-    ulong realized_sz = fd_txn_m_realized_footprint( txnm, 0 );
+    ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem, 0UL, 0, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
@@ -186,6 +224,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_dedup_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_dedup_ctx_t ), sizeof( fd_dedup_ctx_t ) );
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->dedup.tcache_depth, 0) ), tile->dedup.tcache_depth, 0 ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_new failed" ));
+
+  ctx->bundle_failed = 0;
+  ctx->bundle_id     = 0UL;
+  ctx->bundle_idx    = 0UL;
 
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
   ctx->tcache_map_cnt = fd_tcache_map_cnt     ( tcache );

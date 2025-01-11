@@ -5,6 +5,15 @@
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../flamenco/types/fd_types.h"
 
+#define IN_KIND_REPLAY (0)
+#define IN_KIND_GOSSIP (1)
+#define IN_KIND_STAKE  (2)
+#define IN_KIND_POH    (3)
+#define IN_KIND_VOTE   (4)
+#define IN_KIND_STARTP (5)
+#define IN_KIND_VOTEL  (6)
+#define IN_KIND_BUNDLE (7)
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -13,6 +22,7 @@ typedef struct {
 } fd_plugin_in_ctx_t;
 
 typedef struct {
+  int                in_kind[ 64UL ];
   fd_plugin_in_ctx_t in[ 64UL ];
 
   fd_wksp_t * out_mem;
@@ -48,15 +58,15 @@ during_frag( fd_plugin_ctx_t * ctx,
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   /* ... todo... sigh, sz is not correct since it's too big */
-  if( FD_UNLIKELY( in_idx==1UL ) && FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) && FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
     sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
-  } else if( FD_UNLIKELY( in_idx==1UL || in_idx==3UL ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_POH || ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
     sz = 8UL + peer_cnt*112UL;
-  } else if( FD_UNLIKELY( in_idx==2UL ) ) {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];
     FD_TEST( staked_cnt<=50000UL );
     sz = 40UL + staked_cnt*40UL;
@@ -82,43 +92,45 @@ after_frag( fd_plugin_ctx_t *   ctx,
   (void)tsorig;
   (void)stem;
 
-  switch( in_idx ) {
-    /* replay_plugin */
-    case 0UL: {
+  switch( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_REPLAY: {
       FD_TEST( sig==FD_PLUGIN_MSG_SLOT_ROOTED || sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || sig==FD_PLUGIN_MSG_SLOT_COMPLETED || sig==FD_PLUGIN_MSG_SLOT_RESET || sig==FD_PLUGIN_MSG_START_PROGRESS );
       break;
     }
-    /* gossip_plugin */
-    case 1UL: {
+    case IN_KIND_GOSSIP: {
       FD_TEST( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO || sig==FD_PLUGIN_MSG_BALANCE );
       break;
     }
-    /* stake_out */
-    case 2UL: {
+    case IN_KIND_STAKE: {
       sig = FD_PLUGIN_MSG_LEADER_SCHEDULE;
       break;
     }
-    /* poh_plugin or votes_plugin */
-    case 3UL: {
-      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE );
+    case IN_KIND_POH: {
+      FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END );
       break;
     }
-    /* startp_plugi */
-    case 4UL: {
+    case IN_KIND_VOTE: {
+      FD_TEST( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE );
+      break;
+    }
+    case IN_KIND_STARTP: {
       FD_TEST( sig==FD_PLUGIN_MSG_START_PROGRESS );
       break;
     }
-    /* votel_plugin */
-    case 5UL: {
+    case IN_KIND_VOTEL: {
       FD_TEST( sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED );
+      break;
+    }
+    case IN_KIND_BUNDLE: {
+      FD_TEST( sig==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE );
       break;
     }
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
   ulong true_size = sz;
-  if( FD_UNLIKELY( in_idx==1UL || ( in_idx==3UL && sig == FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
-  else if( FD_UNLIKELY( in_idx==2UL ) ) true_size = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ( ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) ) ) true_size = 8UL + 40200UL*(58UL+12UL*34UL);
+  else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) true_size = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
 
   fd_stem_publish( stem, 0UL, sig, ctx->out_chunk, sz, 0UL, 0UL, 0UL ); /* Not true_sz which might not fit */
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, true_size, ctx->out_chunk0, ctx->out_wmark );
@@ -143,6 +155,16 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mtu    = link->mtu;
 
     FD_TEST( link->mtu<=topo->links[ tile->out_link_id[ 0 ] ].mtu );
+
+    if( FD_UNLIKELY( !strcmp( link->name, "replay_plugi" ) ) )      ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_UNLIKELY( !strcmp( link->name, "gossip_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    else if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) )    ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_UNLIKELY( !strcmp( link->name, "poh_plugin" ) ) )   ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_UNLIKELY( !strcmp( link->name, "votes_plugin" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
+    else if( FD_UNLIKELY( !strcmp( link->name, "startp_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_STARTP;
+    else if( FD_UNLIKELY( !strcmp( link->name, "votel_plugin" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTEL;
+    else if( FD_UNLIKELY( !strcmp( link->name, "bundle_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;

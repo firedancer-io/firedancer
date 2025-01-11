@@ -89,4 +89,16 @@ typedef struct fd_vote_update_msg fd_vote_update_msg_t;
 
 FD_STATIC_ASSERT( sizeof(fd_vote_update_msg_t) <= FD_GOSSIP_LINK_MSG_SIZE, fd_vote_update_msg );
 
+#define FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE           (13UL)
+
+#define FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED (0)
+#define FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTING   (1)
+#define FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED    (2)
+
+typedef struct {
+  char name[ 16 ];
+  char url[ 256 ];
+  int status;
+} fd_plugin_msg_block_engine_update_t;
+
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

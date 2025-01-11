@@ -1,0 +1,91 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+#
+# This is commented out because the bundle code uses write in an
+# unrestricted way.
+#
+# write: (or (eq (arg 0) 2)
+#            (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# bundle: Rustls uses getrandom to source randomness for the HTTPS
+#         connection to the block engine.
+getrandom
+
+# bundle: Tokio uses epoll to poll I/O futures representing the TCP
+#         connection to the block producer.  epoll_create1 and eventfd2
+#         are initialization time only and could be removed if the Tokio
+#         I/O was inited during privileged boot.
+epoll_create1: (eq (arg 0) "EPOLL_CLOEXEC")
+eventfd2: (eq (arg 1) "EFD_CLOEXEC|EFD_NONBLOCK")
+epoll_ctl
+epoll_wait
+
+# bundle: TCP connection to the block engine needs to be established.
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC")
+             (eq (arg 2) "IPPROTO_TCP"))
+connect
+
+# bundle: Set the TCP socket as non-blocking, and Tokio also uses
+#         F_DUPFD_CLOEXEC internally for reasons that are unclear.
+fcntl: (or (eq (arg 1) "F_GETFL")
+           (and (eq (arg 1) "F_SETFL")
+                (eq (arg 2) "O_RDWR|O_NONBLOCK"))
+           (eq (arg 1) "F_DUPFD_CLOEXEC"))
+
+# bundle: TCP connection to the block engine needs to configure
+#         keepalives, and tune for performance.
+setsockopt: (or (and (eq (arg 1) "SOL_SOCKET")
+                     (eq (arg 2) "SO_KEEPALIVE"))
+                (and (eq (arg 1) "SOL_TCP")
+                     (eq (arg 2) "TCP_KEEPIDLE"))
+                (and (eq (arg 1) "SOL_TCP")
+                     (eq (arg 2) "TCP_NODELAY")))
+getsockopt: (or (and (eq (arg 1) "SOL_TCP")
+                     (eq (arg 2) "TCP_NODELAY"))
+                (and (eq (arg 1) "SOL_SOCKET")
+                     (eq (arg 2) "SO_ERROR")))
+
+# bundle: We need to be able to read and write to the TCP socket to
+#         communicate with the block producer server.
+recvfrom
+sendto
+write
+writev
+
+# bundle: TCP connection is closed if there is an error, and a new one
+#         is reopened
+shutdown: (eq (arg 1) "SHUT_WR")
+close
+
+# bundle: Global memory allocator used by Rust and Tokio might call mmap
+#         if it needs more memory. Don't allow mapping executable pages.
+mmap: (or (eq (arg 2) "PROT_READ|PROT_WRITE")
+          (eq (arg 2) "PROT_NONE"))
+
+# bundle: Global memory allocator used by Rust and Tokio might call brk
+#         if it needs more memory.
+brk
+
+# bundle: Not sure exactly why these are needed, but the Rust bundle
+#         reveiver needs them.
+rt_sigaction
+rt_sigprocmask
+getpid
+gettid
+tgkill
+madvise

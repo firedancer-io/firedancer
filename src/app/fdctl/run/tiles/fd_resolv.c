@@ -54,6 +54,9 @@ typedef struct {
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
+  int   bundle_failed;
+  ulong bundle_id;
+
   void * root_bank;
   ulong  root_slot;
 
@@ -69,6 +72,7 @@ typedef struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
     ulong blockhash_expired;
     ulong blockhash_unknown;
+    ulong bundle_peer_failure_cnt;
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -108,6 +112,7 @@ metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
   FD_MCNT_SET( RESOLV, BLOCKHASH_UNKNOWN, ctx->metrics.blockhash_unknown );
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
+  FD_MCNT_SET( RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
 }
 
 static int
@@ -197,6 +202,16 @@ after_frag( fd_resolv_ctx_t *   ctx,
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id && (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
+    ctx->bundle_failed = 0;
+    ctx->bundle_id     = txnm->block_engine.bundle_id;
+  }
+
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
+    ctx->metrics.bundle_peer_failure_cnt++;
+    return;
+  }
+
   /* If we can't find the recent blockhash ... it means one of three things,
 
      (1) It's really old (more than 28 minutes) or just non-existent.
@@ -214,6 +229,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
     if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       ctx->metrics.blockhash_expired++;
       return;
     }
@@ -224,6 +240,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
       FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
 
@@ -231,10 +248,13 @@ after_frag( fd_resolv_ctx_t *   ctx,
     /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
     ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT+result-1L) ]++;
 
-    if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return;
+    if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+      return;
+    }
   }
 
-  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1 );
+  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
@@ -250,6 +270,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
+
+  ctx->bundle_failed = 0;
+  ctx->bundle_id     = 0UL;
 
   ctx->completed_slot = 0UL;
   ctx->blockhash_ring_idx = 0UL;

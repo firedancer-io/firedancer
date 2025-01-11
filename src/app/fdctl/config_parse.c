@@ -304,6 +304,10 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( uint,   tiles.dedup.signature_cache_size                 );
 
+  CFG_POP      ( bool,   tiles.bundle.enabled                             );
+  CFG_POP      ( cstr,   tiles.bundle.url                                 );
+  CFG_POP      ( cstr,   tiles.bundle.tls_domain_name                     );
+
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
 

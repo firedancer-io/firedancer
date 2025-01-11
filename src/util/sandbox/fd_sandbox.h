@@ -105,10 +105,12 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
           the prior root.  The cwd is set to the new root with chdir(2).
 
      (13) Most resource limits are reduced to zero, except RLIMIT_NOFILE
-          which is set to the provided rlimit_file_cnt argument, and
-          RLIMIT_NICE which is set to 1.  RLIMIT_CPU and RLIMIT_FSIZE
-          are left unlimited.  RLIMIT_LOCKS and RLIMIT_RSS are
-          deprecated and left unchanged.
+          which is set to the provided rlimit_file_cnt argument,
+          RLIMIT_ADDRESS_SPACE which is set to the provided
+          rlimit_address_space argument, RLIMIT_DATA which is set to the
+          provided rlimit_data argument, and RLIMIT_NICE which is set to
+          1.  RLIMIT_CPU and RLIMIT_FSIZE are left unlimited.
+          RLIMIT_LOCKS and RLIMIT_RSS are deprecated and left unchanged.
 
      (14) All capabilities in the nested user namespace are dropped: the
           effective, permitted, and inherited sets are all cleared.  The
@@ -141,6 +143,8 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
+                  ulong                rlimit_address_space,         /* Maximum address space sizeto provide to setrlimit(RLIMIT_AS) */
+                  ulong                rlimit_data,                  /* Maximum address space sizeto provide to setrlimit(RLIMIT_AS) */
                   ulong                allowed_file_descriptor_cnt,  /* Number of entries in the allowed_file_descriptor array */
                   int const *          allowed_file_descriptor,      /* Entries [0, allowed_file_descriptor_cnt) describe the allowed file descriptors */
                   ulong                seccomp_filter_cnt,           /* Number of entries in the seccomp_filter array */

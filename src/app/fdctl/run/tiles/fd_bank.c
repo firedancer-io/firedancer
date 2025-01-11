@@ -22,6 +22,7 @@ typedef struct {
 
   void const * _bank;
   ulong _microblock_idx;
+  int _is_bundle;
 
   ulong * busy_fseq;
 
@@ -38,7 +39,7 @@ typedef struct {
     ulong slot_acquire[ 3 ];
 
     ulong txn_load_address_lookup_tables[ 6 ];
-    ulong transaction_result[ 39 ];
+    ulong transaction_result[ 40 ];
     ulong processing_failed;
     ulong fee_only;
     ulong exec_failed;
@@ -95,6 +96,7 @@ before_frag( fd_bank_ctx_t * ctx,
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
 extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_cus );
+extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, uint * out_consumed_cus );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
@@ -121,6 +123,7 @@ during_frag( fd_bank_ctx_t * ctx,
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
   ctx->_bank = trailer->bank;
   ctx->_microblock_idx = trailer->microblock_idx;
+  ctx->_is_bundle = trailer->is_bundle;
 }
 
 static void
@@ -129,7 +132,7 @@ hash_transactions( void *       mem,
                    ulong        txn_cnt,
                    uchar *      mixin ) {
   fd_bmtree_commit_t * bmtree = fd_bmtree_commit_init( mem, 32UL, 1UL, 0UL );
-  for( ulong i=0; i<txn_cnt; i++ ) {
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * _txn = txns + i;
     if( FD_UNLIKELY( !(_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
@@ -145,16 +148,11 @@ hash_transactions( void *       mem,
 }
 
 static inline void
-after_frag( fd_bank_ctx_t *     ctx,
-            ulong               in_idx,
-            ulong               seq,
-            ulong               sig,
-            ulong               sz,
-            ulong               tsorig,
-            fd_stem_context_t * stem ) {
-  (void)in_idx;
-  (void)tsorig;
-
+handle_microblock( fd_bank_ctx_t *     ctx,
+                   ulong               seq,
+                   ulong               sig,
+                   ulong               sz,
+                   fd_stem_context_t * stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
@@ -199,10 +197,10 @@ after_frag( fd_bank_ctx_t *     ctx,
                                                                       sanitized_txn_cnt,
                                                                       processing_results,
                                                                       transaction_err,
-                                                                      consumed_cus     );
+                                                                      consumed_cus );
 
   ulong sanitized_idx = 0UL;
-  for( ulong i=0; i<txn_cnt; i++ ) {
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
     uint requested_cus       = txn->pack_cu.requested_execution_cus;
@@ -256,19 +254,17 @@ after_frag( fd_bank_ctx_t *     ctx,
   }
 
   /* Commit must succeed so no failure path.  This function takes
-      ownership of the load_and_execute_output and pre_balance_info heap
-      allocations and will free them before it returns.  They should not
-      be reused.  Once commit is called, the transactions MUST be mixed
-      into the PoH otherwise we will fork and diverge, so the link from
-      here til PoH mixin must be completely reliable with nothing dropped. */
+     ownership of the load_and_execute_output and pre_balance_info heap
+     allocations and will free them before it returns.  They should not
+     be reused.  Once commit is called, the transactions MUST be mixed
+     into the PoH otherwise we will fork and diverge, so the link from
+     here til PoH mixin must be completely reliable with nothing dropped. */
   fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output, pre_balance_info );
   pre_balance_info        = NULL;
   load_and_execute_output = NULL;
 
   /* Indicate to pack tile we are done processing the transactions so
-     it can pack new microblocks using these accounts.  This has to be
-     done after commiting the transactions to poh otherwise there is a
-     race. */
+     it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
 
   /* Now produce the merkle hash of the transactions for inclusion
@@ -283,9 +279,9 @@ after_frag( fd_bank_ctx_t *     ctx,
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
 
   /* We have a race window with the GUI, where if the slot is ending it
-    will snap these metrics to draw the waterfall, but see them outdated
-    because housekeeping hasn't run.  For now just update them here, but
-    PoH should eventually flush the pipeline before ending the slot. */
+     will snap these metrics to draw the waterfall, but see them outdated
+     because housekeeping hasn't run.  For now just update them here, but
+     PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
   ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx );
@@ -297,6 +293,152 @@ after_frag( fd_bank_ctx_t *     ctx,
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
   fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+}
+
+static inline void
+handle_bundle( fd_bank_ctx_t *     ctx,
+               ulong               seq,
+               ulong               sig,
+               ulong               sz,
+               fd_stem_context_t * stem ) {
+  (void)seq;
+  (void)stem;
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+
+  ulong slot = fd_disco_poh_sig_slot( sig );
+  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+
+  int execution_success = 1;
+
+  ulong sidecar_footprint_bytes = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+
+    void * abi_txn = ctx->txn_abi_mem + (i*FD_BANK_ABI_TXN_FOOTPRINT);
+    void * abi_txn_sidecar = ctx->txn_sidecar_mem + sidecar_footprint_bytes;
+    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+
+    int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
+    ctx->metrics.txn_load_address_lookup_tables[ result ]++;
+    if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
+
+    int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
+    if( FD_UNLIKELY( precompile_result ) ) {
+      execution_success = 0;
+      FD_MCNT_INC( BANK, PRECOMPILE_VERIFY_FAILURE, 1 );
+      continue;
+    }
+
+    txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+
+    fd_txn_t * txn1 = TXN(txn);
+    sidecar_footprint_bytes += FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR( txn1->acct_addr_cnt, txn1->addr_table_adtl_cnt, txn1->instr_cnt, txn1->addr_table_lookup_cnt );
+  }
+
+  uint consumed_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  if( FD_UNLIKELY( !execution_success ) ) {
+    /* If any transaction fails in a bundle ... they all fail */
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+      if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
+
+      txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+      ctx->metrics.processing_failed++;
+      ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_BUNDLE_PEER_IDX ]++;
+    }
+  } else {
+    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, consumed_cus );
+    if( FD_LIKELY( execution_success ) ) {
+      ctx->metrics.success += txn_cnt;
+      ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_SUCCESS_IDX ] += txn_cnt;
+      for( ulong i=0UL; i<txn_cnt; i++ ) {
+        fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+        txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+      }
+    } else {
+      for( ulong i=0UL; i<txn_cnt; i++ ) {
+        fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+        if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
+
+        txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+        ctx->metrics.processing_failed++;
+        ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_BUNDLE_PEER_IDX ]++;
+      }
+    }
+  }
+
+  /* Indicate to pack tile we are done processing the transactions so
+     it can pack new microblocks using these accounts. */
+  fd_fseq_update( ctx->busy_fseq, seq );
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+
+    uint requested_cus       = txn->pack_cu.requested_execution_cus;
+    uint non_execution_cus   = txn->pack_cu.non_execution_cus;
+    /* Assume failure, set below if success.  If it doesn't land in the
+       block, rebate the non-execution CUs too. */
+    txn->bank_cu.rebated_cus = requested_cus + non_execution_cus;
+
+    if( FD_LIKELY( (txn->flags & (FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS))==(FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
+      uint executed_cus = consumed_cus[ i ];
+      txn->bank_cu.actual_consumed_cus = non_execution_cus + executed_cus;
+      if( FD_UNLIKELY( executed_cus>requested_cus ) ) {
+        /* There's basically a bug in the Agave codebase right now
+          regarding the cost model for some transactions.  Some built-in
+          instructions like creating an address lookup table consume more
+          CUs than the cost model allocates for them, which is only
+          allowed because the runtime computes requested CUs differently
+          from the cost model.  Rather than implement a broken system,
+          we'll just permit the risk of slightly overpacking blocks by
+          ignoring these transactions when it comes to rebating. */
+        FD_LOG_INFO(( "Transaction executed %u CUs but only requested %u CUs", executed_cus, requested_cus ));
+        FD_MCNT_INC( BANK, COST_MODEL_UNDERCOUNT, 1UL );
+        txn->bank_cu.rebated_cus = 0U;
+        continue;
+      }
+      txn->bank_cu.rebated_cus = requested_cus - executed_cus;
+    }
+  }
+
+  uchar bundle_txn_m[ 5UL ][ sizeof(fd_txn_p_t) ];
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+    fd_memcpy( bundle_txn_m[ i ], txn, sizeof(fd_txn_p_t) );
+  }
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    fd_memcpy( dst, bundle_txn_m[ i ], sizeof(fd_txn_p_t) );
+
+    fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
+    hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
+
+    ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx+i );
+
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
+    fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+  }
+
+  metrics_write( ctx );
+}
+
+static inline void
+after_frag( fd_bank_ctx_t *     ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
+  (void)in_idx;
+  (void)tsorig;
+
+  if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, stem );
+  else                                 handle_microblock( ctx, seq, sig, sz, stem );
 }
 
 static void
@@ -337,7 +479,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk  = ctx->out_chunk0;
 }
 
-#define STEM_BURST (1UL)
+/* For a bundle, one bundle might burst into at most 5 separate PoH mixins, since the
+   microblocks cannot be conflicting. */
+
+#define STEM_BURST (5UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

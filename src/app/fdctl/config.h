@@ -243,6 +243,12 @@ typedef struct {
     } dedup;
 
     struct {
+      int  enabled;
+      char url[ 256 ];
+      char tls_domain_name[ 256 ];
+    } bundle;
+
+    struct {
       uint max_pending_transactions;
       int  use_consumed_cus;
     } pack;

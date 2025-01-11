@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+import "packet.proto";
+import "shared.proto";
+import "bundle.proto";
+
+package block_engine;
+
+message SubscribePacketsRequest {}
+message SubscribePacketsResponse {
+  shared.Header header = 1;
+  packet.PacketBatch batch = 2;
+}
+
+message SubscribeBundlesRequest {}
+message SubscribeBundlesResponse {
+  repeated bundle.BundleUuid bundles = 1;
+}
+
+message BlockBuilderFeeInfoRequest {}
+message BlockBuilderFeeInfoResponse {
+  string pubkey = 1;
+
+  // commission (0-100)
+  uint64 commission = 2;
+}
+
+message AccountsOfInterest {
+  // use * for all accounts
+  repeated string accounts = 1;
+}
+
+message AccountsOfInterestRequest {}
+message AccountsOfInterestUpdate {
+  repeated string accounts = 1;
+}
+
+message ProgramsOfInterestRequest {}
+message ProgramsOfInterestUpdate {
+  repeated string programs = 1;
+}
+
+// A series of packets with an expiration attached to them.
+// The header contains a timestamp for when this packet was generated.
+// The expiry is how long the packet batches have before they expire and are forwarded to the validator.
+// This provides a more censorship resistant method to MEV than block engines receiving packets directly.
+message ExpiringPacketBatch {
+  shared.Header header = 1;
+  packet.PacketBatch batch = 2;
+  uint32 expiry_ms = 3;
+}
+
+// Packets and heartbeats are sent over the same stream.
+// ExpiringPacketBatches have an expiration attached to them so the block engine can track
+// how long it has until the relayer forwards the packets to the validator.
+// Heartbeats contain a timestamp from the system and is used as a simple and naive time-sync mechanism
+// so the block engine has some idea on how far their clocks are apart.
+message PacketBatchUpdate {
+  oneof msg {
+    ExpiringPacketBatch batches = 1;
+    shared.Heartbeat heartbeat = 2;
+  }
+}
+
+message StartExpiringPacketStreamResponse {
+  shared.Heartbeat heartbeat = 1;
+}
+
+/// Validators can connect to Block Engines to receive packets and bundles.
+service BlockEngineValidator {
+  /// Validators can subscribe to the block engine to receive a stream of packets
+  rpc SubscribePackets (SubscribePacketsRequest) returns (stream SubscribePacketsResponse) {}
+
+  /// Validators can subscribe to the block engine to receive a stream of simulated and profitable bundles
+  rpc SubscribeBundles (SubscribeBundlesRequest) returns (stream SubscribeBundlesResponse) {}
+
+  // Block builders can optionally collect fees. This returns fee information if a block builder wants to
+  // collect one.
+  rpc GetBlockBuilderFeeInfo (BlockBuilderFeeInfoRequest) returns (BlockBuilderFeeInfoResponse) {}
+}
+
+/// Relayers can forward packets to Block Engines.
+/// Block Engines provide an AccountsOfInterest field to only send transactions that are of interest.
+service BlockEngineRelayer {
+  /// The block engine feeds accounts of interest (AOI) updates to the relayer periodically.
+  /// For all transactions the relayer receives, it forwards transactions to the block engine which write-lock
+  /// any of the accounts in the AOI.
+  rpc SubscribeAccountsOfInterest (AccountsOfInterestRequest) returns (stream AccountsOfInterestUpdate) {}
+
+  rpc SubscribeProgramsOfInterest (ProgramsOfInterestRequest) returns (stream ProgramsOfInterestUpdate) {}
+
+  // Validators can subscribe to packets from the relayer and receive a multiplexed signal that contains a mixture
+  // of packets and heartbeats.
+  // NOTE: This is a bi-directional stream due to a bug with how Envoy handles half closed client-side streams.
+  // The issue is being tracked here: https://github.com/envoyproxy/envoy/issues/22748. In the meantime, the
+  // server will stream heartbeats to clients at some reasonable cadence.
+  rpc StartExpiringPacketStream (stream PacketBatchUpdate) returns (stream StartExpiringPacketStreamResponse) {}
+}
