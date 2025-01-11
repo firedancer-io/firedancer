@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <regex.h>
+#include <stdlib.h> /* strtoul */
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -47,7 +48,7 @@ struct fd_snapshot_loader {
   /* Hash and slot numbers from filename */
 
   fd_snapshot_name_t name;
-}; 
+};
 
 typedef struct fd_snapshot_loader fd_snapshot_loader_t;
 
@@ -203,14 +204,14 @@ fd_snapshot_loader_advance( fd_snapshot_loader_t * dumper ) {
   fd_tar_io_reader_t * vtar = dumper->vtar;
 
   int untar_err = fd_tar_io_reader_advance( vtar );
-  if( untar_err==0 ) { 
-    /* Ok */ 
+  if( untar_err==0 ) {
+    /* Ok */
   } else if( untar_err==MANIFEST_DONE ) {
     /* Finished reading the manifest for the first time. */
     return MANIFEST_DONE;
-  } else if( untar_err<0 ) { 
+  } else if( untar_err<0 ) {
     /* EOF */
-    return -1; 
+    return -1;
   } else {
     FD_LOG_WARNING(( "Failed to load snapshot (%d-%s)", untar_err, fd_io_strerror( untar_err ) ));
     return untar_err;
