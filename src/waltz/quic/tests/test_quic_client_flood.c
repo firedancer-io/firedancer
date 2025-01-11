@@ -8,24 +8,12 @@
 
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../waltz/quic/fd_quic_private.h"
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
-extern uchar pkt_full[];
-extern ulong pkt_full_sz;
-
-fd_quic_stream_t * cur_stream = NULL;
-
-void
-my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)ctx;
-  (void)type;
-  FD_LOG_DEBUG(( "notify_cb" ));
-  if( cur_stream == stream ) {
-    cur_stream = NULL;
-  }
-}
+static _Bool g_unreliable;
 
 int
 my_stream_rx_cb( fd_quic_conn_t * conn,
@@ -58,7 +46,7 @@ void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
   (void)conn;
   (void)vp_context;
 
-  FD_LOG_INFO(( "client conn closed" ));
+  FD_LOG_INFO(( "client conn closed (code=%u)", conn->reason ));
   client_conn     = NULL;
   client_complete = 1;
 }
@@ -84,7 +72,6 @@ run_quic_client(
     quic->cb.conn_hs_complete = my_handshake_complete;
     quic->cb.conn_final       = my_connection_closed;
     quic->cb.stream_rx        = my_stream_rx_cb;
-    quic->cb.stream_notify    = my_stream_notify_cb;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
     fd_quic_set_aio_net_tx( quic, udpsock->aio );
@@ -164,15 +151,14 @@ run_quic_client(
     fd_rng_delete    ( fd_rng_leave   ( rng    ) );
   } while(0);
 
-  ulong sent   = 0;
-  long  t0     = fd_log_wallclock();
-  ulong msg_sz = MSG_SZ_MIN;
-
-  cur_stream = NULL;
+  ulong stream_cnt = 0;
+  ulong tot_sz     = 0;
+  long  t0         = fd_log_wallclock();
+  ulong msg_sz     = MSG_SZ_MIN;
 
   /* Continually send data while we have a valid connection */
   while(1) {
-    if ( !client_conn ) {
+    if( !client_conn ) {
       break;
     }
 
@@ -181,44 +167,38 @@ run_quic_client(
 
     /* obtain a free stream */
     for( ulong j = 0; j < batch_sz; ++j ) {
+      if( !client_conn ) break;
+      fd_quic_stream_t * stream = fd_quic_conn_new_stream( client_conn );
+      if( !stream ) break;
 
-      if( cur_stream ) {
-        fd_aio_pkt_info_t * chunk = batches[msg_sz - MSG_SZ_MIN];
-        int rc = fd_quic_stream_send( cur_stream, chunk->buf, chunk->buf_sz, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-        FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
+      fd_aio_pkt_info_t * chunk = batches[msg_sz - MSG_SZ_MIN];
+      int res = fd_quic_stream_send( stream, chunk->buf, chunk->buf_sz, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
+      stream_cnt += res==FD_QUIC_SUCCESS;
+      tot_sz     += fd_ulong_if( res==FD_QUIC_SUCCESS, chunk->buf_sz, 0 );
 
-        if( rc == FD_QUIC_SUCCESS ) {
-          sent++;
-          /* successful - stream will begin closing */
-          /* stream and meta will be recycled when quic notifies the stream
-             is closed via my_stream_notify_cb */
-
-          msg_sz++;
-          if ( msg_sz == MSG_SZ_MAX ) {
-            msg_sz = MSG_SZ_MIN;
-          }
-          cur_stream = NULL;
-        } else {
-          /* did not send, did not start finalize, so stream is still available */
-          break;
-        }
-      } else {
-        if( client_conn ) {
-          cur_stream = fd_quic_conn_new_stream( client_conn );
-        }
-        break;
-      }
-
-      if( client_conn && !cur_stream ) {
-        cur_stream = fd_quic_conn_new_stream( client_conn );
-      }
+      msg_sz++;
+      msg_sz = fd_ulong_if( msg_sz>MSG_SZ_MAX, MSG_SZ_MIN, msg_sz );
     }
 
     long t1 = fd_log_wallclock();
     if( t1 >= t0 ) {
-      printf( "streams: %lu  cur_stream: %p\n", sent, (void*)cur_stream ); fflush( stdout );
-      sent = 0;
+      printf( "streams=%lu sz=%g\n", stream_cnt, (double)tot_sz );
+      stream_cnt = 0;
+      tot_sz     = 0;
       t0 = t1 + (long)1e9;
+    }
+
+    /* Reclaim packet metas */
+    if( g_unreliable ) {
+      fd_quic_pkt_meta_pool_t * pool = &client_conn->pkt_meta_pool;
+      fd_quic_pkt_meta_list_t * sent = &pool->sent_pkt_meta[ fd_quic_enc_level_appdata_id ];
+      for(;;) {
+        fd_quic_pkt_meta_t * pkt = sent->head;
+        if( !pkt ) break;
+        fd_quic_reclaim_pkt_meta( client_conn, pkt, fd_quic_enc_level_appdata_id );
+        fd_quic_pkt_meta_remove( sent, NULL, pkt );
+        fd_quic_pkt_meta_deallocate( pool, pkt );
+      }
     }
   }
 
@@ -238,6 +218,7 @@ run_quic_client(
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -246,9 +227,10 @@ main( int argc, char ** argv ) {
   ulong        page_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
   ulong        numa_idx  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx)   );
   char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                         );
-  uint         dst_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--dst-port",       NULL, 9001U                        );
+  ushort       dst_port  = fd_env_strip_cmdline_ushort( &argc, &argv, "--dst-port",       NULL, 9090U                        );
   char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, "00:00:00:00:00:00"          );
   uint         batch     = fd_env_strip_cmdline_uint  ( &argc, &argv, "--batch",          NULL, 16U                          );
+  /*         */g_unreliable = (_Bool)fd_env_strip_cmdline_contains( &argc, &argv, "--unreliable" );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -270,16 +252,16 @@ main( int argc, char ** argv ) {
 
   fd_quic_limits_t quic_limits = {0};
   fd_quic_limits_from_env( &argc, &argv, &quic_limits );
+  quic_limits.stream_id_cnt = quic_limits.stream_pool_cnt;
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
   FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * quic = fd_quic_new(
-      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits );
+  fd_quic_t * quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( quic );
+  quic->cb.stream_notify = NULL;
 
   fd_quic_udpsock_t _udpsock[1];
   fd_quic_udpsock_t * udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, fd_quic_get_aio_net_rx( quic ) );
@@ -302,6 +284,7 @@ main( int argc, char ** argv ) {
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
