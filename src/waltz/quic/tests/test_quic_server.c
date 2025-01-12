@@ -78,6 +78,7 @@ main( int argc, char ** argv ) {
   }
   fd_quic_set_aio_net_tx( quic, aio_tx );
 
+  quic->cb.stream_rx = NULL;
   FD_TEST( fd_quic_init( quic ) );
 
   /* TODO support pcap if requested */

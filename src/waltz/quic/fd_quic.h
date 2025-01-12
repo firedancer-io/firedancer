@@ -616,8 +616,7 @@ fd_quic_tx_buffered_raw( fd_quic_t * quic,
                          ushort *    ipv4_id,
                          uint        dst_ipv4_addr,
                          ushort      src_udp_port,
-                         ushort      dst_udp_port,
-                         int         flush );
+                         ushort      dst_udp_port );
 
 FD_PROTOTYPES_END
 

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 
-#include "fd_snapshot.h"
+#include "fd_snapshot_base.h"
 #include "fd_snapshot_istream.h"
 
 /* fd_snapshot_http.h provides APIs for streaming download of Solana

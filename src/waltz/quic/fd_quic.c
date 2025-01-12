@@ -255,8 +255,8 @@ fd_quic_config_from_env( int  *             pargc,
 
   if( FD_UNLIKELY( !cfg ) ) return NULL;
 
-  char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
-  ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
+  char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL   );
+  ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            3000UL );
   ulong        initial_rx_max_stream_data = fd_env_strip_cmdline_ulong(
       pargc,
       pargv,
@@ -264,6 +264,7 @@ fd_quic_config_from_env( int  *             pargc,
       "QUIC_INITIAL_RX_MAX_STREAM_DATA",
       FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA
   );
+  cfg->retry = fd_env_strip_cmdline_contains( pargc, pargv, "--quic-retry" );
 
   if( keylog_file ) {
     strncpy( cfg->keylog_file, keylog_file, FD_QUIC_PATH_LEN );
@@ -1231,13 +1232,12 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   ulong allowed_stream = stream->tx_max_stream_data - stream->tx_tot_data;
   ulong allowed_conn   = conn->tx_max_data - conn->tx_tot_data;
   ulong allowed        = allowed_conn < allowed_stream ? allowed_conn : allowed_stream;
-  ulong allocated      = 0UL;
 
   if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
-  if( data_sz + allocated > allowed ) {
+  if( data_sz > allowed ) {
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
@@ -1249,8 +1249,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   tx_buf->head += data_sz;
 
   /* adjust flow control limits on stream and connection */
-  stream->tx_tot_data += allocated;
-  conn->tx_tot_data   += allocated;
+  stream->tx_tot_data += data_sz;
+  conn->tx_tot_data   += data_sz;
 
   /* insert into send list */
   if( !FD_QUIC_STREAM_ACTION( stream ) ) {
@@ -1393,8 +1393,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
         &pkt->ip4->net_id,
         dst_ip_addr,
         quic->config.net.listen_udp_port,
-        dst_udp_port,
-        1 ) == FD_QUIC_FAILED ) ) {
+        dst_udp_port ) == FD_QUIC_FAILED ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
   return 0UL;
@@ -2979,8 +2978,7 @@ fd_quic_tx_buffered_raw(
     ushort *         ipv4_id,
     uint             dst_ipv4_addr,
     ushort           src_udp_port,
-    ushort           dst_udp_port,
-    int              flush
+    ushort           dst_udp_port
 ) {
 
   /* TODO leave space at front of tx_buf for header
@@ -2990,12 +2988,6 @@ fd_quic_tx_buffered_raw(
 
   /* nothing to do */
   if( FD_UNLIKELY( payload_sz<=0L ) ) {
-    if( flush ) {
-      /* send empty batch to flush tx */
-      fd_aio_pkt_info_t aio_buf = { .buf = NULL, .buf_sz = 0 };
-      int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 0, NULL, 1 );
-      (void)aio_rc; /* don't care about result */
-    }
     return 0u;
   }
 
@@ -3067,7 +3059,7 @@ fd_quic_tx_buffered_raw(
   cur_sz  -= (ulong)payload_sz;
 
   fd_aio_pkt_info_t aio_buf = { .buf = crypt_scratch, .buf_sz = (ushort)( cur_ptr - crypt_scratch ) };
-  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, flush );
+  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, 1 );
   if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
     return FD_QUIC_FAILED;
@@ -3090,8 +3082,7 @@ fd_quic_tx_buffered_raw(
 
 uint
 fd_quic_tx_buffered( fd_quic_t *      quic,
-                     fd_quic_conn_t * conn,
-                     int              flush ) {
+                     fd_quic_conn_t * conn ) {
   fd_quic_net_endpoint_t const * endpoint = conn->peer;
   return fd_quic_tx_buffered_raw(
       quic,
@@ -3102,8 +3093,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
       &conn->ipv4_id,
       endpoint->ip_addr,
       conn->host.udp_port,
-      endpoint->udp_port,
-      flush );
+      endpoint->udp_port );
 }
 
 static ulong
@@ -3512,7 +3502,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
   fd_quic_pkt_meta_t * pkt_meta = NULL;
 
   if( conn->tx_ptr != conn->tx_buf ) {
-    fd_quic_tx_buffered( quic, conn, 0 );
+    fd_quic_tx_buffered( quic, conn );
     fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
     return;
   }
@@ -3691,7 +3681,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     ulong min_rqd = FD_QUIC_CRYPTO_TAG_SZ + FD_QUIC_CRYPTO_SAMPLE_SZ;
     if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL || hdr_sz+min_rqd > cur_sz ) ) {
       /* try to free space */
-      fd_quic_tx_buffered( quic, conn, 0 );
+      fd_quic_tx_buffered( quic, conn );
 
       /* we have lots of space, so try again */
       if( conn->tx_buf == conn->tx_ptr ) {
@@ -3735,7 +3725,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       }
 
       /* try to free space */
-      fd_quic_tx_buffered( quic, conn, 0 );
+      fd_quic_tx_buffered( quic, conn );
 
       /* we have lots of space, so try again */
       if( conn->tx_buf == conn->tx_ptr ) {
@@ -3836,7 +3826,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
          so send in packet immediately */
-      fd_quic_tx_buffered( quic, conn, 0 );
+      fd_quic_tx_buffered( quic, conn );
 
       if( conn->tx_ptr == conn->tx_buf ) {
         enc_level = fd_quic_tx_enc_level( conn, 0 /* acks */ );
@@ -3868,7 +3858,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
   }
 
   /* try to send? */
-  fd_quic_tx_buffered( quic, conn, 1 );
+  fd_quic_tx_buffered( quic, conn );
 }
 
 void
