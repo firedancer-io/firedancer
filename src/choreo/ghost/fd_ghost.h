@@ -317,9 +317,9 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot );
 
 /* fd_ghost_replay_vote votes for slot, adding pubkey's stake to the
    `stake` field for slot and to the `weight` field for both slot and
-   slot's ancestors.  If pubkey has previously voted, pubkey's stake is
-   also subtracted from `weight` for its previous vote slot and its
-   ancestors.
+   slot's ancestors.  If pubkey has previously voted, pubkey's stake as
+   of the previous vote slot's epoch is also subtracted from `weight`
+   for its previous vote slot and its ancestors.
 
    Assumes slot is present in ghost (if handholding is enabled,
    explicitly checks and errors).  Returns the ghost node keyed by slot.
@@ -331,28 +331,34 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot );
 void
 fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot );
 
+/* fd_ghost_next_epoch_replay_vote is fd_ghost_replay_vote but the voter
+   is voting for a slot in the next epoch. */
+
+void
+fd_ghost_next_epoch_replay_vote( fd_ghost_t *  ghost,
+                                 fd_voter_t *  curr,
+                                 fd_voter_t *  next,
+                                 ulong         slot );
+
 /* fd_ghost_gossip_vote adds stake amount to the gossip_stake field of
-   slot.
+   the node keyed by slot.
 
    Assumes slot is present in ghost (if handholding is enabled,
    explicitly checks and errors).  Returns the ghost node keyed by slot.
 
-   Unlike fd_ghost_replay_vote, this stake is not propagated to
-   the weight field for slot and slot's ancestors.  It is only counted
+   Unlike fd_ghost_replay_vote, this stake is not propagated to the
+   weight field for slot and slot's ancestors.  It is only counted
    towards slot itself, as gossip votes are only used for optimistic
-   confirmation and not fork choice. */
+   confirmation and not fork choice.  The LMD-rule also applies to
+   gossip votes. */
 
 void
 fd_ghost_gossip_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot );
 
 /* fd_ghost_rooted_vote adds stake amount to the rooted_stake field of
-   slot.
-
-   Assumes slot is present in ghost (if handholding is enabled,
-   explicitly checks and errors).  Returns the ghost node keyed by slot.
-
-   Note rooting a slot implies rooting its ancestor, but ghost does not
-   explicitly track this. */
+   slot.  Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Rooting doesn't incorporate the
+   LMD-rule: a voter's stake can count towards multiple root votes. */
 
 void
 fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root );
@@ -360,9 +366,9 @@ fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root );
 /* fd_ghost_publish publishes slot as the new ghost root, setting the
    subtree beginning from slot as the new ghost tree (ie. slot and all
    its descendants).  Prunes all nodes not in slot's ancestry.  Assumes
-   slot is present in ghost.  Returns the new root. */
+   slot is present in ghost. */
 
-fd_ghost_node_t const *
+void
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
 
 /* Misc */
@@ -375,26 +381,30 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
 FD_FN_PURE int
 fd_ghost_verify( fd_ghost_t const * ghost );
 
-/* fd_ghost_print pretty-prints a formatted ghost tree.  Printing begins
-   from `node` (it will appear as the root in the print output). 
+/* fd_ghost_print pretty-prints a formatted ghost tree beginning from
+   `node`.  If `total` is non-zero nodes will print as a percentage
+   `node->weight / total` otherwise will print `node->weight`.
 
-   The most straightforward and commonly used printing pattern is:
-   `fd_ghost_print( ghost, fd_ghost_root( ghost ) )`
-
-   This would print ghost beginning from the root.
-
-   Alternatively, caller can print a more localized view, for example
-   starting from the grandparent of the most recently executed slot:
+   The most straightforward way to print a ghost from the root with
+   percentages:
 
    ```
-   fd_ghost_node_t const * node = fd_ghost_query( slot );
-   fd_ghost_print( ghost, fd_ghost_parent( fd_ghost_parent( node ) ) )
+   fd_ghost_print( ghost, epoch->total_stake, fd_ghost_root( ghost ) )
+   ```
+
+   This would print ghost beginning from the root as percentages.
+
+   Another example is printing the ghost starting from the grandparent
+   of the most recently executed slot without percentages:
+
+   ```
+   fd_ghost_print( fd_ghost_query( slot ), 0, fd_ghost_parent( ghost, fd_ghost_parent( ghost, node ) ) );
    ```
 
    Callers should add null-checks as appropriate in actual usage. */
 
 void
-fd_ghost_print( fd_ghost_t const * ghost, fd_epoch_t const * epoch, fd_ghost_node_t const * node );
+fd_ghost_print( fd_ghost_t const * ghost, ulong total, fd_ghost_node_t const * node );
 
 FD_PROTOTYPES_END
 

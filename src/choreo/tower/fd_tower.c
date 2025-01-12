@@ -301,7 +301,7 @@ fd_tower_reset_slot( fd_tower_t const * tower,
   fd_ghost_node_t const * vote_node = fd_ghost_query( ghost, vote->slot );
   #if FD_TOWER_USE_HANDHOLDING
   if( FD_UNLIKELY( !vote_node ) ) {
-    fd_ghost_print( ghost, epoch, root );
+    fd_ghost_print( ghost, epoch->total_stake, root );
     FD_LOG_ERR(( "[%s] invariant violation: unable to find last tower vote slot %lu in ghost.", __func__, vote->slot ));
   }
   #endif
