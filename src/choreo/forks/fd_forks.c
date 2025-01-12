@@ -345,12 +345,16 @@ fd_forks_update( fd_forks_t *      forks,
 
     fd_voter_t *             voter = &epoch_voters[i];
     fd_voter_state_t const * state = fd_voter_state( funk, txn, &voter->rec );
-    ulong                    vote  = fd_voter_state_vote( state );
+    if ( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V0_23_5 ) ) {
+      FD_LOG_NOTICE(( "voter %s with ancient v0.23.5 state", FD_BASE58_ENC_32_ALLOCA(&voter->key) ));
+      __asm__("int $3");
+    }
 
     /* Only process votes for slots >= root. Ghost requires vote slot
         to already exist in the ghost tree. */
 
-    if( FD_UNLIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
+    ulong vote = fd_voter_state_vote( state );
+    if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_replay_vote( ghost, voter, vote );
 
       /* Check if it has crossed the equivocation safety and optimistic confirmation thresholds. */
@@ -385,12 +389,11 @@ fd_forks_update( fd_forks_t *      forks,
       fd_blockstore_end_write( blockstore );
     }
 
-    ulong root = fd_voter_state_root( state );
-
     /* Check if this voter's root >= ghost root. We can't process
         other voters' roots that precede the ghost root. */
 
-    if( FD_UNLIKELY( root >= fd_ghost_root( ghost )->slot ) ) {
+    ulong root = fd_voter_state_root( state );
+    if( FD_LIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_node_t const * node = fd_ghost_query( ghost, root );
       if( FD_UNLIKELY( !node ) ) {
 
@@ -414,7 +417,7 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
           ulong smr       = block_map_entry->slot;
           blockstore->smr = fd_ulong_max( blockstore->smr, smr );
-          FD_LOG_DEBUG( ( "finalized %lu", block_map_entry->slot ) );
+          FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
           fd_block_map_t * ancestor = block_map_entry;
           while( ancestor ) {
             ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
