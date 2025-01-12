@@ -1655,7 +1655,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
           /* Invariant check: the vote_slot must be in the frontier */
 
-          FD_TEST( fd_forks_query_const( ctx->forks, vote_slot ) ); 
+          FD_TEST( fd_forks_query_const( ctx->forks, vote_slot ) );
 
           /* Vote locally */
 
@@ -1837,7 +1837,7 @@ read_snapshot( void * _ctx,
   const char * snapshot = snapshotfile;
   if( strcmp( snapshot, "funk" ) == 0 || strncmp( snapshot, "wksp:", 5 ) == 0) {
     /* Funk already has a snapshot loaded */
-    fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
+    fd_runtime_recover_banks( ctx->slot_ctx, 1, 1 );
   } else {
     
     /* If we have an incremental snapshot try to prefetch the snapshot slot
